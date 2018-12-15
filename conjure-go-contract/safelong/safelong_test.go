@@ -45,7 +45,7 @@ var safeLongJSONs = []struct {
 
 func TestSafeLongMarshal(t *testing.T) {
 	for i, currCase := range safeLongJSONs {
-		currSafeLong, err := safelong.NewSafeLong(currCase.val)
+		currSafeLong, err := safelong.New(currCase.val)
 		require.NoError(t, err, "Case %d", i)
 		bytes, err := json.Marshal(currSafeLong)
 		require.NoError(t, err, "Case %d", i)
@@ -55,7 +55,7 @@ func TestSafeLongMarshal(t *testing.T) {
 
 func TestSafeLongUnmarshal(t *testing.T) {
 	for i, currCase := range safeLongJSONs {
-		wantSafeLong, err := safelong.NewSafeLong(currCase.val)
+		wantSafeLong, err := safelong.New(currCase.val)
 		require.NoError(t, err, "Case %d", i)
 
 		var gotSafeLong safelong.SafeLong
@@ -99,7 +99,7 @@ func TestBoundsEnforcedByNewSafeLong(t *testing.T) {
 		(int64(1) << 53),
 		-(int64(1) << 53),
 	} {
-		_, err := safelong.NewSafeLong(currVal)
+		_, err := safelong.New(currVal)
 		assert.EqualError(t, err, fmt.Sprintf(wantErrFmt, currVal), "Case %d", i)
 	}
 }

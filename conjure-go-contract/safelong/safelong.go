@@ -28,7 +28,7 @@ const (
 
 type SafeLong int64
 
-func NewSafeLong(val int64) (SafeLong, error) {
+func New(val int64) (SafeLong, error) {
 	if err := validate(val); err != nil {
 		return 0, err
 	}
@@ -40,7 +40,7 @@ func ParseString(s string) (SafeLong, error) {
 	if err != nil {
 		return 0, err
 	}
-	return NewSafeLong(i)
+	return New(i)
 }
 
 func (s *SafeLong) UnmarshalJSON(b []byte) error {
@@ -49,7 +49,7 @@ func (s *SafeLong) UnmarshalJSON(b []byte) error {
 		return err
 	}
 
-	newVal, err := NewSafeLong(val)
+	newVal, err := New(val)
 	if err != nil {
 		return err
 	}
