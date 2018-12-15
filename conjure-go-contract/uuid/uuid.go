@@ -58,3 +58,9 @@ func (uuid UUID) MarshalBinary() ([]byte, error) {
 func (uuid *UUID) UnmarshalBinary(data []byte) error {
 	return (*googleuuid.UUID)(uuid).UnmarshalBinary(data)
 }
+
+func ParseString(s string) (UUID, error) {
+	var uuid UUID
+	err := (&uuid).UnmarshalText([]byte(s))
+	return uuid, err
+}

@@ -35,7 +35,7 @@ func NewSafeLong(val int64) (SafeLong, error) {
 	return SafeLong(val), nil
 }
 
-func ParseSafeLong(s string) (SafeLong, error) {
+func ParseString(s string) (SafeLong, error) {
 	i, err := strconv.ParseInt(s, 10, 64)
 	if err != nil {
 		return 0, err
