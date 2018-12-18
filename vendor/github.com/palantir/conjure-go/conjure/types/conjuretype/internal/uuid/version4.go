@@ -4,7 +4,9 @@
 
 package uuid
 
-import "io"
+import (
+	"io"
+)
 
 // New creates a new random UUID or panics.  New is equivalent to
 // the expression
@@ -30,7 +32,7 @@ func NewRandom() (UUID, error) {
 	var uuid UUID
 	_, err := io.ReadFull(rander, uuid[:])
 	if err != nil {
-		return Nil, err
+		return UUID{}, err
 	}
 	uuid[6] = (uuid[6] & 0x0f) | 0x40 // Version 4
 	uuid[8] = (uuid[8] & 0x3f) | 0x80 // Variant is 10

@@ -12,5 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package uuid provides implementation of the UUID as defined in RFC 4122.
-package uuid
+package conjuretype
+
+type Bearertoken string
+
+func (b Bearertoken) String() string {
+	return string(b)
+}

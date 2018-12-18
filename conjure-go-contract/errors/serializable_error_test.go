@@ -20,18 +20,18 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/palantir/conjure-go/conjure/types/conjuretype"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/palantir/conjure-go-runtime/conjure-go-contract/codecs"
 	"github.com/palantir/conjure-go-runtime/conjure-go-contract/errors"
-	"github.com/palantir/conjure-go-runtime/conjure-go-contract/uuid"
 )
 
 var testSerializableError = errors.SerializableError{
 	ErrorCode:       errors.Timeout,
 	ErrorName:       "MyApplication:Timeout",
-	ErrorInstanceID: uuid.NewUUID(),
+	ErrorInstanceID: conjuretype.NewUUID(),
 	Parameters: json.RawMessage(`{
     "metadata": {
       "keyB": 4

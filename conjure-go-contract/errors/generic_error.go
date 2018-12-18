@@ -22,14 +22,15 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/palantir/conjure-go/conjure/types/conjuretype"
+
 	"github.com/palantir/conjure-go-runtime/conjure-go-contract/codecs"
-	"github.com/palantir/conjure-go-runtime/conjure-go-contract/uuid"
 )
 
 func newGenericError(errorType ErrorType, p parameterizer) genericError {
 	return genericError{
 		errorType:       errorType,
-		errorInstanceID: uuid.NewUUID(),
+		errorInstanceID: conjuretype.NewUUID(),
 		parameterizer:   p,
 	}
 }
@@ -39,7 +40,7 @@ func newGenericError(errorType ErrorType, p parameterizer) genericError {
 // It can only be created with exported constructors, which guarantee correctness of the data.
 type genericError struct {
 	errorType       ErrorType
-	errorInstanceID uuid.UUID
+	errorInstanceID conjuretype.UUID
 	parameterizer
 }
 
@@ -72,7 +73,7 @@ func (e genericError) Name() string {
 	return e.errorType.name
 }
 
-func (e genericError) InstanceID() uuid.UUID {
+func (e genericError) InstanceID() conjuretype.UUID {
 	return e.errorInstanceID
 }
 
