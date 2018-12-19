@@ -4,7 +4,9 @@
 
 package uuid
 
-import "fmt"
+import (
+	"fmt"
+)
 
 // MarshalText implements encoding.TextMarshaler.
 func (uuid UUID) MarshalText() ([]byte, error) {

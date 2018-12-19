@@ -29,5 +29,9 @@
   unused-packages = true
 
 [[constraint]]
+  name = "github.com/palantir/conjure-go"
+  branch = "develop"
+
+[[constraint]]
   name = "github.com/palantir/pkg"
   version = ">=0.8.0, <1.0.0"

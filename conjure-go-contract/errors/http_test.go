@@ -23,11 +23,11 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/palantir/conjure-go/conjure/types/conjuretype"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/palantir/conjure-go-runtime/conjure-go-contract/errors"
-	"github.com/palantir/conjure-go-runtime/conjure-go-contract/uuid"
 )
 
 func TestErrorFromResponse(t *testing.T) {
@@ -35,29 +35,29 @@ func TestErrorFromResponse(t *testing.T) {
 		"default timeout": {
 			ErrorCode:       errors.DefaultTimeout.Code(),
 			ErrorName:       errors.DefaultTimeout.Name(),
-			ErrorInstanceID: uuid.NewUUID(),
+			ErrorInstanceID: conjuretype.NewUUID(),
 			Parameters:      json.RawMessage(`{"ttl":"10s"}`),
 		},
 		"custom timeout": {
 			ErrorCode:       errors.DefaultTimeout.Code(),
 			ErrorName:       "MyApplication:Timeout",
-			ErrorInstanceID: uuid.NewUUID(),
+			ErrorInstanceID: conjuretype.NewUUID(),
 			Parameters:      json.RawMessage(`{"ttl":"10s"}`),
 		},
 		"custom not found": {
 			ErrorCode:       errors.NotFound,
 			ErrorName:       "MyApplication:MissingData",
-			ErrorInstanceID: uuid.NewUUID(),
+			ErrorInstanceID: conjuretype.NewUUID(),
 		},
 		"custom client": {
 			ErrorCode:       errors.CustomClient,
 			ErrorName:       "MyApplication:CustomClientError",
-			ErrorInstanceID: uuid.NewUUID(),
+			ErrorInstanceID: conjuretype.NewUUID(),
 		},
 		"custom server": {
 			ErrorCode:       errors.CustomServer,
 			ErrorName:       "MyApplication:CustomServerError",
-			ErrorInstanceID: uuid.NewUUID(),
+			ErrorInstanceID: conjuretype.NewUUID(),
 		},
 	}
 
@@ -86,7 +86,7 @@ func TestWriteErrorResponse_ValidateJSON(t *testing.T) {
 	testSerializableError := errors.SerializableError{
 		ErrorCode:       errors.Timeout,
 		ErrorName:       "MyApplication:Timeout",
-		ErrorInstanceID: uuid.NewUUID(),
+		ErrorInstanceID: conjuretype.NewUUID(),
 		Parameters: json.RawMessage(`{
     "metadata": {
       "keyB": 4
