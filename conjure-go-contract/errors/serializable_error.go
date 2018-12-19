@@ -17,7 +17,7 @@ package errors
 import (
 	"encoding/json"
 
-	"github.com/palantir/conjure-go/conjure/types/conjuretype"
+	"github.com/palantir/pkg/uuid"
 )
 
 // SerializableError is serializable representation of an error, it includes error code, name, instance id
@@ -39,8 +39,8 @@ import (
 //    }
 //  }
 type SerializableError struct {
-	ErrorCode       ErrorCode        `json:"errorCode"`
-	ErrorName       string           `json:"errorName"`
-	ErrorInstanceID conjuretype.UUID `json:"errorInstanceId"`
-	Parameters      json.RawMessage  `json:"parameters,omitempty"`
+	ErrorCode       ErrorCode       `json:"errorCode"`
+	ErrorName       string          `json:"errorName"`
+	ErrorInstanceID uuid.UUID       `json:"errorInstanceId"`
+	Parameters      json.RawMessage `json:"parameters,omitempty"`
 }

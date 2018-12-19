@@ -20,7 +20,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/palantir/conjure-go/conjure/types/conjuretype"
+	"github.com/palantir/pkg/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -31,7 +31,7 @@ import (
 var testSerializableError = errors.SerializableError{
 	ErrorCode:       errors.Timeout,
 	ErrorName:       "MyApplication:Timeout",
-	ErrorInstanceID: conjuretype.NewUUID(),
+	ErrorInstanceID: uuid.NewUUID(),
 	Parameters: json.RawMessage(`{
     "metadata": {
       "keyB": 4

@@ -15,7 +15,7 @@
 package errors
 
 import (
-	"github.com/palantir/conjure-go/conjure/types/conjuretype"
+	"github.com/palantir/pkg/uuid"
 )
 
 // Error is an error intended for transport through RPC channels such as HTTP responses.
@@ -29,7 +29,7 @@ type Error interface {
 	// Name returns an error name identifying error type.
 	Name() string
 	// InstanceID returns unique identifier of this particular error instance.
-	InstanceID() conjuretype.UUID
+	InstanceID() uuid.UUID
 	// Parameters returns a set of named parameters detailing this particular error instance,
 	// for example error message.
 	Parameters() map[string]interface{}

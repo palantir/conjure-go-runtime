@@ -24,28 +24,19 @@
   version = "v0.1.3"
 
 [[projects]]
-  branch = "develop"
-  digest = "1:246c95b5653c44509cae14a39970673533ad3139b5526a57435c0739a0f55ee9"
-  name = "github.com/palantir/conjure-go"
-  packages = [
-    "conjure/types/conjuretype",
-    "conjure/types/conjuretype/internal/uuid",
-  ]
-  pruneopts = "UT"
-  revision = "26d05194a3effe821d942d6a6a2b553e41daa404"
-
-[[projects]]
-  digest = "1:8fc9facdaa8da62488d1f6f7563808b92917d1a192c31e9f70a690085c3b3dcc"
+  digest = "1:d8167ec52758fcda939c23e932b87d769975362f7f0cf4114309da54c8ac79ff"
   name = "github.com/palantir/pkg"
   packages = [
     "bytesbuffers",
     "metrics",
     "retry",
     "tlsconfig",
+    "uuid",
+    "uuid/internal/uuid",
   ]
   pruneopts = "UT"
-  revision = "b99e4c174bb7f8375643e79008d03e193cdbec2e"
-  version = "0.8.0"
+  revision = "d0bd127ab34c1ee7cd9cf413cdfaf26366e9e18e"
+  version = "0.9.0"
 
 [[projects]]
   branch = "develop"
@@ -161,11 +152,11 @@
   analyzer-name = "dep"
   analyzer-version = 1
   input-imports = [
-    "github.com/palantir/conjure-go/conjure/types/conjuretype",
     "github.com/palantir/pkg/bytesbuffers",
     "github.com/palantir/pkg/metrics",
     "github.com/palantir/pkg/retry",
     "github.com/palantir/pkg/tlsconfig",
+    "github.com/palantir/pkg/uuid",
     "github.com/palantir/witchcraft-go-error",
     "github.com/palantir/witchcraft-go-tracing/wtracing",
     "github.com/palantir/witchcraft-go-tracing/wtracing/propagation/b3",
