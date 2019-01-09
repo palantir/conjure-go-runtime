@@ -24,12 +24,13 @@
   version = "v0.1.3"
 
 [[projects]]
-  digest = "1:d8167ec52758fcda939c23e932b87d769975362f7f0cf4114309da54c8ac79ff"
+  digest = "1:b2063e94ed2d41c96dae2c01d68236cf0d96a0f5809631d834b0f6146b4161a4"
   name = "github.com/palantir/pkg"
   packages = [
     "bytesbuffers",
     "metrics",
     "retry",
+    "safejson",
     "tlsconfig",
     "uuid",
     "uuid/internal/uuid",
@@ -155,6 +156,7 @@
     "github.com/palantir/pkg/bytesbuffers",
     "github.com/palantir/pkg/metrics",
     "github.com/palantir/pkg/retry",
+    "github.com/palantir/pkg/safejson",
     "github.com/palantir/pkg/tlsconfig",
     "github.com/palantir/pkg/uuid",
     "github.com/palantir/witchcraft-go-error",

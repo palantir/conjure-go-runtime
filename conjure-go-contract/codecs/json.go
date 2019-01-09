@@ -15,17 +15,17 @@
 package codecs
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
 	"io"
+
+	"github.com/palantir/pkg/safejson"
 )
 
 const (
 	contentTypeJSON = "application/json"
 )
 
-// JSON codec encodes and decodes JSON requests and responses.
+// JSON codec encodes and decodes JSON requests and responses using github.com/palantir/pkg/safejson.
 // On Decode, it sets UseNumber on the json.Decoder to account for large numbers.
 // On Encode, we disable HTML escaping, which for bad reasons (as acknowledged by go team), is default-enabled.
 var JSON Codec = codecJSON{}
@@ -37,16 +37,14 @@ func (codecJSON) Accept() string {
 }
 
 func (codecJSON) Decode(r io.Reader, v interface{}) error {
-	dec := json.NewDecoder(r)
-	dec.UseNumber()
-	if err := dec.Decode(v); err != nil {
+	if err := safejson.Decoder(r).Decode(v); err != nil {
 		return fmt.Errorf("failed to decode JSON-encoded value: %s", err.Error())
 	}
 	return nil
 }
 
 func (c codecJSON) Unmarshal(data []byte, v interface{}) error {
-	return c.Decode(bytes.NewBuffer(data), v)
+	return safejson.Unmarshal(data, v)
 }
 
 func (codecJSON) ContentType() string {
@@ -54,19 +52,12 @@ func (codecJSON) ContentType() string {
 }
 
 func (codecJSON) Encode(w io.Writer, v interface{}) error {
-	enc := json.NewEncoder(w)
-	enc.SetEscapeHTML(false)
-	if err := enc.Encode(v); err != nil {
+	if err := safejson.Encoder(w).Encode(v); err != nil {
 		return fmt.Errorf("failed to JSON-encode value: %s", err.Error())
 	}
 	return nil
 }
 
 func (c codecJSON) Marshal(v interface{}) ([]byte, error) {
-	var buffer bytes.Buffer
-	err := c.Encode(&buffer, v)
-	if err != nil {
-		return nil, err
-	}
-	return bytes.TrimSuffix(buffer.Bytes(), []byte{'\n'}), nil
+	return safejson.Marshal(v)
 }
