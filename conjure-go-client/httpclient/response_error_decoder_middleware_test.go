@@ -1,4 +1,4 @@
-// Copyright (c) 2018 Palantir Technologies. All rights reserved.
+// Copyright (c) 2019 Palantir Technologies. All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,6 +16,7 @@ package httpclient_test
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -48,4 +49,22 @@ func TestErrorsMiddleware(t *testing.T) {
 		_, err = client.Do(ctx, httpclient.WithRequestMethod(http.MethodGet))
 		require.NoError(t, err)
 	})
+
+	t.Run("custom error decoder", func(t *testing.T) {
+		client, err := httpclient.NewClient(httpclient.WithBaseURLs([]string{server.URL}), httpclient.WithErrorDecoder(fooErrorDecoder{}))
+		require.NoError(t, err)
+
+		_, err = client.Do(ctx, httpclient.WithRequestMethod(http.MethodGet))
+		require.Error(t, err, "foo error")
+	})
+}
+
+type fooErrorDecoder struct{}
+
+func (d fooErrorDecoder) Handles(resp *http.Response) bool {
+	return true
+}
+
+func (d fooErrorDecoder) DecodeError(resp *http.Response) error {
+	return fmt.Errorf("foo error")
 }

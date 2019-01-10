@@ -327,7 +327,14 @@ func WithMaxRetries(maxTransportRetries int) ClientParam {
 // error to a non-nil value in the case of >= 400 HTTP response.
 func WithDisableRestErrors() ClientParam {
 	return clientParamFunc(func(b *clientBuilder) error {
-		b.disableRestErrors = true
+		b.errorDecoder = nil
+		return nil
+	})
+}
+
+func WithErrorDecoder(errorDecoder ErrorDecoder) ClientParam {
+	return clientParamFunc(func(b *clientBuilder) error {
+		b.errorDecoder = errorDecoder
 		return nil
 	})
 }

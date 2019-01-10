@@ -36,7 +36,7 @@ type clientBuilder struct {
 	maxRetries     int
 	backoffOptions []retry.Option
 
-	disableRestErrors             bool
+	errorDecoder                  ErrorDecoder
 	disableTraceHeaderPropagation bool
 }
 
@@ -70,6 +70,7 @@ func NewClient(params ...ClientParam) (Client, error) {
 	b := &clientBuilder{
 		httpClientBuilder: *getDefaultHTTPClientBuilder(),
 		backoffOptions:    []retry.Option{retry.WithInitialBackoff(250 * time.Millisecond)},
+		errorDecoder:      restErrorDecoder{},
 	}
 	for _, p := range params {
 		if p == nil {
@@ -83,8 +84,8 @@ func NewClient(params ...ClientParam) (Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	if !b.disableRestErrors {
-		middlewares = append(middlewares, &errorMiddleware{})
+	if b.errorDecoder != nil {
+		middlewares = append(middlewares, errorDecoderMiddleware(b.errorDecoder))
 	}
 
 	if b.maxRetries == 0 {
