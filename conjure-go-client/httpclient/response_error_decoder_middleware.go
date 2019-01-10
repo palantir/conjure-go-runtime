@@ -22,8 +22,13 @@ import (
 	"github.com/palantir/conjure-go-runtime/conjure-go-client/httpclient/internal"
 )
 
+// ErrorDecoder implementations declare whether or not they should be used to handle certain http responses, and return
+// decoded errors when invoked. Custom implementations can be used when consumers expect structured errors in response bodies.
 type ErrorDecoder interface {
+	// Handles returns whether or not the decoder considers the response an error.
 	Handles(resp *http.Response) bool
+	// DecodeError returns a decoded error, or an error encountered while trying to decode.
+	// DecodeError should never return nil.
 	DecodeError(resp *http.Response) error
 }
 
@@ -51,7 +56,7 @@ func errorDecoderMiddleware(errorDecoder ErrorDecoder) Middleware {
 // set to the integer value from the response.
 //
 // Use StatusCodeFromError(err) to retrieve the code from the error,
-// and WithDisableRestErrorDecoder() to disable this middleware on your client.
+// and WithDisableRestErrors() to disable this middleware on your client.
 type restErrorDecoder struct{}
 
 var _ ErrorDecoder = restErrorDecoder{}

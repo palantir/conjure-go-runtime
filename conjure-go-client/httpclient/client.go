@@ -37,7 +37,7 @@ type Client interface {
 	//
 	// In the case of a response with StatusCode >= 400, Do() will return a nil response and a non-nil error.
 	// Use StatusCodeFromError(err) to retrieve the code from the error.
-	// Use WithDisableRestErrorDecoder() to disable this middleware on your client.
+	// Use WithDisableRestErrors() to disable this middleware on your client.
 	// Use WithErrorDecoder(errorDecoder) to replace this default behavior with custom error decoding behavior.
 	Do(ctx context.Context, params ...RequestParam) (*http.Response, error)
 

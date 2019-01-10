@@ -323,18 +323,18 @@ func WithMaxRetries(maxTransportRetries int) ClientParam {
 	})
 }
 
-// WithDisableRestErrorDecoder disables the middleware which sets Do()'s returned
+// WithDisableRestErrors disables the middleware which sets Do()'s returned
 // error to a non-nil value in the case of >= 400 HTTP response.
-func WithDisableRestErrorDecoder() ClientParam {
+func WithDisableRestErrors() ClientParam {
 	return clientParamFunc(func(b *clientBuilder) error {
 		b.errorDecoder = nil
 		return nil
 	})
 }
 
-func WithErrorDecoder(erroDecoder ErrorDecoder) ClientParam {
+func WithErrorDecoder(errorDecoder ErrorDecoder) ClientParam {
 	return clientParamFunc(func(b *clientBuilder) error {
-		b.errorDecoder = erroDecoder
+		b.errorDecoder = errorDecoder
 		return nil
 	})
 }

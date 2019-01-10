@@ -43,7 +43,7 @@ func TestErrorsMiddleware(t *testing.T) {
 	})
 
 	t.Run("errors disabled", func(t *testing.T) {
-		client, err := httpclient.NewClient(httpclient.WithBaseURLs([]string{server.URL}), httpclient.WithDisableRestErrorDecoder())
+		client, err := httpclient.NewClient(httpclient.WithBaseURLs([]string{server.URL}), httpclient.WithDisableRestErrors())
 		require.NoError(t, err)
 
 		_, err = client.Do(ctx, httpclient.WithRequestMethod(http.MethodGet))
