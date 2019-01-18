@@ -1,4 +1,6 @@
-# conjure-go-runtime
+conjure-go-runtime
+==================
+[![](https://godoc.org/github.com/palantir/conjure-go-runtime?status.svg)](http://godoc.org/github.com/palantir/conjure-go-runtime)
 
 Golang packages for Conjure-flavored RPC. The full specification is at [github.com/palantir/conjure/docs/spec/wire.md](https://github.com/palantir/conjure/blob/master/docs/spec/wire.md).
 
