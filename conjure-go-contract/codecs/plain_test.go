@@ -15,6 +15,8 @@
 package codecs_test
 
 import (
+	"bytes"
+	"strings"
 	"testing"
 
 	"github.com/palantir/pkg/uuid"
@@ -43,12 +45,13 @@ func TestPlainCodec(t *testing.T) {
 		},
 	} {
 		t.Run(test.Name, func(t *testing.T) {
-			err := codecs.Plain.Unmarshal([]byte(test.Data), test.Value)
+			err := codecs.Plain.Decode(strings.NewReader(test.Data), test.Value)
 			require.NoError(t, err)
-			out, err := codecs.Plain.Marshal(test.Value)
+			var buf bytes.Buffer
+			err = codecs.Plain.Encode(&buf, test.Value)
 			require.NoError(t, err)
 
-			require.Equal(t, test.Data, string(out))
+			require.Equal(t, test.Data, buf.String())
 		})
 	}
 }
