@@ -61,7 +61,12 @@ func (codecPlain) ContentType() string {
 }
 
 func (codecPlain) Encode(w io.Writer, v interface{}) error {
-	panic("implement me")
+	data, err := Plain.Marshal(v)
+	if err != nil {
+		return err
+	}
+	_, err = w.Write(data)
+	return err
 }
 
 func (codecPlain) Marshal(v interface{}) ([]byte, error) {
