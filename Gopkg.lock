@@ -24,7 +24,7 @@
   version = "v0.1.3"
 
 [[projects]]
-  digest = "1:b2063e94ed2d41c96dae2c01d68236cf0d96a0f5809631d834b0f6146b4161a4"
+  digest = "1:b90fc299f372ea4323e91dc51168c7c9105e0ed9f1e086aa9860c267ff7dc18a"
   name = "github.com/palantir/pkg"
   packages = [
     "bytesbuffers",
@@ -36,8 +36,8 @@
     "uuid/internal/uuid",
   ]
   pruneopts = "UT"
-  revision = "d0bd127ab34c1ee7cd9cf413cdfaf26366e9e18e"
-  version = "0.9.0"
+  revision = "ddb09eb2e4cb0816182bf714704e2c2f0d49fd45"
+  version = "0.9.6"
 
 [[projects]]
   branch = "develop"
@@ -87,12 +87,13 @@
   version = "v1.0.0"
 
 [[projects]]
-  branch = "master"
-  digest = "1:d38f81081a389f1466ec98192cf9115a82158854d6f01e1c23e2e7554b97db71"
+  branch = "aj/rescale-on-reads"
+  digest = "1:63f6125d6645fd85a40e6636a5686eb9a7713c52ddee19d902b52ac99f95d33c"
   name = "github.com/rcrowley/go-metrics"
   packages = ["."]
   pruneopts = "UT"
-  revision = "3113b8401b8a98917cde58f8bbd42a1b1c03b1fd"
+  revision = "8a1c6440d5ecea16bca03c41b46d570e61936d22"
+  source = "github.com/ashrayjain/go-metrics"
 
 [[projects]]
   digest = "1:c40d65817cdd41fac9aa7af8bed56927bb2d6d47e4fea566a74880f5c2b1c41e"
