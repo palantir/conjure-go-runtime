@@ -109,7 +109,7 @@ func getDefaultHTTPClientBuilder() *httpClientBuilder {
 	return &httpClientBuilder{
 		TLSClientConfig:     defaultTLSConfig,
 		Timeout:             1 * time.Minute,
-		DialTimeout:         5 * time.Second,
+		DialTimeout:         10 * time.Second,
 		KeepAlive:           30 * time.Second,
 		MaxIdleConns:        32,
 		MaxIdleConnsPerHost: 32,
