@@ -262,11 +262,11 @@ func WithProxyFromEnvironment() ClientOrHTTPClientParam {
 	})
 }
 
-// WithTLSConfig sets the SSL/TLS configuration for the HTTP client's Transport.
+// WithTLSConfig sets the SSL/TLS configuration for the HTTP client's Transport using a copy of the provided config.
 // The palantir/pkg/tlsconfig package is recommended to build a tls.Config from sane defaults.
 func WithTLSConfig(conf *tls.Config) ClientOrHTTPClientParam {
 	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
-		b.TLSClientConfig = conf
+		b.TLSClientConfig = conf.Clone()
 		return nil
 	})
 }
