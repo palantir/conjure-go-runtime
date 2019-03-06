@@ -128,7 +128,7 @@ func (c *clientImpl) Do(ctx context.Context, params ...RequestParam) (*http.Resp
 func nextURIOrBackoff(lastURI string, uris []string, offset int, failedURIs map[string]struct{}, retrier retry.Retrier) (nextURI string, nextURIOffset int) {
 	_, performBackoff := failedURIs[lastURI]
 	failedURIs[lastURI] = struct{}{}
-	nextURIOffset = (offset+1)%len(uris)
+	nextURIOffset = (offset + 1) % len(uris)
 	nextURI = uris[nextURIOffset]
 	// If the URI has failed before, perform a backoff
 	if performBackoff {
