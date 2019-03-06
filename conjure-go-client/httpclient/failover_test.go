@@ -156,3 +156,21 @@ func TestSleep(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, 2, n)
 }
+
+func TestRoundRobin(t *testing.T) {
+	requestsPerSever := make([]int, 3)
+	getHandler := func(i int) http.Handler {
+		return http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+			requestsPerSever[i]++
+			rw.WriteHeader(http.StatusServiceUnavailable)
+		})
+	}
+	s0 := httptest.NewServer(getHandler(0))
+	s1 := httptest.NewServer(getHandler(1))
+	s2 := httptest.NewServer(getHandler(2))
+	cli, err := NewClient(WithBaseURLs([]string{s0.URL, s1.URL, s2.URL}))
+	require.NoError(t, err)
+	_, err = cli.Do(context.Background(), WithRequestMethod("GET"))
+	assert.Error(t, err)
+	assert.Equal(t, []int{2, 2, 2}, requestsPerSever)
+}
