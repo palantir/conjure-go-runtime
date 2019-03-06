@@ -24,6 +24,19 @@
   version = "v0.1.3"
 
 [[projects]]
+  digest = "1:c13d084b1b0a64ad19ce1042eac369221f6227eee86514e7e94b509d08ea7788"
+  name = "github.com/palantir/conjure-go-runtime"
+  packages = [
+    "conjure-go-client/httpclient",
+    "conjure-go-client/httpclient/internal",
+    "conjure-go-contract/codecs",
+    "conjure-go-contract/errors",
+  ]
+  pruneopts = "UT"
+  revision = "6650ccc797877f850cdfe154a53dc849c9b93859"
+  version = "0.2.2"
+
+[[projects]]
   digest = "1:b90fc299f372ea4323e91dc51168c7c9105e0ed9f1e086aa9860c267ff7dc18a"
   name = "github.com/palantir/pkg"
   packages = [
@@ -154,6 +167,10 @@
   analyzer-name = "dep"
   analyzer-version = 1
   input-imports = [
+    "github.com/palantir/conjure-go-runtime/conjure-go-client/httpclient",
+    "github.com/palantir/conjure-go-runtime/conjure-go-client/httpclient/internal",
+    "github.com/palantir/conjure-go-runtime/conjure-go-contract/codecs",
+    "github.com/palantir/conjure-go-runtime/conjure-go-contract/errors",
     "github.com/palantir/pkg/bytesbuffers",
     "github.com/palantir/pkg/metrics",
     "github.com/palantir/pkg/retry",
