@@ -280,6 +280,34 @@ func WithDialTimeout(timeout time.Duration) ClientOrHTTPClientParam {
 	})
 }
 
+// WithIdleConnTimeout sets the timeout for idle connections.
+// If unset, the client defaults to 90 seconds.
+func WithIdleConnTimeout(timeout time.Duration) ClientOrHTTPClientParam {
+	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
+		b.IdleConnTimeout = timeout
+		return nil
+	})
+}
+
+// WithTLSHandshakeTimeout sets the timeout for TLS handshakes.
+// If unset, the client defaults to 10 seconds.
+func WithTLSHandshakeTimeout(timeout time.Duration) ClientOrHTTPClientParam {
+	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
+		b.TLSHandshakeTimeout = timeout
+		return nil
+	})
+}
+
+// WithIdleConnTimeout sets the timeout to receive the server's first response headers after
+// fully writing the request headers if the request has an "Expect: 100-continue" header.
+// If unset, the client defaults to 1 second.
+func WithExpectContinueTimeout(timeout time.Duration) ClientOrHTTPClientParam {
+	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
+		b.ExpectContinueTimeout = timeout
+		return nil
+	})
+}
+
 // WithKeepAlive sets the keep alive frequency on the Dialer.
 // If unset, the client defaults to 30 seconds.
 func WithKeepAlive(keepAlive time.Duration) ClientOrHTTPClientParam {

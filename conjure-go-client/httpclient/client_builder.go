@@ -48,13 +48,16 @@ type httpClientBuilder struct {
 	Middlewares []Middleware
 
 	// http.Transport modifiers
-	MaxIdleConns        int
-	MaxIdleConnsPerHost int
-	Proxy               func(*http.Request) (*url.URL, error)
-	TLSClientConfig     *tls.Config
-	DisableHTTP2        bool
-	DisableRecovery     bool
-	DisableTracing      bool
+	MaxIdleConns          int
+	MaxIdleConnsPerHost   int
+	Proxy                 func(*http.Request) (*url.URL, error)
+	TLSClientConfig       *tls.Config
+	DisableHTTP2          bool
+	DisableRecovery       bool
+	DisableTracing        bool
+	IdleConnTimeout       time.Duration
+	TLSHandshakeTimeout   time.Duration
+	ExpectContinueTimeout time.Duration
 
 	// http.Dialer modifiers
 	DialTimeout time.Duration
@@ -107,14 +110,18 @@ func NewClient(params ...ClientParam) (Client, error) {
 func getDefaultHTTPClientBuilder() *httpClientBuilder {
 	defaultTLSConfig, _ := tlsconfig.NewClientConfig()
 	return &httpClientBuilder{
-		TLSClientConfig:     defaultTLSConfig,
-		Timeout:             1 * time.Minute,
-		DialTimeout:         30 * time.Second,
-		KeepAlive:           30 * time.Second,
-		MaxIdleConns:        32,
-		MaxIdleConnsPerHost: 32,
-		EnableIPV6:          false,
-		DisableHTTP2:        false,
+		// These values are primarily pulled from http.DefaultTransport.
+		TLSClientConfig:       defaultTLSConfig,
+		Timeout:               1 * time.Minute,
+		DialTimeout:           30 * time.Second,
+		KeepAlive:             30 * time.Second,
+		MaxIdleConns:          32,
+		MaxIdleConnsPerHost:   32,
+		EnableIPV6:            false,
+		DisableHTTP2:          false,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
 	}
 }
 
@@ -151,9 +158,9 @@ func httpClientAndRoundTripHandlersFromBuilder(b *httpClientBuilder) (*http.Clie
 		MaxIdleConnsPerHost:   b.MaxIdleConnsPerHost,
 		Proxy:                 b.Proxy,
 		TLSClientConfig:       b.TLSClientConfig,
-		ExpectContinueTimeout: http.DefaultTransport.(*http.Transport).ExpectContinueTimeout,
-		IdleConnTimeout:       http.DefaultTransport.(*http.Transport).IdleConnTimeout,
-		TLSHandshakeTimeout:   http.DefaultTransport.(*http.Transport).TLSHandshakeTimeout,
+		ExpectContinueTimeout: b.ExpectContinueTimeout,
+		IdleConnTimeout:       b.IdleConnTimeout,
+		TLSHandshakeTimeout:   b.TLSHandshakeTimeout,
 	}
 	if !b.DisableHTTP2 {
 		if err := http2.ConfigureTransport(transport); err != nil {

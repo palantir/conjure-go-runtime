@@ -71,6 +71,13 @@ type ClientConfig struct {
 	// WriteTimeout is the maximum timeout for mutating requests.
 	// NOTE: The current implementation uses the max(ReadTimeout, WriteTimeout) to set the http.Client timeout value.
 	WriteTimeout *time.Duration `json:"write-timeout,omitempty" yaml:"write-timeout,omitempty"`
+	// IdleConnTimeout sets the timeout for idle connections.
+	IdleConnTimeout *time.Duration `json:"idle-conn-timeout,omitempty" yaml:"idle-conn-timeout,omitempty"`
+	// TLSHandshakeTimeout sets the timeout for TLS handshakes
+	TLSHandshakeTimeout *time.Duration `json:"tls-handshake-timeout,omitempty" yaml:"tls-handshake-timeout,omitempty"`
+	// IdleConnTimeout sets the timeout to receive the server's first response headers after
+	// fully writing the request headers if the request has an "Expect: 100-continue" header.
+	ExpectContinueTimeout *time.Duration `json:"expect-continue-timeout,omitempty" yaml:"expect-continue-timeout,omitempty"`
 
 	// Metrics allows disabling metric emission or adding additional static tags to the client metrics.
 	Metrics MetricsConfig `json:"metrics,omitempty" yaml:"metrics,omitempty"`
@@ -129,6 +136,15 @@ func (c ServicesConfig) ClientConfig(serviceName string) ClientConfig {
 	}
 	if conf.WriteTimeout == nil && c.Default.WriteTimeout != nil {
 		conf.WriteTimeout = c.Default.WriteTimeout
+	}
+	if conf.IdleConnTimeout == nil && c.Default.IdleConnTimeout != nil {
+		conf.IdleConnTimeout = c.Default.IdleConnTimeout
+	}
+	if conf.TLSHandshakeTimeout == nil && c.Default.TLSHandshakeTimeout != nil {
+		conf.TLSHandshakeTimeout = c.Default.TLSHandshakeTimeout
+	}
+	if conf.ExpectContinueTimeout == nil && c.Default.ExpectContinueTimeout != nil {
+		conf.ExpectContinueTimeout = c.Default.ExpectContinueTimeout
 	}
 	if conf.Metrics.Enabled == nil && c.Default.Metrics.Enabled != nil {
 		conf.Metrics.Enabled = c.Default.Metrics.Enabled
@@ -228,6 +244,15 @@ func configToParams(c ClientConfig) ([]ClientParam, error) {
 
 	if c.ConnectTimeout != nil && *c.ConnectTimeout != 0 {
 		params = append(params, WithDialTimeout(*c.ConnectTimeout))
+	}
+	if c.IdleConnTimeout != nil && *c.IdleConnTimeout != 0 {
+		params = append(params, WithIdleConnTimeout(*c.IdleConnTimeout))
+	}
+	if c.TLSHandshakeTimeout != nil && *c.TLSHandshakeTimeout != 0 {
+		params = append(params, WithTLSHandshakeTimeout(*c.TLSHandshakeTimeout))
+	}
+	if c.ExpectContinueTimeout != nil && *c.ExpectContinueTimeout != 0 {
+		params = append(params, WithExpectContinueTimeout(*c.ExpectContinueTimeout))
 	}
 
 	// N.B. we only have one timeout field (not based on method) so just take the max of read and write for now.
