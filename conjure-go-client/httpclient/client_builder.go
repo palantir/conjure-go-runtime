@@ -27,6 +27,7 @@ import (
 	"github.com/palantir/pkg/tlsconfig"
 	"github.com/palantir/witchcraft-go-error"
 	"golang.org/x/net/http2"
+	"golang.org/x/net/proxy"
 )
 
 type clientBuilder struct {
@@ -51,6 +52,7 @@ type httpClientBuilder struct {
 	MaxIdleConns        int
 	MaxIdleConnsPerHost int
 	Proxy               func(*http.Request) (*url.URL, error)
+	ProxyDialerBuilder  func(*net.Dialer) (proxy.Dialer, error)
 	TLSClientConfig     *tls.Config
 	DisableHTTP2        bool
 	DisableRecovery     bool
@@ -141,12 +143,13 @@ func NewHTTPClient(params ...HTTPClientParam) (*http.Client, error) {
 }
 
 func httpClientAndRoundTripHandlersFromBuilder(b *httpClientBuilder) (*http.Client, []Middleware, error) {
+	dialer := &net.Dialer{
+		Timeout:   b.DialTimeout,
+		KeepAlive: b.KeepAlive,
+		DualStack: b.EnableIPV6,
+	}
 	transport := &http.Transport{
-		DialContext: (&net.Dialer{
-			Timeout:   b.DialTimeout,
-			KeepAlive: b.KeepAlive,
-			DualStack: b.EnableIPV6,
-		}).DialContext,
+		DialContext:           dialer.DialContext,
 		MaxIdleConns:          b.MaxIdleConns,
 		MaxIdleConnsPerHost:   b.MaxIdleConnsPerHost,
 		Proxy:                 b.Proxy,
@@ -154,6 +157,17 @@ func httpClientAndRoundTripHandlersFromBuilder(b *httpClientBuilder) (*http.Clie
 		ExpectContinueTimeout: http.DefaultTransport.(*http.Transport).ExpectContinueTimeout,
 		IdleConnTimeout:       http.DefaultTransport.(*http.Transport).IdleConnTimeout,
 		TLSHandshakeTimeout:   http.DefaultTransport.(*http.Transport).TLSHandshakeTimeout,
+	}
+	if b.ProxyDialerBuilder != nil {
+		// Used for socks5 proxying
+		// TODO: use DialContext if x/proxy ever supports it
+		proxyDialer, err := b.ProxyDialerBuilder(dialer)
+		if err != nil {
+			return nil, nil, err
+		}
+		transport.Dial = proxyDialer.Dial
+		transport.DialContext = nil
+		transport.Proxy = nil
 	}
 	if !b.DisableHTTP2 {
 		if err := http2.ConfigureTransport(transport); err != nil {

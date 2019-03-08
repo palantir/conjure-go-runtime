@@ -53,7 +53,9 @@ type ClientConfig struct {
 	DisableHTTP2 *bool `json:"disable-http2,omitempty" yaml:"disable-http2,omitempty"`
 	// ProxyFromEnvironment enables reading HTTP proxy information from environment variables.
 	// See 'http.ProxyFromEnvironment' documentation for specific behavior.
-	ProxyFromEnvironment bool `json:"proxy-from-environment,omitempty" yaml:"proxy-from-environment,omitempty"`
+	ProxyFromEnvironment *bool `json:"proxy-from-environment,omitempty" yaml:"proxy-from-environment,omitempty"`
+	// ProxyURL uses the provided URL for proxying the request. Schemes http, https, and socks5 are supported.
+	ProxyURL *string `json:"proxy-url,omitempty" yaml:"proxy-url,omitempty"`
 
 	// MaxNumRetries controls the number of times the client will retry retryable failures.
 	// If unset, this defaults to twice the number of URIs provided.
@@ -142,6 +144,12 @@ func (c ServicesConfig) ClientConfig(serviceName string) ClientConfig {
 	if conf.DisableHTTP2 == nil && c.Default.DisableHTTP2 != nil {
 		conf.DisableHTTP2 = c.Default.DisableHTTP2
 	}
+	if conf.ProxyFromEnvironment == nil && c.Default.ProxyFromEnvironment != nil {
+		conf.ProxyFromEnvironment = c.Default.ProxyFromEnvironment
+	}
+	if conf.ProxyURL == nil && c.Default.ProxyURL != nil {
+		conf.ProxyURL = c.Default.ProxyURL
+	}
 
 	if len(c.Default.Metrics.Tags) != 0 {
 		if conf.Metrics.Tags == nil {
@@ -220,8 +228,11 @@ func configToParams(c ClientConfig) ([]ClientParam, error) {
 
 	// Proxy
 
-	if c.ProxyFromEnvironment {
+	if c.ProxyFromEnvironment != nil && *c.ProxyFromEnvironment {
 		params = append(params, WithProxyFromEnvironment())
+	}
+	if c.ProxyURL != nil {
+		params = append(params, WithProxyURL(*c.ProxyURL))
 	}
 
 	// Timeouts
