@@ -16,6 +16,7 @@ package httpclient
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"net/url"
@@ -170,6 +171,16 @@ func WithCompressedRequest(input interface{}, codec codecs.Codec) RequestParam {
 		b.bodyMiddleware.requestInput = input
 		b.bodyMiddleware.requestEncoder = codecs.ZLIB(codec)
 		b.headers.Set("Content-Type", codec.ContentType())
+		return nil
+	})
+}
+
+// WithBasicAuth sets the request's Authorization header to use HTTP Basic Authentication with the provided username and
+// password.
+func WithBasicAuth(username, password string) RequestParam {
+	return requestParamFunc(func(b *requestBuilder) error {
+		basicAuthBytes := []byte(username + ":" + password)
+		b.headers.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString(basicAuthBytes))
 		return nil
 	})
 }
