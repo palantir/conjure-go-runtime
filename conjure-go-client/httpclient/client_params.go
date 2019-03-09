@@ -298,7 +298,7 @@ func WithTLSHandshakeTimeout(timeout time.Duration) ClientOrHTTPClientParam {
 	})
 }
 
-// WithIdleConnTimeout sets the timeout to receive the server's first response headers after
+// WithExpectContinueTimeout sets the timeout to receive the server's first response headers after
 // fully writing the request headers if the request has an "Expect: 100-continue" header.
 // If unset, the client defaults to 1 second.
 func WithExpectContinueTimeout(timeout time.Duration) ClientOrHTTPClientParam {
