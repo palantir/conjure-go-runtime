@@ -108,13 +108,15 @@
 
 [[projects]]
   branch = "master"
-  digest = "1:f8292d035e3f59cbcf39fecb9ca1dd24ec20ae4f8a06750609ee4b71d60d0045"
+  digest = "1:e70accec7f5431012cac003a3ef21516972d52df9f1702e3378f88e2206c8a0e"
   name = "golang.org/x/net"
   packages = [
     "http/httpguts",
     "http2",
     "http2/hpack",
     "idna",
+    "internal/socks",
+    "proxy",
   ]
   pruneopts = "UT"
   revision = "351d144fa1fc0bd934e2408202be0c29f25e35a0"
@@ -167,6 +169,7 @@
     "github.com/stretchr/testify/assert",
     "github.com/stretchr/testify/require",
     "golang.org/x/net/http2",
+    "golang.org/x/net/proxy",
     "gopkg.in/yaml.v2",
   ]
   solver-name = "gps-cdcl"

@@ -17,12 +17,15 @@ package httpclient
 import (
 	"context"
 	"crypto/tls"
+	"net"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/palantir/pkg/bytesbuffers"
 	"github.com/palantir/pkg/retry"
 	"github.com/palantir/witchcraft-go-error"
+	"golang.org/x/net/proxy"
 )
 
 // ClientParam is a param that can be used to build
@@ -258,6 +261,31 @@ func WithNoProxy() ClientOrHTTPClientParam {
 func WithProxyFromEnvironment() ClientOrHTTPClientParam {
 	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
 		b.Proxy = http.ProxyFromEnvironment
+		return nil
+	})
+}
+
+// WithProxyURL can be used to set a socks5 or HTTP(s) proxy.
+func WithProxyURL(proxyURLString string) ClientOrHTTPClientParam {
+	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
+		proxyURL, err := url.Parse(proxyURLString)
+		if err != nil {
+			return werror.Wrap(err, "failed to parse proxy url")
+		}
+		switch proxyURL.Scheme {
+		case "http", "https":
+			b.Proxy = http.ProxyURL(proxyURL)
+		case "socks5":
+			b.ProxyDialerBuilder = func(dialer *net.Dialer) (proxy.Dialer, error) {
+				proxyDialer, err := proxy.FromURL(proxyURL, dialer)
+				if err != nil {
+					return nil, werror.Wrap(err, "failed to create socks5 dialer")
+				}
+				return proxyDialer, nil
+			}
+		default:
+			return werror.Error("unrecognized proxy scheme", werror.SafeParam("scheme", proxyURL.Scheme))
+		}
 		return nil
 	})
 }
