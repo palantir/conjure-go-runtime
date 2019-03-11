@@ -152,7 +152,7 @@ func (c *clientImpl) doOnce(ctx context.Context, baseURI string, params ...Reque
 		m := middleware
 		transport = wrapTransport(transport, m)
 	}
-	// then wrap in client middleware
+	// wrap in client middleware second
 	for _, middleware := range c.middlewares {
 		transport = wrapTransport(transport, middleware)
 	}
