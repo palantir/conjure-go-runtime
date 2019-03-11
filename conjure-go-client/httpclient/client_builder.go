@@ -60,6 +60,7 @@ type httpClientBuilder struct {
 	IdleConnTimeout       time.Duration
 	TLSHandshakeTimeout   time.Duration
 	ExpectContinueTimeout time.Duration
+	ResponseHeaderTimeout time.Duration
 
 	// http.Dialer modifiers
 	DialTimeout time.Duration
@@ -161,6 +162,7 @@ func httpClientAndRoundTripHandlersFromBuilder(b *httpClientBuilder) (*http.Clie
 		ExpectContinueTimeout: b.ExpectContinueTimeout,
 		IdleConnTimeout:       b.IdleConnTimeout,
 		TLSHandshakeTimeout:   b.TLSHandshakeTimeout,
+		ResponseHeaderTimeout: b.ResponseHeaderTimeout,
 	}
 	if b.ProxyDialerBuilder != nil {
 		// Used for socks5 proxying
