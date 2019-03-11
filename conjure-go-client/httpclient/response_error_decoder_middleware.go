@@ -73,8 +73,9 @@ func (d restErrorDecoder) DecodeError(resp *http.Response) error {
 // StatusCodeFromError retrieves the 'statusCode' parameter from the provided werror.
 // If the error is not a werror or does not have the statusCode param, ok is false.
 //
-// This works with the default client error decoder and will only work with custom error decoderss if created to adhere
-// to this spec.
+// The default client error decoder sets the statusCode parameter on its returned errors. Note that, if a custom error
+// decoder is used, this function will only return a status code for the error if the custom decoder sets a 'statusCode'
+// parameter on the error.
 func StatusCodeFromError(err error) (statusCode int, ok bool) {
 	statusCodeI, ok := werror.ParamFromError(err, "statusCode")
 	if !ok {
