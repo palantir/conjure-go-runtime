@@ -70,8 +70,11 @@ func (d restErrorDecoder) DecodeError(resp *http.Response) error {
 	return werror.Error("server returned a status >= 400", werror.SafeParam("statusCode", resp.StatusCode))
 }
 
-// StatusCodeFromError retrieves the 'statusCode' parameter from the provided zerror.
+// StatusCodeFromError retrieves the 'statusCode' parameter from the provided werror.
 // If the error is not a werror or does not have the statusCode param, ok is false.
+//
+// This works with the default client error decoder and will only work with custom error decoderss if created to adhere
+// to this spec.
 func StatusCodeFromError(err error) (statusCode int, ok bool) {
 	statusCodeI, ok := werror.ParamFromError(err, "statusCode")
 	if !ok {

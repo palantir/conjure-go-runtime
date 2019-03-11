@@ -96,16 +96,13 @@ func NewClient(params ...ClientParam) (Client, error) {
 	if b.maxRetries == 0 {
 		b.maxRetries = 2 * len(b.uris)
 	}
-
-	for _, middleware := range middlewares {
-		client.Transport = wrapTransport(client.Transport, middleware)
-	}
 	return &clientImpl{
 		client:                        *client,
 		uris:                          b.uris,
 		maxRetries:                    b.maxRetries,
 		backoffOptions:                b.backoffOptions,
 		disableTraceHeaderPropagation: b.disableTraceHeaderPropagation,
+		middlewares:                   middlewares,
 	}, nil
 }
 

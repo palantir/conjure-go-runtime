@@ -37,6 +37,8 @@ type bodyMiddleware struct {
 	responseOutput  interface{}
 	responseDecoder codecs.Decoder
 
+	errorDecoder ErrorDecoder
+
 	bufferPool bytesbuffers.Pool
 }
 
@@ -46,6 +48,12 @@ func (b *bodyMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (*
 	}
 
 	resp, respErr := next.RoundTrip(req)
+	if resp == nil || respErr != nil {
+		return resp, respErr
+	}
+	if b.errorDecoder != nil && b.errorDecoder.Handles(resp) {
+		return nil, b.errorDecoder.DecodeError(resp)
+	}
 
 	if err := b.readResponse(resp, respErr); err != nil {
 		return nil, err
