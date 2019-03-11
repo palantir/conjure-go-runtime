@@ -166,7 +166,7 @@ func (c *clientImpl) doOnce(ctx context.Context, baseURI string, params ...Reque
 
 // unwrapURLError converts a *url.Error to a werror. We need this because all
 // errors from the stdlib's client.Do are wrapped in *url.Error, and if we
-// were to blindly return that we would lose any zerror params stored on the
+// were to blindly return that we would lose any werror params stored on the
 // underlying Err.
 func unwrapURLError(respErr error) error {
 	if respErr == nil {

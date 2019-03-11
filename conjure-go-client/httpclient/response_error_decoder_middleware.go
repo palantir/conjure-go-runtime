@@ -52,7 +52,7 @@ func errorDecoderMiddleware(errorDecoder ErrorDecoder) Middleware {
 
 // restErrorDecoder is our default error decoder.
 // It handles responses of status code >= 400. In this case,
-// we create and return a zerror with the 'statusCode' parameter
+// we create and return a werror with the 'statusCode' parameter
 // set to the integer value from the response.
 //
 // Use StatusCodeFromError(err) to retrieve the code from the error,
