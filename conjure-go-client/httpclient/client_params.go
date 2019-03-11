@@ -336,6 +336,16 @@ func WithExpectContinueTimeout(timeout time.Duration) ClientOrHTTPClientParam {
 	})
 }
 
+// WithResponseHeaderTimeout, if non-zero, specifies the amount of time to wait for a server's response headers after
+// fully writing the request (including its body, if any). This time does not include the time to read the response
+// body. If unset, the client defaults to having no response header timeout.
+func WithResponseHeaderTimeout(timeout time.Duration) ClientOrHTTPClientParam {
+	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
+		b.ResponseHeaderTimeout = timeout
+		return nil
+	})
+}
+
 // WithKeepAlive sets the keep alive frequency on the Dialer.
 // If unset, the client defaults to 30 seconds.
 func WithKeepAlive(keepAlive time.Duration) ClientOrHTTPClientParam {
