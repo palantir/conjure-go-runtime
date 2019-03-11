@@ -145,16 +145,18 @@ func (c *clientImpl) doOnce(ctx context.Context, baseURI string, params ...Reque
 
 	// shallow copy so we can overwrite the Transport with a wrapped one.
 	clientCopy := c.client
-	transport := clientCopy.Transport
+	transport := clientCopy.Transport // start with the concrete http.Transport from the client
 
-	// wrap in request-scoped middleware first so it can take priority over client middleware e.g. error decoder logic.
+	// wrap in request-scoped middleware first to take priority over client middleware e.g. error decoder logic.
 	for _, middleware := range reqMiddlewares {
 		m := middleware
 		transport = wrapTransport(transport, m)
 	}
+	// then wrap in client middleware
 	for _, middleware := range c.middlewares {
 		transport = wrapTransport(transport, middleware)
 	}
+
 	clientCopy.Transport = transport
 
 	resp, respErr := clientCopy.Do(req)
