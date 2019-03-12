@@ -149,8 +149,7 @@ func (c *clientImpl) doOnce(ctx context.Context, baseURI string, params ...Reque
 
 	// wrap in request-scoped middleware first to take priority over client middleware e.g. error decoder logic.
 	for _, middleware := range reqMiddlewares {
-		m := middleware
-		transport = wrapTransport(transport, m)
+		transport = wrapTransport(transport, middleware)
 	}
 	// wrap in client middleware second
 	for _, middleware := range c.middlewares {
