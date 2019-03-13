@@ -295,7 +295,9 @@ func WithProxyURL(proxyURLString string) ClientOrHTTPClientParam {
 // The palantir/pkg/tlsconfig package is recommended to build a tls.Config from sane defaults.
 func WithTLSConfig(conf *tls.Config) ClientOrHTTPClientParam {
 	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
-		b.TLSClientConfig = conf.Clone()
+		if conf != nil {
+			b.TLSClientConfig = conf.Clone()
+		}
 		return nil
 	})
 }
