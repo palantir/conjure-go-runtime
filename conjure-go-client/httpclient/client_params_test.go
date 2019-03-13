@@ -96,6 +96,13 @@ func TestBuilder(t *testing.T) {
 				assert.True(t, transport.TLSClientConfig.InsecureSkipVerify, "InsecureSkipVerify should stay set")
 			},
 		},
+		{
+			Name:  "Nil TLSConfig",
+			Param: WithTLSConfig(nil),
+			Test: func(t *testing.T, client *clientImpl) {
+				// No-op: passing nil should not cause panic
+			},
+		},
 	} {
 		t.Run(test.Name, func(t *testing.T) {
 			client, err := NewClient(test.Param)
