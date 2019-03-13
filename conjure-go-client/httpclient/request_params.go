@@ -16,7 +16,6 @@ package httpclient
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
 	"io"
 	"net/url"
@@ -185,12 +184,11 @@ func WithRequestErrorDecoder(errorDecoder ErrorDecoder) RequestParam {
 	})
 }
 
-// WithBasicAuth sets the request's Authorization header to use HTTP Basic Authentication with the provided username and
-// password.
-func WithBasicAuth(username, password string) RequestParam {
+// WithRequestBasicAuth sets the request's Authorization header to use HTTP Basic Authentication with the provided
+// username and password for this request only and takes precedence over any client-scoped authorization.
+func WithRequestBasicAuth(username, password string) RequestParam {
 	return requestParamFunc(func(b *requestBuilder) error {
-		basicAuthBytes := []byte(username + ":" + password)
-		b.headers.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString(basicAuthBytes))
+		setBasicAuth(b.headers, username, password)
 		return nil
 	})
 }
