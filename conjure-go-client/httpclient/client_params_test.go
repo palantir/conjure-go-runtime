@@ -97,10 +97,10 @@ func TestBuilder(t *testing.T) {
 			},
 		},
 		{
-			Name: "Nil TLSConfig",
+			Name:  "Nil TLSConfig",
 			Param: WithTLSConfig(nil),
-			Test: func(t *testing.T) {
-				// No-op: passing nil should not cause panic that fails tests
+			Test: func(t *testing.T, client *clientImpl) {
+				// No-op: passing nil should not cause panic
 			},
 		},
 	} {
