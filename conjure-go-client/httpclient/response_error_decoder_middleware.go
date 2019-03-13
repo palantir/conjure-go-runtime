@@ -52,7 +52,7 @@ func errorDecoderMiddleware(errorDecoder ErrorDecoder) Middleware {
 
 // restErrorDecoder is our default error decoder.
 // It handles responses of status code >= 400. In this case,
-// we create and return a zerror with the 'statusCode' parameter
+// we create and return a werror with the 'statusCode' parameter
 // set to the integer value from the response.
 //
 // Use StatusCodeFromError(err) to retrieve the code from the error,
@@ -70,8 +70,12 @@ func (d restErrorDecoder) DecodeError(resp *http.Response) error {
 	return werror.Error("server returned a status >= 400", werror.SafeParam("statusCode", resp.StatusCode))
 }
 
-// StatusCodeFromError retrieves the 'statusCode' parameter from the provided zerror.
+// StatusCodeFromError retrieves the 'statusCode' parameter from the provided werror.
 // If the error is not a werror or does not have the statusCode param, ok is false.
+//
+// The default client error decoder sets the statusCode parameter on its returned errors. Note that, if a custom error
+// decoder is used, this function will only return a status code for the error if the custom decoder sets a 'statusCode'
+// parameter on the error.
 func StatusCodeFromError(err error) (statusCode int, ok bool) {
 	statusCodeI, ok := werror.ParamFromError(err, "statusCode")
 	if !ok {

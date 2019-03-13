@@ -176,7 +176,7 @@ func WithBytesBufferPool(pool bytesbuffers.Pool) ClientOrHTTPClientParam {
 }
 
 // WithDisablePanicRecovery disables the enabled-by-default panic recovery middleware.
-// If the request was otherwise succeeding (err == nil), we return a new zerror with
+// If the request was otherwise succeeding (err == nil), we return a new werror with
 // the recovered object as an unsafe param. If there's an error, we werror.Wrap it.
 // If errMiddleware is not nil, it is invoked on the recovered object.
 func WithDisablePanicRecovery() ClientOrHTTPClientParam {

@@ -175,6 +175,16 @@ func WithCompressedRequest(input interface{}, codec codecs.Codec) RequestParam {
 	})
 }
 
+// WithRequestErrorDecoder sets an ErrorDecoder to use for this request only. It will take precedence over any
+// ErrorDecoder set on the client. If this request-scoped ErrorDecoder does not handle the response, the client-scoped
+// ErrorDecoder will be consulted in the usual way.
+func WithRequestErrorDecoder(errorDecoder ErrorDecoder) RequestParam {
+	return requestParamFunc(func(b *requestBuilder) error {
+		b.middlewares = append(b.middlewares, errorDecoderMiddleware(errorDecoder))
+		return nil
+	})
+}
+
 // WithBasicAuth sets the request's Authorization header to use HTTP Basic Authentication with the provided username and
 // password.
 func WithBasicAuth(username, password string) RequestParam {

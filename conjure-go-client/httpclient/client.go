@@ -145,12 +145,17 @@ func (c *clientImpl) doOnce(ctx context.Context, baseURI string, params ...Reque
 
 	// shallow copy so we can overwrite the Transport with a wrapped one.
 	clientCopy := c.client
-	transport := clientCopy.Transport
+	transport := clientCopy.Transport // start with the concrete http.Transport from the client
 
+	// wrap in request-scoped middleware first to take priority over client middleware e.g. error decoder logic.
 	for _, middleware := range reqMiddlewares {
-		m := middleware
-		transport = wrapTransport(transport, m)
+		transport = wrapTransport(transport, middleware)
 	}
+	// wrap in client middleware second
+	for _, middleware := range c.middlewares {
+		transport = wrapTransport(transport, middleware)
+	}
+
 	clientCopy.Transport = transport
 
 	resp, respErr := clientCopy.Do(req)
@@ -160,7 +165,7 @@ func (c *clientImpl) doOnce(ctx context.Context, baseURI string, params ...Reque
 
 // unwrapURLError converts a *url.Error to a werror. We need this because all
 // errors from the stdlib's client.Do are wrapped in *url.Error, and if we
-// were to blindly return that we would lose any zerror params stored on the
+// were to blindly return that we would lose any werror params stored on the
 // underlying Err.
 func unwrapURLError(respErr error) error {
 	if respErr == nil {
