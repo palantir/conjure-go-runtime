@@ -31,8 +31,10 @@ import (
 var (
 	body              = "hello"
 	statusCode        = 456
+	defaultDecoderMsg = "server returned a status >= 400"
 	clientDecoderMsg  = "client custom error decoder error foo"
 	requestDecoderMsg = "request custom error decoder error bar"
+	errPrefix         = "httpclient request failed: "
 )
 
 func TestErrorDecoder(t *testing.T) {
@@ -48,7 +50,7 @@ func TestErrorDecoder(t *testing.T) {
 		)
 		require.NoError(t, err)
 		resp, err := client.Get(context.Background())
-		assert.Error(t, err)
+		assert.EqualError(t, err, errPrefix+defaultDecoderMsg)
 		assert.Nil(t, resp)
 		gotStatusCode, ok := httpclient.StatusCodeFromError(err)
 		assert.True(t, ok)
@@ -75,9 +77,9 @@ func TestErrorDecoder(t *testing.T) {
 		)
 		require.NoError(t, err)
 		resp, err := client.Get(context.Background())
-		assert.Error(t, err)
+		assert.EqualError(t, err, errPrefix+clientDecoderMsg)
 		assert.Nil(t, resp)
-		assert.True(t, strings.Contains(err.Error(), clientDecoderMsg), err.Error())
+		assert.False(t, strings.Contains(err.Error(), defaultDecoderMsg), err.Error())
 	})
 	t.Run("RequestCustom", func(t *testing.T) {
 		client, err := httpclient.NewClient(
@@ -95,10 +97,11 @@ func TestErrorDecoder(t *testing.T) {
 				message:    requestDecoderMsg,
 			}),
 		)
-		assert.Error(t, err)
+
 		assert.Nil(t, resp)
-		assert.True(t, strings.Contains(err.Error(), requestDecoderMsg), err.Error())
+		assert.EqualError(t, err, errPrefix+requestDecoderMsg)
 		assert.False(t, strings.Contains(err.Error(), clientDecoderMsg), err.Error())
+		assert.False(t, strings.Contains(err.Error(), defaultDecoderMsg), err.Error())
 	})
 	t.Run("FallbackToClient", func(t *testing.T) {
 		client, err := httpclient.NewClient(
@@ -116,10 +119,10 @@ func TestErrorDecoder(t *testing.T) {
 				message:    requestDecoderMsg,
 			}),
 		)
-		assert.Error(t, err)
 		assert.Nil(t, resp)
 		assert.False(t, strings.Contains(err.Error(), requestDecoderMsg), err.Error())
-		assert.True(t, strings.Contains(err.Error(), clientDecoderMsg), err.Error())
+		assert.EqualError(t, err, errPrefix+clientDecoderMsg)
+		assert.False(t, strings.Contains(err.Error(), defaultDecoderMsg), err.Error())
 	})
 }
 
