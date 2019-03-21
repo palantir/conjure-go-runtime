@@ -49,8 +49,10 @@ type Client interface {
 }
 
 type clientImpl struct {
-	client      http.Client
-	middlewares []Middleware
+	client                 http.Client
+	middlewares            []Middleware
+	errorDecoderMiddleware Middleware
+	metricsMiddleware      Middleware
 
 	uris                          []string
 	maxRetries                    int
@@ -138,7 +140,7 @@ func nextURIOrBackoff(lastURI string, uris []string, offset int, failedURIs map[
 }
 
 func (c *clientImpl) doOnce(ctx context.Context, baseURI string, params ...RequestParam) (*http.Response, error) {
-	req, reqMiddlewares, err := c.newRequest(ctx, baseURI, params...)
+	req, innerMiddleware, err := c.newRequest(ctx, baseURI, params...)
 	if err != nil {
 		return nil, err
 	}
@@ -147,13 +149,13 @@ func (c *clientImpl) doOnce(ctx context.Context, baseURI string, params ...Reque
 	clientCopy := c.client
 	transport := clientCopy.Transport // start with the concrete http.Transport from the client
 
-	// wrap in request-scoped middleware first to take priority over client middleware e.g. error decoder logic.
-	for _, middleware := range reqMiddlewares {
-		transport = wrapTransport(transport, middleware)
-	}
-	// wrap in client middleware second
-	for _, middleware := range c.middlewares {
-		transport = wrapTransport(transport, middleware)
+	for _, middlewares := range [][]Middleware{
+		innerMiddleware,
+		c.middlewares,
+	} {
+		for _, middleware := range middlewares {
+			transport = wrapTransport(transport, middleware)
+		}
 	}
 
 	clientCopy.Transport = transport

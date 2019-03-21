@@ -33,8 +33,8 @@ type requestBuilder struct {
 	bodyMiddleware *bodyMiddleware
 	bufferPool     bytesbuffers.Pool
 
-	middlewares  []Middleware
-	configureCtx []func(context.Context) context.Context
+	errorDecoderMiddleware Middleware
+	configureCtx           []func(context.Context) context.Context
 }
 
 const traceIDHeaderKey = "X-B3-TraceId"
@@ -50,7 +50,7 @@ func (f requestParamFunc) apply(b *requestBuilder) error {
 }
 
 // NewRequest returns an *http.Request and a set of Middlewares which should be
-// wrapped around the request during execution.
+// the inner-most wrapped middleware around the request during execution.
 func (c *clientImpl) newRequest(ctx context.Context, baseURL string, params ...RequestParam) (*http.Request, []Middleware, error) {
 	b := &requestBuilder{
 		headers:        c.initializeRequestHeaders(ctx),
@@ -84,11 +84,24 @@ func (c *clientImpl) newRequest(ctx context.Context, baseURL string, params ...R
 		req.URL.RawQuery = q
 	}
 
-	if b.bodyMiddleware != nil {
-		b.middlewares = append(b.middlewares, b.bodyMiddleware)
+	// the middleware must be wrapped in a certain order, with the inner-most receiving the request last and the
+	// response first.
+	var innerMiddleware []Middleware
+	for _, m := range []Middleware{
+		// must precede the error decoders because they return a nil response and the metrics need the status code of
+		// the raw response.
+		c.metricsMiddleware,
+		// must precede the client error decoder
+		b.errorDecoderMiddleware,
+		// must precede the body middleware so it can read the response body
+		c.errorDecoderMiddleware,
+		b.bodyMiddleware,
+	} {
+		if m != nil {
+			innerMiddleware = append(innerMiddleware, m)
+		}
 	}
-
-	return req, b.middlewares, nil
+	return req, innerMiddleware, nil
 }
 
 func (c *clientImpl) initializeRequestHeaders(ctx context.Context) http.Header {

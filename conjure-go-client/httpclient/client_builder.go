@@ -45,8 +45,9 @@ type httpClientBuilder struct {
 	ServiceName string
 
 	// http.Client modifiers
-	Timeout     time.Duration
-	Middlewares []Middleware
+	Timeout           time.Duration
+	Middlewares       []Middleware
+	metricsMiddleware Middleware
 
 	// http.Transport modifiers
 	MaxIdleConns          int
@@ -90,8 +91,9 @@ func NewClient(params ...ClientParam) (Client, error) {
 	if err != nil {
 		return nil, err
 	}
+	var edm Middleware
 	if b.errorDecoder != nil {
-		middlewares = append(middlewares, errorDecoderMiddleware(b.errorDecoder))
+		edm = errorDecoderMiddleware(b.errorDecoder)
 	}
 
 	if b.maxRetries == 0 {
@@ -104,6 +106,8 @@ func NewClient(params ...ClientParam) (Client, error) {
 		backoffOptions:                b.backoffOptions,
 		disableTraceHeaderPropagation: b.disableTraceHeaderPropagation,
 		middlewares:                   middlewares,
+		metricsMiddleware:             b.metricsMiddleware,
+		errorDecoderMiddleware:        edm,
 	}, nil
 }
 

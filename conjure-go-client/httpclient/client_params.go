@@ -162,7 +162,7 @@ func WithMetrics(tagProviders ...TagsProvider) ClientOrHTTPClientParam {
 		if err != nil {
 			return err
 		}
-		b.Middlewares = append(b.Middlewares, m)
+		b.metricsMiddleware = m
 		return nil
 	})
 }
