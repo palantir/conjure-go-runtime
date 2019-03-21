@@ -17,10 +17,12 @@ package httpclient_test
 import (
 	"context"
 	"fmt"
+	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/palantir/conjure-go-runtime/conjure-go-client/httpclient"
@@ -67,4 +69,42 @@ func (d fooErrorDecoder) Handles(resp *http.Response) bool {
 
 func (d fooErrorDecoder) DecodeError(resp *http.Response) error {
 	return fmt.Errorf("foo error")
+}
+
+func TestErrorDecoderMiddlewareReadsBody(t *testing.T) {
+	ctx := context.Background()
+	ts := httptest.NewServer(http.NotFoundHandler())
+	defer ts.Close()
+	t.Run("Client", func(t *testing.T) {
+		client, err := httpclient.NewClient(
+			httpclient.WithBaseURLs([]string{ts.URL}),
+			httpclient.WithErrorDecoder(bodyReadingErrorDecoder{}),
+		)
+		require.NoError(t, err)
+		_, err = client.Get(ctx)
+		assert.EqualError(t, err, "httpclient request failed: error from body: 404 page not found\n")
+	})
+	t.Run("Request", func(t *testing.T) {
+		client, err := httpclient.NewClient(
+			httpclient.WithBaseURLs([]string{ts.URL}),
+		)
+		require.NoError(t, err)
+		_, err = client.Get(ctx, httpclient.WithRequestErrorDecoder(bodyReadingErrorDecoder{}))
+		assert.EqualError(t, err, "httpclient request failed: error from body: 404 page not found\n")
+	})
+
+}
+
+type bodyReadingErrorDecoder struct{}
+
+func (bodyReadingErrorDecoder) Handles(resp *http.Response) bool {
+	return resp.StatusCode == http.StatusNotFound
+}
+
+func (bodyReadingErrorDecoder) DecodeError(resp *http.Response) error {
+	b, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("error reading response body: %v", err)
+	}
+	return fmt.Errorf("error from body: %s", b)
 }

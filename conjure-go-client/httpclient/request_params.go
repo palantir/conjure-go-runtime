@@ -179,7 +179,7 @@ func WithCompressedRequest(input interface{}, codec codecs.Codec) RequestParam {
 // ErrorDecoder will be consulted in the usual way.
 func WithRequestErrorDecoder(errorDecoder ErrorDecoder) RequestParam {
 	return requestParamFunc(func(b *requestBuilder) error {
-		b.middlewares = append(b.middlewares, errorDecoderMiddleware(errorDecoder))
+		b.errorDecoderMiddleware = errorDecoderMiddleware(errorDecoder)
 		return nil
 	})
 }
