@@ -103,18 +103,16 @@ func WithRequestBody(input interface{}, encoder codecs.Encoder) RequestParam {
 //     input, _ := os.Open("file.txt")
 //     resp, err := client.Do(..., WithRawRequestBody(input), ...)
 //
-// Deprecated: Use WithRawRequestBodyProvider instead
+// Deprecated: Retries don't include the body for WithRawRequestBody.
+// Use WithRawRequestBodyProvider for full retry support.
 func WithRawRequestBody(input io.ReadCloser) RequestParam {
-	return requestParamFunc(func(b *requestBuilder) error {
-		b.bodyMiddleware.requestInput = input
-		b.bodyMiddleware.requestEncoder = nil
-		b.headers.Set("Content-Type", "application/octet-stream")
-		return nil
+	return WithRawRequestBodyProvider(func() io.ReadCloser {
+		return input
 	})
 }
 
-// WithRawRequestBodyProvider uses the provided io.ReadCloser as
-// the request body.
+// WithRawRequestBodyProvider uses the io.ReadCloser provided by
+// getBody as the request body. The getBody parameter must not be nil.
 // Example:
 //
 //     provider := func() io.ReadCloser {
@@ -123,9 +121,12 @@ func WithRawRequestBody(input io.ReadCloser) RequestParam {
 //     }
 //     resp, err := client.Do(..., WithRawRequestBodyProvider(provider), ...)
 //
-func WithRawRequestBodyProvider(provider func() io.ReadCloser) RequestParam {
+func WithRawRequestBodyProvider(getBody func() io.ReadCloser) RequestParam {
 	return requestParamFunc(func(b *requestBuilder) error {
-		b.bodyMiddleware.requestInput = provider()
+		if getBody == nil {
+			return werror.Error("getBody can not be nil")
+		}
+		b.bodyMiddleware.requestInput = getBody()
 		b.bodyMiddleware.requestEncoder = nil
 		b.headers.Set("Content-Type", "application/octet-stream")
 		return nil
