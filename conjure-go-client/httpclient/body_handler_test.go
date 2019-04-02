@@ -17,6 +17,7 @@ package httpclient_test
 import (
 	"bytes"
 	"context"
+	"io"
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
@@ -85,7 +86,9 @@ func TestRawBody(t *testing.T) {
 
 	resp, err := client.Do(context.Background(),
 		httpclient.WithRequestMethod(http.MethodPost),
-		httpclient.WithRawRequestBody(ioutil.NopCloser(bytes.NewBuffer(reqVar))),
+		httpclient.WithRawRequestBodyProvider(func() io.ReadCloser {
+			return ioutil.NopCloser(bytes.NewBuffer(reqVar))
+		}),
 		httpclient.WithRawResponseBody(),
 	)
 	assert.NoError(t, err)

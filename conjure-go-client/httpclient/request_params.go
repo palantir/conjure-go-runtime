@@ -103,9 +103,29 @@ func WithRequestBody(input interface{}, encoder codecs.Encoder) RequestParam {
 //     input, _ := os.Open("file.txt")
 //     resp, err := client.Do(..., WithRawRequestBody(input), ...)
 //
+// Deprecated: Use WithRawRequestBodyProvider instead
 func WithRawRequestBody(input io.ReadCloser) RequestParam {
 	return requestParamFunc(func(b *requestBuilder) error {
 		b.bodyMiddleware.requestInput = input
+		b.bodyMiddleware.requestEncoder = nil
+		b.headers.Set("Content-Type", "application/octet-stream")
+		return nil
+	})
+}
+
+// WithRawRequestBodyProvider uses the provided io.ReadCloser as
+// the request body.
+// Example:
+//
+//     provider := func() io.ReadCloser {
+//         input, _ := os.Open("file.txt")
+//         return input
+//     }
+//     resp, err := client.Do(..., WithRawRequestBodyProvider(provider), ...)
+//
+func WithRawRequestBodyProvider(provider func() io.ReadCloser) RequestParam {
+	return requestParamFunc(func(b *requestBuilder) error {
+		b.bodyMiddleware.requestInput = provider()
 		b.bodyMiddleware.requestEncoder = nil
 		b.headers.Set("Content-Type", "application/octet-stream")
 		return nil

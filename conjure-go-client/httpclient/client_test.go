@@ -3,6 +3,7 @@ package httpclient
 import (
 	"bytes"
 	"context"
+	"io"
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
@@ -32,7 +33,9 @@ func TestClientImpl_DoRetryWorks(t *testing.T) {
 
 	_, err = client.Do(
 		context.Background(),
-		WithRawRequestBody(ioutil.NopCloser(bytes.NewReader(requestBytes))),
+		WithRawRequestBodyProvider(func() io.ReadCloser {
+			return ioutil.NopCloser(bytes.NewReader(requestBytes))
+		}),
 		WithRequestMethod(http.MethodPost))
 	assert.NoError(t, err)
 	assert.Equal(t, 2, count)
