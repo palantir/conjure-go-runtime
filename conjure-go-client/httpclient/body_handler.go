@@ -23,7 +23,6 @@ import (
 	"github.com/palantir/pkg/bytesbuffers"
 	"github.com/palantir/witchcraft-go-error"
 
-	"github.com/palantir/conjure-go-runtime/conjure-go-client/httpclient/internal"
 	"github.com/palantir/conjure-go-runtime/conjure-go-contract/codecs"
 )
 
@@ -98,8 +97,6 @@ func (b *bodyMiddleware) readResponse(resp *http.Response, respErr error) error 
 	if b.rawOutput && respErr == nil {
 		return nil
 	}
-
-	defer internal.DrainBody(resp)
 
 	if respErr != nil {
 		return respErr

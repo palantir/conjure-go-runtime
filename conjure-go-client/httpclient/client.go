@@ -23,6 +23,7 @@ import (
 	"github.com/palantir/pkg/bytesbuffers"
 	"github.com/palantir/pkg/retry"
 	"github.com/palantir/witchcraft-go-error"
+	"github.com/palantir/witchcraft-go-tracing/wtracing"
 
 	"github.com/palantir/conjure-go-runtime/conjure-go-client/httpclient/internal"
 )
@@ -140,27 +141,71 @@ func nextURIOrBackoff(lastURI string, uris []string, offset int, failedURIs map[
 }
 
 func (c *clientImpl) doOnce(ctx context.Context, baseURI string, params ...RequestParam) (*http.Response, error) {
-	req, innerMiddleware, err := c.newRequest(ctx, baseURI, params...)
-	if err != nil {
-		return nil, err
+
+	// 1. create the request
+	b := &requestBuilder{
+		headers:        c.initializeRequestHeaders(ctx),
+		query:          make(url.Values),
+		bodyMiddleware: &bodyMiddleware{bufferPool: c.bufferPool},
 	}
 
+	for _, p := range params {
+		if p == nil {
+			continue
+		}
+		if err := p.apply(b); err != nil {
+			return nil, err
+		}
+	}
+	for _, c := range b.configureCtx {
+		ctx = c(ctx)
+	}
+
+	if b.method == "" {
+		return nil, werror.Error("httpclient: use WithRequestMethod() to specify HTTP method")
+	}
+
+	req, err := http.NewRequest(b.method, baseURI+b.path, nil)
+	if err != nil {
+		return nil, werror.Wrap(err, "failed to build new HTTP request")
+	}
+	req = req.WithContext(ctx)
+	req.Header = b.headers
+	if q := b.query.Encode(); q != "" {
+		req.URL.RawQuery = q
+	}
+
+	// 2. create the transport and client
 	// shallow copy so we can overwrite the Transport with a wrapped one.
 	clientCopy := c.client
 	transport := clientCopy.Transport // start with the concrete http.Transport from the client
 
-	for _, middlewares := range [][]Middleware{
-		innerMiddleware,
-		c.middlewares,
-	} {
-		for _, middleware := range middlewares {
+	middlewares := []Middleware{
+		// must precede the error decoders because they return a nil response and the metrics need the status code of
+		// the raw response.
+		c.metricsMiddleware,
+		// must precede the client error decoder
+		b.errorDecoderMiddleware,
+		// must precede the body middleware so it can read the response body
+		c.errorDecoderMiddleware,
+		b.bodyMiddleware,
+	}
+	middlewares = append(middlewares, c.middlewares...)
+	for _, middleware := range middlewares {
+		if middleware != nil {
 			transport = wrapTransport(transport, middleware)
 		}
 	}
-
 	clientCopy.Transport = transport
 
+	// 3. execute the request using the client to get and handle the response
 	resp, respErr := clientCopy.Do(req)
+
+	// unless this is exactly the scenario where the caller has opted into being responsible for draining and closing
+	// the response body, be sure to do so here.
+	if !(respErr == nil && b.bodyMiddleware.rawOutput) {
+		internal.DrainBody(resp)
+	}
 
 	return resp, unwrapURLError(respErr)
 }
@@ -188,4 +233,15 @@ func unwrapURLError(respErr error) error {
 	}
 
 	return werror.Wrap(urlErr.Err, "httpclient request failed", params...)
+}
+
+func (c *clientImpl) initializeRequestHeaders(ctx context.Context) http.Header {
+	headers := make(http.Header)
+	if !c.disableTraceHeaderPropagation {
+		traceID := wtracing.TraceIDFromContext(ctx)
+		if traceID != "" {
+			headers.Set(traceIDHeaderKey, string(traceID))
+		}
+	}
+	return headers
 }

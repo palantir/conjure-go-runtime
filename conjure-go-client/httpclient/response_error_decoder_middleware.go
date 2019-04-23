@@ -18,8 +18,6 @@ import (
 	"net/http"
 
 	"github.com/palantir/witchcraft-go-error"
-
-	"github.com/palantir/conjure-go-runtime/conjure-go-client/httpclient/internal"
 )
 
 // ErrorDecoder implementations declare whether or not they should be used to handle certain http responses, and return
@@ -43,7 +41,6 @@ func errorDecoderMiddleware(errorDecoder ErrorDecoder) Middleware {
 			return nil, err
 		}
 		if errorDecoder.Handles(resp) {
-			defer internal.DrainBody(resp)
 			return nil, errorDecoder.DecodeError(resp)
 		}
 		return resp, nil
