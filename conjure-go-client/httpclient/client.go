@@ -140,7 +140,7 @@ func nextURIOrBackoff(lastURI string, uris []string, offset int, failedURIs map[
 }
 
 func (c *clientImpl) doOnce(ctx context.Context, baseURI string, params ...RequestParam) (*http.Response, error) {
-	req, innerMiddleware, err := c.newRequest(ctx, baseURI, params...)
+	req, innerMiddleware, closeBody, err := c.newRequest(ctx, baseURI, params...)
 	if err != nil {
 		return nil, err
 	}
@@ -161,6 +161,9 @@ func (c *clientImpl) doOnce(ctx context.Context, baseURI string, params ...Reque
 	clientCopy.Transport = transport
 
 	resp, respErr := clientCopy.Do(req)
+	if closeBody {
+		internal.DrainBody(resp)
+	}
 
 	return resp, unwrapURLError(respErr)
 }

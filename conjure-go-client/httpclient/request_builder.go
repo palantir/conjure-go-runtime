@@ -51,7 +51,7 @@ func (f requestParamFunc) apply(b *requestBuilder) error {
 
 // NewRequest returns an *http.Request and a set of Middlewares which should be
 // the inner-most wrapped middleware around the request during execution.
-func (c *clientImpl) newRequest(ctx context.Context, baseURL string, params ...RequestParam) (*http.Request, []Middleware, error) {
+func (c *clientImpl) newRequest(ctx context.Context, baseURL string, params ...RequestParam) (*http.Request, []Middleware, bool, error) {
 	b := &requestBuilder{
 		headers:        c.initializeRequestHeaders(ctx),
 		query:          make(url.Values),
@@ -63,7 +63,7 @@ func (c *clientImpl) newRequest(ctx context.Context, baseURL string, params ...R
 			continue
 		}
 		if err := p.apply(b); err != nil {
-			return nil, nil, err
+			return nil, nil, false, err
 		}
 	}
 	for _, c := range b.configureCtx {
@@ -71,12 +71,12 @@ func (c *clientImpl) newRequest(ctx context.Context, baseURL string, params ...R
 	}
 
 	if b.method == "" {
-		return nil, nil, werror.Error("httpclient: use WithRequestMethod() to specify HTTP method")
+		return nil, nil, false, werror.Error("httpclient: use WithRequestMethod() to specify HTTP method")
 	}
 
 	req, err := http.NewRequest(b.method, baseURL+b.path, nil)
 	if err != nil {
-		return nil, nil, werror.Wrap(err, "failed to build new HTTP request")
+		return nil, nil, false, werror.Wrap(err, "failed to build new HTTP request")
 	}
 	req = req.WithContext(ctx)
 	req.Header = b.headers
@@ -101,7 +101,7 @@ func (c *clientImpl) newRequest(ctx context.Context, baseURL string, params ...R
 			innerMiddleware = append(innerMiddleware, m)
 		}
 	}
-	return req, innerMiddleware, nil
+	return req, innerMiddleware, !b.bodyMiddleware.rawOutput, nil
 }
 
 func (c *clientImpl) initializeRequestHeaders(ctx context.Context) http.Header {
