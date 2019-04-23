@@ -47,15 +47,8 @@ func TestClose(t *testing.T) {
 	_, err = client.Get(ctx, httpclient.WithPath("/"))
 	require.NoError(t, err)
 
-	// check for bad goroutine before timeout
-	checkForBadGoroutine(t)
-
-	// check for bad goroutine after timeout
-	time.Sleep(5 * time.Second)
-	checkForBadGoroutine(t)
-}
-
-func checkForBadGoroutine(t *testing.T) {
+	// check for bad goroutine before timeout is over
+	time.Sleep(100 * time.Millisecond) // leave some time for the goroutine to reasonably exit
 	buf := bytes.NewBuffer(nil)
 	require.NoError(t, pprof.Lookup("goroutine").WriteTo(buf, 1))
 	s := buf.String()
