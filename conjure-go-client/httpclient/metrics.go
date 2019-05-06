@@ -83,7 +83,7 @@ func (h *metricsMiddleware) RoundTrip(req *http.Request, next http.RoundTripper)
 		tags = append(tags, tagProvider.Tags(req, resp)...)
 	}
 
-	metrics.FromContext(req.Context()).Timer(metricClientResponse, tags...).Update(duration)
+	metrics.FromContext(req.Context()).Timer(metricClientResponse, tags...).Update(duration / time.Microsecond)
 	return resp, err
 }
 
