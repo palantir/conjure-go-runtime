@@ -84,6 +84,9 @@ func (c *clientImpl) Delete(ctx context.Context, params ...RequestParam) (*http.
 
 func (c *clientImpl) Do(ctx context.Context, params ...RequestParam) (*http.Response, error) {
 	uris := c.uris
+	if len(uris) == 0 {
+		return nil, werror.Error("no base URIs are configured")
+	}
 	offset := rand.Intn(len(uris))
 
 	var err error
