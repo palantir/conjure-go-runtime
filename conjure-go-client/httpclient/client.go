@@ -183,7 +183,16 @@ func (c *clientImpl) doOnce(ctx context.Context, baseURI string, params ...Reque
 	clientCopy := c.client
 	transport := clientCopy.Transport // start with the concrete http.Transport from the client
 
+	var drain func()
+
 	middlewares := []Middleware{
+		MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+			resp, err := next.RoundTrip(req)
+			drain = func() {
+				internal.DrainBody(resp)
+			}
+			return resp, err
+		}),
 		// must precede the error decoders because they return a nil response and the metrics need the status code of
 		// the raw response.
 		c.metricsMiddleware,
@@ -206,8 +215,8 @@ func (c *clientImpl) doOnce(ctx context.Context, baseURI string, params ...Reque
 
 	// unless this is exactly the scenario where the caller has opted into being responsible for draining and closing
 	// the response body, be sure to do so here.
-	if !(respErr == nil && b.bodyMiddleware.rawOutput) {
-		internal.DrainBody(resp)
+	if !b.bodyMiddleware.rawOutput {
+		drain()
 	}
 
 	return resp, unwrapURLError(respErr)
@@ -248,3 +257,5 @@ func (c *clientImpl) initializeRequestHeaders(ctx context.Context) http.Header {
 	}
 	return headers
 }
+
+func (c *clientImpl) setDrainMiddleware()
