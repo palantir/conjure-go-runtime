@@ -54,3 +54,29 @@ func TestClose(t *testing.T) {
 	s := buf.String()
 	assert.NotContains(t, s, "net/http.setRequestCancel")
 }
+
+func TestCloseOnError(t *testing.T) {
+
+	// create test server and client with an HTTP Timeout of 5s
+	ts := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		rw.WriteHeader(http.StatusBadRequest)
+		_, _ = fmt.Fprintln(rw, "test")
+	}))
+	client, err := httpclient.NewClient(
+		httpclient.WithBaseURLs([]string{ts.URL}),
+		httpclient.WithHTTPTimeout(5*time.Second),
+	)
+	require.NoError(t, err)
+
+	// execute a simple request
+	ctx := context.Background()
+	_, err = client.Get(ctx, httpclient.WithPath("/"))
+	require.Error(t, err)
+
+	// check for bad goroutine before timeout is over
+	time.Sleep(100 * time.Millisecond) // leave some time for the goroutine to reasonably exit
+	buf := bytes.NewBuffer(nil)
+	require.NoError(t, pprof.Lookup("goroutine").WriteTo(buf, 1))
+	s := buf.String()
+	assert.NotContains(t, s, "net/http.(*persistConn).readLoop")
+}

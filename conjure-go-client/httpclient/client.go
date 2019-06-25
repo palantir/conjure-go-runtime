@@ -172,6 +172,8 @@ func (c *clientImpl) doOnce(ctx context.Context, baseURI string, params ...Reque
 	if err != nil {
 		return nil, werror.Wrap(err, "failed to build new HTTP request")
 	}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	req = req.WithContext(ctx)
 	req.Header = b.headers
 	if q := b.query.Encode(); q != "" {
@@ -257,5 +259,3 @@ func (c *clientImpl) initializeRequestHeaders(ctx context.Context) http.Header {
 	}
 	return headers
 }
-
-func (c *clientImpl) setDrainMiddleware()
