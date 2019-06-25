@@ -134,6 +134,7 @@ func TestStreamingResponse(t *testing.T) {
 		require.NoError(t, err)
 		<-finishResponseChan
 		_, err = fmt.Fprintln(rw, secondLine)
+		require.NoError(t, err)
 		f.Flush()
 	}))
 	defer ts.Close()
