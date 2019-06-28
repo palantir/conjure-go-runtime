@@ -1,3 +1,7 @@
+<p align="right">
+<a href="https://autorelease.general.dmz.palantir.tech/palantir/conjure-go-runtime"><img src="https://img.shields.io/badge/Perform%20an-Autorelease-success.svg" alt="Autorelease"></a>
+</p>
+
 conjure-go-runtime
 ==================
 [![](https://godoc.org/github.com/palantir/conjure-go-runtime?status.svg)](http://godoc.org/github.com/palantir/conjure-go-runtime)
