@@ -177,3 +177,37 @@ func TestRoundTripperWithMetrics(t *testing.T) {
 		})
 	}
 }
+
+func TestMetricsMiddleware_HTTPClient(t *testing.T) {
+	rootRegistry := metrics.NewRootMetricsRegistry()
+	ctx := metrics.WithRegistry(context.Background(), rootRegistry)
+
+	client, err := httpclient.NewHTTPClient(httpclient.WithServiceName("test-service"), httpclient.WithMetrics())
+	require.NoError(t, err)
+
+	srv := httptest.NewServer(http.NotFoundHandler())
+	defer srv.Close()
+
+	req, err := http.NewRequest(http.MethodGet, srv.URL, nil)
+	require.NoError(t, err)
+	req = req.WithContext(httpclient.ContextWithRPCMethodName(ctx, "test-endpoint"))
+
+	_, err = client.Do(req)
+	require.NoError(t, err)
+
+	found := false
+	rootRegistry.Each(func(name string, tags metrics.Tags, value metrics.MetricVal) {
+		if name != "client.response" {
+			return
+		}
+		found = true
+		expectedTags := map[metrics.Tag]struct{}{
+			metrics.MustNewTag("family", "4xx"):                {},
+			metrics.MustNewTag("method", "get"):                {},
+			metrics.MustNewTag("method-name", "test-endpoint"): {},
+			metrics.MustNewTag("service-name", "test-service"): {},
+		}
+		assert.Equal(t, expectedTags, tags.ToSet())
+	})
+	assert.True(t, found, "did not find client.response metric")
+}
