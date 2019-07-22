@@ -179,14 +179,14 @@ func TestRoundTripperWithMetrics(t *testing.T) {
 }
 
 func TestMetricsMiddleware_HTTPClient(t *testing.T) {
+	srv := httptest.NewServer(http.NotFoundHandler())
+	defer srv.Close()
+
 	rootRegistry := metrics.NewRootMetricsRegistry()
 	ctx := metrics.WithRegistry(context.Background(), rootRegistry)
 
 	client, err := httpclient.NewHTTPClient(httpclient.WithServiceName("test-service"), httpclient.WithMetrics())
 	require.NoError(t, err)
-
-	srv := httptest.NewServer(http.NotFoundHandler())
-	defer srv.Close()
 
 	req, err := http.NewRequest(http.MethodGet, srv.URL, nil)
 	require.NoError(t, err)
