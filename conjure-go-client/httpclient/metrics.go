@@ -19,7 +19,7 @@ import (
 	"time"
 
 	"github.com/palantir/pkg/metrics"
-	"github.com/palantir/witchcraft-go-error"
+	werror "github.com/palantir/witchcraft-go-error"
 )
 
 const (

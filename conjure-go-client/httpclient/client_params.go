@@ -25,7 +25,7 @@ import (
 
 	"github.com/palantir/pkg/bytesbuffers"
 	"github.com/palantir/pkg/retry"
-	"github.com/palantir/witchcraft-go-error"
+	werror "github.com/palantir/witchcraft-go-error"
 	"golang.org/x/net/proxy"
 )
 
