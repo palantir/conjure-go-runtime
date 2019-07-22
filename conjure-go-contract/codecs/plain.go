@@ -20,7 +20,7 @@ import (
 	"io/ioutil"
 	"reflect"
 
-	"github.com/palantir/witchcraft-go-error"
+	werror "github.com/palantir/witchcraft-go-error"
 )
 
 const (

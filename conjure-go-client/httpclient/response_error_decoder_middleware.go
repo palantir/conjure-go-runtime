@@ -17,7 +17,7 @@ package httpclient
 import (
 	"net/http"
 
-	"github.com/palantir/witchcraft-go-error"
+	werror "github.com/palantir/witchcraft-go-error"
 
 	"github.com/palantir/conjure-go-runtime/conjure-go-client/httpclient/internal"
 )
