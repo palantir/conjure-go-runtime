@@ -41,7 +41,7 @@ func TestErrorDecoder(t *testing.T) {
 
 	ts := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
 		rw.WriteHeader(statusCode)
-		fmt.Fprint(rw, body)
+		_, _ = fmt.Fprint(rw, body)
 	}))
 	defer ts.Close()
 	t.Run("ClientDefault", func(t *testing.T) {

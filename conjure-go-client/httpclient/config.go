@@ -22,7 +22,7 @@ import (
 
 	"github.com/palantir/pkg/metrics"
 	"github.com/palantir/pkg/tlsconfig"
-	"github.com/palantir/witchcraft-go-error"
+	werror "github.com/palantir/witchcraft-go-error"
 )
 
 // ServicesConfig is the top-level configuration struct for all HTTP clients. It supports

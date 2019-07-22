@@ -21,7 +21,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/palantir/witchcraft-go-error"
+	werror "github.com/palantir/witchcraft-go-error"
 	"github.com/stretchr/testify/require"
 
 	"github.com/palantir/conjure-go-runtime/conjure-go-client/httpclient"

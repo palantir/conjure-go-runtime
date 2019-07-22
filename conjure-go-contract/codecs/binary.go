@@ -18,7 +18,7 @@ import (
 	"bytes"
 	"io"
 
-	"github.com/palantir/witchcraft-go-error"
+	werror "github.com/palantir/witchcraft-go-error"
 )
 
 const (
