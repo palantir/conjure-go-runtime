@@ -1,0 +1,5 @@
+type: fix
+fix:
+  description: Apply metrics middleware (if configured) to HTTPClient
+  links:
+  - https://github.com/palantir/conjure-go-runtime/pull/56

@@ -145,6 +145,9 @@ func NewHTTPClient(params ...HTTPClientParam) (*http.Client, error) {
 	if err != nil {
 		return nil, err
 	}
+	if b.metricsMiddleware != nil {
+		client.Transport = wrapTransport(client.Transport, b.metricsMiddleware)
+	}
 	for _, handler := range roundTrippers {
 		client.Transport = wrapTransport(client.Transport, handler)
 	}
