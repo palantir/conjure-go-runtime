@@ -16,10 +16,12 @@ package httpclient
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	"github.com/palantir/pkg/httpserver"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -173,4 +175,40 @@ func TestRoundRobin(t *testing.T) {
 	_, err = cli.Do(context.Background(), WithRequestMethod("GET"))
 	assert.Error(t, err)
 	assert.Equal(t, []int{2, 2, 2}, requestsPerSever)
+}
+
+func TestFailover_ConnectionRefused(t *testing.T) {
+	port1, err := httpserver.AvailablePort()
+	require.NoError(t, err)
+	url1 := fmt.Sprintf("http://localhost:%d/", port1)
+	port2, err := httpserver.AvailablePort()
+	require.NoError(t, err)
+	url2 := fmt.Sprintf("http://localhost:%d/", port2)
+
+	s1 := httptest.NewServer(http.NotFoundHandler())
+	defer s1.Close()
+
+	cli, err := NewClient(WithBaseURLs([]string{url1, url2, url1, url2, s1.URL}), WithDisableRestErrors())
+	require.NoError(t, err)
+
+	_, err = cli.Get(context.Background())
+	assert.NoError(t, err)
+}
+
+func TestFailover_NoHost(t *testing.T) {
+	port1, err := httpserver.AvailablePort()
+	require.NoError(t, err)
+	url1 := fmt.Sprintf("http://not-a-hostname-1:%d/", port1)
+	port2, err := httpserver.AvailablePort()
+	require.NoError(t, err)
+	url2 := fmt.Sprintf("http://not-a-hostname-2:%d/", port2)
+
+	s1 := httptest.NewServer(http.NotFoundHandler())
+	defer s1.Close()
+
+	cli, err := NewClient(WithBaseURLs([]string{url1, url2, url1, url2, s1.URL}), WithDisableRestErrors())
+	require.NoError(t, err)
+
+	_, err = cli.Get(context.Background())
+	assert.NoError(t, err)
 }
