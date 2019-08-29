@@ -32,10 +32,11 @@
   version = "1.0.0"
 
 [[projects]]
-  digest = "1:baac58270cdf19b82c7efc3e4397deb44a7b0725c52bc8a96537d0b68329a061"
+  digest = "1:430f088d3e1a04b1114eecd33d141998e90a1981cf033b3767a1744c303dcd4a"
   name = "github.com/palantir/pkg"
   packages = [
     "bytesbuffers",
+    "httpserver",
     "metrics",
     "retry",
     "safejson",
@@ -156,6 +157,7 @@
   analyzer-version = 1
   input-imports = [
     "github.com/palantir/pkg/bytesbuffers",
+    "github.com/palantir/pkg/httpserver",
     "github.com/palantir/pkg/metrics",
     "github.com/palantir/pkg/retry",
     "github.com/palantir/pkg/safejson",
