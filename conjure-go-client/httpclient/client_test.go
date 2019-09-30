@@ -18,9 +18,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/stretchr/testify/require"
-
 	"github.com/palantir/conjure-go-runtime/conjure-go-client/httpclient"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNoBaseURIs(t *testing.T) {

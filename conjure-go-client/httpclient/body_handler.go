@@ -20,10 +20,9 @@ import (
 	"io/ioutil"
 	"net/http"
 
+	"github.com/palantir/conjure-go-runtime/conjure-go-contract/codecs"
 	"github.com/palantir/pkg/bytesbuffers"
 	werror "github.com/palantir/witchcraft-go-error"
-
-	"github.com/palantir/conjure-go-runtime/conjure-go-contract/codecs"
 )
 
 type bodyMiddleware struct {

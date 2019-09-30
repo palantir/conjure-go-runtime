@@ -22,9 +22,8 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-
 	"github.com/palantir/conjure-go-runtime/conjure-go-contract/errors"
+	"github.com/stretchr/testify/assert"
 )
 
 var invalidErrorNames = map[string]string{

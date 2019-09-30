@@ -18,9 +18,8 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/stretchr/testify/require"
-
 	"github.com/palantir/conjure-go-runtime/conjure-go-contract/codecs"
+	"github.com/stretchr/testify/require"
 )
 
 func TestCodecBinary(t *testing.T) {

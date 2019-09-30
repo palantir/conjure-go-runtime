@@ -22,11 +22,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/palantir/conjure-go-runtime/conjure-go-client/httpclient"
 	"github.com/palantir/pkg/metrics"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/palantir/conjure-go-runtime/conjure-go-client/httpclient"
 )
 
 type fakeTagsProviderFunc struct {
