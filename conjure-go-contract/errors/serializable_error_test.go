@@ -20,12 +20,11 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/palantir/conjure-go-runtime/conjure-go-contract/codecs"
+	"github.com/palantir/conjure-go-runtime/conjure-go-contract/errors"
 	"github.com/palantir/pkg/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/palantir/conjure-go-runtime/conjure-go-contract/codecs"
-	"github.com/palantir/conjure-go-runtime/conjure-go-contract/errors"
 )
 
 var testSerializableError = errors.SerializableError{

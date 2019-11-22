@@ -22,9 +22,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/palantir/pkg/uuid"
-
 	"github.com/palantir/conjure-go-runtime/conjure-go-contract/codecs"
+	"github.com/palantir/pkg/uuid"
 )
 
 func newGenericError(errorType ErrorType, p parameterizer) genericError {

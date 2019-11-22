@@ -21,10 +21,9 @@ package errors_test
 import (
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-
 	"github.com/palantir/conjure-go-runtime/conjure-go-contract/codecs"
 	"github.com/palantir/conjure-go-runtime/conjure-go-contract/errors"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestErrorCode_String(t *testing.T) {

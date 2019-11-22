@@ -20,13 +20,12 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/palantir/conjure-go-runtime/conjure-go-client/httpclient"
 	"github.com/palantir/witchcraft-go-tracing/wtracing"
 	"github.com/palantir/witchcraft-go-tracing/wtracing/propagation/b3"
 	"github.com/palantir/witchcraft-go-tracing/wzipkin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/palantir/conjure-go-runtime/conjure-go-client/httpclient"
 )
 
 func TestTracing(t *testing.T) {

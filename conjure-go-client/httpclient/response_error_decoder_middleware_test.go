@@ -22,10 +22,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/palantir/conjure-go-runtime/conjure-go-client/httpclient"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/palantir/conjure-go-runtime/conjure-go-client/httpclient"
 )
 
 func TestErrorsMiddleware(t *testing.T) {

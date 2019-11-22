@@ -19,9 +19,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
-
 	"github.com/palantir/conjure-go-runtime/conjure-go-client/httpclient/internal"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestRetryResponseParsers(t *testing.T) {

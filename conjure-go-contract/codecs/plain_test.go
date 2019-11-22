@@ -19,10 +19,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/palantir/conjure-go-runtime/conjure-go-contract/codecs"
 	"github.com/palantir/pkg/uuid"
 	"github.com/stretchr/testify/require"
-
-	"github.com/palantir/conjure-go-runtime/conjure-go-contract/codecs"
 )
 
 func TestPlainCodec(t *testing.T) {

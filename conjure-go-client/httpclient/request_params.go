@@ -21,9 +21,8 @@ import (
 	"net/url"
 	"strings"
 
-	werror "github.com/palantir/witchcraft-go-error"
-
 	"github.com/palantir/conjure-go-runtime/conjure-go-contract/codecs"
+	werror "github.com/palantir/witchcraft-go-error"
 )
 
 // WithRPCMethodName configures the requests's context with the RPC method name, like "GetServiceRevision".

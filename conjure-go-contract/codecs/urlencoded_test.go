@@ -19,10 +19,9 @@ import (
 	"net/url"
 	"testing"
 
+	"github.com/palantir/conjure-go-runtime/conjure-go-contract/codecs"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/palantir/conjure-go-runtime/conjure-go-contract/codecs"
 )
 
 func TestFormURLEncoded_Decode(t *testing.T) {

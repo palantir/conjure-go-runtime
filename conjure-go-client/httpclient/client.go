@@ -20,12 +20,11 @@ import (
 	"net/http"
 	"net/url"
 
+	"github.com/palantir/conjure-go-runtime/conjure-go-client/httpclient/internal"
 	"github.com/palantir/pkg/bytesbuffers"
 	"github.com/palantir/pkg/retry"
 	werror "github.com/palantir/witchcraft-go-error"
 	"github.com/palantir/witchcraft-go-tracing/wtracing"
-
-	"github.com/palantir/conjure-go-runtime/conjure-go-client/httpclient/internal"
 )
 
 // A Client executes requests to a configured service.
