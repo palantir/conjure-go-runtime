@@ -1,5 +1,5 @@
-type: feature
-feature:
+type: break
+break:
   description: Add module definition
   links:
   - https://github.com/palantir/conjure-go-runtime/pull/72
