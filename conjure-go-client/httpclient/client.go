@@ -97,14 +97,16 @@ func (c *clientImpl) Do(ctx context.Context, params ...RequestParam) (*http.Resp
 	failedURIs := map[string]struct{}{}
 	for i := 0; i < c.maxRetries; i++ {
 		resp, err = c.doOnce(ctx, nextURI, params...)
-		if resp == nil {
-			// If we get a nil response, we can assume there is a problem with host and can move on to the next.
-			nextURI, offset = nextURIOrBackoff(nextURI, uris, offset, failedURIs, retrier)
-		} else if shouldThrottle, _ := internal.IsThrottleResponse(resp); shouldThrottle {
+		errCode, ok := StatusCodeFromError(err)
+		if ok && errCode == 429 {
 			// 429: throttle
-			// Ideally we should avoid hitting this URI until it's next available. In the interest of avoiding
-			// complex state in the client that will be replaced with a service-mesh, we will simply move on to the next
-			// available URI
+			// Immediately backoff and select the next URI.
+			nextURI, offset = nextURIAndBackoff(nextURI, uris, offset, failedURIs, retrier)
+		} else if ok && errCode == 503 {
+			// 503: go to next node
+			nextURI, offset = nextURIOrBackoff(nextURI, uris, offset, failedURIs, retrier)
+		} else if resp == nil {
+			// If we get a nil response, we can assume there is a problem with host and can move on to the next.
 			nextURI, offset = nextURIOrBackoff(nextURI, uris, offset, failedURIs, retrier)
 		} else if shouldTryOther, otherURI := internal.IsRetryOtherResponse(resp); shouldTryOther {
 			// 308: go to next node, or particular node if provided.
@@ -114,9 +116,6 @@ func (c *clientImpl) Do(ctx context.Context, params ...RequestParam) (*http.Resp
 			} else {
 				nextURI, offset = nextURIOrBackoff(nextURI, uris, offset, failedURIs, retrier)
 			}
-		} else if internal.IsUnavailableResponse(resp) {
-			// 503: go to next node
-			nextURI, offset = nextURIOrBackoff(nextURI, uris, offset, failedURIs, retrier)
 		} else {
 			// The response was not a failure in any way, return the error
 			return resp, err
@@ -128,18 +127,31 @@ func (c *clientImpl) Do(ctx context.Context, params ...RequestParam) (*http.Resp
 	return resp, werror.Error("could not find live server")
 }
 
-// If lastURI was already marked failed, we perform a backoff as determined by the retrier.
-// Otherwise, we add lastURI to failedURIs and return the next URI and its offset immediately
+// If lastURI was already marked failed, we perform a backoff as determined by the retrier before returning the next URI and its offset.
+// Otherwise, we add lastURI to failedURIs and return the next URI and its offset immediately.
 func nextURIOrBackoff(lastURI string, uris []string, offset int, failedURIs map[string]struct{}, retrier retry.Retrier) (nextURI string, nextURIOffset int) {
 	_, performBackoff := failedURIs[lastURI]
-	failedURIs[lastURI] = struct{}{}
-	nextURIOffset = (offset + 1) % len(uris)
-	nextURI = uris[nextURIOffset]
+	nextURIOffset, nextURI = markFailedAndGetNextURI(failedURIs, lastURI, offset, uris)
 	// If the URI has failed before, perform a backoff
 	if performBackoff {
 		retrier.Next()
 	}
 	return nextURI, nextURIOffset
+}
+
+// Marks the current URI as failed, gets the next URI, and performs a backoff as determined by the retrier.
+func nextURIAndBackoff(lastURI string, uris []string, offset int, failedURIs map[string]struct{}, retrier retry.Retrier) (nextURI string, nextURIOffset int) {
+	nextURIOffset, nextURI = markFailedAndGetNextURI(failedURIs, lastURI, offset, uris)
+	retrier.Next()
+	return nextURI, nextURIOffset
+
+}
+
+func markFailedAndGetNextURI(failedURIs map[string]struct{}, lastURI string, offset int, uris []string) (int, string) {
+	failedURIs[lastURI] = struct{}{}
+	nextURIOffset := (offset + 1) % len(uris)
+	nextURI := uris[nextURIOffset]
+	return nextURIOffset, nextURI
 }
 
 func (c *clientImpl) doOnce(ctx context.Context, baseURI string, params ...RequestParam) (*http.Response, error) {
