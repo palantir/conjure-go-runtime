@@ -131,7 +131,7 @@ func (c *clientImpl) Do(ctx context.Context, params ...RequestParam) (*http.Resp
 // Otherwise, we add lastURI to failedURIs and return the next URI and its offset immediately.
 func nextURIOrBackoff(lastURI string, uris []string, offset int, failedURIs map[string]struct{}, retrier retry.Retrier) (nextURI string, nextURIOffset int) {
 	_, performBackoff := failedURIs[lastURI]
-	nextURIOffset, nextURI = markFailedAndGetNextURI(failedURIs, lastURI, offset, uris)
+	nextURI, nextURIOffset  = markFailedAndGetNextURI(failedURIs, lastURI, offset, uris)
 	// If the URI has failed before, perform a backoff
 	if performBackoff {
 		retrier.Next()
@@ -141,17 +141,17 @@ func nextURIOrBackoff(lastURI string, uris []string, offset int, failedURIs map[
 
 // Marks the current URI as failed, gets the next URI, and performs a backoff as determined by the retrier.
 func nextURIAndBackoff(lastURI string, uris []string, offset int, failedURIs map[string]struct{}, retrier retry.Retrier) (nextURI string, nextURIOffset int) {
-	nextURIOffset, nextURI = markFailedAndGetNextURI(failedURIs, lastURI, offset, uris)
+	nextURI, nextURIOffset  = markFailedAndGetNextURI(failedURIs, lastURI, offset, uris)
 	retrier.Next()
 	return nextURI, nextURIOffset
 
 }
 
-func markFailedAndGetNextURI(failedURIs map[string]struct{}, lastURI string, offset int, uris []string) (int, string) {
+func markFailedAndGetNextURI(failedURIs map[string]struct{}, lastURI string, offset int, uris []string) (string, int) {
 	failedURIs[lastURI] = struct{}{}
 	nextURIOffset := (offset + 1) % len(uris)
 	nextURI := uris[nextURIOffset]
-	return nextURIOffset, nextURI
+	return nextURI, nextURIOffset
 }
 
 func (c *clientImpl) doOnce(ctx context.Context, baseURI string, params ...RequestParam) (*http.Response, error) {
