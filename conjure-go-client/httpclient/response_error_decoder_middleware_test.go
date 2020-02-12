@@ -23,6 +23,7 @@ import (
 	"testing"
 
 	"github.com/palantir/conjure-go-runtime/conjure-go-client/httpclient"
+	"github.com/palantir/conjure-go-runtime/conjure-go-client/httpclient/internal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -38,7 +39,7 @@ func TestErrorsMiddleware(t *testing.T) {
 
 		_, err = client.Do(ctx, httpclient.WithRequestMethod(http.MethodGet))
 		require.Error(t, err)
-		status, ok := httpclient.StatusCodeFromError(err)
+		status, ok := internal.StatusCodeFromError(err)
 		require.True(t, ok)
 		require.Equal(t, http.StatusNotFound, status)
 	})

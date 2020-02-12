@@ -73,7 +73,11 @@ func IsRetryOtherResponse(resp *http.Response) (bool, *url.URL) {
 	return true, locationURL
 }
 
-func IsThrottleResponse(resp *http.Response) (bool, time.Duration) {
+func IsThrottleResponse(resp *http.Response, err error) (bool, time.Duration) {
+	errCode, ok := StatusCodeFromError(err)
+	if ok && errCode == StatusCodeThrottle {
+		return true, 0
+	}
 	if resp == nil || resp.StatusCode != StatusCodeThrottle {
 		return false, 0
 	}
@@ -93,7 +97,11 @@ func IsThrottleResponse(resp *http.Response) (bool, time.Duration) {
 	return true, time.Until(retryAfterDate)
 }
 
-func IsUnavailableResponse(resp *http.Response) bool {
+func IsUnavailableResponse(resp *http.Response, err error) bool {
+	errCode, ok := StatusCodeFromError(err)
+	if ok && errCode == StatusCodeUnavailable {
+		return true
+	}
 	if resp == nil || resp.StatusCode != StatusCodeUnavailable {
 		return false
 	}

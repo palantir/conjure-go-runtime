@@ -97,12 +97,11 @@ func (c *clientImpl) Do(ctx context.Context, params ...RequestParam) (*http.Resp
 	failedURIs := map[string]struct{}{}
 	for i := 0; i < c.maxRetries; i++ {
 		resp, err = c.doOnce(ctx, nextURI, params...)
-		errCode, ok := StatusCodeFromError(err)
-		if ok && errCode == 429 {
+		if retryOther, _ := internal.IsThrottleResponse(resp, err); retryOther {
 			// 429: throttle
 			// Immediately backoff and select the next URI.
 			nextURI, offset = nextURIAndBackoff(nextURI, uris, offset, failedURIs, retrier)
-		} else if ok && errCode == 503 {
+		} else if internal.IsUnavailableResponse(resp, err) {
 			// 503: go to next node
 			nextURI, offset = nextURIOrBackoff(nextURI, uris, offset, failedURIs, retrier)
 		} else if resp == nil {
