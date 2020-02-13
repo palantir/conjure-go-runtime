@@ -68,3 +68,8 @@ func (d restErrorDecoder) DecodeError(resp *http.Response) error {
 	// TODO(bmoylan) unmarshal conjure error
 	return werror.Error("server returned a status >= 400", werror.SafeParam("statusCode", resp.StatusCode))
 }
+
+// StatusCodeFromError wraps the internal StatusCodeFromError func. For behavior details, see its docs.
+func StatusCodeFromError(err error) (statusCode int, ok bool) {
+	return internal.StatusCodeFromError(err)
+}
