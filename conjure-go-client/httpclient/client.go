@@ -100,6 +100,7 @@ func (c *clientImpl) Do(ctx context.Context, params ...RequestParam) (*http.Resp
 		if retryOther, _ := internal.IsThrottleResponse(resp, err); retryOther {
 			// 429: throttle
 			// Immediately backoff and select the next URI.
+			// TODO(whickman): use the retry-after header once #81 is resolved
 			nextURI, offset = nextURIAndBackoff(nextURI, uris, offset, failedURIs, retrier)
 		} else if internal.IsUnavailableResponse(resp, err) {
 			// 503: go to next node
