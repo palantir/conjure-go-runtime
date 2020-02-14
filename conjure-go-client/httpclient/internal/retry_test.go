@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/palantir/conjure-go-runtime/conjure-go-client/httpclient/internal"
+	werror "github.com/palantir/witchcraft-go-error"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -67,6 +68,18 @@ func TestRetryResponseParsers(t *testing.T) {
 			IsThrottle: true,
 		},
 		{
+			Name:       "429 throttle in error",
+			Response:   nil,
+			RespErr:    werror.Error("error", werror.SafeParam("statusCode", 429)),
+			IsThrottle: true,
+		},
+		{
+			Name:          "503 unavailable in error",
+			Response:      nil,
+			RespErr:       werror.Error("error", werror.SafeParam("statusCode", 503)),
+			IsUnavailable: true,
+		},
+		{
 			Name: "429 throttle with Retry-After seconds",
 			Response: &http.Response{
 				Header:     http.Header{"Retry-After": []string{"60"}},
@@ -93,12 +106,12 @@ func TestRetryResponseParsers(t *testing.T) {
 				}
 			}
 
-			isThrottle, throttleDur := internal.IsThrottleResponse(test.Response)
+			isThrottle, throttleDur := internal.IsThrottleResponse(test.Response, test.RespErr)
 			if assert.Equal(t, test.IsThrottle, isThrottle) {
 				assert.WithinDuration(t, time.Now().Add(test.ThrottleDuration), time.Now().Add(throttleDur), time.Second)
 			}
 
-			isUnavailable := internal.IsUnavailableResponse(test.Response)
+			isUnavailable := internal.IsUnavailableResponse(test.Response, test.RespErr)
 			assert.Equal(t, test.IsUnavailable, isUnavailable)
 		})
 	}

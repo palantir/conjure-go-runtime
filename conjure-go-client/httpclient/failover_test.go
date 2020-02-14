@@ -20,6 +20,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/palantir/conjure-go-runtime/conjure-go-client/httpclient/internal"
 	"github.com/palantir/pkg/httpserver"
@@ -46,6 +47,41 @@ func TestFailover503(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = cli.Do(context.Background(), WithRequestMethod("GET"))
+	assert.Nil(t, err)
+	assert.Equal(t, 3, n)
+}
+
+func TestFailover429(t *testing.T) {
+	n := 0
+	handler := http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		n++
+		if n == 3 {
+			rw.WriteHeader(http.StatusOK)
+			_, err := rw.Write([]byte("body"))
+			require.NoError(t, err)
+		} else {
+			rw.WriteHeader(http.StatusTooManyRequests)
+			_, err := rw.Write([]byte("body"))
+			require.NoError(t, err)
+		}
+	})
+
+	s1 := httptest.NewServer(handler)
+	s2 := httptest.NewServer(handler)
+	s3 := httptest.NewServer(handler)
+
+	backoff := 5 * time.Millisecond
+	cli, err := NewClient(WithBaseURLs([]string{s1.URL, s2.URL, s3.URL}), WithInitialBackoff(backoff), WithMaxBackoff(backoff))
+	require.NoError(t, err)
+
+	timer := time.NewTimer(backoff)
+	_, err = cli.Do(context.Background(), WithRequestMethod("GET"))
+	select {
+	case <-timer.C:
+		break
+	default:
+		t.Error("Timer was not complete, back-off did not appear to occur")
+	}
 	assert.Nil(t, err)
 	assert.Equal(t, 3, n)
 }
