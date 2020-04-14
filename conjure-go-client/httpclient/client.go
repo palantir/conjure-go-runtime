@@ -202,9 +202,10 @@ func (c *clientImpl) doOnce(ctx context.Context, baseURI string, params ...Reque
 		b.errorDecoderMiddleware,
 		// must precede the body middleware so it can read the response body
 		c.errorDecoderMiddleware,
-		b.bodyMiddleware,
 	}
+	// must precede the body middleware so it can read the request body
 	middlewares = append(middlewares, c.middlewares...)
+	middlewares = append(middlewares, b.bodyMiddleware)
 	for _, middleware := range middlewares {
 		if middleware != nil {
 			transport = wrapTransport(transport, middleware)
