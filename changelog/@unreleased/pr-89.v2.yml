@@ -1,0 +1,5 @@
+type: improvement
+improvement:
+  description: Client middleware is able to read the request body
+  links:
+  - https://github.com/palantir/conjure-go-runtime/pull/89
