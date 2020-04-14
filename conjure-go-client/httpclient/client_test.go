@@ -16,9 +16,14 @@ package httpclient_test
 
 import (
 	"context"
+	"io"
+	"io/ioutil"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/palantir/conjure-go-runtime/conjure-go-client/httpclient"
+	"github.com/palantir/conjure-go-runtime/conjure-go-contract/codecs"
 	"github.com/stretchr/testify/require"
 )
 
@@ -28,4 +33,36 @@ func TestNoBaseURIs(t *testing.T) {
 
 	_, err = client.Do(context.Background(), httpclient.WithRequestMethod("GET"))
 	require.Error(t, err)
+}
+
+func TestMiddlewareCanReadBody(t *testing.T) {
+	unencodedBody := "body"
+	encodedBody, err := codecs.Plain.Marshal(unencodedBody)
+	require.NoError(t, err)
+	bodyIsCorrect := func(body io.ReadCloser) {
+		content, err := ioutil.ReadAll(body)
+		require.NoError(t, err)
+		require.Equal(t, encodedBody, content)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		bodyIsCorrect(req.Body)
+		rw.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	client, err := httpclient.NewClient(
+		httpclient.WithMiddleware(httpclient.MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+			body, err := req.GetBody()
+			require.NoError(t, err)
+			bodyIsCorrect(body)
+			return next.RoundTrip(req)
+		})),
+		httpclient.WithBaseURLs([]string{server.URL}),
+	)
+	require.NoError(t, err)
+
+	resp, err := client.Do(context.Background(), httpclient.WithRequestBody(unencodedBody, codecs.Plain), httpclient.WithRequestMethod("GET"))
+	require.NoError(t, err)
+	require.NotNil(t, resp)
 }
