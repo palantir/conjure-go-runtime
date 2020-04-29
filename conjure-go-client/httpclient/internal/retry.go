@@ -33,6 +33,7 @@ http-remoting servers can use the QosException class to advertise the following 
 The QosExceptions have a stable mapping to HTTP status codes and response headers:
 
 * throttle: 429 Too Many Requests, plus optional Retry-After header
+* retryOther: 307 Temporary Redirect, plus Location header indicating the target host
 * retryOther: 308 Permanent Redirect, plus Location header indicating the target host
 * unavailable: 503 Unavailable
 
@@ -52,13 +53,14 @@ The number of retries for 503 and connection errors can be configured via Client
 */
 
 const (
-	StatusCodeRetryOther  = http.StatusPermanentRedirect
-	StatusCodeThrottle    = http.StatusTooManyRequests
-	StatusCodeUnavailable = http.StatusServiceUnavailable
+	StatusCodeRetryPermRedirect = http.StatusPermanentRedirect
+	StatusCodeRetryTempRedirect = http.StatusTemporaryRedirect
+	StatusCodeThrottle          = http.StatusTooManyRequests
+	StatusCodeUnavailable       = http.StatusServiceUnavailable
 )
 
 func IsRetryOtherResponse(resp *http.Response) (bool, *url.URL) {
-	if resp == nil || resp.StatusCode != StatusCodeRetryOther {
+	if resp == nil || (resp.StatusCode != StatusCodeRetryPermRedirect && resp.StatusCode != StatusCodeRetryTempRedirect) {
 		return false, nil
 	}
 	locationStr := resp.Header.Get("Location")
