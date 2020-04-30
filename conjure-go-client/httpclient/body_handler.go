@@ -60,10 +60,7 @@ func (b *bodyMiddleware) setRequestBody(req *http.Request) error {
 	// use the provided input directly as the request body.
 	if bodyReadCloser, ok := b.requestInput.(io.ReadCloser); ok && b.requestEncoder == nil {
 		req.Body = bodyReadCloser
-		// Use the same heuristic as http.NewRequest to generate the "GetBody" function.
-		if newReq, err := http.NewRequest("", "", bodyReadCloser); err == nil {
-			req.GetBody = newReq.GetBody
-		}
+		req.GetBody = nil
 		return nil
 	}
 
