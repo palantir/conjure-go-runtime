@@ -1,5 +1,5 @@
 type: improvement
 improvement:
-  description: <!-- User-facing outcomes this PR delivers -->
+  description: Explicitly set GetBody to nil for ReadCloser req input
   links:
   - https://github.com/palantir/conjure-go-runtime/pull/91
