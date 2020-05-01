@@ -56,6 +56,11 @@ func TestMiddlewareCanReadBody(t *testing.T) {
 			body, err := req.GetBody()
 			require.NoError(t, err)
 			bodyIsCorrect(body)
+
+			bodyAgain, err := req.GetBody()
+			require.NoError(t, err)
+			bodyIsCorrect(bodyAgain)
+
 			return next.RoundTrip(req)
 		})),
 		httpclient.WithBaseURLs([]string{server.URL}),
