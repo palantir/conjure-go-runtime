@@ -108,6 +108,7 @@ func NewClient(params ...ClientParam) (Client, error) {
 		middlewares:                   middlewares,
 		metricsMiddleware:             b.metricsMiddleware,
 		errorDecoderMiddleware:        edm,
+		bufferPool:                    b.BytesBufferPool,
 	}, nil
 }
 
