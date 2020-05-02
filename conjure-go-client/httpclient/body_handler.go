@@ -39,21 +39,27 @@ type bodyMiddleware struct {
 }
 
 func (b *bodyMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (*http.Response, error) {
-	if err := b.setRequestBody(req); err != nil {
+	cleanup, err := b.setRequestBody(req)
+	if err != nil {
 		return nil, err
 	}
 
 	resp, respErr := next.RoundTrip(req)
+	cleanup()
 
 	if err := b.readResponse(resp, respErr); err != nil {
 		return nil, err
 	}
+
 	return resp, nil
 }
 
-func (b *bodyMiddleware) setRequestBody(req *http.Request) error {
+// setRequestBody returns a function that should be called once the request has been completed.
+func (b *bodyMiddleware) setRequestBody(req *http.Request) (func(), error) {
+	cleanup := func() {}
+
 	if b.requestInput == nil {
-		return nil
+		return cleanup, nil
 	}
 
 	// Special case: if the requestInput is an io.ReadCloser and the requestEncoder is nil,
@@ -64,19 +70,21 @@ func (b *bodyMiddleware) setRequestBody(req *http.Request) error {
 		if newReq, err := http.NewRequest("", "", bodyReadCloser); err == nil {
 			req.GetBody = newReq.GetBody
 		}
-		return nil
+		return cleanup, nil
 	}
 
 	var buf *bytes.Buffer
 	if b.bufferPool != nil {
 		buf = b.bufferPool.Get()
-		defer b.bufferPool.Put(buf)
+		cleanup = func() {
+			b.bufferPool.Put(buf)
+		}
 	} else {
 		buf = new(bytes.Buffer)
 	}
 
 	if err := b.requestEncoder.Encode(buf, b.requestInput); err != nil {
-		return werror.Wrap(err, "failed to encode request object")
+		return cleanup, werror.Wrap(err, "failed to encode request object")
 	}
 
 	if buf.Len() != 0 {
@@ -88,7 +96,7 @@ func (b *bodyMiddleware) setRequestBody(req *http.Request) error {
 		req.Body = http.NoBody
 		req.GetBody = func() (io.ReadCloser, error) { return http.NoBody, nil }
 	}
-	return nil
+	return cleanup, nil
 }
 
 func (b *bodyMiddleware) readResponse(resp *http.Response, respErr error) error {
