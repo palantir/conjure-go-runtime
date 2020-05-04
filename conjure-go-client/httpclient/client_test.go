@@ -103,7 +103,7 @@ func BenchmarkAllocWithBytesBufferPool(b *testing.B) {
 	defer server.Close()
 
 	// When making 'count' requests, we expect a client with a bufferpool of size 1 to make roughly 'count'
-	// fewer allocations than a client with no bufferpool.
+	// fewer allocations than a client with no bufferpool, due to memory reuse.
 	runBench := func(b *testing.B, client httpclient.Client) {
 		ctx := context.Background()
 		reqBody := httpclient.WithRequestBody("body", codecs.Plain)
