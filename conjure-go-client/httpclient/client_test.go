@@ -16,6 +16,7 @@ package httpclient_test
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -95,53 +96,44 @@ func TestMiddlewareCanReadBody(t *testing.T) {
 	require.NotNil(t, resp)
 }
 
-func BenchmarkAllocNoBytesBufferPool(b *testing.B) {
-	server := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
-		rw.WriteHeader(http.StatusOK)
-	}))
-	defer server.Close()
-
-	client, err := httpclient.NewClient(
-		httpclient.WithBaseURLs([]string{server.URL}),
-	)
-	require.NoError(b, err)
-
-	ctx := context.Background()
-	reqBody := httpclient.WithRequestBody("body", codecs.Plain)
-	reqMethod := httpclient.WithRequestMethod("GET")
-	for i := 0; i < b.N; i++ {
-		for j := 0; j < 100; j++ {
-			resp, err := client.Do(ctx, reqBody, reqMethod)
-			require.NoError(b, err)
-			require.NotNil(b, resp)
-		}
-	}
-
-	b.ReportAllocs()
-}
-
 func BenchmarkAllocWithBytesBufferPool(b *testing.B) {
 	server := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
 		rw.WriteHeader(http.StatusOK)
 	}))
 	defer server.Close()
 
-	client, err := httpclient.NewClient(
-		httpclient.WithBytesBufferPool(bytesbuffers.NewSizedPool(1, 10)),
-		httpclient.WithBaseURLs([]string{server.URL}),
-	)
-	require.NoError(b, err)
-
-	ctx := context.Background()
-	reqBody := httpclient.WithRequestBody("body", codecs.Plain)
-	reqMethod := httpclient.WithRequestMethod("GET")
-	for i := 0; i < b.N; i++ {
-		for j := 0; j < 100; j++ {
-			resp, err := client.Do(ctx, reqBody, reqMethod)
-			require.NoError(b, err)
-			require.NotNil(b, resp)
+	// When making 'count' requests, we expect a client with a bufferpool of size 1 to make roughly 'count'
+	// fewer allocations than a client with no bufferpool.
+	runBench := func(b *testing.B, client httpclient.Client) {
+		ctx := context.Background()
+		reqBody := httpclient.WithRequestBody("body", codecs.Plain)
+		reqMethod := httpclient.WithRequestMethod("GET")
+		for _, count := range []int{1, 10, 100} {
+			b.Run(fmt.Sprintf("count=%d", count), func(b *testing.B) {
+				b.ReportAllocs()
+				for i := 0; i < b.N; i++ {
+					for j := 0; j < count; j++ {
+						resp, err := client.Do(ctx, reqBody, reqMethod)
+						require.NoError(b, err)
+						require.NotNil(b, resp)
+					}
+				}
+			})
 		}
 	}
-
-	b.ReportAllocs()
+	b.Run("NoByteBufferPool", func(b *testing.B) {
+		client, err := httpclient.NewClient(
+			httpclient.WithBaseURLs([]string{server.URL}),
+		)
+		require.NoError(b, err)
+		runBench(b, client)
+	})
+	b.Run("WithByteBufferPool", func(b *testing.B) {
+		client, err := httpclient.NewClient(
+			httpclient.WithBytesBufferPool(bytesbuffers.NewSizedPool(1, 10)),
+			httpclient.WithBaseURLs([]string{server.URL}),
+		)
+		require.NoError(b, err)
+		runBench(b, client)
+	})
 }
