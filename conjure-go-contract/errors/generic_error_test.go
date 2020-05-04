@@ -24,13 +24,15 @@ import (
 
 	"github.com/palantir/conjure-go-runtime/conjure-go-contract/codecs"
 	"github.com/palantir/conjure-go-runtime/conjure-go-contract/errors"
+	wparams "github.com/palantir/witchcraft-go-params"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestError_Error(t *testing.T) {
 	err := errors.NewError(
 		errors.MustErrorType(errors.Timeout, "MyApplication:DatabaseTimeout"),
-		errors.SafeParam("ttl", "10s"),
+		wparams.NewSafeParamStorer(map[string]interface{}{"ttl": "10s"}),
 	)
 	assert.EqualError(t, err, fmt.Sprintf("TIMEOUT MyApplication:DatabaseTimeout (%s)", err.InstanceID()))
 }
@@ -38,7 +40,7 @@ func TestError_Error(t *testing.T) {
 func TestError_CodecsJSONEscapesHTML(t *testing.T) {
 	e := errors.NewError(
 		errors.MustErrorType(errors.Timeout, "MyApplication:Timeout"),
-		errors.SafeParam("htmlKey", "something&something"),
+		wparams.NewSafeParamStorer(map[string]interface{}{"htmlKey": "something&something"}),
 	)
 
 	marshalledError, err := codecs.JSON.Marshal(e)
@@ -49,18 +51,32 @@ func TestError_CodecsJSONEscapesHTML(t *testing.T) {
 func TestError_NewError_Then_MarshalJSON_Then_UnmarshalJSON_And_Unpack(t *testing.T) {
 	e := errors.NewError(
 		errors.MustErrorType(errors.Timeout, "MyApplication:Timeout"),
-		errors.SafeParam("safeKey", "safeValue"),
-		errors.UnsafeParam("unsafeKey", "unsafeValue"),
+		wparams.NewSafeAndUnsafeParamStorer(
+			map[string]interface{}{"safeKey": "safeValue"},
+			map[string]interface{}{"unsafeKey": "unsafeValue"},
+		),
 	)
 
 	marshalledError, err := codecs.JSON.Marshal(e)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
-	var se errors.SerializableError
-	err = codecs.JSON.Unmarshal(marshalledError, &se)
-	assert.NoError(t, err)
+	unmarshalledError, err := errors.UnmarshalError(marshalledError)
+	require.NoError(t, err)
 
-	unpacked, err := errors.UnpackError(se)
-	assert.NoError(t, err)
-	assert.Equal(t, e, unpacked)
+	assert.EqualError(t, unmarshalledError, e.Error())
+	assert.Equal(t, e.Name(), unmarshalledError.Name())
+	assert.Equal(t, e.Code(), unmarshalledError.Code())
+	assert.Equal(t, e.InstanceID(), unmarshalledError.InstanceID())
+	assert.Equal(t, params(e), params(unmarshalledError))
+}
+
+func params(storer wparams.ParamStorer) map[string]interface{} {
+	params := make(map[string]interface{})
+	for k, v := range storer.UnsafeParams() {
+		params[k] = v
+	}
+	for k, v := range storer.SafeParams() {
+		params[k] = v
+	}
+	return params
 }
