@@ -17,6 +17,7 @@ package errors
 import (
 	"encoding/json"
 
+	"github.com/palantir/conjure-go-runtime/conjure-go-contract/codecs"
 	"github.com/palantir/pkg/uuid"
 )
 
@@ -49,7 +50,7 @@ type SerializableError struct {
 // Marshalling this struct to json should never fail.
 // It is best effort: if parameters fail to marshal, they will be omitted.
 func serializeError(e Error) SerializableError {
-	params, err := marshalParams(e) // on failure, params will be nil
+	params, err := codecs.JSON.Marshal(mergeParams(e)) // on failure, params will be nil
 	if err != nil {
 		params = nil
 	}

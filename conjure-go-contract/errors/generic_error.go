@@ -88,7 +88,7 @@ func (e genericError) UnsafeParams() map[string]interface{} {
 }
 
 func (e genericError) MarshalJSON() ([]byte, error) {
-	marshalledParameters, err := marshalParams(e.params)
+	marshalledParameters, err := codecs.JSON.Marshal(mergeParams(e.params))
 	if err != nil {
 		return nil, err
 	}
@@ -122,7 +122,7 @@ func (e *genericError) UnmarshalJSON(data []byte) (err error) {
 	return nil
 }
 
-func marshalParams(storer wparams.ParamStorer) ([]byte, error) {
+func mergeParams(storer wparams.ParamStorer) map[string]interface{} {
 	safeParams, unsafeParams := storer.SafeParams(), storer.UnsafeParams()
 	params := make(map[string]interface{}, len(safeParams)+len(unsafeParams))
 	for k, v := range unsafeParams {
@@ -131,5 +131,5 @@ func marshalParams(storer wparams.ParamStorer) ([]byte, error) {
 	for k, v := range safeParams {
 		params[k] = v
 	}
-	return codecs.JSON.Marshal(params)
+	return params
 }

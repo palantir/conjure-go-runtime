@@ -45,7 +45,7 @@ func TestRegisterErrorType_types(t *testing.T) {
 		assert.PanicsWithValue(t,
 			"Error type *string does not implement errors.Error interface",
 			func() {
-				RegisterErrorType("name2", reflect.TypeOf("string"))
+				RegisterErrorType("name3", reflect.TypeOf("string"))
 			})
 	})
 }
