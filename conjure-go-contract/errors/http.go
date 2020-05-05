@@ -20,17 +20,6 @@ import (
 	"github.com/palantir/conjure-go-runtime/conjure-go-contract/codecs"
 )
 
-// ErrorFromResponse extract serializable error from the given response.
-//
-// TODO This function is subject to change.
-func ErrorFromResponse(response *http.Response) (SerializableError, error) {
-	var unmarshalled SerializableError
-	if err := codecs.JSON.Decode(response.Body, &unmarshalled); err != nil {
-		return SerializableError{}, err
-	}
-	return unmarshalled, nil
-}
-
 // WriteErrorResponse writes error to the response writer.
 //
 // TODO This function is subject to change.

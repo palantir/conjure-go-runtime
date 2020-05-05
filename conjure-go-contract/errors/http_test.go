@@ -19,7 +19,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
-	"net/http"
 	"net/http/httptest"
 	"testing"
 
@@ -28,58 +27,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-func TestErrorFromResponse(t *testing.T) {
-	tests := map[string]errors.SerializableError{
-		"default timeout": {
-			ErrorCode:       errors.DefaultTimeout.Code(),
-			ErrorName:       errors.DefaultTimeout.Name(),
-			ErrorInstanceID: uuid.NewUUID(),
-			Parameters:      json.RawMessage(`{"ttl":"10s"}`),
-		},
-		"custom timeout": {
-			ErrorCode:       errors.DefaultTimeout.Code(),
-			ErrorName:       "MyApplication:Timeout",
-			ErrorInstanceID: uuid.NewUUID(),
-			Parameters:      json.RawMessage(`{"ttl":"10s"}`),
-		},
-		"custom not found": {
-			ErrorCode:       errors.NotFound,
-			ErrorName:       "MyApplication:MissingData",
-			ErrorInstanceID: uuid.NewUUID(),
-		},
-		"custom client": {
-			ErrorCode:       errors.CustomClient,
-			ErrorName:       "MyApplication:CustomClientError",
-			ErrorInstanceID: uuid.NewUUID(),
-		},
-		"custom server": {
-			ErrorCode:       errors.CustomServer,
-			ErrorName:       "MyApplication:CustomServerError",
-			ErrorInstanceID: uuid.NewUUID(),
-		},
-	}
-
-	for name, expected := range tests {
-		t.Run(name, func(t *testing.T) {
-			marshalledError, err := json.Marshal(expected)
-			require.NoError(t, err)
-
-			response := &http.Response{
-				Status:     http.StatusText(expected.ErrorCode.StatusCode()),
-				StatusCode: expected.ErrorCode.StatusCode(),
-				Header: http.Header{
-					"Content-Type": []string{"application/json; charset=utf-8"},
-				},
-				Body: ioutil.NopCloser(bytes.NewBuffer(marshalledError)),
-			}
-
-			actual, err := errors.ErrorFromResponse(response)
-			assert.NoError(t, err)
-			assert.Equal(t, expected, actual)
-		})
-	}
-}
 
 func TestWriteErrorResponse_ValidateJSON(t *testing.T) {
 	testSerializableError := errors.SerializableError{

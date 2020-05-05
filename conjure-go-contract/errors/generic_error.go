@@ -118,11 +118,14 @@ func (e *genericError) UnmarshalJSON(data []byte) (err error) {
 	}
 	e.errorInstanceID = se.ErrorInstanceID
 
-	params := make(map[string]interface{})
-	if err := codecs.JSON.Unmarshal(se.Parameters, &params); err != nil {
-		return err
+	if len(se.Parameters) > 0 {
+		params := make(map[string]interface{})
+		if err := codecs.JSON.Unmarshal(se.Parameters, &params); err != nil {
+			return err
+		}
+		e.params = wparams.NewUnsafeParamStorer(params)
+	} else {
+		e.params = wparams.NewParamStorer()
 	}
-	e.params = wparams.NewUnsafeParamStorer(params)
-
 	return nil
 }
