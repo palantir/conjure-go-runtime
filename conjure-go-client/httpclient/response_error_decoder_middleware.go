@@ -15,9 +15,11 @@
 package httpclient
 
 import (
+	"io/ioutil"
 	"net/http"
 
 	"github.com/palantir/conjure-go-runtime/conjure-go-client/httpclient/internal"
+	"github.com/palantir/conjure-go-runtime/conjure-go-contract/errors"
 	werror "github.com/palantir/witchcraft-go-error"
 )
 
@@ -72,4 +74,29 @@ func (d restErrorDecoder) DecodeError(resp *http.Response) error {
 // StatusCodeFromError wraps the internal StatusCodeFromError func. For behavior details, see its docs.
 func StatusCodeFromError(err error) (statusCode int, ok bool) {
 	return internal.StatusCodeFromError(err)
+}
+
+func ConjureErrorDecoder() ErrorDecoder {
+	return conjureErrorDecoder{}
+}
+
+type conjureErrorDecoder struct{}
+
+func (c conjureErrorDecoder) Handles(resp *http.Response) bool {
+	return resp.StatusCode >= http.StatusBadRequest
+}
+
+func (c conjureErrorDecoder) DecodeError(resp *http.Response) error {
+	// TODO(bmoylan): If a byte buffer pool is configured, use it to avoid an allocation.
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return werror.Wrap(err, "server returned an error and failed to read body", werror.SafeParam("statusCode", resp.StatusCode))
+	}
+
+	conjureErr, err := errors.UnmarshalError(body)
+	if err != nil {
+		return werror.Wrap(err, "server returned an error and failed to unmarshal body",
+			werror.SafeParam("statusCode", resp.StatusCode), werror.UnsafeParam("body", string(body)))
+	}
+	return werror.Convert(conjureErr)
 }

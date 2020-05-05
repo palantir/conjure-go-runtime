@@ -23,22 +23,20 @@ import (
 	"testing"
 
 	"github.com/palantir/conjure-go-runtime/conjure-go-contract/errors"
-	"github.com/palantir/pkg/uuid"
+	wparams "github.com/palantir/witchcraft-go-params"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestWriteErrorResponse_ValidateJSON(t *testing.T) {
-	testSerializableError := errors.SerializableError{
-		ErrorCode:       errors.Timeout,
-		ErrorName:       "MyApplication:Timeout",
-		ErrorInstanceID: uuid.NewUUID(),
-		Parameters: json.RawMessage(`{
-    "metadata": {
-      "keyB": 4
-    }
-  }`),
-	}
+	testError := errors.NewError(errors.MustErrorType(errors.Timeout, "MyApplication:Timeout"),
+		wparams.NewSafeParamStorer(map[string]interface{}{
+			"metadata": struct {
+				KeyB int `json:"keyB"`
+			}{
+				KeyB: 4,
+			},
+		}))
 
 	testErrorJSON := fmt.Sprintf(`{
   "errorCode": "TIMEOUT",
@@ -49,10 +47,10 @@ func TestWriteErrorResponse_ValidateJSON(t *testing.T) {
       "keyB": 4
     }
   }
-}`, testSerializableError.ErrorInstanceID)
+}`, testError.InstanceID())
 
 	recorder := httptest.NewRecorder()
-	errors.WriteErrorResponse(recorder, testSerializableError)
+	errors.WriteErrorResponse(recorder, testError)
 	response := recorder.Result()
 
 	assert.Equal(t, "application/json; charset=utf-8", response.Header.Get("Content-Type"))

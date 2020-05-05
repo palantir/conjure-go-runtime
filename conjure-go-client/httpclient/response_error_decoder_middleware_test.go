@@ -20,10 +20,14 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 
 	"github.com/palantir/conjure-go-runtime/conjure-go-client/httpclient"
 	"github.com/palantir/conjure-go-runtime/conjure-go-client/httpclient/internal"
+	"github.com/palantir/conjure-go-runtime/conjure-go-contract/errors"
+	werror "github.com/palantir/witchcraft-go-error"
+	wparams "github.com/palantir/witchcraft-go-params"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -107,4 +111,32 @@ func (bodyReadingErrorDecoder) DecodeError(resp *http.Response) error {
 		return fmt.Errorf("error reading response body: %v", err)
 	}
 	return fmt.Errorf("error from body: %s", b)
+}
+
+func TestConjureErrorDecoder(t *testing.T) {
+	ctx := context.Background()
+	ts := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		err := errors.NewNotFound(wparams.NewSafeParamStorer(map[string]interface{}{"pathParam": req.URL.Path}))
+		errors.WriteErrorResponse(rw, err)
+	}))
+	defer ts.Close()
+	tsURL, err := url.Parse(ts.URL)
+	require.NoError(t, err)
+
+	client, err := httpclient.NewClient(
+		httpclient.WithBaseURLs([]string{ts.URL}),
+		httpclient.WithErrorDecoder(httpclient.ConjureErrorDecoder()),
+	)
+	require.NoError(t, err)
+	_, err = client.Get(ctx, httpclient.WithPath("/path"))
+	require.Error(t, err)
+	conjureErr := werror.RootCause(err).(errors.Error)
+	id := conjureErr.InstanceID()
+	assert.NotEmpty(t, id)
+	assert.Equal(t, errors.NotFound, conjureErr.Code())
+	assert.Equal(t, errors.DefaultNotFound.Name(), conjureErr.Name())
+
+	safeParams, unsafeParams := werror.ParamsFromError(err)
+	assert.Equal(t, map[string]interface{}{"requestHost": tsURL.Host, "requestMethod": "Get", "errorInstanceId": id}, safeParams)
+	assert.Equal(t, map[string]interface{}{"requestPath": "/path", "pathParam": "/path"}, unsafeParams)
 }

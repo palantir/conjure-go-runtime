@@ -27,7 +27,7 @@ import (
 )
 
 func TestUnmarshalError(t *testing.T) {
-	errors.RegisterErrorType(testErrorName, reflect.TypeOf(testError{}))
+	errors.RegisterErrorType(testErrorName, reflect.TypeOf(testErrorType{}))
 	for _, test := range []struct {
 		name      string
 		in        errors.SerializableError
@@ -105,7 +105,7 @@ func TestUnmarshalError(t *testing.T) {
 				Parameters:      json.RawMessage(`{"intArg": 3, "stringArg": "foo"}`),
 			},
 			verify: func(t *testing.T, actual errors.Error) {
-				assert.Equal(t, testErrorParams{IntArg: 3, StringArg: "foo"}, actual.(*testError).Parameters)
+				assert.Equal(t, testErrorTypeParams{IntArg: 3, StringArg: "foo"}, actual.(*testErrorType).Parameters)
 				assert.Equal(t, map[string]interface{}{"intArg": 3, "errorInstanceId": actual.InstanceID()}, actual.SafeParams())
 				assert.Equal(t, map[string]interface{}{"stringArg": "foo"}, actual.UnsafeParams())
 			},
@@ -131,38 +131,38 @@ func TestUnmarshalError(t *testing.T) {
 
 const testErrorName = "TestNamespace:TestError"
 
-type testError struct {
-	ErrorCode       errors.ErrorCode       `json:"errorCode"`
-	ErrorName       string          `json:"errorName"`
-	ErrorInstanceID uuid.UUID       `json:"errorInstanceId"`
-	Parameters      testErrorParams `json:"parameters,omitempty"`
+type testErrorType struct {
+	ErrorCode       errors.ErrorCode    `json:"errorCode"`
+	ErrorName       string              `json:"errorName"`
+	ErrorInstanceID uuid.UUID           `json:"errorInstanceId"`
+	Parameters      testErrorTypeParams `json:"parameters,omitempty"`
 }
 
-type testErrorParams struct {
-	IntArg int `json:"intArg,omitempty"`
+type testErrorTypeParams struct {
+	IntArg    int    `json:"intArg,omitempty"`
 	StringArg string `json:"stringArg,omitempty"`
 }
 
-func (e *testError) Error() string {
+func (e *testErrorType) Error() string {
 	return fmt.Sprintf("%s (%s)", e.ErrorName, e.ErrorInstanceID)
 }
 
-func (e *testError) Code() errors.ErrorCode {
+func (e *testErrorType) Code() errors.ErrorCode {
 	return e.ErrorCode
 }
 
-func (e *testError) Name() string {
+func (e *testErrorType) Name() string {
 	return e.ErrorName
 }
 
-func (e *testError) InstanceID() uuid.UUID {
+func (e *testErrorType) InstanceID() uuid.UUID {
 	return e.ErrorInstanceID
 }
 
-func (e *testError) SafeParams() map[string]interface{} {
+func (e *testErrorType) SafeParams() map[string]interface{} {
 	return map[string]interface{}{"intArg": e.Parameters.IntArg, "errorInstanceId": e.InstanceID()}
 }
 
-func (e *testError) UnsafeParams() map[string]interface{} {
+func (e *testErrorType) UnsafeParams() map[string]interface{} {
 	return map[string]interface{}{"stringArg": e.Parameters.StringArg}
 }

@@ -44,3 +44,19 @@ type SerializableError struct {
 	ErrorInstanceID uuid.UUID       `json:"errorInstanceId"`
 	Parameters      json.RawMessage `json:"parameters,omitempty"`
 }
+
+// SerializeError converts an Error to a serializable format.
+// Marshalling this struct to json should never fail.
+// It is best effort: if parameters fail to marshal, they will be omitted.
+func serializeError(e Error) SerializableError {
+	params, err := marshalParams(e) // on failure, params will be nil
+	if err != nil {
+		params = nil
+	}
+	return SerializableError{
+		ErrorCode:       e.Code(),
+		ErrorName:       e.Name(),
+		ErrorInstanceID: e.InstanceID(),
+		Parameters:      params,
+	}
+}

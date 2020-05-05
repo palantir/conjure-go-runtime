@@ -15,6 +15,7 @@
 package errors
 
 import (
+	"encoding/json"
 	"net/http"
 
 	"github.com/palantir/conjure-go-runtime/conjure-go-contract/codecs"
@@ -23,21 +24,21 @@ import (
 // WriteErrorResponse writes error to the response writer.
 //
 // TODO This function is subject to change.
-func WriteErrorResponse(w http.ResponseWriter, e SerializableError) {
-	marshalledError, err := codecs.JSON.Marshal(e)
-	if err != nil {
-		// Falling back to marshalling error without parameters.
-		// This should always succeed given.
-		marshalledError, _ = codecs.JSON.Marshal(
-			SerializableError{
-				ErrorCode:       e.ErrorCode,
-				ErrorName:       e.ErrorName,
-				ErrorInstanceID: e.ErrorInstanceID,
-				Parameters:      nil,
-			},
-		)
+func WriteErrorResponse(w http.ResponseWriter, e Error) {
+	var marshalledError []byte
+	var err error
+
+	// First try to marshal with custom handling (if present)
+	if marshaler, ok := e.(json.Marshaler); ok {
+		marshalledError, err = codecs.JSON.Marshal(marshaler)
 	}
+	// If we fail, use best-effort conversion to SerializableError.
+	if marshalledError == nil || err != nil {
+		// serializeError() handles param failures, so this should never fail
+		marshalledError, _ = codecs.JSON.Marshal(serializeError(e))
+	}
+
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(e.ErrorCode.StatusCode())
+	w.WriteHeader(e.Code().StatusCode())
 	_, _ = w.Write(marshalledError) // There is nothing we can do on write failure.
 }
