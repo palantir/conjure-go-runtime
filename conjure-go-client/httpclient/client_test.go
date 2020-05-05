@@ -80,25 +80,40 @@ func TestMiddlewareCanReadBody(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client, err := httpclient.NewClient(
-		httpclient.WithMiddleware(httpclient.MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
-			body, err := req.GetBody()
-			require.NoError(t, err)
-			bodyIsCorrect(body)
+	withMiddleware := httpclient.WithMiddleware(httpclient.MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+		body, err := req.GetBody()
+		require.NoError(t, err)
+		bodyIsCorrect(body)
 
-			bodyAgain, err := req.GetBody()
-			require.NoError(t, err)
-			bodyIsCorrect(bodyAgain)
+		bodyAgain, err := req.GetBody()
+		require.NoError(t, err)
+		bodyIsCorrect(bodyAgain)
 
-			return next.RoundTrip(req)
-		})),
-		httpclient.WithBaseURLs([]string{server.URL}),
-	)
-	require.NoError(t, err)
+		return next.RoundTrip(req)
+	}))
 
-	resp, err := client.Do(context.Background(), httpclient.WithRequestBody(unencodedBody, codecs.Plain), httpclient.WithRequestMethod("GET"))
-	require.NoError(t, err)
-	require.NotNil(t, resp)
+	t.Run("NoByteBufferPool", func(t *testing.T) {
+		client, err := httpclient.NewClient(
+			httpclient.WithBytesBufferPool(bytesbuffers.NewSizedPool(1, 10)),
+			withMiddleware,
+			httpclient.WithBaseURLs([]string{server.URL}),
+		)
+		require.NoError(t, err)
+		resp, err := client.Do(context.Background(), httpclient.WithRequestBody(unencodedBody, codecs.Plain), httpclient.WithRequestMethod("GET"))
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+	})
+	t.Run("WithByteBufferPool", func(t *testing.T) {
+		client, err := httpclient.NewClient(
+			httpclient.WithBytesBufferPool(bytesbuffers.NewSizedPool(1, 10)),
+			withMiddleware,
+			httpclient.WithBaseURLs([]string{server.URL}),
+		)
+		require.NoError(t, err)
+		resp, err := client.Do(context.Background(), httpclient.WithRequestBody(unencodedBody, codecs.Plain), httpclient.WithRequestMethod("GET"))
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+	})
 }
 
 func BenchmarkAllocWithBytesBufferPool(b *testing.B) {
