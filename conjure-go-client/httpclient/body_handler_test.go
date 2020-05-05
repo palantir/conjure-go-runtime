@@ -25,6 +25,7 @@ import (
 
 	"github.com/palantir/conjure-go-runtime/conjure-go-client/httpclient"
 	"github.com/palantir/conjure-go-runtime/conjure-go-contract/codecs"
+	"github.com/palantir/pkg/bytesbuffers"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -129,4 +130,45 @@ func TestRawRequestRetry(t *testing.T) {
 		httpclient.WithRequestMethod(http.MethodPost))
 	assert.NoError(t, err)
 	assert.Equal(t, 2, count)
+}
+
+func TestRedirectWithBodyAndBytesBuffer(t *testing.T) {
+	reqVar := map[string]string{"1": "2"}
+	respVar := map[string]string{"3": "4"}
+
+	server := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		var actualReqVar map[string]string
+		err := codecs.JSON.Decode(req.Body, &actualReqVar)
+		assert.NoError(t, err)
+		assert.Equal(t, reqVar, actualReqVar)
+
+		switch req.URL.Path {
+		case "/redirect":
+			rw.Header().Add("Location", "/location")
+			rw.WriteHeader(302)
+		case "/location":
+			assert.NoError(t, codecs.JSON.Encode(rw, respVar))
+		}
+	}))
+	defer server.Close()
+
+	client, err := httpclient.NewClient(
+		httpclient.WithUserAgent("TestNewRequest"),
+		httpclient.WithBaseURLs([]string{server.URL}),
+		httpclient.WithBytesBufferPool(bytesbuffers.NewSizedPool(1, 10)),
+	)
+	require.NoError(t, err)
+
+	var actualRespVar map[string]string
+	resp, err := client.Do(context.Background(),
+		httpclient.WithRequestMethod(http.MethodPost),
+		httpclient.WithPath("/redirect"),
+		httpclient.WithJSONRequest(&reqVar),
+		httpclient.WithJSONResponse(&actualRespVar),
+	)
+
+	assert.NoError(t, err)
+	assert.NotNil(t, resp)
+	assert.Equal(t, resp.StatusCode, 200)
+	assert.Equal(t, respVar, actualRespVar)
 }
