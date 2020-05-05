@@ -1,0 +1,6 @@
+type: fix
+fix:
+  description: request.GetBody() can now be called multiple times with a new copy
+    of the request body.
+  links:
+  - https://github.com/palantir/conjure-go-runtime/pull/92
