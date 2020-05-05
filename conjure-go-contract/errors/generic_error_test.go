@@ -55,9 +55,19 @@ func TestError_NewError_Then_MarshalJSON_Then_UnmarshalJSON_And_Unpack(t *testin
 			map[string]interface{}{"unsafeKey": "unsafeValue"},
 		),
 	)
+	expectedJson := fmt.Sprintf(`{
+  "errorCode": "TIMEOUT",
+  "errorInstanceId": "%s",
+  "errorName": "MyApplication:Timeout",
+  "parameters": {
+    "safeKey": "safeValue",
+    "unsafeKey": "unsafeValue"
+  }
+}`, e.InstanceID().String())
 
 	marshalledError, err := codecs.JSON.Marshal(e)
 	require.NoError(t, err)
+	require.JSONEq(t, expectedJson, string(marshalledError))
 
 	unmarshalledError, err := UnmarshalError(marshalledError)
 	require.NoError(t, err)
