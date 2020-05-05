@@ -31,7 +31,7 @@ func newGenericError(errorType ErrorType, params wparams.ParamStorer) genericErr
 	return genericError{
 		errorType:       errorType,
 		errorInstanceID: uuid.NewUUID(),
-		ParamStorer:     params,
+		params:          params,
 	}
 }
 
@@ -41,7 +41,7 @@ func newGenericError(errorType ErrorType, params wparams.ParamStorer) genericErr
 type genericError struct {
 	errorType       ErrorType
 	errorInstanceID uuid.UUID
-	wparams.ParamStorer
+	params          wparams.ParamStorer
 }
 
 var (
@@ -77,19 +77,26 @@ func (e genericError) InstanceID() uuid.UUID {
 	return e.errorInstanceID
 }
 
-func (e genericError) Parameters() map[string]interface{} {
-	params := make(map[string]interface{}, len(e.SafeParams())+len(e.UnsafeParams()))
-	for k, v := range e.UnsafeParams() {
-		params[k] = v
-	}
-	for k, v := range e.SafeParams() {
-		params[k] = v
-	}
-	return params
+func (e genericError) SafeParams() map[string]interface{} {
+	// Add errorInstanceId as safe param
+	idStorer := wparams.NewSafeParamStorer(map[string]interface{}{"errorInstanceId": e.errorInstanceID})
+	return wparams.NewParamStorer(e.params, idStorer).SafeParams()
+}
+
+func (e genericError) UnsafeParams() map[string]interface{} {
+	return e.params.UnsafeParams()
 }
 
 func (e genericError) MarshalJSON() ([]byte, error) {
-	marshalledParameters, err := codecs.JSON.Marshal(e.Parameters())
+	safeParams, unsafeParams := e.params.SafeParams(), e.params.UnsafeParams()
+	params := make(map[string]interface{}, len(safeParams)+len(unsafeParams))
+	for k, v := range unsafeParams {
+		params[k] = v
+	}
+	for k, v := range safeParams {
+		params[k] = v
+	}
+	marshalledParameters, err := codecs.JSON.Marshal(params)
 	if err != nil {
 		return nil, err
 	}
@@ -115,7 +122,7 @@ func (e *genericError) UnmarshalJSON(data []byte) (err error) {
 	if err := codecs.JSON.Unmarshal(se.Parameters, &params); err != nil {
 		return err
 	}
-	e.ParamStorer = wparams.NewUnsafeParamStorer(params)
+	e.params = wparams.NewUnsafeParamStorer(params)
 
 	return nil
 }

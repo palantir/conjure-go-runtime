@@ -20,18 +20,10 @@ import (
 	"reflect"
 
 	"github.com/palantir/conjure-go-runtime/conjure-go-contract/codecs"
+	werror "github.com/palantir/witchcraft-go-error"
 )
 
-var registry = map[string]reflect.Type{
-	DefaultPermissionDenied.Name():      reflect.TypeOf(genericError{}),
-	DefaultInvalidArgument.Name():       reflect.TypeOf(genericError{}),
-	DefaultNotFound.Name():              reflect.TypeOf(genericError{}),
-	DefaultConflict.Name():              reflect.TypeOf(genericError{}),
-	DefaultRequestEntityTooLarge.Name(): reflect.TypeOf(genericError{}),
-	DefaultFailedPrecondition.Name():    reflect.TypeOf(genericError{}),
-	DefaultInternal.Name():              reflect.TypeOf(genericError{}),
-	DefaultTimeout.Name():               reflect.TypeOf(genericError{}),
-}
+var registry = map[string]reflect.Type{}
 
 func RegisterErrorType(name string, typ reflect.Type) {
 	if existing, exists := registry[name]; exists {
@@ -47,7 +39,7 @@ func UnmarshalError(message json.RawMessage) (Error, error) {
 	var se SerializableError
 	if err := codecs.JSON.Unmarshal(message, &se); err != nil {
 		// TODO(now) return some kind of constructed empty error (or nil?)
-		return nil, err
+		return nil, werror.Convert(err)
 	}
 	typ, ok := registry[se.ErrorName]
 	if !ok {
@@ -58,7 +50,8 @@ func UnmarshalError(message json.RawMessage) (Error, error) {
 	instance := reflect.New(typ).Interface()
 	err := codecs.JSON.Unmarshal(message, &instance)
 	if err != nil {
-		return nil, err
+		// TODO(bmoylan): Do we want to be more lenient and use a genericError if this can not unmarshal?
+		return nil, werror.Convert(err)
 	}
 	return instance.(Error), nil
 }
