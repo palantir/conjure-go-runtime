@@ -94,7 +94,6 @@ func TestMiddlewareCanReadBody(t *testing.T) {
 
 	t.Run("NoByteBufferPool", func(t *testing.T) {
 		client, err := httpclient.NewClient(
-			httpclient.WithBytesBufferPool(bytesbuffers.NewSizedPool(1, 10)),
 			withMiddleware,
 			httpclient.WithBaseURLs([]string{server.URL}),
 		)
