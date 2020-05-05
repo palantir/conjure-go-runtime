@@ -16,6 +16,8 @@ package errors_test
 
 import (
 	"encoding/json"
+	"fmt"
+	"reflect"
 	"testing"
 
 	"github.com/palantir/conjure-go-runtime/conjure-go-contract/errors"
@@ -25,6 +27,7 @@ import (
 )
 
 func TestUnmarshalError(t *testing.T) {
+	errors.RegisterErrorType(testErrorName, reflect.TypeOf(testError{}))
 	for _, test := range []struct {
 		name      string
 		in        errors.SerializableError
@@ -93,6 +96,20 @@ func TestUnmarshalError(t *testing.T) {
 				assert.Equal(t, map[string]interface{}{}, actual.UnsafeParams())
 			},
 		},
+		{
+			name: "registered error type",
+			in: errors.SerializableError{
+				ErrorCode:       errors.CustomClient,
+				ErrorName:       testErrorName,
+				ErrorInstanceID: uuid.NewUUID(),
+				Parameters:      json.RawMessage(`{"intArg": 3, "stringArg": "foo"}`),
+			},
+			verify: func(t *testing.T, actual errors.Error) {
+				assert.Equal(t, testErrorParams{IntArg: 3, StringArg: "foo"}, actual.(*testError).Parameters)
+				assert.Equal(t, map[string]interface{}{"intArg": 3, "errorInstanceId": actual.InstanceID()}, actual.SafeParams())
+				assert.Equal(t, map[string]interface{}{"stringArg": "foo"}, actual.UnsafeParams())
+			},
+		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			marshalledError, err := json.Marshal(test.in)
@@ -110,4 +127,42 @@ func TestUnmarshalError(t *testing.T) {
 			}
 		})
 	}
+}
+
+const testErrorName = "TestNamespace:TestError"
+
+type testError struct {
+	ErrorCode       errors.ErrorCode       `json:"errorCode"`
+	ErrorName       string          `json:"errorName"`
+	ErrorInstanceID uuid.UUID       `json:"errorInstanceId"`
+	Parameters      testErrorParams `json:"parameters,omitempty"`
+}
+
+type testErrorParams struct {
+	IntArg int `json:"intArg,omitempty"`
+	StringArg string `json:"stringArg,omitempty"`
+}
+
+func (e *testError) Error() string {
+	return fmt.Sprintf("%s (%s)", e.ErrorName, e.ErrorInstanceID)
+}
+
+func (e *testError) Code() errors.ErrorCode {
+	return e.ErrorCode
+}
+
+func (e *testError) Name() string {
+	return e.ErrorName
+}
+
+func (e *testError) InstanceID() uuid.UUID {
+	return e.ErrorInstanceID
+}
+
+func (e *testError) SafeParams() map[string]interface{} {
+	return map[string]interface{}{"intArg": e.Parameters.IntArg, "errorInstanceId": e.InstanceID()}
+}
+
+func (e *testError) UnsafeParams() map[string]interface{} {
+	return map[string]interface{}{"stringArg": e.Parameters.StringArg}
 }
