@@ -48,6 +48,17 @@ resp, err := client.Post(ctx,
 The `httpclient.AuthTokenProvider` ClientParam sets the `Authorization` header on each request using the token from the provider.
 Its interface allows an implementation which refreshes and caches the client's credentials over time.
 
+### Error response decoding
+
+httpclient supports a configurable `ErrorDecoder` for constructing an error given a particular response condition.
+The default decoder, `restErrorDecoder`, handles responses with status codes greater than or equal to 400.
+If the response has a Content-Type of `application/json`, we attempt to deserialize the body as a [Conjure error](https://github.com/palantir/conjure/blob/master/docs/spec/wire.md#55-conjure-errors).
+Otherwise, the body will be included as an unsafeParam named `responseBody`.
+A safeParam `statusCode` is added to the error and can be accessed with `httpclient.StatusCodeFromError`.
+
+Error detection can be disabled with the ClientParam `httpclient.WithDisableRestErrors()` or overridden with `httpclient.WithErrorDecoder()`.
+Note that this customizability may change in a future major release (see [#80](https://github.com/palantir/conjure-go-runtime/issues/80)).
+
 ### HTTP2
 
 HTTP2 support is enabled by default in the generated client. If this _must_ be disabled, use the `httpclient.DisableHTTP2()` ClientParam.
@@ -81,8 +92,6 @@ Custom middleware can be provided using the `httpclient.RoundTripMiddleware` par
 * Retry behavior
 * Request body behavior
 * Response body behavior
-* Error handling
-* REST error creation
 
 ## Client Configuration
 

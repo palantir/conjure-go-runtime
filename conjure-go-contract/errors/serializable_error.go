@@ -21,10 +21,10 @@ import (
 )
 
 // SerializableError is serializable representation of an error, it includes error code, name, instance id
-// and parameters. It can be used to implement error marshalling & unmarshalling of concrete
+// and parameters. It can be used to implement error marshaling & unmarshaling of concrete
 // types implementing an Error interface.
 //
-// This type does not marshall & unmarshall parameters - that should be
+// This type does not marshal & unmarshal parameters - that should be
 // responsibility of a type implementing an Error.
 //
 // This is an example of a valid JSON object representing an error:

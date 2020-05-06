@@ -15,40 +15,40 @@
 package errors
 
 import (
+	"encoding/json"
 	"net/http"
 
 	"github.com/palantir/conjure-go-runtime/conjure-go-contract/codecs"
 )
 
-// ErrorFromResponse extract serializable error from the given response.
-//
-// TODO This function is subject to change.
-func ErrorFromResponse(response *http.Response) (SerializableError, error) {
-	var unmarshalled SerializableError
-	if err := codecs.JSON.Decode(response.Body, &unmarshalled); err != nil {
-		return SerializableError{}, err
-	}
-	return unmarshalled, nil
-}
-
 // WriteErrorResponse writes error to the response writer.
 //
 // TODO This function is subject to change.
-func WriteErrorResponse(w http.ResponseWriter, e SerializableError) {
-	marshalledError, err := codecs.JSON.Marshal(e)
-	if err != nil {
-		// Falling back to marshalling error without parameters.
-		// This should always succeed given.
-		marshalledError, _ = codecs.JSON.Marshal(
-			SerializableError{
-				ErrorCode:       e.ErrorCode,
-				ErrorName:       e.ErrorName,
-				ErrorInstanceID: e.ErrorInstanceID,
-				Parameters:      nil,
-			},
-		)
+func WriteErrorResponse(w http.ResponseWriter, e Error) {
+	var marshaledError []byte
+	var err error
+
+	// First try to marshal with custom handling (if present)
+	if marshaler, ok := e.(json.Marshaler); ok {
+		marshaledError, err = codecs.JSON.Marshal(marshaler)
 	}
+	// If we fail, use best-effort conversion to SerializableError.
+	if marshaledError == nil || err != nil {
+		params, err := codecs.JSON.Marshal(mergeParams(e)) // on failure, params will be nil
+		if err != nil {
+			params = nil
+		}
+		// This should never fail, since all fields other than params are primitives
+		// and we fall back to empty params if they fail above. Nothing we can do otherwise.
+		marshaledError, _ = codecs.JSON.Marshal(SerializableError{
+			ErrorCode:       e.Code(),
+			ErrorName:       e.Name(),
+			ErrorInstanceID: e.InstanceID(),
+			Parameters:      params,
+		})
+	}
+
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(e.ErrorCode.StatusCode())
-	_, _ = w.Write(marshalledError) // There is nothing we can do on write failure.
+	w.WriteHeader(e.Code().StatusCode())
+	_, _ = w.Write(marshaledError) // There is nothing we can do on write failure.
 }

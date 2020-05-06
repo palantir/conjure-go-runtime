@@ -21,9 +21,17 @@ import (
 
 var registry = map[string]reflect.Type{}
 
+var errorInterfaceType = reflect.TypeOf((*Error)(nil)).Elem()
+
+// RegisterErrorType registers an error name and its go type in a global registry.
+// The type should be a struct type whose pointer implements Error.
+// Panics if name is already registered or *type does not implement Error.
 func RegisterErrorType(name string, typ reflect.Type) {
 	if existing, exists := registry[name]; exists {
-		panic(fmt.Sprintf("ErrorName %q already registered as %v", name, existing))
+		panic(fmt.Sprintf("ErrorName %v already registered as %v", name, existing))
+	}
+	if ptr := reflect.PtrTo(typ); !ptr.Implements(errorInterfaceType) {
+		panic(fmt.Sprintf("Error type %v does not implement errors.Error interface", ptr))
 	}
 	registry[name] = typ
 }

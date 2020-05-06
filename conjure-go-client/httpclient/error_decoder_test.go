@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
 	"github.com/palantir/conjure-go-runtime/conjure-go-client/httpclient"
@@ -31,7 +30,7 @@ import (
 var (
 	body              = "hello"
 	statusCode        = 456
-	defaultDecoderMsg = "server returned a status >= 400"
+	defaultStatusMsg  = "456 status code 456"
 	clientDecoderMsg  = "client custom error decoder error foo"
 	requestDecoderMsg = "request custom error decoder error bar"
 	errPrefix         = "httpclient request failed: "
@@ -50,7 +49,7 @@ func TestErrorDecoder(t *testing.T) {
 		)
 		require.NoError(t, err)
 		resp, err := client.Get(context.Background())
-		assert.EqualError(t, err, errPrefix+defaultDecoderMsg)
+		assert.EqualError(t, err, errPrefix+defaultStatusMsg)
 		assert.Nil(t, resp)
 		gotStatusCode, ok := internal.StatusCodeFromError(err)
 		assert.True(t, ok)
@@ -79,7 +78,6 @@ func TestErrorDecoder(t *testing.T) {
 		resp, err := client.Get(context.Background())
 		assert.EqualError(t, err, errPrefix+clientDecoderMsg)
 		assert.Nil(t, resp)
-		assert.False(t, strings.Contains(err.Error(), defaultDecoderMsg), err.Error())
 	})
 	t.Run("RequestCustom", func(t *testing.T) {
 		client, err := httpclient.NewClient(
@@ -100,8 +98,6 @@ func TestErrorDecoder(t *testing.T) {
 
 		assert.Nil(t, resp)
 		assert.EqualError(t, err, errPrefix+requestDecoderMsg)
-		assert.False(t, strings.Contains(err.Error(), clientDecoderMsg), err.Error())
-		assert.False(t, strings.Contains(err.Error(), defaultDecoderMsg), err.Error())
 	})
 	t.Run("FallbackToClient", func(t *testing.T) {
 		client, err := httpclient.NewClient(
@@ -120,9 +116,7 @@ func TestErrorDecoder(t *testing.T) {
 			}),
 		)
 		assert.Nil(t, resp)
-		assert.False(t, strings.Contains(err.Error(), requestDecoderMsg), err.Error())
 		assert.EqualError(t, err, errPrefix+clientDecoderMsg)
-		assert.False(t, strings.Contains(err.Error(), defaultDecoderMsg), err.Error())
 	})
 }
 
@@ -137,6 +131,6 @@ func (ced *customErrorDecoder) Handles(resp *http.Response) bool {
 	return ced.statusCode == resp.StatusCode
 }
 
-func (ced *customErrorDecoder) DecodeError(resp *http.Response) error {
+func (ced *customErrorDecoder) DecodeError(_ *http.Response) error {
 	return fmt.Errorf(ced.message)
 }

@@ -16,51 +16,65 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-package errors_test
+package errors
 
 import (
 	"fmt"
 	"testing"
 
 	"github.com/palantir/conjure-go-runtime/conjure-go-contract/codecs"
-	"github.com/palantir/conjure-go-runtime/conjure-go-contract/errors"
+	wparams "github.com/palantir/witchcraft-go-params"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestError_Error(t *testing.T) {
-	err := errors.NewError(
-		errors.MustErrorType(errors.Timeout, "MyApplication:DatabaseTimeout"),
-		errors.SafeParam("ttl", "10s"),
+	err := NewError(
+		MustErrorType(Timeout, "MyApplication:DatabaseTimeout"),
+		wparams.NewSafeParamStorer(map[string]interface{}{"ttl": "10s"}),
 	)
 	assert.EqualError(t, err, fmt.Sprintf("TIMEOUT MyApplication:DatabaseTimeout (%s)", err.InstanceID()))
 }
 
 func TestError_CodecsJSONEscapesHTML(t *testing.T) {
-	e := errors.NewError(
-		errors.MustErrorType(errors.Timeout, "MyApplication:Timeout"),
-		errors.SafeParam("htmlKey", "something&something"),
+	e := NewError(
+		MustErrorType(Timeout, "MyApplication:Timeout"),
+		wparams.NewSafeParamStorer(map[string]interface{}{"htmlKey": "something&something"}),
 	)
 
-	marshalledError, err := codecs.JSON.Marshal(e)
+	marshaledError, err := codecs.JSON.Marshal(e)
 	assert.NoError(t, err)
-	assert.Regexp(t, `something&something`, string(marshalledError))
+	assert.Regexp(t, `something&something`, string(marshaledError))
 }
 
 func TestError_NewError_Then_MarshalJSON_Then_UnmarshalJSON_And_Unpack(t *testing.T) {
-	e := errors.NewError(
-		errors.MustErrorType(errors.Timeout, "MyApplication:Timeout"),
-		errors.SafeParam("safeKey", "safeValue"),
-		errors.UnsafeParam("unsafeKey", "unsafeValue"),
+	e := NewError(
+		MustErrorType(Timeout, "MyApplication:Timeout"),
+		wparams.NewSafeAndUnsafeParamStorer(
+			map[string]interface{}{"safeKey": "safeValue"},
+			map[string]interface{}{"unsafeKey": "unsafeValue"},
+		),
 	)
+	expectedJSON := fmt.Sprintf(`{
+  "errorCode": "TIMEOUT",
+  "errorInstanceId": "%s",
+  "errorName": "MyApplication:Timeout",
+  "parameters": {
+    "safeKey": "safeValue",
+    "unsafeKey": "unsafeValue"
+  }
+}`, e.InstanceID().String())
 
-	marshalledError, err := codecs.JSON.Marshal(e)
-	assert.NoError(t, err)
+	marshaledError, err := codecs.JSON.Marshal(e)
+	require.NoError(t, err)
+	require.JSONEq(t, expectedJSON, string(marshaledError))
 
-	var se errors.SerializableError
-	err = codecs.JSON.Unmarshal(marshalledError, &se)
-	assert.NoError(t, err)
+	unmarshaledError, err := UnmarshalError(marshaledError)
+	require.NoError(t, err)
 
-	unpacked, err := errors.UnpackError(se)
-	assert.NoError(t, err)
-	assert.Equal(t, e, unpacked)
+	assert.EqualError(t, unmarshaledError, e.Error())
+	assert.Equal(t, e.Name(), unmarshaledError.Name())
+	assert.Equal(t, e.Code(), unmarshaledError.Code())
+	assert.Equal(t, e.InstanceID(), unmarshaledError.InstanceID())
+	assert.Equal(t, mergeParams(e), mergeParams(unmarshaledError))
 }

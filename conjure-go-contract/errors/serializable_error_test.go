@@ -50,21 +50,21 @@ var testErrorJSON = fmt.Sprintf(`{
 }`, testSerializableError.ErrorInstanceID)
 
 func TestSerializableError_MarshalJSON(t *testing.T) {
-	marshalledError, err := codecs.JSON.Marshal(testSerializableError)
+	marshaledError, err := codecs.JSON.Marshal(testSerializableError)
 	assert.NoError(t, err)
 
 	var buffer bytes.Buffer
-	require.NoError(t, json.Indent(&buffer, marshalledError, "", "  "))
+	require.NoError(t, json.Indent(&buffer, marshaledError, "", "  "))
 	assert.Equal(t, testErrorJSON, buffer.String())
 }
 
 func TestSerializableError_UnmarshalJSON(t *testing.T) {
-	var unmarshalled errors.SerializableError
-	err := codecs.JSON.Unmarshal([]byte(testErrorJSON), &unmarshalled)
+	var unmarshaled errors.SerializableError
+	err := codecs.JSON.Unmarshal([]byte(testErrorJSON), &unmarshaled)
 	assert.NoError(t, err)
-	assert.Equal(t, testSerializableError.ErrorCode, unmarshalled.ErrorCode)
-	assert.Equal(t, testSerializableError.ErrorName, unmarshalled.ErrorName)
-	assert.Equal(t, testSerializableError.ErrorInstanceID, unmarshalled.ErrorInstanceID)
+	assert.Equal(t, testSerializableError.ErrorCode, unmarshaled.ErrorCode)
+	assert.Equal(t, testSerializableError.ErrorName, unmarshaled.ErrorName)
+	assert.Equal(t, testSerializableError.ErrorInstanceID, unmarshaled.ErrorInstanceID)
 	assert.Equal(t, testSerializableError.Parameters, json.RawMessage(`{
     "metadata": {
       "keyB": 4
