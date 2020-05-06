@@ -34,8 +34,18 @@ func WriteErrorResponse(w http.ResponseWriter, e Error) {
 	}
 	// If we fail, use best-effort conversion to SerializableError.
 	if marshaledError == nil || err != nil {
-		// serializeError() handles param failures, so this should never fail
-		marshaledError, _ = codecs.JSON.Marshal(serializeError(e))
+		params, err := codecs.JSON.Marshal(mergeParams(e)) // on failure, params will be nil
+		if err != nil {
+			params = nil
+		}
+		// This should never fail, since all fields other than params are primitives
+		// and we fall back to empty params if they fail above. Nothing we can do otherwise.
+		marshaledError, _ = codecs.JSON.Marshal(SerializableError{
+			ErrorCode:       e.Code(),
+			ErrorName:       e.Name(),
+			ErrorInstanceID: e.InstanceID(),
+			Parameters:      params,
+		})
 	}
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")

@@ -17,7 +17,6 @@ package errors
 import (
 	"encoding/json"
 
-	"github.com/palantir/conjure-go-runtime/conjure-go-contract/codecs"
 	"github.com/palantir/pkg/uuid"
 )
 
@@ -44,20 +43,4 @@ type SerializableError struct {
 	ErrorName       string          `json:"errorName"`
 	ErrorInstanceID uuid.UUID       `json:"errorInstanceId"`
 	Parameters      json.RawMessage `json:"parameters,omitempty"`
-}
-
-// SerializeError converts an Error to a serializable format.
-// Marshaling this struct to json should never fail.
-// It is best effort: if parameters fail to marshal, they will be omitted.
-func serializeError(e Error) SerializableError {
-	params, err := codecs.JSON.Marshal(mergeParams(e)) // on failure, params will be nil
-	if err != nil {
-		params = nil
-	}
-	return SerializableError{
-		ErrorCode:       e.Code(),
-		ErrorName:       e.Name(),
-		ErrorInstanceID: e.InstanceID(),
-		Parameters:      params,
-	}
 }
