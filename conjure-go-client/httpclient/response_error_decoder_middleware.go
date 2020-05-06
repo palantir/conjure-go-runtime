@@ -75,7 +75,7 @@ func (d restErrorDecoder) Handles(resp *http.Response) bool {
 func (d restErrorDecoder) DecodeError(resp *http.Response) error {
 	statusParam := werror.SafeParam("statusCode", resp.StatusCode)
 
-	// TODO(bmoylan): If a byte buffer pool is configured, use it to avoid an allocation.
+	// TODO(#98): If a byte buffer pool is configured, use it to avoid an allocation.
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
 		return werror.Wrap(err, "server returned an error and failed to read body", statusParam)
@@ -85,8 +85,7 @@ func (d restErrorDecoder) DecodeError(resp *http.Response) error {
 	}
 
 	// If JSON, try to unmarshal as conjure error
-	isJSON := strings.Contains(resp.Header.Get("Content-Type"), codecs.JSON.ContentType())
-	if isJSON {
+	if isJSON := strings.Contains(resp.Header.Get("Content-Type"), codecs.JSON.ContentType()); isJSON {
 		conjureErr, err := errors.UnmarshalError(body)
 		if err != nil {
 			return werror.Wrap(err, "", statusParam, werror.UnsafeParam("responseBody", string(body)))
