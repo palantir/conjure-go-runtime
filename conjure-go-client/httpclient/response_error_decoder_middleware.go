@@ -17,8 +17,10 @@ package httpclient
 import (
 	"io/ioutil"
 	"net/http"
+	"strings"
 
 	"github.com/palantir/conjure-go-runtime/conjure-go-client/httpclient/internal"
+	"github.com/palantir/conjure-go-runtime/conjure-go-contract/codecs"
 	"github.com/palantir/conjure-go-runtime/conjure-go-contract/errors"
 	werror "github.com/palantir/witchcraft-go-error"
 )
@@ -58,6 +60,10 @@ func errorDecoderMiddleware(errorDecoder ErrorDecoder) Middleware {
 //
 // Use StatusCodeFromError(err) to retrieve the code from the error,
 // and WithDisableRestErrors() to disable this middleware on your client.
+//
+// If the response has a Content-Type containing 'application/json', we attempt
+// to unmarshal the error as a conjure error. See TestErrorDecoderMiddlewares for
+// example error messages and parameters.
 type restErrorDecoder struct{}
 
 var _ ErrorDecoder = restErrorDecoder{}
@@ -67,36 +73,31 @@ func (d restErrorDecoder) Handles(resp *http.Response) bool {
 }
 
 func (d restErrorDecoder) DecodeError(resp *http.Response) error {
-	// TODO(bmoylan) unmarshal conjure error
-	return werror.Error("server returned a status >= 400", werror.SafeParam("statusCode", resp.StatusCode))
+	statusParam := werror.SafeParam("statusCode", resp.StatusCode)
+
+	// TODO(bmoylan): If a byte buffer pool is configured, use it to avoid an allocation.
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return werror.Wrap(err, "server returned an error and failed to read body", statusParam)
+	}
+	if len(body) == 0 {
+		return werror.Error(resp.Status, statusParam)
+	}
+
+	// If JSON, try to unmarshal as conjure error
+	isJSON := strings.Contains(resp.Header.Get("Content-Type"), codecs.JSON.ContentType())
+	if isJSON {
+		conjureErr, err := errors.UnmarshalError(body)
+		if err != nil {
+			return werror.Wrap(err, "", statusParam, werror.UnsafeParam("responseBody", string(body)))
+		}
+		return werror.Wrap(conjureErr, "", statusParam)
+	}
+
+	return werror.Error(resp.Status, statusParam, werror.UnsafeParam("responseBody", string(body)))
 }
 
 // StatusCodeFromError wraps the internal StatusCodeFromError func. For behavior details, see its docs.
 func StatusCodeFromError(err error) (statusCode int, ok bool) {
 	return internal.StatusCodeFromError(err)
-}
-
-func ConjureErrorDecoder() ErrorDecoder {
-	return conjureErrorDecoder{}
-}
-
-type conjureErrorDecoder struct{}
-
-func (c conjureErrorDecoder) Handles(resp *http.Response) bool {
-	return resp.StatusCode >= http.StatusBadRequest
-}
-
-func (c conjureErrorDecoder) DecodeError(resp *http.Response) error {
-	// TODO(bmoylan): If a byte buffer pool is configured, use it to avoid an allocation.
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return werror.Wrap(err, "server returned an error and failed to read body", werror.SafeParam("statusCode", resp.StatusCode))
-	}
-
-	conjureErr, err := errors.UnmarshalError(body)
-	if err != nil {
-		return werror.Wrap(err, "server returned an error and failed to unmarshal body",
-			werror.SafeParam("statusCode", resp.StatusCode), werror.UnsafeParam("body", string(body)))
-	}
-	return werror.Convert(conjureErr)
 }

@@ -24,7 +24,6 @@ import (
 	"testing"
 
 	"github.com/palantir/conjure-go-runtime/conjure-go-client/httpclient"
-	"github.com/palantir/conjure-go-runtime/conjure-go-client/httpclient/internal"
 	"github.com/palantir/conjure-go-runtime/conjure-go-contract/errors"
 	werror "github.com/palantir/witchcraft-go-error"
 	wparams "github.com/palantir/witchcraft-go-params"
@@ -32,37 +31,138 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestErrorsMiddleware(t *testing.T) {
+func TestErrorDecoderMiddlewares(t *testing.T) {
 	ctx := context.Background()
-	server := httptest.NewServer(http.NotFoundHandler())
-	defer server.Close()
+	for _, tc := range []struct {
+		name         string
+		handler      http.HandlerFunc
+		decoderParam httpclient.ClientParam // or nil for default
+		verify       func(*testing.T, *url.URL, error)
+	}{
+		{
+			name: "200 OK",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(200)
+			},
+			verify: func(t *testing.T, _ *url.URL, err error) {
+				require.NoError(t, err)
+			},
+		},
+		{
+			name:         "404 DisableRestErrors",
+			handler:      http.NotFound,
+			decoderParam: httpclient.WithDisableRestErrors(),
+			verify: func(t *testing.T, _ *url.URL, err error) {
+				require.NoError(t, err)
+			},
+		},
+		{
+			name:    "404 default handler",
+			handler: http.NotFound,
+			verify: func(t *testing.T, u *url.URL, err error) {
+				assert.EqualError(t, err, "httpclient request failed: 404 Not Found")
+				safeParams, unsafeParams := werror.ParamsFromError(err)
+				assert.Equal(t, map[string]interface{}{"requestHost": u.Host, "requestMethod": "Get", "statusCode": 404}, safeParams)
+				assert.Equal(t, map[string]interface{}{"requestPath": "/path", "responseBody": "404 page not found\n"}, unsafeParams)
+			},
+		},
+		{
+			name: "404 no body",
+			handler: func(rw http.ResponseWriter, req *http.Request) {
+				rw.WriteHeader(404)
+			},
+			verify: func(t *testing.T, u *url.URL, err error) {
+				assert.EqualError(t, err, "httpclient request failed: 404 Not Found")
+				safeParams, unsafeParams := werror.ParamsFromError(err)
+				assert.Equal(t, map[string]interface{}{"requestHost": u.Host, "requestMethod": "Get", "statusCode": 404}, safeParams)
+				assert.Equal(t, map[string]interface{}{"requestPath": "/path"}, unsafeParams)
+			},
+		},
+		{
+			name: "404 plaintext",
+			handler: func(rw http.ResponseWriter, req *http.Request) {
+				rw.Header().Set("Content-Type", "text/plain")
+				rw.WriteHeader(404)
+				_, _ = rw.Write([]byte(`route does not exist`))
+			},
+			verify: func(t *testing.T, u *url.URL, err error) {
+				assert.EqualError(t, err, "httpclient request failed: 404 Not Found")
+				safeParams, unsafeParams := werror.ParamsFromError(err)
+				assert.Equal(t, map[string]interface{}{"requestHost": u.Host, "requestMethod": "Get", "statusCode": 404}, safeParams)
+				assert.Equal(t, map[string]interface{}{"requestPath": "/path", "responseBody": "route does not exist"}, unsafeParams)
+			},
+		},
+		{
+			name: "404 non-conjure json",
+			handler: func(rw http.ResponseWriter, req *http.Request) {
+				rw.Header().Set("Content-Type", "application/json")
+				rw.WriteHeader(404)
+				_, _ = rw.Write([]byte(`{"foo":"bar"}`))
+			},
+			verify: func(t *testing.T, u *url.URL, err error) {
+				assert.EqualError(t, err, "httpclient request failed: failed to unmarshal body using registered type: errors: error name does not match regexp `^(([A-Z][a-z0-9]+)+):(([A-Z][a-z0-9]+)+)$`")
+				safeParams, unsafeParams := werror.ParamsFromError(err)
+				assert.Equal(t, map[string]interface{}{"requestHost": u.Host, "requestMethod": "Get", "statusCode": 404, "type": "errors.genericError"}, safeParams)
+				assert.Equal(t, map[string]interface{}{"requestPath": "/path", "responseBody": `{"foo":"bar"}`}, unsafeParams)
+			},
+		},
+		{
+			name: "404 conjure",
+			handler: func(rw http.ResponseWriter, req *http.Request) {
+				errors.WriteErrorResponse(rw, errors.NewNotFound(
+					// Safe param will be converted to unsafe because we do not have an error type
+					wparams.NewSafeParamStorer(map[string]interface{}{"stringParam": "stringValue"}),
+				))
+			},
+			verify: func(t *testing.T, u *url.URL, err error) {
+				require.Error(t, err)
+				conjureErr := werror.RootCause(err).(errors.Error)
+				id := conjureErr.InstanceID()
+				assert.NotEmpty(t, id)
+				assert.Equal(t, errors.NotFound, conjureErr.Code())
+				assert.Equal(t, errors.DefaultNotFound.Name(), conjureErr.Name())
 
-	t.Run("errors enabled", func(t *testing.T) {
-		client, err := httpclient.NewClient(httpclient.WithBaseURLs([]string{server.URL}))
-		require.NoError(t, err)
+				safeParams, unsafeParams := werror.ParamsFromError(err)
+				assert.Equal(t, map[string]interface{}{"requestHost": u.Host, "requestMethod": "Get", "errorInstanceId": id, "statusCode": 404}, safeParams)
+				assert.Equal(t, map[string]interface{}{"requestPath": "/path", "stringParam": "stringValue"}, unsafeParams)
+			},
+		},
+		{
+			name:         "404 custom simple decoder",
+			handler:      http.NotFound,
+			decoderParam: httpclient.WithErrorDecoder(fooErrorDecoder{}),
+			verify: func(t *testing.T, u *url.URL, err error) {
+				assert.EqualError(t, err, "httpclient request failed: foo error")
+				safeParams, unsafeParams := werror.ParamsFromError(err)
+				assert.Equal(t, map[string]interface{}{"requestHost": u.Host, "requestMethod": "Get"}, safeParams)
+				assert.Equal(t, map[string]interface{}{"requestPath": "/path"}, unsafeParams)
+			},
+		},
+		{
+			name:         "404 custom body-reading decoder",
+			handler:      http.NotFound,
+			decoderParam: httpclient.WithErrorDecoder(bodyReadingErrorDecoder{}),
+			verify: func(t *testing.T, u *url.URL, err error) {
+				assert.EqualError(t, err, "httpclient request failed: error from body: 404 page not found\n")
+				safeParams, unsafeParams := werror.ParamsFromError(err)
+				assert.Equal(t, map[string]interface{}{"requestHost": u.Host, "requestMethod": "Get"}, safeParams)
+				assert.Equal(t, map[string]interface{}{"requestPath": "/path"}, unsafeParams)
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ts := httptest.NewServer(tc.handler)
+			defer ts.Close()
+			tsURL, err := url.Parse(ts.URL)
+			require.NoError(t, err)
 
-		_, err = client.Do(ctx, httpclient.WithRequestMethod(http.MethodGet))
-		require.Error(t, err)
-		status, ok := internal.StatusCodeFromError(err)
-		require.True(t, ok)
-		require.Equal(t, http.StatusNotFound, status)
-	})
+			client, err := httpclient.NewClient(httpclient.WithBaseURLs([]string{ts.URL}), tc.decoderParam)
+			require.NoError(t, err)
 
-	t.Run("errors disabled", func(t *testing.T) {
-		client, err := httpclient.NewClient(httpclient.WithBaseURLs([]string{server.URL}), httpclient.WithDisableRestErrors())
-		require.NoError(t, err)
-
-		_, err = client.Do(ctx, httpclient.WithRequestMethod(http.MethodGet))
-		require.NoError(t, err)
-	})
-
-	t.Run("custom error decoder", func(t *testing.T) {
-		client, err := httpclient.NewClient(httpclient.WithBaseURLs([]string{server.URL}), httpclient.WithErrorDecoder(fooErrorDecoder{}))
-		require.NoError(t, err)
-
-		_, err = client.Do(ctx, httpclient.WithRequestMethod(http.MethodGet))
-		require.Error(t, err, "foo error")
-	})
+			_, err = client.Get(ctx, httpclient.WithPath("/path"))
+			tc.verify(t, tsURL, err)
+		})
+	}
 }
 
 type fooErrorDecoder struct{}
@@ -73,30 +173,6 @@ func (d fooErrorDecoder) Handles(resp *http.Response) bool {
 
 func (d fooErrorDecoder) DecodeError(resp *http.Response) error {
 	return fmt.Errorf("foo error")
-}
-
-func TestErrorDecoderMiddlewareReadsBody(t *testing.T) {
-	ctx := context.Background()
-	ts := httptest.NewServer(http.NotFoundHandler())
-	defer ts.Close()
-	t.Run("Client", func(t *testing.T) {
-		client, err := httpclient.NewClient(
-			httpclient.WithBaseURLs([]string{ts.URL}),
-			httpclient.WithErrorDecoder(bodyReadingErrorDecoder{}),
-		)
-		require.NoError(t, err)
-		_, err = client.Get(ctx)
-		assert.EqualError(t, err, "httpclient request failed: error from body: 404 page not found\n")
-	})
-	t.Run("Request", func(t *testing.T) {
-		client, err := httpclient.NewClient(
-			httpclient.WithBaseURLs([]string{ts.URL}),
-		)
-		require.NoError(t, err)
-		_, err = client.Get(ctx, httpclient.WithRequestErrorDecoder(bodyReadingErrorDecoder{}))
-		assert.EqualError(t, err, "httpclient request failed: error from body: 404 page not found\n")
-	})
-
 }
 
 type bodyReadingErrorDecoder struct{}
@@ -111,34 +187,4 @@ func (bodyReadingErrorDecoder) DecodeError(resp *http.Response) error {
 		return fmt.Errorf("error reading response body: %v", err)
 	}
 	return fmt.Errorf("error from body: %s", b)
-}
-
-// TestConjureErrorDecoder verifies that a response containing a JSON-encoded conjure error is correctly
-// deserialized into its conjure type, including additional params added to the payload.
-func TestConjureErrorDecoder(t *testing.T) {
-	ctx := context.Background()
-	ts := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
-		err := errors.NewNotFound(wparams.NewSafeParamStorer(map[string]interface{}{"pathParam": req.URL.Path}))
-		errors.WriteErrorResponse(rw, err)
-	}))
-	defer ts.Close()
-	tsURL, err := url.Parse(ts.URL)
-	require.NoError(t, err)
-
-	client, err := httpclient.NewClient(
-		httpclient.WithBaseURLs([]string{ts.URL}),
-		httpclient.WithErrorDecoder(httpclient.ConjureErrorDecoder()),
-	)
-	require.NoError(t, err)
-	_, err = client.Get(ctx, httpclient.WithPath("/path"))
-	require.Error(t, err)
-	conjureErr := werror.RootCause(err).(errors.Error)
-	id := conjureErr.InstanceID()
-	assert.NotEmpty(t, id)
-	assert.Equal(t, errors.NotFound, conjureErr.Code())
-	assert.Equal(t, errors.DefaultNotFound.Name(), conjureErr.Name())
-
-	safeParams, unsafeParams := werror.ParamsFromError(err)
-	assert.Equal(t, map[string]interface{}{"requestHost": tsURL.Host, "requestMethod": "Get", "errorInstanceId": id}, safeParams)
-	assert.Equal(t, map[string]interface{}{"requestPath": "/path", "pathParam": "/path"}, unsafeParams)
 }
