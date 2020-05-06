@@ -1,0 +1,12 @@
+type: break
+break:
+  description: |-
+    Update errors package & deserialize conjure errors
+
+    * [break] Remove `errors.paramterizer`, replace with wparams.ParamStorer. The parameterizer type separated params into safe and unsafe substructures, which would be nice but is not in line with the [conjure wire spec](https://github.com/palantir/conjure/blob/master/docs/spec/wire.md#55-conjure-errors). In the case we can not determine a generated error type which knows which params are safe, all are considered unsafe.
+    * [break] Remove `errors.ErrorFromResponse` which seems to be unused.
+    * [break] `errors.WriteErrorResponse` now takes an `Error` instead of `SerializableError` for ease of use.
+    * [feature] Add error type registry, a global map indicating how to unmarshal conjure errors received by the client based on the errorName. `errors.UnmarshalError` uses a registered type if possible, or falls back to `genericError`.
+    * [improvement] Default error decoder uses `errors.UnmarshalError` if the response appears to be JSON.
+  links:
+  - https://github.com/palantir/conjure-go-runtime/pull/94
