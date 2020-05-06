@@ -22,7 +22,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/palantir/conjure-go-runtime/conjure-go-client/httpclient/internal"
+	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient/internal"
 	"github.com/palantir/pkg/httpserver"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

@@ -1,4 +1,4 @@
-module github.com/palantir/conjure-go-runtime
+module github.com/palantir/conjure-go-runtime/v2
 
 go 1.13
 

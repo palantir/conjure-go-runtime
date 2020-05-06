@@ -19,7 +19,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/palantir/conjure-go-runtime/conjure-go-client/httpclient/internal"
+	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient/internal"
 	werror "github.com/palantir/witchcraft-go-error"
 	"github.com/stretchr/testify/assert"
 )

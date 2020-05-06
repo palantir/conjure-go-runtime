@@ -19,7 +19,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/palantir/conjure-go-runtime/conjure-go-contract/codecs"
+	"github.com/palantir/conjure-go-runtime/v2/conjure-go-contract/codecs"
 	"github.com/palantir/pkg/uuid"
 	"github.com/stretchr/testify/require"
 )
