@@ -85,15 +85,14 @@ func (d restErrorDecoder) DecodeError(resp *http.Response) error {
 	}
 
 	// If JSON, try to unmarshal as conjure error
-	if isJSON := strings.Contains(resp.Header.Get("Content-Type"), codecs.JSON.ContentType()); isJSON {
-		conjureErr, err := errors.UnmarshalError(body)
-		if err != nil {
-			return werror.Wrap(err, "", statusParam, werror.UnsafeParam("responseBody", string(body)))
-		}
-		return werror.Wrap(conjureErr, "", statusParam)
+	if isJSON := strings.Contains(resp.Header.Get("Content-Type"), codecs.JSON.ContentType()); !isJSON {
+		return werror.Error(resp.Status, statusParam, werror.UnsafeParam("responseBody", string(body)))
 	}
-
-	return werror.Error(resp.Status, statusParam, werror.UnsafeParam("responseBody", string(body)))
+	conjureErr, err := errors.UnmarshalError(body)
+	if err != nil {
+		return werror.Wrap(err, "", statusParam, werror.UnsafeParam("responseBody", string(body)))
+	}
+	return werror.Wrap(conjureErr, "", statusParam)
 }
 
 // StatusCodeFromError wraps the internal StatusCodeFromError func. For behavior details, see its docs.
