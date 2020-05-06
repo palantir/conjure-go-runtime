@@ -78,9 +78,13 @@ func (e genericError) InstanceID() uuid.UUID {
 }
 
 func (e genericError) SafeParams() map[string]interface{} {
-	// Add errorInstanceId as safe param
-	idStorer := wparams.NewSafeParamStorer(map[string]interface{}{"errorInstanceId": e.errorInstanceID})
-	return wparams.NewParamStorer(e.params, idStorer).SafeParams()
+	// Copy safe params map (so we don't mutate the underlying one) and add errorInstanceId
+	safeParams := make(map[string]interface{}, len(e.params.SafeParams())+1)
+	for k, v := range e.params.SafeParams() {
+		safeParams[k] = v
+	}
+	safeParams["errorInstanceId"] = e.errorInstanceID
+	return safeParams
 }
 
 func (e genericError) UnsafeParams() map[string]interface{} {
@@ -88,7 +92,7 @@ func (e genericError) UnsafeParams() map[string]interface{} {
 }
 
 func (e genericError) MarshalJSON() ([]byte, error) {
-	marshalledParameters, err := codecs.JSON.Marshal(mergeParams(e.params))
+	marshaledParameters, err := codecs.JSON.Marshal(mergeParams(e.params))
 	if err != nil {
 		return nil, err
 	}
@@ -96,7 +100,7 @@ func (e genericError) MarshalJSON() ([]byte, error) {
 		ErrorCode:       e.errorType.code,
 		ErrorName:       e.errorType.name,
 		ErrorInstanceID: e.errorInstanceID,
-		Parameters:      marshalledParameters,
+		Parameters:      marshaledParameters,
 	})
 }
 

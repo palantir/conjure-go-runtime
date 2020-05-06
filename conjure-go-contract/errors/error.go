@@ -31,8 +31,7 @@ type Error interface {
 	Name() string
 	// InstanceID returns unique identifier of this particular error instance.
 	InstanceID() uuid.UUID
-	// ParamStorer returns a set of named parameters detailing this particular error instance,
-	// for example error message.
+
 	wparams.ParamStorer
 }
 

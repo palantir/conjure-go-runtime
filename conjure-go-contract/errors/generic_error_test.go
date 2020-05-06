@@ -42,9 +42,9 @@ func TestError_CodecsJSONEscapesHTML(t *testing.T) {
 		wparams.NewSafeParamStorer(map[string]interface{}{"htmlKey": "something&something"}),
 	)
 
-	marshalledError, err := codecs.JSON.Marshal(e)
+	marshaledError, err := codecs.JSON.Marshal(e)
 	assert.NoError(t, err)
-	assert.Regexp(t, `something&something`, string(marshalledError))
+	assert.Regexp(t, `something&something`, string(marshaledError))
 }
 
 func TestError_NewError_Then_MarshalJSON_Then_UnmarshalJSON_And_Unpack(t *testing.T) {
@@ -65,16 +65,16 @@ func TestError_NewError_Then_MarshalJSON_Then_UnmarshalJSON_And_Unpack(t *testin
   }
 }`, e.InstanceID().String())
 
-	marshalledError, err := codecs.JSON.Marshal(e)
+	marshaledError, err := codecs.JSON.Marshal(e)
 	require.NoError(t, err)
-	require.JSONEq(t, expectedJSON, string(marshalledError))
+	require.JSONEq(t, expectedJSON, string(marshaledError))
 
-	unmarshalledError, err := UnmarshalError(marshalledError)
+	unmarshaledError, err := UnmarshalError(marshaledError)
 	require.NoError(t, err)
 
-	assert.EqualError(t, unmarshalledError, e.Error())
-	assert.Equal(t, e.Name(), unmarshalledError.Name())
-	assert.Equal(t, e.Code(), unmarshalledError.Code())
-	assert.Equal(t, e.InstanceID(), unmarshalledError.InstanceID())
-	assert.Equal(t, mergeParams(e), mergeParams(unmarshalledError))
+	assert.EqualError(t, unmarshaledError, e.Error())
+	assert.Equal(t, e.Name(), unmarshaledError.Name())
+	assert.Equal(t, e.Code(), unmarshaledError.Code())
+	assert.Equal(t, e.InstanceID(), unmarshaledError.InstanceID())
+	assert.Equal(t, mergeParams(e), mergeParams(unmarshaledError))
 }

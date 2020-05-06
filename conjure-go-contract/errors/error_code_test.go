@@ -61,9 +61,9 @@ var validErrorCodes = []errors.ErrorCode{
 func TestErrorCode_MarshalJSON(t *testing.T) {
 	for _, ec := range validErrorCodes {
 		t.Run(ec.String(), func(t *testing.T) {
-			marshalledErrorCode, err := codecs.JSON.Marshal(ec)
+			marshaledErrorCode, err := codecs.JSON.Marshal(ec)
 			assert.NoError(t, err)
-			assert.Equal(t, `"`+ec.String()+`"`, string(marshalledErrorCode))
+			assert.Equal(t, `"`+ec.String()+`"`, string(marshaledErrorCode))
 		})
 	}
 }

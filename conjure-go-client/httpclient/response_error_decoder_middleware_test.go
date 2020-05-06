@@ -113,6 +113,8 @@ func (bodyReadingErrorDecoder) DecodeError(resp *http.Response) error {
 	return fmt.Errorf("error from body: %s", b)
 }
 
+// TestConjureErrorDecoder verifies that a response containing a JSON-encoded conjure error is correctly
+// deserialized into its conjure type, including additional params added to the payload.
 func TestConjureErrorDecoder(t *testing.T) {
 	ctx := context.Background()
 	ts := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {

@@ -22,10 +22,10 @@ import (
 )
 
 // SerializableError is serializable representation of an error, it includes error code, name, instance id
-// and parameters. It can be used to implement error marshalling & unmarshalling of concrete
+// and parameters. It can be used to implement error marshaling & unmarshaling of concrete
 // types implementing an Error interface.
 //
-// This type does not marshall & unmarshall parameters - that should be
+// This type does not marshal & unmarshal parameters - that should be
 // responsibility of a type implementing an Error.
 //
 // This is an example of a valid JSON object representing an error:
@@ -47,7 +47,7 @@ type SerializableError struct {
 }
 
 // SerializeError converts an Error to a serializable format.
-// Marshalling this struct to json should never fail.
+// Marshaling this struct to json should never fail.
 // It is best effort: if parameters fail to marshal, they will be omitted.
 func serializeError(e Error) SerializableError {
 	params, err := codecs.JSON.Marshal(mergeParams(e)) // on failure, params will be nil

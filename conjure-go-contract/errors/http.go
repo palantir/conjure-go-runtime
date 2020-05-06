@@ -25,20 +25,20 @@ import (
 //
 // TODO This function is subject to change.
 func WriteErrorResponse(w http.ResponseWriter, e Error) {
-	var marshalledError []byte
+	var marshaledError []byte
 	var err error
 
 	// First try to marshal with custom handling (if present)
 	if marshaler, ok := e.(json.Marshaler); ok {
-		marshalledError, err = codecs.JSON.Marshal(marshaler)
+		marshaledError, err = codecs.JSON.Marshal(marshaler)
 	}
 	// If we fail, use best-effort conversion to SerializableError.
-	if marshalledError == nil || err != nil {
+	if marshaledError == nil || err != nil {
 		// serializeError() handles param failures, so this should never fail
-		marshalledError, _ = codecs.JSON.Marshal(serializeError(e))
+		marshaledError, _ = codecs.JSON.Marshal(serializeError(e))
 	}
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(e.Code().StatusCode())
-	_, _ = w.Write(marshalledError) // There is nothing we can do on write failure.
+	_, _ = w.Write(marshaledError) // There is nothing we can do on write failure.
 }

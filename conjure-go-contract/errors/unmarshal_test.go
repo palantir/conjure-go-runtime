@@ -112,9 +112,9 @@ func TestUnmarshalError(t *testing.T) {
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			marshalledError, err := json.Marshal(test.in)
+			marshaledError, err := json.Marshal(test.in)
 			require.NoError(t, err)
-			actual, err := errors.UnmarshalError(marshalledError)
+			actual, err := errors.UnmarshalError(marshaledError)
 			if test.expectErr == "" {
 				require.NoError(t, err)
 				assert.Equal(t, test.in.ErrorName, actual.Name())
