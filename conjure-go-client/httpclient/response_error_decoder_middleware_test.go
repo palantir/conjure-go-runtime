@@ -33,6 +33,12 @@ import (
 
 func TestErrorDecoderMiddlewares(t *testing.T) {
 	ctx := context.Background()
+	verify404 := func(t *testing.T, err error) {
+		t.Helper()
+		code, ok := httpclient.StatusCodeFromError(err)
+		assert.True(t, ok)
+		assert.Equal(t, 404, code)
+	}
 	for _, tc := range []struct {
 		name         string
 		handler      http.HandlerFunc
@@ -60,6 +66,7 @@ func TestErrorDecoderMiddlewares(t *testing.T) {
 			name:    "404 default handler",
 			handler: http.NotFound,
 			verify: func(t *testing.T, u *url.URL, err error) {
+				verify404(t, err)
 				assert.EqualError(t, err, "httpclient request failed: 404 Not Found")
 				safeParams, unsafeParams := werror.ParamsFromError(err)
 				assert.Equal(t, map[string]interface{}{"requestHost": u.Host, "requestMethod": "Get", "statusCode": 404}, safeParams)
@@ -72,6 +79,7 @@ func TestErrorDecoderMiddlewares(t *testing.T) {
 				rw.WriteHeader(404)
 			},
 			verify: func(t *testing.T, u *url.URL, err error) {
+				verify404(t, err)
 				assert.EqualError(t, err, "httpclient request failed: 404 Not Found")
 				safeParams, unsafeParams := werror.ParamsFromError(err)
 				assert.Equal(t, map[string]interface{}{"requestHost": u.Host, "requestMethod": "Get", "statusCode": 404}, safeParams)
@@ -86,6 +94,7 @@ func TestErrorDecoderMiddlewares(t *testing.T) {
 				_, _ = rw.Write([]byte(`route does not exist`))
 			},
 			verify: func(t *testing.T, u *url.URL, err error) {
+				verify404(t, err)
 				assert.EqualError(t, err, "httpclient request failed: 404 Not Found")
 				safeParams, unsafeParams := werror.ParamsFromError(err)
 				assert.Equal(t, map[string]interface{}{"requestHost": u.Host, "requestMethod": "Get", "statusCode": 404}, safeParams)
@@ -100,6 +109,7 @@ func TestErrorDecoderMiddlewares(t *testing.T) {
 				_, _ = rw.Write([]byte(`{"foo":"bar"}`))
 			},
 			verify: func(t *testing.T, u *url.URL, err error) {
+				verify404(t, err)
 				assert.EqualError(t, err, "httpclient request failed: failed to unmarshal body using registered type: errors: error name does not match regexp `^(([A-Z][a-z0-9]+)+):(([A-Z][a-z0-9]+)+)$`")
 				safeParams, unsafeParams := werror.ParamsFromError(err)
 				assert.Equal(t, map[string]interface{}{"requestHost": u.Host, "requestMethod": "Get", "statusCode": 404, "type": "errors.genericError"}, safeParams)
@@ -115,6 +125,7 @@ func TestErrorDecoderMiddlewares(t *testing.T) {
 				))
 			},
 			verify: func(t *testing.T, u *url.URL, err error) {
+				verify404(t, err)
 				require.Error(t, err)
 				conjureErr := werror.RootCause(err).(errors.Error)
 				id := conjureErr.InstanceID()

@@ -30,7 +30,7 @@ import (
 var (
 	body              = "hello"
 	statusCode        = 456
-	defaultStatusMsg = "456 status code 456"
+	defaultStatusMsg  = "456 status code 456"
 	clientDecoderMsg  = "client custom error decoder error foo"
 	requestDecoderMsg = "request custom error decoder error bar"
 	errPrefix         = "httpclient request failed: "
