@@ -26,7 +26,6 @@ import (
 // If the ErrorName is not recognized, a genericError is returned with all params marked unsafe.
 // If we fail to unmarshal to a generic SerializableError or to the type specified by ErrorName, an error is returned.
 func UnmarshalError(body []byte) (Error, error) {
-	// TODO(bmoylan) is gson's speed worth the dependency?
 	var name struct {
 		Name string `json:"errorName"`
 	}
@@ -41,7 +40,6 @@ func UnmarshalError(body []byte) (Error, error) {
 
 	instance := reflect.New(typ).Interface()
 	if err := codecs.JSON.Unmarshal(body, &instance); err != nil {
-		// TODO(bmoylan): Do we want to be more lenient and use a genericError if this can not unmarshal?
 		return nil, werror.Wrap(err, "failed to unmarshal body using registered type", werror.SafeParam("type", typ.String()))
 	}
 
