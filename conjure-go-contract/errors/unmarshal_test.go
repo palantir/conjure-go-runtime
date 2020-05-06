@@ -31,6 +31,7 @@ func TestUnmarshalError(t *testing.T) {
 	for _, test := range []struct {
 		name      string
 		in        errors.SerializableError
+		inRaw     string
 		expectErr string
 		verify    func(t *testing.T, actual errors.Error)
 	}{
@@ -110,10 +111,45 @@ func TestUnmarshalError(t *testing.T) {
 				assert.Equal(t, map[string]interface{}{"stringArg": "foo"}, actual.UnsafeParams())
 			},
 		},
+		{
+			name: "unregistered error type",
+			in: errors.SerializableError{
+				ErrorCode:       errors.CustomClient,
+				ErrorName:       "MyNamespace:MyOtherError",
+				ErrorInstanceID: uuid.NewUUID(),
+				Parameters:      json.RawMessage(`{"intArg": 3, "stringArg": "foo"}`),
+			},
+			verify: func(t *testing.T, actual errors.Error) {
+				assert.Equal(t, map[string]interface{}{"errorInstanceId": actual.InstanceID()}, actual.SafeParams())
+				assert.Equal(t, map[string]interface{}{"intArg": json.Number("3"), "stringArg": "foo"}, actual.UnsafeParams())
+			},
+		},
+		{
+			name:      "plaintext",
+			inRaw:     "404 Not Found",
+			expectErr: "failed to unmarshal body as conjure error: json: cannot unmarshal number into Go value of type struct { Name string \"json:\\\"errorName\\\"\" }",
+		},
+		{
+			name:      "other json",
+			inRaw:     `{"foo":"bar"}`,
+			expectErr: "failed to unmarshal body using registered type: errors: error name does not match regexp `^(([A-Z][a-z0-9]+)+):(([A-Z][a-z0-9]+)+)$`",
+		},
+		{
+			name:      "incomplete error json",
+			inRaw:     `{"errorName":"Default:Internal"}`,
+			expectErr: "failed to unmarshal body using registered type: errors: invalid combination of default error name and error code",
+		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			marshaledError, err := json.Marshal(test.in)
-			require.NoError(t, err)
+			var marshaledError []byte
+			if test.inRaw == "" {
+				var err error
+				marshaledError, err = json.Marshal(test.in)
+				require.NoError(t, err)
+			} else {
+				marshaledError = []byte(test.inRaw)
+			}
+
 			actual, err := errors.UnmarshalError(marshaledError)
 			if test.expectErr == "" {
 				require.NoError(t, err)

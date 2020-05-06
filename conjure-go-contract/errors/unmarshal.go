@@ -21,16 +21,15 @@ import (
 	werror "github.com/palantir/witchcraft-go-error"
 )
 
-type errorNameAccessor struct {
-	Name string `json:"errorName"`
-}
-
 // UnmarshalError attempts to deserialize the message to a known implementation of Error.
 // Custom error types should be registered using RegisterErrorType.
 // If the ErrorName is not recognized, a genericError is returned with all params marked unsafe.
 // If we fail to unmarshal to a generic SerializableError or to the type specified by ErrorName, an error is returned.
 func UnmarshalError(body []byte) (Error, error) {
-	var name errorNameAccessor // TODO(bmoylan) is gson's speed worth the dependency?
+	// TODO(bmoylan) is gson's speed worth the dependency?
+	var name struct {
+		Name string `json:"errorName"`
+	}
 	if err := codecs.JSON.Unmarshal(body, &name); err != nil {
 		return nil, werror.Wrap(err, "failed to unmarshal body as conjure error")
 	}
