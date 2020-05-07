@@ -22,7 +22,10 @@ import (
 // NewWrappedError is a convenience function for adding an underlying error to a conjure error
 // as additional context. This exists so that the conjure error becomes the RootCause, which is
 // used to extract the conjure error for serialization when returned by a server handler.
-func NewWrappedError(err error, conjureErr Error) error {
+//
+// The conjure error is wrapped using err's Error() message, and params if ParamStorer is implemented.
+// All other context is discarded, including cause stack (i.e. stacktrace) and type information.
+func NewWrappedError(conjureErr Error, err error) error {
 	if storer, ok := err.(wparams.ParamStorer); ok {
 		return werror.Wrap(conjureErr, err.Error(), werror.Params(storer))
 	}
