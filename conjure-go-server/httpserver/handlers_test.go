@@ -1,4 +1,4 @@
-// Copyright (c) 2018 Palantir Technologies. All rights reserved.
+// Copyright (c) 2020 Palantir Technologies. All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -84,7 +84,7 @@ func TestHandler_ServeHTTP(t *testing.T) {
 		{
 			name: "404 legacy plaintext error",
 			handler: func(rw http.ResponseWriter, req *http.Request) error {
-				return werror.Error("a bad thing", werror.SafeParam("param", "value"), werror.SafeParam(httpStatusCodeParamKey, http.StatusNotFound))
+				return werror.Error("a bad thing", werror.SafeParam("param", "value"), werror.SafeParam(legacyHTTPStatusCodeParamKey, http.StatusNotFound))
 			},
 			verifyResp: func(t *testing.T, resp *http.Response) {
 				assert.Equal(t, http.StatusNotFound, resp.StatusCode)
@@ -209,17 +209,17 @@ func TestStatusCodeMapper(t *testing.T) {
 		},
 		{
 			name:         "wrapped conjure not found error with legacy code",
-			err:          werror.Wrap(errors.NewNotFound(), "not found", werror.SafeParam(httpStatusCodeParamKey, http.StatusInternalServerError)),
+			err:          werror.Wrap(errors.NewNotFound(), "not found", werror.SafeParam(legacyHTTPStatusCodeParamKey, http.StatusInternalServerError)),
 			expectedCode: http.StatusNotFound,
 		},
 		{
 			name:         "legacy not found httpserver error",
-			err:          werror.Error("Test error", werror.SafeParam(httpStatusCodeParamKey, http.StatusNotFound)),
+			err:          werror.Error("Test error", werror.SafeParam(legacyHTTPStatusCodeParamKey, http.StatusNotFound)),
 			expectedCode: http.StatusNotFound,
 		},
 		{
 			name:         "wrapped legacy not found error",
-			err:          werror.Wrap(werror.Error("Test error", werror.SafeParam(httpStatusCodeParamKey, http.StatusNotFound)), "outer"),
+			err:          werror.Wrap(werror.Error("Test error", werror.SafeParam(legacyHTTPStatusCodeParamKey, http.StatusNotFound)), "outer"),
 			expectedCode: http.StatusNotFound,
 		},
 		{

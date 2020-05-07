@@ -1,4 +1,4 @@
-// Copyright (c) 2018 Palantir Technologies. All rights reserved.
+// Copyright (c) 2020 Palantir Technologies. All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -76,16 +76,14 @@ func (h handler) handleError(ctx context.Context, statusCode int, err error) {
 	}
 }
 
-// StatusCodeMapper maps a provided error to an HTTP status code. If the provided error contains a non-zero status code added
-// using the StatusCode ErrorParam, returns that status code; otherwise, returns http.StatusInternalServerError.
+// StatusCodeMapper maps a provided error to an HTTP status code.
+// If the error's RootCause is a conjure error, the status mapping to the errorCode field is used.
+// If the provided error is a contains the legacy httpStatusCode parameter, that value is used.
+// Otherwise, returns http.StatusInternalServerError (500).
 func StatusCodeMapper(err error) int {
 	if conjureErr, ok := werror.RootCause(err).(errors.Error); ok {
 		return conjureErr.Code().StatusCode()
 	}
-
-	// TODO(bmoylan, now) How much backcompat should we try to provide here?
-	//   If we move this _above_ the conjure check, services can use conjure errors but override the status code
-	//   E.g. where we use custom codes for which there is not a conjure equivalent. The most obvious example is 412.
 	if legacyCode := legacyErrorCode(err); legacyCode != 0 {
 		return legacyCode
 	}
@@ -95,7 +93,7 @@ func StatusCodeMapper(err error) int {
 // legacyErrorCode extracts error codes set by the deprecated witchcraft-go-server/rest package.
 // It returns 0 if not found. New code should use conjure errors.
 func legacyErrorCode(err error) int {
-	statusCodeParam, _ := werror.ParamFromError(err, httpStatusCodeParamKey)
+	statusCodeParam, _ := werror.ParamFromError(err, legacyHTTPStatusCodeParamKey)
 	if statusCodeParam == nil {
 		return 0
 	}

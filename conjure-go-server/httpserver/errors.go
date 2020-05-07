@@ -1,4 +1,4 @@
-// Copyright (c) 2018 Palantir Technologies. All rights reserved.
+// Copyright (c) 2020 Palantir Technologies. All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,6 +15,6 @@
 package httpserver
 
 const (
-	// httpStatusCodeParamKey is the legacy parameter set by witchcraft-go-server/rest.NewError
-	httpStatusCodeParamKey = "httpStatusCode"
+	// legacyHTTPStatusCodeParamKey is the legacy parameter set by github.com/palantir/witchcraft-go-server/rest.NewError
+	legacyHTTPStatusCodeParamKey = "httpStatusCode"
 )
