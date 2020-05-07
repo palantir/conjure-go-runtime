@@ -12,42 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package rest
-
-import (
-	werror "github.com/palantir/witchcraft-go-error"
-)
+package httpserver
 
 const (
+	// httpStatusCodeParamKey is the legacy parameter set by witchcraft-go-server/rest.NewError
 	httpStatusCodeParamKey = "httpStatusCode"
 )
-
-type errorMetadata struct {
-	statusCode int
-}
-
-type ErrorParam interface {
-	apply(error *errorMetadata)
-}
-
-type errorParamFunc func(metadata *errorMetadata)
-
-func (f errorParamFunc) apply(err *errorMetadata) {
-	f(err)
-}
-
-func NewError(err error, params ...ErrorParam) error {
-	e := errorMetadata{
-		statusCode: StatusCodeMapper(err),
-	}
-	for _, param := range params {
-		param.apply(&e)
-	}
-	return werror.Wrap(err, "witchcraft-server rest error", werror.SafeParam(httpStatusCodeParamKey, e.statusCode))
-}
-
-func StatusCode(code int) ErrorParam {
-	return errorParamFunc(func(err *errorMetadata) {
-		err.statusCode = code
-	})
-}
