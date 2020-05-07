@@ -29,7 +29,7 @@ func TestNewWrappedError(t *testing.T) {
 		err := werror.Error("an error", werror.UnsafeParam("stringParam", "stringValue"))
 		cerr := errors.NewInternal(wparams.NewSafeParamStorer(map[string]interface{}{"intParam": 42}))
 
-		result := errors.NewWrappedError(err, cerr)
+		result := errors.NewWrappedError(cerr, err)
 		assert.Contains(t, result.Error(), "an error: INTERNAL Default:Internal")
 		assert.Equal(t, map[string]interface{}{"intParam": 42, "errorInstanceId": cerr.InstanceID()}, result.(wparams.ParamStorer).SafeParams())
 		assert.Equal(t, map[string]interface{}{"stringParam": "stringValue"}, result.(wparams.ParamStorer).UnsafeParams())
@@ -38,7 +38,7 @@ func TestNewWrappedError(t *testing.T) {
 		err := fmt.Errorf("an error")
 		cerr := errors.NewInternal(wparams.NewSafeParamStorer(map[string]interface{}{"intParam": 42}))
 
-		result := errors.NewWrappedError(err, cerr)
+		result := errors.NewWrappedError(cerr, err)
 		assert.Contains(t, result.Error(), "an error: INTERNAL Default:Internal")
 		assert.Equal(t, map[string]interface{}{"intParam": 42, "errorInstanceId": cerr.InstanceID()}, result.(wparams.ParamStorer).SafeParams())
 		assert.Equal(t, map[string]interface{}{}, result.(wparams.ParamStorer).UnsafeParams())
