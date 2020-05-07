@@ -1,0 +1,9 @@
+type: feature
+feature:
+  description: |-
+    Add httpserver package, moved from witchcraft-go-server/rest. Functional differences:
+    * [break] Removes `NewError` functionality, new code should use conjure errors
+    * [fix] If error root cause is not a json.Marshaler, write it as text/plain instead of application/json
+    * [feature] If error root cause is a conjure error, use its status code
+  links:
+  - https://github.com/palantir/conjure-go-runtime/pull/102
