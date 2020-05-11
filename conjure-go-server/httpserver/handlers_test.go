@@ -280,7 +280,7 @@ func TestStatusCodeMapper(t *testing.T) {
 }
 
 type testJSONError struct {
-	Msg string `json:"message"`
+	Msg string
 }
 
 func (e testJSONError) Error() string {
@@ -292,7 +292,7 @@ func (e testJSONError) MarshalJSON() ([]byte, error) {
 }
 
 type testJSONErrorMarshalFails struct {
-	Msg string `json:"message"`
+	Msg string
 }
 
 func (e testJSONErrorMarshalFails) Error() string {
