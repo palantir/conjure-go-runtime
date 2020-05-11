@@ -103,13 +103,58 @@ func TestHandler_ServeHTTP(t *testing.T) {
 			},
 		},
 		{
+			name: "404 non-conjure json marshaler",
+			handler: func(rw http.ResponseWriter, req *http.Request) error {
+				return werror.Wrap(testJSONError{"a bad thing"}, "some reason", werror.SafeParam(legacyHTTPStatusCodeParamKey, http.StatusNotFound))
+			},
+			verifyResp: func(t *testing.T, resp *http.Response) {
+				assert.Equal(t, http.StatusNotFound, resp.StatusCode)
+				assert.Equal(t, "application/json", resp.Header.Get("Content-Type"))
+				body, err := ioutil.ReadAll(resp.Body)
+				assert.NoError(t, err)
+				assert.Equal(t, "{\"message\":\"a bad thing\"}\n", string(body))
+			},
+			verifyLog: func(t *testing.T, i []byte) {
+				logLine := map[string]interface{}{}
+				err := codecs.JSON.Unmarshal(i, &logLine)
+				require.NoError(t, err)
+				assert.Equal(t, "INFO", logLine["level"])
+				assert.Equal(t, "error handling request: some reason: a bad thing", logLine["message"])
+				assert.Equal(t, map[string]interface{}{"httpStatusCode": json.Number("404")}, logLine["params"])
+			},
+		},
+		{
+			name: "404 non-conjure broken json marshaler",
+			handler: func(rw http.ResponseWriter, req *http.Request) error {
+				return werror.Wrap(testJSONErrorMarshalFails{"a bad thing"}, "some reason", werror.SafeParam(legacyHTTPStatusCodeParamKey, http.StatusNotFound))
+			},
+			verifyResp: func(t *testing.T, resp *http.Response) {
+				assert.Equal(t, http.StatusNotFound, resp.StatusCode)
+				// N.B. this should really be text/plain but because we write the headers before attempting to encode
+				// the body, the headers are already sent. A solution would be encoding to a buffer, but this would come
+				// with a memory cost.
+				assert.Equal(t, "application/json", resp.Header.Get("Content-Type"))
+				body, err := ioutil.ReadAll(resp.Body)
+				assert.NoError(t, err)
+				assert.Equal(t, "json: error calling MarshalJSON for type httpserver.testJSONErrorMarshalFails: failed to marshal json\n", string(body))
+			},
+			verifyLog: func(t *testing.T, i []byte) {
+				logLine := map[string]interface{}{}
+				err := codecs.JSON.Unmarshal(i, &logLine)
+				require.NoError(t, err)
+				assert.Equal(t, "INFO", logLine["level"])
+				assert.Equal(t, "error handling request: some reason: a bad thing", logLine["message"])
+				assert.Equal(t, map[string]interface{}{"httpStatusCode": json.Number("404")}, logLine["params"])
+			},
+		},
+		{
 			name: "500 conjure error",
 			handler: func(rw http.ResponseWriter, req *http.Request) error {
 				return conjure500Err
 			},
 			verifyResp: func(t *testing.T, resp *http.Response) {
 				assert.Equal(t, http.StatusInternalServerError, resp.StatusCode)
-				assert.Equal(t, "application/json", resp.Header.Get("Content-Type"))
+				assert.Equal(t, "application/json; charset=utf-8", resp.Header.Get("Content-Type"))
 				body, err := ioutil.ReadAll(resp.Body)
 				assert.NoError(t, err)
 				expected, err := conjure500Err.(json.Marshaler).MarshalJSON()
@@ -132,7 +177,7 @@ func TestHandler_ServeHTTP(t *testing.T) {
 			},
 			verifyResp: func(t *testing.T, resp *http.Response) {
 				assert.Equal(t, http.StatusNotFound, resp.StatusCode)
-				assert.Equal(t, "application/json", resp.Header.Get("Content-Type"))
+				assert.Equal(t, "application/json; charset=utf-8", resp.Header.Get("Content-Type"))
 				body, err := ioutil.ReadAll(resp.Body)
 				assert.NoError(t, err)
 				expected, err := conjure404Err.(json.Marshaler).MarshalJSON()
@@ -155,7 +200,7 @@ func TestHandler_ServeHTTP(t *testing.T) {
 			},
 			verifyResp: func(t *testing.T, resp *http.Response) {
 				assert.Equal(t, http.StatusNotFound, resp.StatusCode)
-				assert.Equal(t, "application/json", resp.Header.Get("Content-Type"))
+				assert.Equal(t, "application/json; charset=utf-8", resp.Header.Get("Content-Type"))
 				body, err := ioutil.ReadAll(resp.Body)
 				assert.NoError(t, err)
 				expected, err := conjure404Err.(json.Marshaler).MarshalJSON()
@@ -232,4 +277,28 @@ func TestStatusCodeMapper(t *testing.T) {
 			assert.Equal(t, StatusCodeMapper(tc.err), tc.expectedCode)
 		})
 	}
+}
+
+type testJSONError struct {
+	Msg string `json:"message"`
+}
+
+func (e testJSONError) Error() string {
+	return e.Msg
+}
+
+func (e testJSONError) MarshalJSON() ([]byte, error) {
+	return []byte(fmt.Sprintf(`{"message": %q}`, e.Msg)), nil
+}
+
+type testJSONErrorMarshalFails struct {
+	Msg string `json:"message"`
+}
+
+func (e testJSONErrorMarshalFails) Error() string {
+	return e.Msg
+}
+
+func (e testJSONErrorMarshalFails) MarshalJSON() ([]byte, error) {
+	return nil, werror.Error("failed to marshal json")
 }
