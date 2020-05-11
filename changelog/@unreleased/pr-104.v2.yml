@@ -1,0 +1,5 @@
+type: fix
+fix:
+  description: Use errors.WriteErrorResponse in httpserver
+  links:
+  - https://github.com/palantir/conjure-go-runtime/pull/104
