@@ -401,6 +401,14 @@ func WithDisableRestErrors() ClientParam {
 	})
 }
 
+// WithDisableKeepAlives disables keep alives on the http transport
+func WithDisableKeepAlives() ClientParam {
+	return clientParamFunc(func(b *clientBuilder) error {
+		b.DisableKeepAlives = true
+		return nil
+	})
+}
+
 func WithErrorDecoder(errorDecoder ErrorDecoder) ClientParam {
 	return clientParamFunc(func(b *clientBuilder) error {
 		b.errorDecoder = errorDecoder
