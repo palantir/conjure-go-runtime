@@ -58,6 +58,7 @@ type httpClientBuilder struct {
 	DisableHTTP2          bool
 	DisableRecovery       bool
 	DisableTracing        bool
+	DisableKeepAlives     bool
 	IdleConnTimeout       time.Duration
 	TLSHandshakeTimeout   time.Duration
 	ExpectContinueTimeout time.Duration
@@ -167,6 +168,7 @@ func httpClientAndRoundTripHandlersFromBuilder(b *httpClientBuilder) (*http.Clie
 		MaxIdleConnsPerHost:   b.MaxIdleConnsPerHost,
 		Proxy:                 b.Proxy,
 		TLSClientConfig:       b.TLSClientConfig,
+		DisableKeepAlives:     b.DisableKeepAlives,
 		ExpectContinueTimeout: b.ExpectContinueTimeout,
 		IdleConnTimeout:       b.IdleConnTimeout,
 		TLSHandshakeTimeout:   b.TLSHandshakeTimeout,

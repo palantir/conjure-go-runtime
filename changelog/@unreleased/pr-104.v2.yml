@@ -1,0 +1,5 @@
+type: improvement
+improvement:
+  description: Add the ability to turn off http keep-alives
+  links:
+  - https://github.com/palantir/conjure-go-runtime/pull/105
