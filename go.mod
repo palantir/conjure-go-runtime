@@ -4,15 +4,15 @@ go 1.13
 
 require (
 	github.com/gorilla/mux v1.7.3 // indirect
-	github.com/palantir/pkg/bytesbuffers v1.0.0
-	github.com/palantir/pkg/httpserver v1.0.0
-	github.com/palantir/pkg/metrics v1.0.0
-	github.com/palantir/pkg/retry v1.0.0
-	github.com/palantir/pkg/safejson v1.0.0
-	github.com/palantir/pkg/tlsconfig v1.0.0
-	github.com/palantir/pkg/uuid v1.0.0
+	github.com/palantir/pkg/bytesbuffers v1.0.1
+	github.com/palantir/pkg/httpserver v1.0.1
+	github.com/palantir/pkg/metrics v1.0.1
+	github.com/palantir/pkg/retry v1.0.1
+	github.com/palantir/pkg/safejson v1.0.1
+	github.com/palantir/pkg/tlsconfig v1.0.1
+	github.com/palantir/pkg/uuid v1.0.1
 	github.com/palantir/witchcraft-go-error v1.3.0
-	github.com/palantir/witchcraft-go-logging v1.5.2
+	github.com/palantir/witchcraft-go-logging v1.6.0
 	github.com/palantir/witchcraft-go-params v1.1.0
 	github.com/palantir/witchcraft-go-tracing v1.2.0
 	github.com/stretchr/testify v1.4.0

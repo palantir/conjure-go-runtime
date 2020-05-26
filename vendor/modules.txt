@@ -8,25 +8,27 @@ github.com/openzipkin/zipkin-go/propagation
 github.com/openzipkin/zipkin-go/reporter
 # github.com/palantir/go-metrics v1.1.0
 github.com/palantir/go-metrics
-# github.com/palantir/pkg/bytesbuffers v1.0.0
+# github.com/palantir/pkg v1.0.1
+github.com/palantir/pkg
+# github.com/palantir/pkg/bytesbuffers v1.0.1
 github.com/palantir/pkg/bytesbuffers
-# github.com/palantir/pkg/httpserver v1.0.0
+# github.com/palantir/pkg/httpserver v1.0.1
 github.com/palantir/pkg/httpserver
-# github.com/palantir/pkg/metrics v1.0.0
+# github.com/palantir/pkg/metrics v1.0.1
 github.com/palantir/pkg/metrics
-# github.com/palantir/pkg/retry v1.0.0
+# github.com/palantir/pkg/retry v1.0.1
 github.com/palantir/pkg/retry
-# github.com/palantir/pkg/safejson v1.0.0
+# github.com/palantir/pkg/safejson v1.0.1
 github.com/palantir/pkg/safejson
-# github.com/palantir/pkg/tlsconfig v1.0.0
+# github.com/palantir/pkg/tlsconfig v1.0.1
 github.com/palantir/pkg/tlsconfig
-# github.com/palantir/pkg/uuid v1.0.0
+# github.com/palantir/pkg/uuid v1.0.1
 github.com/palantir/pkg/uuid
 github.com/palantir/pkg/uuid/internal/uuid
 # github.com/palantir/witchcraft-go-error v1.3.0
 github.com/palantir/witchcraft-go-error
 github.com/palantir/witchcraft-go-error/internal/errors
-# github.com/palantir/witchcraft-go-logging v1.5.2
+# github.com/palantir/witchcraft-go-logging v1.6.0
 github.com/palantir/witchcraft-go-logging/internal/gopath
 github.com/palantir/witchcraft-go-logging/wlog
 github.com/palantir/witchcraft-go-logging/wlog/internal
