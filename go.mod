@@ -7,7 +7,7 @@ require (
 	github.com/palantir/pkg/bytesbuffers v1.0.1
 	github.com/palantir/pkg/httpserver v1.0.1
 	github.com/palantir/pkg/metrics v1.0.1
-	github.com/palantir/pkg/retry v1.0.1
+	github.com/palantir/pkg/retry v1.1.0
 	github.com/palantir/pkg/safejson v1.0.1
 	github.com/palantir/pkg/tlsconfig v1.0.1
 	github.com/palantir/pkg/uuid v1.0.1
