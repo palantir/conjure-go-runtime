@@ -54,8 +54,8 @@ github.com/palantir/pkg/metrics v1.0.1 h1:d3KLSlm5JVRH/y86XBZZazYufOKowij3pH5ry2
 github.com/palantir/pkg/metrics v1.0.1/go.mod h1:nbKCQCZecI4XdBWpFPVesEDNzB0FLZb1jvayrHW6skM=
 github.com/palantir/pkg/objmatcher v1.0.0 h1:TrVWmiruKaPgYbxvAFk3TlWtb1L72jo0/6Jw4udTEmU=
 github.com/palantir/pkg/objmatcher v1.0.0/go.mod h1:r/JGd9x5OOgTCoaHt7qSSRX7jAheaJ88nAWytWsrwN0=
-github.com/palantir/pkg/retry v1.0.1 h1:oAJxw1f1QWXKBkf2NClSFq+E6sChMPtiz5a+IBflYmM=
-github.com/palantir/pkg/retry v1.0.1/go.mod h1:TdzhQIVAaNwpezz4OSibhZAFBYuAoJ16yZXyhJEQ9h8=
+github.com/palantir/pkg/retry v1.1.0 h1:7zfYUXNvHyg2zpPWcP+cm4DMrqZqw7M+HPkz3SOSPWA=
+github.com/palantir/pkg/retry v1.1.0/go.mod h1:TdzhQIVAaNwpezz4OSibhZAFBYuAoJ16yZXyhJEQ9h8=
 github.com/palantir/pkg/safejson v1.0.0 h1:uMRaxVwRC45AcDCvdr930TDOluec13zYwKiZ0wKNRWs=
 github.com/palantir/pkg/safejson v1.0.0/go.mod h1:lrqgYn4dju1TbU+pf3gEQtzAbQtaGrTHa3860bus8tM=
 github.com/palantir/pkg/safejson v1.0.1 h1:VfpUJrdOnRm2m2ZBHXuVkdGbZd+B0ZrH8FpPxrPtMcc=
