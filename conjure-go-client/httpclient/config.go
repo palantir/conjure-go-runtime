@@ -16,6 +16,7 @@ package httpclient
 
 import (
 	"bytes"
+	"crypto/tls"
 	"io/ioutil"
 	"net/http"
 	"time"
@@ -96,9 +97,10 @@ type MetricsConfig struct {
 }
 
 type SecurityConfig struct {
-	CAFiles  []string `json:"ca-files,omitempty" yaml:"ca-files,omitempty"`
-	CertFile string   `json:"cert-file,omitempty" yaml:"cert-file,omitempty"`
-	KeyFile  string   `json:"key-file,omitempty" yaml:"key-file,omitempty"`
+	CAFiles               []string `json:"ca-files,omitempty" yaml:"ca-files,omitempty"`
+	CertFile              string   `json:"cert-file,omitempty" yaml:"cert-file,omitempty"`
+	KeyFile               string   `json:"key-file,omitempty" yaml:"key-file,omitempty"`
+	InsecureSkipTLSVerify bool     `json:"insecure-skip-tls-verify,omitempty" yaml:"insecure-skip-tls-verify,omitempty"`
 }
 
 // MustClientConfig returns an error if the service name is not configured.
@@ -279,22 +281,37 @@ func configToParams(c ClientConfig) ([]ClientParam, error) {
 
 	// Security (TLS) Config
 
-	var tlsParams []tlsconfig.ClientParam
-	if len(c.Security.CAFiles) != 0 {
-		tlsParams = append(tlsParams, tlsconfig.ClientRootCAFiles(c.Security.CAFiles...))
-	}
-	if c.Security.CertFile != "" && c.Security.KeyFile != "" {
-		tlsParams = append(tlsParams, tlsconfig.ClientKeyPairFiles(c.Security.CertFile, c.Security.KeyFile))
-	}
-	if len(tlsParams) != 0 {
+	if tlsParams := tlsParams(c.Security); len(tlsParams) != 0 {
 		tlsConfig, err := tlsconfig.NewClientConfig(tlsParams...)
 		if err != nil {
 			return nil, werror.Wrap(err, "failed to build tlsConfig")
 		}
-		params = append(params, WithTLSConfig(tlsConfig))
+		
+		if c.Security.InsecureSkipTLSVerify {
+			params = append(params, WithTLSConfig(&tls.Config{InsecureSkipVerify: true}))
+		} else {
+			params = append(params, WithTLSConfig(tlsConfig))
+		}
+
 	}
 
 	return params, nil
+}
+
+func tlsParams(s SecurityConfig) []tlsconfig.ClientParam {
+	if s.InsecureSkipTLSVerify {
+		return []tlsconfig.ClientParam{} // TODO UPDATE PKG and use insecrue TLS param
+	}
+
+	var tlsParams []tlsconfig.ClientParam
+	if len(s.CAFiles) != 0 {
+		tlsParams = append(tlsParams, tlsconfig.ClientRootCAFiles(s.CAFiles...))
+	}
+	if s.CertFile != "" && s.KeyFile != "" {
+		tlsParams = append(tlsParams, tlsconfig.ClientKeyPairFiles(s.CertFile, s.KeyFile))
+	}
+
+	return tlsParams
 }
 
 func orZero(d *time.Duration) time.Duration {
