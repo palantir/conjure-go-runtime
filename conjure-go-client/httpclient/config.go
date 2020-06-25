@@ -281,7 +281,7 @@ func configToParams(c ClientConfig) ([]ClientParam, error) {
 
 	// Security (TLS) Config
 
-	if tlsParams := tlsParams(c.Security); len(tlsParams) != 0 {
+	if tlsParams := getTLSParams(c.Security); len(tlsParams) != 0 {
 		tlsConfig, err := tlsconfig.NewClientConfig(tlsParams...)
 		if err != nil {
 			return nil, werror.Wrap(err, "failed to build tlsConfig")
@@ -298,7 +298,7 @@ func configToParams(c ClientConfig) ([]ClientParam, error) {
 	return params, nil
 }
 
-func tlsParams(s SecurityConfig) []tlsconfig.ClientParam {
+func getTLSParams(s SecurityConfig) []tlsconfig.ClientParam {
 	if s.InsecureSkipTLSVerify {
 		return []tlsconfig.ClientParam{} // TODO UPDATE PKG and use insecrue TLS param
 	}
