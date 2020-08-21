@@ -22,7 +22,7 @@ import (
 // StatusCodeFromError retrieves the 'statusCode' parameter from the provided werror.
 // If the statusCode can not be detected from the error, ok is false.
 // If the error is a (potentially wrapped) Conjure error, the conjure status code is returned.
-// Otherwise, if the error is a werror with the statusCode param, that parameter is returned.
+// Otherwise, if the error is a werror with the statusCode param, the value of the statusCode parameter is returned.
 //
 // The default client error decoder sets the statusCode parameter on its returned errors. Note that, if a custom error
 // decoder is used, this function will only return a status code for the error if the custom decoder sets a 'statusCode'
