@@ -15,6 +15,7 @@
 package internal
 
 import (
+	"github.com/palantir/conjure-go-runtime/v2/conjure-go-contract/errors"
 	werror "github.com/palantir/witchcraft-go-error"
 )
 
@@ -25,6 +26,9 @@ import (
 // decoder is used, this function will only return a status code for the error if the custom decoder sets a 'statusCode'
 // parameter on the error.
 func StatusCodeFromError(err error) (statusCode int, ok bool) {
+	if conjureErr, ok := werror.RootCause(err).(errors.Error); ok {
+		return conjureErr.Code().StatusCode(), true
+	}
 	statusCodeI, ok := werror.ParamFromError(err, "statusCode")
 	if !ok {
 		return 0, false
