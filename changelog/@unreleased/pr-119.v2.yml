@@ -1,0 +1,5 @@
+type: fix
+fix:
+  description: StatusCodeFromError should respect conjure errors
+  links:
+  - https://github.com/palantir/conjure-go-runtime/pull/119
