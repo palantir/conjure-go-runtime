@@ -1,0 +1,7 @@
+type: feature
+feature:
+  description: Add httpserver.NewConjureHandler which converts non-conjure errors
+    to conjure errors and hardcodes some of the options for logging and status code
+    handling.
+  links:
+  - https://github.com/palantir/conjure-go-runtime/pull/121
