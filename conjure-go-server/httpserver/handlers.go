@@ -46,6 +46,13 @@ func NewJSONHandler(fn func(http.ResponseWriter, *http.Request) error, statusFn 
 	}
 }
 
+// NewConjureHandler is like NewJSONHandler with some additional opinions hardcoded.
+// Most importantly, if the handler fn returns a non-conjure error it will be wrapped in a default conjure internal error.
+// Additionally, the StatusMapper and ErrorHandler are fixed to their respective defaults.
+func NewConjureHandler(fn func(http.ResponseWriter, *http.Request) error) http.Handler {
+	return NewJSONHandler(HandlerWithDefaultConjureError(fn), StatusCodeMapper, ErrHandler)
+}
+
 // ServeHTTP implements the http.Handler interface
 func (h handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if err := h.handleFn(w, r); err != nil {
@@ -77,6 +84,21 @@ func (h handler) status(err error) int {
 func (h handler) handleError(ctx context.Context, statusCode int, err error) {
 	if h.errorFn != nil {
 		h.errorFn(ctx, statusCode, err)
+	}
+}
+
+// HandlerWithDefaultConjureError wraps a handler function. If the handler returns a non-conjure error, that
+// error will be wrapped in a default internal (500) conjure error with no parameters sent over the wire.
+// To include parameters in your response, return a conjure error from the handler function instead of relying on this fallback.
+func HandlerWithDefaultConjureError(handleFn func(http.ResponseWriter, *http.Request) error) func(http.ResponseWriter, *http.Request) error {
+	return func(w http.ResponseWriter, r *http.Request) error {
+		if err := handleFn(w, r); err != nil {
+			if _, ok := werror.RootCause(err).(errors.Error); !ok {
+				return errors.NewWrappedError(errors.NewInternal(), err)
+			}
+			return err
+		}
+		return nil
 	}
 }
 
