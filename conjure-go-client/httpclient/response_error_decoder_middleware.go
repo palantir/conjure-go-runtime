@@ -22,6 +22,7 @@ import (
 	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient/internal"
 	"github.com/palantir/conjure-go-runtime/v2/conjure-go-contract/codecs"
 	"github.com/palantir/conjure-go-runtime/v2/conjure-go-contract/errors"
+	internalerrors "github.com/palantir/conjure-go-runtime/v2/internal/errors"
 	werror "github.com/palantir/witchcraft-go-error"
 )
 
@@ -73,29 +74,64 @@ func (d restErrorDecoder) Handles(resp *http.Response) bool {
 }
 
 func (d restErrorDecoder) DecodeError(resp *http.Response) error {
-	statusParam := werror.SafeParam("statusCode", resp.StatusCode)
+	safeParams := map[string]interface{}{
+		"statusCode": resp.StatusCode,
+	}
+	is5xx := is5xx(resp.StatusCode)
+	if is5xx {
+		safeParams[internalerrors.InternalErrorTypeParam] = errorTypeForHTTPCode(resp.StatusCode)
+	}
 
 	// TODO(#98): If a byte buffer pool is configured, use it to avoid an allocation.
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		return werror.Wrap(err, "server returned an error and failed to read body", statusParam)
+		return werror.Wrap(err, "server returned an error and failed to read body", werror.SafeParams(safeParams))
 	}
 	if len(body) == 0 {
-		return werror.Error(resp.Status, statusParam)
+		return werror.Error(resp.Status, werror.SafeParams(safeParams))
 	}
 
 	// If JSON, try to unmarshal as conjure error
 	if isJSON := strings.Contains(resp.Header.Get("Content-Type"), codecs.JSON.ContentType()); !isJSON {
-		return werror.Error(resp.Status, statusParam, werror.UnsafeParam("responseBody", string(body)))
+		return werror.Error(resp.Status, werror.SafeParams(safeParams), werror.UnsafeParam("responseBody", string(body)))
 	}
 	conjureErr, err := errors.UnmarshalError(body)
 	if err != nil {
-		return werror.Wrap(err, "", statusParam, werror.UnsafeParam("responseBody", string(body)))
+		return werror.Wrap(err, "", werror.SafeParams(safeParams), werror.UnsafeParam("responseBody", string(body)))
 	}
-	return werror.Wrap(conjureErr, "", statusParam)
+	if is5xx {
+		safeParams[internalerrors.InternalErrorTypeParam] = errorTypeForConjureErrorCode(conjureErr.Code())
+	}
+	return werror.Wrap(conjureErr, "", werror.SafeParams(safeParams))
 }
 
 // StatusCodeFromError wraps the internal StatusCodeFromError func. For behavior details, see its docs.
 func StatusCodeFromError(err error) (statusCode int, ok bool) {
 	return internal.StatusCodeFromError(err)
+}
+
+func is5xx(code int) bool {
+	return code >= http.StatusInternalServerError
+}
+
+func errorTypeForConjureErrorCode(e errors.ErrorCode) internalerrors.InternalErrorType {
+	switch e {
+	// All 5xx errors
+	case errors.FailedPrecondition,
+		errors.Internal,
+		errors.Timeout,
+		errors.CustomServer:
+		return internalerrors.ServiceInternal
+	default:
+		return internalerrors.Internal
+	}
+}
+
+func errorTypeForHTTPCode(statusCode int) internalerrors.InternalErrorType {
+	switch statusCode {
+	case http.StatusServiceUnavailable:
+		return internalerrors.QOS
+	default:
+		return internalerrors.RPC
+	}
 }

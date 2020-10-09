@@ -25,6 +25,7 @@ import (
 
 	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient"
 	"github.com/palantir/conjure-go-runtime/v2/conjure-go-contract/errors"
+	internalerrors "github.com/palantir/conjure-go-runtime/v2/internal/errors"
 	werror "github.com/palantir/witchcraft-go-error"
 	wparams "github.com/palantir/witchcraft-go-params"
 	"github.com/stretchr/testify/assert"
@@ -158,6 +159,31 @@ func TestErrorDecoderMiddlewares(t *testing.T) {
 				safeParams, unsafeParams := werror.ParamsFromError(err)
 				assert.Equal(t, map[string]interface{}{"requestHost": u.Host, "requestMethod": "Get"}, safeParams)
 				assert.Equal(t, map[string]interface{}{"requestPath": "/path"}, unsafeParams)
+			},
+		},
+		{
+			name: "500 conjure",
+			handler: func(rw http.ResponseWriter, req *http.Request) {
+				errors.WriteErrorResponse(rw, errors.NewInternal(
+					// Safe param will be converted to unsafe because we do not have an error type
+					wparams.NewSafeParamStorer(map[string]interface{}{"stringParam": "stringValue"}),
+				))
+			},
+			verify: func(t *testing.T, u *url.URL, err error) {
+				require.Error(t, err)
+				code, ok := httpclient.StatusCodeFromError(err)
+				assert.True(t, ok)
+				assert.Equal(t, 500, code)
+
+				conjureErr := werror.RootCause(err).(errors.Error)
+				id := conjureErr.InstanceID()
+				assert.NotEmpty(t, id)
+				assert.Equal(t, errors.Internal, conjureErr.Code())
+				assert.Equal(t, errors.DefaultInternal.Name(), conjureErr.Name())
+
+				safeParams, unsafeParams := werror.ParamsFromError(err)
+				assert.Equal(t, map[string]interface{}{"requestHost": u.Host, "requestMethod": "Get", "errorInstanceId": id, "statusCode": 500, internalerrors.InternalErrorTypeParam: internalerrors.ServiceInternal}, safeParams)
+				assert.Equal(t, map[string]interface{}{"requestPath": "/path", "stringParam": "stringValue"}, unsafeParams)
 			},
 		},
 	} {
