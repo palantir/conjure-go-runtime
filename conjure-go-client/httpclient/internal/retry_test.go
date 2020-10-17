@@ -12,14 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package internal_test
+package internal
 
 import (
 	"net/http"
 	"testing"
 	"time"
 
-	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient/internal"
 	werror "github.com/palantir/witchcraft-go-error"
 	"github.com/stretchr/testify/assert"
 )
@@ -99,19 +98,19 @@ func TestRetryResponseParsers(t *testing.T) {
 		},
 	} {
 		t.Run(test.Name, func(t *testing.T) {
-			isRetryOther, retryOtherURL := internal.IsRetryOtherResponse(test.Response)
+			isRetryOther, retryOtherURL := isRetryOtherResponse(test.Response)
 			if assert.Equal(t, test.IsRetryOther, isRetryOther) && test.RetryOtherURL != "" {
 				if assert.NotNil(t, retryOtherURL) {
 					assert.Equal(t, test.RetryOtherURL, retryOtherURL.String())
 				}
 			}
 
-			isThrottle, throttleDur := internal.IsThrottleResponse(test.Response, test.RespErr)
+			isThrottle, throttleDur := isThrottleResponse(test.Response, test.RespErr)
 			if assert.Equal(t, test.IsThrottle, isThrottle) {
 				assert.WithinDuration(t, time.Now().Add(test.ThrottleDuration), time.Now().Add(throttleDur), time.Second)
 			}
 
-			isUnavailable := internal.IsUnavailableResponse(test.Response, test.RespErr)
+			isUnavailable := isUnavailableResponse(test.Response, test.RespErr)
 			assert.Equal(t, test.IsUnavailable, isUnavailable)
 		})
 	}

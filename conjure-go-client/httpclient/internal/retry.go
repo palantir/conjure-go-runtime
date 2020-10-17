@@ -57,7 +57,7 @@ const (
 	StatusCodeUnavailable = http.StatusServiceUnavailable
 )
 
-func IsRetryOtherResponse(resp *http.Response) (bool, *url.URL) {
+func isRetryOtherResponse(resp *http.Response) (bool, *url.URL) {
 	if resp == nil || resp.StatusCode != StatusCodeRetryOther {
 		return false, nil
 	}
@@ -73,7 +73,7 @@ func IsRetryOtherResponse(resp *http.Response) (bool, *url.URL) {
 	return true, locationURL
 }
 
-func IsThrottleResponse(resp *http.Response, err error) (bool, time.Duration) {
+func isThrottleResponse(resp *http.Response, err error) (bool, time.Duration) {
 	errCode, ok := StatusCodeFromError(err)
 	if ok && errCode == StatusCodeThrottle {
 		return true, 0
@@ -97,7 +97,7 @@ func IsThrottleResponse(resp *http.Response, err error) (bool, time.Duration) {
 	return true, time.Until(retryAfterDate)
 }
 
-func IsUnavailableResponse(resp *http.Response, err error) bool {
+func isUnavailableResponse(resp *http.Response, err error) bool {
 	errCode, ok := StatusCodeFromError(err)
 	if ok && errCode == StatusCodeUnavailable {
 		return true
