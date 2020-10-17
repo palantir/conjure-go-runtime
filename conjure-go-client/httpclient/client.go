@@ -91,9 +91,9 @@ func (c *clientImpl) Do(ctx context.Context, params ...RequestParam) (*http.Resp
 
 	retrier := internal.NewRequestRetrier(uris, retry.Start(ctx, c.backoffOptions...), c.maxRetries)
 	for retrier.ShouldGetNextURI(resp, err) {
-		uri, err := retrier.GetNextURI(ctx, resp, err)
-		if err != nil {
-			return nil, err
+		uri, retryErr := retrier.GetNextURI(ctx, resp, err)
+		if retryErr != nil {
+			return nil, retryErr
 		}
 		resp, err = c.doOnce(ctx, uri, params...)
 	}
