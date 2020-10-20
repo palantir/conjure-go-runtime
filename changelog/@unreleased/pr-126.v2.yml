@@ -1,0 +1,5 @@
+type: improvement
+improvement:
+  description: 'improvement: pull out retry logic and handle mesh URIs'
+  links:
+  - https://github.com/palantir/conjure-go-runtime/pull/126
