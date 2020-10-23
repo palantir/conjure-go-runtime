@@ -21,13 +21,7 @@ type StackTracer interface {
 
 // NewStackTrace creates a new StackTrace, constructed by collecting program counters from runtime callers.
 func NewStackTrace() StackTrace {
-	const depth = 32
-	var pcs [depth]uintptr
-	// only modification is changing "3" to "4" here. Because the stack trace is always taken by the werror package,
-	// omit one extra frame (caller should not see werror package as part of the output stack).
-	n := runtime.Callers(4, pcs[:])
-	var st stack = pcs[0:n]
-	return &st
+	return NewStackTraceWithSkip(1)
 }
 
 // NewStackTraceWithSkip creates a new StackTrace that skips an additional `skip` stack frames.

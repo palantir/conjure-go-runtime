@@ -14,7 +14,7 @@ require (
 	github.com/palantir/pkg/tlsconfig v1.0.1
 	github.com/palantir/pkg/transform v1.0.1 // indirect
 	github.com/palantir/pkg/uuid v1.0.1
-	github.com/palantir/witchcraft-go-error v1.3.0
+	github.com/palantir/witchcraft-go-error v1.4.0
 	github.com/palantir/witchcraft-go-logging v1.7.0
 	github.com/palantir/witchcraft-go-params v1.1.0
 	github.com/palantir/witchcraft-go-tracing v1.2.0
@@ -25,5 +25,3 @@ require (
 	google.golang.org/grpc v1.21.1 // indirect
 	gopkg.in/yaml.v2 v2.3.0
 )
-
-replace github.com/palantir/witchcraft-go-error => github.com/asanderson15/witchcraft-go-error v1.3.1-0.20201022195930-4d19cecf95e3
