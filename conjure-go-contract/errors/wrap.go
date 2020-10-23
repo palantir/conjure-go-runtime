@@ -43,7 +43,7 @@ func GetConjureError(err error) Error {
 	if conjureErr, ok := err.(Error); ok {
 		return conjureErr
 	}
-	if werr, ok := err.(werror.Werror); ok {
+	if werr, ok := err.(werror.Causer); ok {
 		return GetConjureError(werr.Cause())
 	}
 	return nil

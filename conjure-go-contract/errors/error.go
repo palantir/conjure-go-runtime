@@ -37,7 +37,7 @@ type Error interface {
 
 // NewError returns new instance of an error of the specified type with provided parameters.
 func NewError(errorType ErrorType, parameters ...wparams.ParamStorer) Error {
-	return WrapWithNewError(nil, errorType, wparams.NewParamStorer(parameters...))
+	return newGenericError(nil, errorType, wparams.NewParamStorer(parameters...))
 }
 
 // WrapWithNewError returns new instance of an error of the specified type with provided parameters wrapping an existing error.
@@ -47,80 +47,80 @@ func WrapWithNewError(cause error, errorType ErrorType, parameters ...wparams.Pa
 
 // NewPermissionDenied returns new error instance of default permission denied type.
 func NewPermissionDenied(parameters ...wparams.ParamStorer) Error {
-	return WrapWithPermissionDenied(nil, parameters...)
+	return newGenericError(nil, DefaultPermissionDenied, wparams.NewParamStorer(parameters...))
 }
 
 // WrapWithPermissionDenied returns new error instance of default permission denied type wrapping an existing error.
 func WrapWithPermissionDenied(cause error, parameters ...wparams.ParamStorer) Error {
-	return WrapWithNewError(cause, DefaultPermissionDenied, parameters...)
+	return newGenericError(cause, DefaultPermissionDenied, wparams.NewParamStorer(parameters...))
 }
 
 // NewInvalidArgument returns new error instance of default invalid argument type.
 func NewInvalidArgument(parameters ...wparams.ParamStorer) Error {
-	return WrapWithInvalidArgument(nil, parameters...)
+	return newGenericError(nil, DefaultInvalidArgument, wparams.NewParamStorer(parameters...))
 }
 
 // WrapWithInvalidArgument returns new error instance of default invalid argument type wrapping an existing error.
 func WrapWithInvalidArgument(cause error, parameters ...wparams.ParamStorer) Error {
-	return WrapWithNewError(cause, DefaultInvalidArgument, parameters...)
+	return newGenericError(cause, DefaultInvalidArgument, wparams.NewParamStorer(parameters...))
 }
 
 // NewNotFound returns new error instance of default not found type.
 func NewNotFound(parameters ...wparams.ParamStorer) Error {
-	return WrapWithNotFound(nil, parameters...)
+	return newGenericError(nil, DefaultNotFound, wparams.NewParamStorer(parameters...))
 }
 
 // WrapWithNotFound returns new error instance of default not found type wrapping an existing error.
 func WrapWithNotFound(cause error, parameters ...wparams.ParamStorer) Error {
-	return WrapWithNewError(cause, DefaultNotFound, parameters...)
+	return newGenericError(cause, DefaultNotFound, wparams.NewParamStorer(parameters...))
 }
 
 // NewConflict returns new error instance of default conflict type.
 func NewConflict(parameters ...wparams.ParamStorer) Error {
-	return WrapWithConflict(nil, parameters...)
+	return newGenericError(nil, DefaultConflict, wparams.NewParamStorer(parameters...))
 }
 
 // WrapWithConflict returns new error instance of default conflict type wrapping an existing error.
 func WrapWithConflict(cause error, parameters ...wparams.ParamStorer) Error {
-	return WrapWithNewError(cause, DefaultConflict, parameters...)
+	return newGenericError(cause, DefaultConflict, wparams.NewParamStorer(parameters...))
 }
 
 // NewRequestEntityTooLarge returns new error instance of default request entity too large type.
 func NewRequestEntityTooLarge(parameters ...wparams.ParamStorer) Error {
-	return WrapWithRequestEntityTooLarge(nil, parameters...)
+	return newGenericError(nil, DefaultRequestEntityTooLarge, wparams.NewParamStorer(parameters...))
 }
 
 // WrapWithRequestEntityTooLarge returns new error instance of default request entity too large type wrapping an existing error.
 func WrapWithRequestEntityTooLarge(cause error, parameters ...wparams.ParamStorer) Error {
-	return WrapWithNewError(cause, DefaultConflict, parameters...)
+	return newGenericError(cause, DefaultRequestEntityTooLarge, wparams.NewParamStorer(parameters...))
 }
 
 // NewFailedPrecondition returns new error instance of default failed precondition type.
 func NewFailedPrecondition(parameters ...wparams.ParamStorer) Error {
-	return WrapWithFailedPrecondition(nil, parameters...)
+	return newGenericError(nil, DefaultFailedPrecondition, wparams.NewParamStorer(parameters...))
 }
 
 // WrapWithFailedPrecondition returns new error instance of default failed precondition type wrapping an existing error.
 func WrapWithFailedPrecondition(cause error, parameters ...wparams.ParamStorer) Error {
-	return WrapWithNewError(cause, DefaultFailedPrecondition, parameters...)
+	return newGenericError(cause, DefaultFailedPrecondition, wparams.NewParamStorer(parameters...))
 }
 
 // NewInternal returns new error instance of default internal type.
 func NewInternal(parameters ...wparams.ParamStorer) Error {
-	return WrapWithInternal(nil, parameters...)
+	return newGenericError(nil, DefaultInternal, wparams.NewParamStorer(parameters...))
 }
 
 // WrapWithInternal returns new error instance of default internal type wrapping an existing error.
 func WrapWithInternal(cause error, parameters ...wparams.ParamStorer) Error {
-	return WrapWithNewError(cause, DefaultInternal, parameters...)
+	return newGenericError(cause, DefaultInternal, wparams.NewParamStorer(parameters...))
 }
 
 // NewTimeout returns new error instance of default timeout type.
 func NewTimeout(parameters ...wparams.ParamStorer) Error {
-	return WrapWithTimeout(nil, parameters...)
+	return newGenericError(nil, DefaultTimeout, wparams.NewParamStorer(parameters...))
 }
 
 // WrapWithTimeout returns new error instance of default timeout type wrapping an existing error.
 func WrapWithTimeout(cause error, parameters ...wparams.ParamStorer) Error {
-	return WrapWithNewError(cause, DefaultTimeout, parameters...)
+	return newGenericError(cause, DefaultTimeout, wparams.NewParamStorer(parameters...))
 }

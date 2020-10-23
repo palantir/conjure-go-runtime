@@ -34,7 +34,7 @@ func newGenericError(cause error, errorType ErrorType, params wparams.ParamStore
 		errorInstanceID: uuid.NewUUID(),
 		params:          params,
 		cause:           cause,
-		stack:           werror.NewStackTrace(),
+		stack:           werror.NewStackTraceWithSkip(2),
 	}
 }
 
