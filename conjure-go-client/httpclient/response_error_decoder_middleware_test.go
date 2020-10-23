@@ -127,7 +127,7 @@ func TestErrorDecoderMiddlewares(t *testing.T) {
 			verify: func(t *testing.T, u *url.URL, err error) {
 				verify404(t, err)
 				require.Error(t, err)
-				conjureErr := werror.RootCause(err).(errors.Error)
+				conjureErr := errors.GetConjureError(err)
 				id := conjureErr.InstanceID()
 				assert.NotEmpty(t, id)
 				assert.Equal(t, errors.NotFound, conjureErr.Code())
