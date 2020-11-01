@@ -14,7 +14,7 @@ var _ Werror = (*werror)(nil)
 // DEPRECATED: Please use ErrorWithContextParams instead to ensure that all the wparams parameters that are set on the
 // context are included in the error.
 func Error(msg string, params ...Param) error {
-	return ErrorWithContextParams(context.Background(), msg, params...)
+	return newWerror(msg, nil, params...)
 }
 
 // ErrorWithContextParams returns a new error with the provided message and parameters. The returned error also includes any
@@ -44,7 +44,10 @@ func ErrorWithContextParams(ctx context.Context, msg string, params ...Param) er
 // DEPRECATED: Please use WrapWithContextParams instead to ensure that all the wparams parameters that are set on the
 // context are included in the error.
 func Wrap(err error, msg string, params ...Param) error {
-	return WrapWithContextParams(context.Background(), err, msg, params...)
+	if err == nil {
+		return nil
+	}
+	return newWerror(msg, err, params...)
 }
 
 // WrapWithContextParams returns a new error with the provided message and stores the provided error as its cause.
@@ -213,7 +216,7 @@ func newWerror(message string, cause error, params ...Param) error {
 	we := &werror{
 		message: message,
 		cause:   cause,
-		stack:   NewStackTrace(),
+		stack:   NewStackTraceWithSkip(1),
 		params:  make(map[string]paramValue),
 	}
 	for _, p := range params {
