@@ -114,7 +114,7 @@ func TestFailoverEverythingDown(t *testing.T) {
 	s1 := httptest.NewServer(handler)
 	s2 := httptest.NewServer(handler)
 	s3 := httptest.NewServer(handler)
-	cli, err := NewClient(WithBaseURLs([]string{s1.URL, s2.URL, s3.URL}))
+	cli, err := NewClient(WithBaseURLs([]string{s1.URL, s2.URL, s3.URL}), WithMaxRetries(5))
 	require.NoError(t, err)
 
 	_, err = cli.Do(context.Background(), WithRequestMethod("GET"))
@@ -205,7 +205,7 @@ func TestRoundRobin(t *testing.T) {
 	s0 := httptest.NewServer(getHandler(0))
 	s1 := httptest.NewServer(getHandler(1))
 	s2 := httptest.NewServer(getHandler(2))
-	cli, err := NewClient(WithBaseURLs([]string{s0.URL, s1.URL, s2.URL}))
+	cli, err := NewClient(WithBaseURLs([]string{s0.URL, s1.URL, s2.URL}), WithMaxRetries(5))
 	require.NoError(t, err)
 	_, err = cli.Do(context.Background(), WithRequestMethod("GET"))
 	assert.Error(t, err)
