@@ -24,6 +24,7 @@ import (
 
 	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient"
 	"github.com/palantir/pkg/metrics"
+	"github.com/palantir/pkg/tlsconfig"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -208,4 +209,94 @@ func TestMetricsMiddleware_HTTPClient(t *testing.T) {
 		assert.Equal(t, expectedTags, tags.ToSet())
 	})
 	assert.True(t, found, "did not find client.response metric")
+}
+
+func TestMetricsMiddleware_SuccessfulTLSHandshake(t *testing.T) {
+	srv := httptest.NewTLSServer(http.NotFoundHandler())
+	defer srv.Close()
+
+	rootRegistry := metrics.NewRootMetricsRegistry()
+	ctx := metrics.WithRegistry(context.Background(), rootRegistry)
+	tlsConf, err := tlsconfig.NewClientConfig(tlsconfig.ClientRootCAs(tlsconfig.CertPoolFromCerts(srv.Certificate())))
+	require.NoError(t, err)
+	client, err := httpclient.NewHTTPClient(httpclient.WithServiceName("test-service"), httpclient.WithMetrics(), httpclient.WithTLSConfig(tlsConf))
+	require.NoError(t, err)
+
+	req, err := http.NewRequest(http.MethodGet, srv.URL, nil)
+	require.NoError(t, err)
+	req = req.WithContext(httpclient.ContextWithRPCMethodName(ctx, "test-endpoint"))
+
+	_, err = client.Do(req)
+	require.NoError(t, err)
+
+	attempt := false
+	success := false
+	failure := false
+	rootRegistry.Each(func(name string, tags metrics.Tags, value metrics.MetricVal) {
+		tagMap := tags.ToMap()
+		switch name {
+		case httpclient.MetricTLSHandshakeAttempt:
+			attempt = true
+			svcName, ok := tagMap[httpclient.MetricTagServiceName]
+			assert.True(t, ok)
+			assert.Equal(t, svcName, "test-service")
+		case httpclient.MetricTLSHandshakeFailure:
+			failure = true
+		case httpclient.MetricTLSHandshake:
+			success = true
+			svcName, ok := tagMap[httpclient.MetricTagServiceName]
+			assert.True(t, ok)
+			assert.Equal(t, svcName, "test-service")
+			_, ok = tagMap[httpclient.CipherTagKey]
+			assert.True(t, ok)
+			_, ok = tagMap[httpclient.TLSVersionTagKey]
+			assert.True(t, ok)
+			_, ok = tagMap[httpclient.NextProtocolTagKey]
+			assert.True(t, ok)
+		}
+	})
+	assert.True(t, attempt, "no tls handshake attempt registered")
+	assert.True(t, success, "no successful tls handshake attempt registered")
+	assert.False(t, failure, "failed tls handshake attempt registered")
+}
+
+func TestMetricsMiddleware_FailedTLSHandshake(t *testing.T) {
+	srv := httptest.NewTLSServer(http.NotFoundHandler())
+	defer srv.Close()
+
+	rootRegistry := metrics.NewRootMetricsRegistry()
+	ctx := metrics.WithRegistry(context.Background(), rootRegistry)
+	client, err := httpclient.NewHTTPClient(httpclient.WithServiceName("test-service"), httpclient.WithMetrics())
+	require.NoError(t, err)
+
+	req, err := http.NewRequest(http.MethodGet, srv.URL, nil)
+	require.NoError(t, err)
+	req = req.WithContext(httpclient.ContextWithRPCMethodName(ctx, "test-endpoint"))
+
+	_, err = client.Do(req)
+	require.Error(t, err)
+
+	attempt := false
+	success := false
+	failure := false
+	rootRegistry.Each(func(name string, tags metrics.Tags, value metrics.MetricVal) {
+		tagMap := tags.ToMap()
+		switch name {
+		case httpclient.MetricTLSHandshakeAttempt:
+			attempt = true
+			svcName, ok := tagMap[httpclient.MetricTagServiceName]
+			assert.True(t, ok)
+			assert.Equal(t, svcName, "test-service")
+		case httpclient.MetricTLSHandshakeFailure:
+			failure = true
+			svcName, ok := tagMap[httpclient.MetricTagServiceName]
+			assert.True(t, ok)
+			assert.Equal(t, svcName, "test-service")
+		case httpclient.MetricTLSHandshake:
+			success = true
+		}
+	})
+	assert.True(t, attempt, "no tls handshake attempt registered")
+	assert.False(t, success, "successful tls handshake attempt registered")
+	assert.True(t, failure, "no failed tls handshake attempt registered")
 }
