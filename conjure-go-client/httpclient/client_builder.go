@@ -197,6 +197,8 @@ func httpClientAndRoundTripHandlersFromBuilder(b *httpClientBuilder) (*http.Clie
 		_ = WithMiddleware(&recoveryMiddleware{}).applyHTTPClient(b)
 	}
 
+	_ = WithMiddleware(&tlsMetricsMiddleware{}).applyHTTPClient(b)
+
 	return &http.Client{
 		Timeout:   b.Timeout,
 		Transport: transport,
