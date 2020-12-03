@@ -23,9 +23,12 @@ import (
 )
 
 const (
-	metricTlsHandshakeAttempt = "tls.handshake.attempt.count"
-	metricTlsHandshakeFailure = "tls.handshake.failure.count"
-	metricTlsHandshake        = "tls.handshake.count"
+	MetricTlsHandshakeAttempt = "tls.handshake.attempt.count"
+	MetricTlsHandshakeFailure = "tls.handshake.failure.count"
+	MetricTlsHandshake        = "tls.handshake.count"
+	CipherTagKey              = "cipher"
+	NextProtocolTagKey        = "next_protocol"
+	TLSVersionTagKey          = "tls_version"
 )
 
 // TLSMetricsMiddleware produces metrics on TLS handshake counts and attempts.
@@ -37,24 +40,24 @@ type tlsMetricsMiddleware struct {
 func (t *tlsMetricsMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (*http.Response, error) {
 	clientTraceContext := httptrace.WithClientTrace(req.Context(), &httptrace.ClientTrace{
 		TLSHandshakeStart: func() {
-			metrics.FromContext(req.Context()).Meter(metricTlsHandshakeAttempt).Mark(1)
+			metrics.FromContext(req.Context()).Meter(MetricTlsHandshakeAttempt).Mark(1)
 		},
 		TLSHandshakeDone: func(state tls.ConnectionState, err error) {
 			var tags []metrics.Tag
 			cipherSuite := tls.CipherSuiteName(state.CipherSuite)
 			if cipherSuite != "" {
-				tags = append(tags, metrics.MustNewTag("cipher", cipherSuite))
+				tags = append(tags, metrics.MustNewTag(CipherTagKey, cipherSuite))
 			}
 			if state.NegotiatedProtocol != "" {
-				tags = append(tags, metrics.MustNewTag("nextProtocol", state.NegotiatedProtocol))
+				tags = append(tags, metrics.MustNewTag(NextProtocolTagKey, state.NegotiatedProtocol))
 			}
 			if tlsVersion := tlsVersionString(state.Version); tlsVersion != "" {
-				tags = append(tags, metrics.MustNewTag("tlsVersion", tlsVersion))
+				tags = append(tags, metrics.MustNewTag(TLSVersionTagKey, tlsVersion))
 			}
 			if err != nil {
-				metrics.FromContext(req.Context()).Meter(metricTlsHandshakeFailure, tags...).Mark(1)
+				metrics.FromContext(req.Context()).Meter(MetricTlsHandshakeFailure, tags...).Mark(1)
 			} else {
-				metrics.FromContext(req.Context()).Meter(metricTlsHandshake, tags...).Mark(1)
+				metrics.FromContext(req.Context()).Meter(MetricTlsHandshake, tags...).Mark(1)
 			}
 		},
 	})

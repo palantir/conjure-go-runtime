@@ -150,7 +150,6 @@ func TestRoundTripperWithMetrics(t *testing.T) {
 			metrics.MustNewTag("method-name", expectedMethodNameTag))
 		assert.Equal(t, expectedTags.ToMap(), metricTags.ToMap())
 	}
-
 	for _, testMethod := range testMethods {
 		t.Run(testMethod, func(t *testing.T) {
 			for _, testProvider := range testProviders {
