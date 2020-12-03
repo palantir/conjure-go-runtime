@@ -15,7 +15,10 @@
 package httpclient
 
 import (
+	"context"
+	"crypto/tls"
 	"net/http"
+	"net/http/httptrace"
 	"time"
 
 	"github.com/palantir/pkg/metrics"
@@ -23,11 +26,11 @@ import (
 )
 
 const (
+	MetricTagServiceName = "service-name"
 	metricClientResponse = "client.response"
 	metricTagFamily      = "family"
 	metricTagMethod      = "method"
 	metricRPCMethodName  = "method-name"
-	metricTagServiceName = "service-name"
 
 	metricTagFamilyOther = "other"
 	metricTagFamily1xx   = "1xx"
@@ -35,6 +38,13 @@ const (
 	metricTagFamily3xx   = "3xx"
 	metricTagFamily4xx   = "4xx"
 	metricTagFamily5xx   = "5xx"
+
+	MetricTLSHandshakeAttempt = "tls.handshake.attempt.count"
+	MetricTLSHandshakeFailure = "tls.handshake.failure.count"
+	MetricTLSHandshake        = "tls.handshake.count"
+	CipherTagKey              = "cipher"
+	NextProtocolTagKey        = "next_protocol"
+	TLSVersionTagKey          = "tls_version"
 )
 
 // A TagsProvider returns metrics tags based on an http round trip.
@@ -54,28 +64,32 @@ func (f TagsProviderFunc) Tags(req *http.Request, resp *http.Response) metrics.T
 // status code). This metric name and tag set matches http-remoting's DefaultHostMetrics:
 // https://github.com/palantir/http-remoting/blob/develop/okhttp-clients/src/main/java/com/palantir/remoting3/okhttp/DefaultHostMetrics.java
 func MetricsMiddleware(serviceName string, tagProviders ...TagsProvider) (Middleware, error) {
-	serviceNameTag, err := metrics.NewTag(metricTagServiceName, serviceName)
+	serviceNameTag, err := metrics.NewTag(MetricTagServiceName, serviceName)
 	if err != nil {
 		return nil, werror.Wrap(err, "failed to construct service-name metric tag", werror.SafeParam("serviceName", serviceName))
 	}
-	return &metricsMiddleware{Tags: append(
-		tagProviders,
-		TagsProviderFunc(tagStatusFamily),
-		TagsProviderFunc(tagRequestMethod),
-		TagsProviderFunc(tagRequestMethodName),
-		TagsProviderFunc(func(*http.Request, *http.Response) metrics.Tags { return metrics.Tags{serviceNameTag} }),
-	)}, nil
+	return &metricsMiddleware{
+		seviceNameTag: serviceNameTag,
+		Tags: append(
+			tagProviders,
+			TagsProviderFunc(tagStatusFamily),
+			TagsProviderFunc(tagRequestMethod),
+			TagsProviderFunc(tagRequestMethodName),
+			TagsProviderFunc(func(*http.Request, *http.Response) metrics.Tags { return metrics.Tags{serviceNameTag} }),
+		)}, nil
 }
 
 type metricsMiddleware struct {
-	Tags []TagsProvider
+	seviceNameTag metrics.Tag
+	Tags          []TagsProvider
 }
 
 // RoundTrip will emit counter and timer metrics with the name 'mariner.k8sClient.request'
 // and k8s for API group, API version, namespace, resource kind, request method, and response status code.
 func (h *metricsMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (*http.Response, error) {
 	start := time.Now()
-	resp, err := next.RoundTrip(req)
+	tlsMetricsContext := h.tlsTraceContext(req.Context())
+	resp, err := next.RoundTrip(req.WithContext(tlsMetricsContext))
 	duration := time.Since(start)
 
 	var tags metrics.Tags
@@ -120,4 +134,44 @@ func tagRequestMethodName(req *http.Request, _ *http.Response) metrics.Tags {
 		return metrics.Tags{tag}
 	}
 	return metrics.Tags{metrics.MustNewTag(metricRPCMethodName, "RPCMethodNameInvalid")}
+}
+
+func (h *metricsMiddleware) tlsTraceContext(ctx context.Context) context.Context {
+	tags := []metrics.Tag{h.seviceNameTag}
+	return httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{
+		TLSHandshakeStart: func() {
+			metrics.FromContext(ctx).Meter(MetricTLSHandshakeAttempt, tags...).Mark(1)
+		},
+		TLSHandshakeDone: func(state tls.ConnectionState, err error) {
+			cipherSuite := tls.CipherSuiteName(state.CipherSuite)
+			if cipherSuite != "" {
+				tags = append(tags, metrics.MustNewTag(CipherTagKey, cipherSuite))
+			}
+			if state.NegotiatedProtocol != "" {
+				tags = append(tags, metrics.MustNewTag(NextProtocolTagKey, state.NegotiatedProtocol))
+			}
+			if tlsVersion := tlsVersionString(state.Version); tlsVersion != "" {
+				tags = append(tags, metrics.MustNewTag(TLSVersionTagKey, tlsVersion))
+			}
+			if err != nil {
+				metrics.FromContext(ctx).Meter(MetricTLSHandshakeFailure, tags...).Mark(1)
+			} else {
+				metrics.FromContext(ctx).Meter(MetricTLSHandshake, tags...).Mark(1)
+			}
+		},
+	})
+}
+
+func tlsVersionString(version uint16) string {
+	switch version {
+	case tls.VersionTLS10:
+		return "TLS10"
+	case tls.VersionTLS11:
+		return "TLS11"
+	case tls.VersionTLS12:
+		return "TLS12"
+	case tls.VersionTLS13:
+		return "TLS13"
+	}
+	return ""
 }
