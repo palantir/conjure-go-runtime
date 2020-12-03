@@ -1,3 +1,17 @@
+// Copyright (c) 2020 Palantir Technologies. All rights reserved.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package httpclient_test
 
 import (
@@ -36,11 +50,11 @@ func TestTLSMetricsMiddleware_SuccessfulHandshake(t *testing.T) {
 	failure := false
 	rootRegistry.Each(func(name string, tags metrics.Tags, value metrics.MetricVal) {
 		switch name {
-		case httpclient.MetricTlsHandshakeAttempt:
+		case httpclient.MetricTLSHandshakeAttempt:
 			attempt = true
-		case httpclient.MetricTlsHandshakeFailure:
+		case httpclient.MetricTLSHandshakeFailure:
 			failure = true
-		case httpclient.MetricTlsHandshake:
+		case httpclient.MetricTLSHandshake:
 			success = true
 			tagMap := tags.ToMap()
 			_, ok := tagMap[httpclient.CipherTagKey]
@@ -77,11 +91,11 @@ func TestTLSMetricsMiddleware_FailedHandshake(t *testing.T) {
 	failure := false
 	rootRegistry.Each(func(name string, tags metrics.Tags, value metrics.MetricVal) {
 		switch name {
-		case httpclient.MetricTlsHandshakeAttempt:
+		case httpclient.MetricTLSHandshakeAttempt:
 			attempt = true
-		case httpclient.MetricTlsHandshakeFailure:
+		case httpclient.MetricTLSHandshakeFailure:
 			failure = true
-		case httpclient.MetricTlsHandshake:
+		case httpclient.MetricTLSHandshake:
 			success = true
 		}
 	})

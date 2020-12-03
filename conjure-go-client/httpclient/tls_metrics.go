@@ -23,9 +23,9 @@ import (
 )
 
 const (
-	MetricTlsHandshakeAttempt = "tls.handshake.attempt.count"
-	MetricTlsHandshakeFailure = "tls.handshake.failure.count"
-	MetricTlsHandshake        = "tls.handshake.count"
+	MetricTLSHandshakeAttempt = "tls.handshake.attempt.count"
+	MetricTLSHandshakeFailure = "tls.handshake.failure.count"
+	MetricTLSHandshake        = "tls.handshake.count"
 	CipherTagKey              = "cipher"
 	NextProtocolTagKey        = "next_protocol"
 	TLSVersionTagKey          = "tls_version"
@@ -40,7 +40,7 @@ type tlsMetricsMiddleware struct {
 func (t *tlsMetricsMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (*http.Response, error) {
 	clientTraceContext := httptrace.WithClientTrace(req.Context(), &httptrace.ClientTrace{
 		TLSHandshakeStart: func() {
-			metrics.FromContext(req.Context()).Meter(MetricTlsHandshakeAttempt).Mark(1)
+			metrics.FromContext(req.Context()).Meter(MetricTLSHandshakeAttempt).Mark(1)
 		},
 		TLSHandshakeDone: func(state tls.ConnectionState, err error) {
 			var tags []metrics.Tag
@@ -55,9 +55,9 @@ func (t *tlsMetricsMiddleware) RoundTrip(req *http.Request, next http.RoundTripp
 				tags = append(tags, metrics.MustNewTag(TLSVersionTagKey, tlsVersion))
 			}
 			if err != nil {
-				metrics.FromContext(req.Context()).Meter(MetricTlsHandshakeFailure, tags...).Mark(1)
+				metrics.FromContext(req.Context()).Meter(MetricTLSHandshakeFailure, tags...).Mark(1)
 			} else {
-				metrics.FromContext(req.Context()).Meter(MetricTlsHandshake, tags...).Mark(1)
+				metrics.FromContext(req.Context()).Meter(MetricTLSHandshake, tags...).Mark(1)
 			}
 		},
 	})
