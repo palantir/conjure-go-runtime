@@ -28,9 +28,9 @@ func NewStackTrace() StackTrace {
 func NewStackTraceWithSkip(skip int) StackTrace {
 	const depth = 32
 	var pcs [depth]uintptr
-	// only modification is changing "3" to "4" here. Because the stack trace is always taken by the werror package,
-	// omit one extra frame (caller should not see werror package as part of the output stack).
-	n := runtime.Callers(skip+4, pcs[:])
+	// Changing this back to "3" by default. Most callers have only a single level of indirection. For newWerror
+	// specifically, which is always called indirectly, we now call this with skip of "1".
+	n := runtime.Callers(skip+3, pcs[:])
 	var st stack = pcs[0:n]
 	return &st
 }
