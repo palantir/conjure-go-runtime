@@ -115,6 +115,7 @@ func NewClient(params ...ClientParam) (Client, error) {
 
 func getDefaultHTTPClientBuilder() *httpClientBuilder {
 	defaultTLSConfig, _ := tlsconfig.NewClientConfig()
+	defaultTLSConfig.ClientSessionCache = tls.NewLRUClientSessionCache(0)
 	return &httpClientBuilder{
 		// These values are primarily pulled from http.DefaultTransport.
 		TLSClientConfig:       defaultTLSConfig,
