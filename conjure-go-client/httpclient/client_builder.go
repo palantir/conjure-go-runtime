@@ -164,6 +164,7 @@ func httpClientAndRoundTripHandlersFromBuilder(b *httpClientBuilder) (*http.Clie
 		return nil, nil, err
 	}
 	transport := &http.Transport{
+		DialContext:           dialer.DialContext,
 		MaxIdleConns:          b.MaxIdleConns,
 		MaxIdleConnsPerHost:   b.MaxIdleConnsPerHost,
 		TLSClientConfig:       b.TLSClientConfig,
@@ -172,7 +173,6 @@ func httpClientAndRoundTripHandlersFromBuilder(b *httpClientBuilder) (*http.Clie
 		IdleConnTimeout:       b.IdleConnTimeout,
 		TLSHandshakeTimeout:   b.TLSHandshakeTimeout,
 		ResponseHeaderTimeout: b.ResponseHeaderTimeout,
-		DialContext:           dialer.DialContext,
 	}
 	if b.Proxy != nil && b.ProxyDialerBuilder == nil {
 		transport.Proxy = b.Proxy
