@@ -238,6 +238,6 @@ type noopContextDialer struct {
 	Dial func(network, addr string) (net.Conn, error)
 }
 
-func (n noopContextDialer) DialContext(_ context.Context, network, addr string) (c net.Conn, err error) {
+func (n noopContextDialer) DialContext(_ context.Context, network, addr string) (net.Conn, error) {
 	return n.Dial(network, addr)
 }
