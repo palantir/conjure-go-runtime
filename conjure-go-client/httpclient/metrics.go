@@ -39,9 +39,9 @@ const (
 	metricTagFamily4xx   = "4xx"
 	metricTagFamily5xx   = "5xx"
 
-	MetricTLSHandshakeAttempt = "tls.handshake.attempt.count"
-	MetricTLSHandshakeFailure = "tls.handshake.failure.count"
-	MetricTLSHandshake        = "tls.handshake.count"
+	MetricTLSHandshakeAttempt = "tls.handshake.attempt"
+	MetricTLSHandshakeFailure = "tls.handshake.failure"
+	MetricTLSHandshake        = "tls.handshake"
 	CipherTagKey              = "cipher"
 	NextProtocolTagKey        = "next_protocol"
 	TLSVersionTagKey          = "tls_version"
