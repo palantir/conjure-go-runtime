@@ -195,9 +195,9 @@ func httpClientAndRoundTripHandlersFromBuilder(b *httpClientBuilder) (*http.Clie
 	}, b.Middlewares, nil
 }
 
-// dialer is the newer interface implemented by net.Dialer and proxy.Dialer
+// contextDialer is the newer interface implemented by net.Dialer and proxy.Dialer
 type contextDialer interface {
-	DialContext(ctx context.Context, network, addr string) (c net.Conn, err error)
+	DialContext(ctx context.Context, network, addr string) (net.Conn, error)
 }
 
 func newDialer(b *httpClientBuilder) (contextDialer, error) {
