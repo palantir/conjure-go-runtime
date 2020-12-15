@@ -17,10 +17,12 @@ package httpclient
 import (
 	"context"
 	"crypto/tls"
+	"net"
 	"net/http"
 	"net/http/httptrace"
 	"time"
 
+	gometrics "github.com/palantir/go-metrics"
 	"github.com/palantir/pkg/metrics"
 	werror "github.com/palantir/witchcraft-go-error"
 )
@@ -45,6 +47,9 @@ const (
 	CipherTagKey              = "cipher"
 	NextProtocolTagKey        = "next_protocol"
 	TLSVersionTagKey          = "tls_version"
+
+	MetricInFlightConns    = "client.conns.inflight"
+	MetricInFlightRequests = "client.request.inflight"
 )
 
 // A TagsProvider returns metrics tags based on an http round trip.
@@ -87,10 +92,12 @@ type metricsMiddleware struct {
 // RoundTrip will emit counter and timer metrics with the name 'mariner.k8sClient.request'
 // and k8s for API group, API version, namespace, resource kind, request method, and response status code.
 func (h *metricsMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+	metrics.FromContext(req.Context()).Counter(MetricInFlightRequests, h.seviceNameTag).Inc(1)
 	start := time.Now()
 	tlsMetricsContext := h.tlsTraceContext(req.Context())
 	resp, err := next.RoundTrip(req.WithContext(tlsMetricsContext))
 	duration := time.Since(start)
+	metrics.FromContext(req.Context()).Counter(MetricInFlightRequests, h.seviceNameTag).Dec(1)
 
 	var tags metrics.Tags
 	for _, tagProvider := range h.Tags {
@@ -174,4 +181,78 @@ func tlsVersionString(version uint16) string {
 		return "TLS13"
 	}
 	return ""
+}
+
+// dialer is the interface implemented by net.Dialer and proxy.Dialer
+type dialer interface {
+	Dial(network, addr string) (c net.Conn, err error)
+}
+
+// dialer is the newer interface implemented by net.Dialer and proxy.Dialer
+type contextDialer interface {
+	DialContext(ctx context.Context, network, addr string) (c net.Conn, err error)
+}
+
+// metricsWrappedConn is a wrapper for net.Dialer that tracks a metric of in-flight connections.
+type metricsWrappedDialer struct {
+	dialer dialer
+}
+
+func (d *metricsWrappedDialer) DialContext(ctx context.Context, network, addr string) (net.Conn, error) {
+	var conn net.Conn
+	var err error
+	if cDialer, ok := d.dialer.(contextDialer); ok {
+		conn, err = cDialer.DialContext(ctx, network, addr)
+	} else {
+		conn, err = d.dialer.Dial(network, addr)
+	}
+	if err != nil {
+		return nil, err
+	}
+	counter := metrics.FromContext(ctx).Counter(MetricInFlightConns)
+	counter.Inc(1)
+	return &metricsWrappedConn{conn: conn, counter: counter}, nil
+}
+
+func (d *metricsWrappedDialer) Dial(network, addr string) (net.Conn, error) {
+	return d.DialContext(context.Background(), network, addr)
+}
+
+// metricsWrappedConn is a wrapper for net.Conn that decrements the counter on Close().
+type metricsWrappedConn struct {
+	conn    net.Conn
+	counter gometrics.Counter
+}
+
+func (m *metricsWrappedConn) Read(b []byte) (n int, err error) {
+	return m.conn.Read(b)
+}
+
+func (m *metricsWrappedConn) Write(b []byte) (n int, err error) {
+	return m.conn.Write(b)
+}
+
+func (m *metricsWrappedConn) Close() error {
+	m.counter.Dec(1)
+	return m.conn.Close()
+}
+
+func (m *metricsWrappedConn) LocalAddr() net.Addr {
+	return m.conn.LocalAddr()
+}
+
+func (m *metricsWrappedConn) RemoteAddr() net.Addr {
+	return m.conn.RemoteAddr()
+}
+
+func (m *metricsWrappedConn) SetDeadline(t time.Time) error {
+	return m.conn.SetDeadline(t)
+}
+
+func (m *metricsWrappedConn) SetReadDeadline(t time.Time) error {
+	return m.conn.SetReadDeadline(t)
+}
+
+func (m *metricsWrappedConn) SetWriteDeadline(t time.Time) error {
+	return m.conn.SetWriteDeadline(t)
 }

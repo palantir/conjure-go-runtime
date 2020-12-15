@@ -157,13 +157,13 @@ func NewHTTPClient(params ...HTTPClientParam) (*http.Client, error) {
 }
 
 func httpClientAndRoundTripHandlersFromBuilder(b *httpClientBuilder) (*http.Client, []Middleware, error) {
-	dialer := &net.Dialer{
+	netDialer := &net.Dialer{
 		Timeout:   b.DialTimeout,
 		KeepAlive: b.KeepAlive,
 		DualStack: b.EnableIPV6,
 	}
 	transport := &http.Transport{
-		DialContext:           dialer.DialContext,
+		DialContext:           (&metricsWrappedDialer{dialer: netDialer}).DialContext,
 		MaxIdleConns:          b.MaxIdleConns,
 		MaxIdleConnsPerHost:   b.MaxIdleConnsPerHost,
 		Proxy:                 b.Proxy,
@@ -176,13 +176,11 @@ func httpClientAndRoundTripHandlersFromBuilder(b *httpClientBuilder) (*http.Clie
 	}
 	if b.ProxyDialerBuilder != nil {
 		// Used for socks5 proxying
-		// TODO: use DialContext if x/proxy ever supports it
-		proxyDialer, err := b.ProxyDialerBuilder(dialer)
+		proxyDialer, err := b.ProxyDialerBuilder(netDialer)
 		if err != nil {
 			return nil, nil, err
 		}
-		transport.Dial = proxyDialer.Dial
-		transport.DialContext = nil
+		transport.DialContext = (&metricsWrappedDialer{dialer: proxyDialer}).DialContext
 		transport.Proxy = nil
 	}
 	if !b.DisableHTTP2 {

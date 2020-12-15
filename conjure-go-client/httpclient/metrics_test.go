@@ -300,3 +300,36 @@ func TestMetricsMiddleware_FailedTLSHandshake(t *testing.T) {
 	assert.False(t, success, "successful tls handshake attempt registered")
 	assert.True(t, failure, "no failed tls handshake attempt registered")
 }
+
+func TestMetricsMiddleware_InFlightRequests(t *testing.T) {
+	rootRegistry := metrics.NewRootMetricsRegistry()
+	ctx := metrics.WithRegistry(context.Background(), rootRegistry)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		dialerMetric := rootRegistry.Counter(httpclient.MetricInFlightConns).Count()
+		assert.Equal(t, int64(1), dialerMetric, "%s should be nonzero during a request", httpclient.MetricInFlightConns)
+		clientMetric := rootRegistry.Counter(httpclient.MetricInFlightRequests, metrics.MustNewTag("service-name", "test-service")).Count()
+		assert.Equal(t, int64(1), clientMetric, "%s should be nonzero during a request", httpclient.MetricInFlightRequests)
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+
+	client, err := httpclient.NewClient(
+		httpclient.WithBaseURLs([]string{srv.URL}),
+		httpclient.WithServiceName("test-service"),
+		httpclient.WithMetrics())
+	httpclient.WithIdleConnTimeout(time.Second)
+	require.NoError(t, err)
+
+	_, err = client.Get(ctx)
+	require.NoError(t, err)
+
+	clientMetric := rootRegistry.Counter(httpclient.MetricInFlightRequests, metrics.MustNewTag("service-name", "test-service")).Count()
+	assert.Equal(t, int64(0), clientMetric, "%s should be zero after a request", httpclient.MetricInFlightRequests)
+
+	dialerMetric := rootRegistry.Counter(httpclient.MetricInFlightConns)
+	assert.Equal(t, int64(1), dialerMetric.Count(), "%s should be nonzero immediately after a request", httpclient.MetricInFlightConns)
+	srv.Close()
+	time.Sleep(time.Second)
+	assert.Equal(t, int64(0), dialerMetric.Count(), "%s should be zero after the idle connection timeout", httpclient.MetricInFlightConns)
+}
