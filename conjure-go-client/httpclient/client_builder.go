@@ -196,14 +196,14 @@ func configureTransportDialer(b *httpClientBuilder, transport *http.Transport) e
 		KeepAlive: b.KeepAlive,
 		DualStack: b.EnableIPV6,
 	}
-	result := dialer(netDialer)
+	resultDialer := dialer(netDialer)
 	if b.ProxyDialerBuilder != nil {
 		// Used for socks5 proxying
 		proxyDialer, err := b.ProxyDialerBuilder(netDialer)
 		if err != nil {
 			return err
 		}
-		result = proxyDialer
+		resultDialer = proxyDialer
 		transport.Proxy = nil
 	}
 	if b.metricsMiddleware != nil {
@@ -211,13 +211,13 @@ func configureTransportDialer(b *httpClientBuilder, transport *http.Transport) e
 		if err != nil {
 			return err // should never happen, already checked by MetricsMiddleware()
 		}
-		result = &metricsWrappedDialer{dialer: result, serviceNameTag: serviceNameTag}
+		resultDialer = &metricsWrappedDialer{dialer: resultDialer, serviceNameTag: serviceNameTag}
 	}
 
-	if cDialer, ok := result.(contextDialer); ok {
+	if cDialer, ok := resultDialer.(contextDialer); ok {
 		transport.DialContext = cDialer.DialContext
 	} else {
-		transport.Dial = result.Dial
+		transport.Dial = resultDialer.Dial
 	}
 
 	return nil
