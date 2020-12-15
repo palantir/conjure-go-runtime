@@ -212,7 +212,7 @@ func (d *metricsWrappedDialer) DialContext(ctx context.Context, network, addr st
 	}
 	counter := metrics.FromContext(ctx).Counter(MetricInFlightConns, d.serviceNameTag)
 	counter.Inc(1)
-	return &metricsWrappedConn{conn: conn, counter: counter}, nil
+	return &metricsWrappedConn{Conn: conn, counter: counter}, nil
 }
 
 func (d *metricsWrappedDialer) Dial(network, addr string) (net.Conn, error) {
@@ -221,39 +221,11 @@ func (d *metricsWrappedDialer) Dial(network, addr string) (net.Conn, error) {
 
 // metricsWrappedConn is a wrapper for net.Conn that decrements the counter on Close().
 type metricsWrappedConn struct {
-	conn    net.Conn
+	net.Conn
 	counter gometrics.Counter
-}
-
-func (m *metricsWrappedConn) Read(b []byte) (n int, err error) {
-	return m.conn.Read(b)
-}
-
-func (m *metricsWrappedConn) Write(b []byte) (n int, err error) {
-	return m.conn.Write(b)
 }
 
 func (m *metricsWrappedConn) Close() error {
 	m.counter.Dec(1)
-	return m.conn.Close()
-}
-
-func (m *metricsWrappedConn) LocalAddr() net.Addr {
-	return m.conn.LocalAddr()
-}
-
-func (m *metricsWrappedConn) RemoteAddr() net.Addr {
-	return m.conn.RemoteAddr()
-}
-
-func (m *metricsWrappedConn) SetDeadline(t time.Time) error {
-	return m.conn.SetDeadline(t)
-}
-
-func (m *metricsWrappedConn) SetReadDeadline(t time.Time) error {
-	return m.conn.SetReadDeadline(t)
-}
-
-func (m *metricsWrappedConn) SetWriteDeadline(t time.Time) error {
-	return m.conn.SetWriteDeadline(t)
+	return m.Conn.Close()
 }
