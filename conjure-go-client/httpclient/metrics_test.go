@@ -324,6 +324,10 @@ func TestMetricsMiddleware_InFlightRequests(t *testing.T) {
 	_, err = client.Get(ctx)
 	require.NoError(t, err)
 
+	// do the request a second time to assert the connection is reused
+	_, err = client.Get(ctx)
+	require.NoError(t, err)
+
 	clientMetric := rootRegistry.Counter(httpclient.MetricInFlightRequests, metrics.MustNewTag("service-name", "test-service")).Count()
 	assert.Equal(t, int64(0), clientMetric, "%s should be zero after a request", httpclient.MetricInFlightRequests)
 
