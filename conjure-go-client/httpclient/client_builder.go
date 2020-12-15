@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/palantir/pkg/bytesbuffers"
+	"github.com/palantir/pkg/metrics"
 	"github.com/palantir/pkg/retry"
 	"github.com/palantir/pkg/tlsconfig"
 	werror "github.com/palantir/witchcraft-go-error"
@@ -157,13 +158,7 @@ func NewHTTPClient(params ...HTTPClientParam) (*http.Client, error) {
 }
 
 func httpClientAndRoundTripHandlersFromBuilder(b *httpClientBuilder) (*http.Client, []Middleware, error) {
-	netDialer := &net.Dialer{
-		Timeout:   b.DialTimeout,
-		KeepAlive: b.KeepAlive,
-		DualStack: b.EnableIPV6,
-	}
 	transport := &http.Transport{
-		DialContext:           (&metricsWrappedDialer{dialer: netDialer}).DialContext,
 		MaxIdleConns:          b.MaxIdleConns,
 		MaxIdleConnsPerHost:   b.MaxIdleConnsPerHost,
 		Proxy:                 b.Proxy,
@@ -174,14 +169,8 @@ func httpClientAndRoundTripHandlersFromBuilder(b *httpClientBuilder) (*http.Clie
 		TLSHandshakeTimeout:   b.TLSHandshakeTimeout,
 		ResponseHeaderTimeout: b.ResponseHeaderTimeout,
 	}
-	if b.ProxyDialerBuilder != nil {
-		// Used for socks5 proxying
-		proxyDialer, err := b.ProxyDialerBuilder(netDialer)
-		if err != nil {
-			return nil, nil, err
-		}
-		transport.DialContext = (&metricsWrappedDialer{dialer: proxyDialer}).DialContext
-		transport.Proxy = nil
+	if err := configureTransportDialer(b, transport); err != nil {
+		return nil, nil, err
 	}
 	if !b.DisableHTTP2 {
 		if err := http2.ConfigureTransport(transport); err != nil {
@@ -199,4 +188,37 @@ func httpClientAndRoundTripHandlersFromBuilder(b *httpClientBuilder) (*http.Clie
 		Timeout:   b.Timeout,
 		Transport: transport,
 	}, b.Middlewares, nil
+}
+
+func configureTransportDialer(b *httpClientBuilder, transport *http.Transport) error {
+	netDialer := &net.Dialer{
+		Timeout:   b.DialTimeout,
+		KeepAlive: b.KeepAlive,
+		DualStack: b.EnableIPV6,
+	}
+	result := dialer(netDialer)
+	if b.ProxyDialerBuilder != nil {
+		// Used for socks5 proxying
+		proxyDialer, err := b.ProxyDialerBuilder(netDialer)
+		if err != nil {
+			return err
+		}
+		result = proxyDialer
+		transport.Proxy = nil
+	}
+	if b.metricsMiddleware != nil {
+		serviceNameTag, err := metrics.NewTag(MetricTagServiceName, b.ServiceName)
+		if err != nil {
+			return err // should never happen, already checked by MetricsMiddleware()
+		}
+		result = &metricsWrappedDialer{dialer: result, serviceNameTag: serviceNameTag}
+	}
+
+	if cDialer, ok := result.(contextDialer); ok {
+		transport.DialContext = cDialer.DialContext
+	} else {
+		transport.Dial = result.Dial
+	}
+
+	return nil
 }

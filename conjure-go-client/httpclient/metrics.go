@@ -195,7 +195,8 @@ type contextDialer interface {
 
 // metricsWrappedConn is a wrapper for net.Dialer that tracks a metric of in-flight connections.
 type metricsWrappedDialer struct {
-	dialer dialer
+	dialer         dialer
+	serviceNameTag metrics.Tag
 }
 
 func (d *metricsWrappedDialer) DialContext(ctx context.Context, network, addr string) (net.Conn, error) {
@@ -209,7 +210,7 @@ func (d *metricsWrappedDialer) DialContext(ctx context.Context, network, addr st
 	if err != nil {
 		return nil, err
 	}
-	counter := metrics.FromContext(ctx).Counter(MetricInFlightConns)
+	counter := metrics.FromContext(ctx).Counter(MetricInFlightConns, d.serviceNameTag)
 	counter.Inc(1)
 	return &metricsWrappedConn{conn: conn, counter: counter}, nil
 }

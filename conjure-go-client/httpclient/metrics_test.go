@@ -304,11 +304,12 @@ func TestMetricsMiddleware_FailedTLSHandshake(t *testing.T) {
 func TestMetricsMiddleware_InFlightRequests(t *testing.T) {
 	rootRegistry := metrics.NewRootMetricsRegistry()
 	ctx := metrics.WithRegistry(context.Background(), rootRegistry)
+	serviceNameTag := metrics.MustNewTag("service-name", "test-service")
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		dialerMetric := rootRegistry.Counter(httpclient.MetricInFlightConns).Count()
+		dialerMetric := rootRegistry.Counter(httpclient.MetricInFlightConns, serviceNameTag).Count()
 		assert.Equal(t, int64(1), dialerMetric, "%s should be nonzero during a request", httpclient.MetricInFlightConns)
-		clientMetric := rootRegistry.Counter(httpclient.MetricInFlightRequests, metrics.MustNewTag("service-name", "test-service")).Count()
+		clientMetric := rootRegistry.Counter(httpclient.MetricInFlightRequests, serviceNameTag).Count()
 		assert.Equal(t, int64(1), clientMetric, "%s should be nonzero during a request", httpclient.MetricInFlightRequests)
 		w.WriteHeader(200)
 	}))
@@ -328,10 +329,10 @@ func TestMetricsMiddleware_InFlightRequests(t *testing.T) {
 	_, err = client.Get(ctx)
 	require.NoError(t, err)
 
-	clientMetric := rootRegistry.Counter(httpclient.MetricInFlightRequests, metrics.MustNewTag("service-name", "test-service")).Count()
+	clientMetric := rootRegistry.Counter(httpclient.MetricInFlightRequests, serviceNameTag).Count()
 	assert.Equal(t, int64(0), clientMetric, "%s should be zero after a request", httpclient.MetricInFlightRequests)
 
-	dialerMetric := rootRegistry.Counter(httpclient.MetricInFlightConns)
+	dialerMetric := rootRegistry.Counter(httpclient.MetricInFlightConns, serviceNameTag)
 	assert.Equal(t, int64(1), dialerMetric.Count(), "%s should be nonzero immediately after a request", httpclient.MetricInFlightConns)
 	srv.Close()
 	time.Sleep(time.Second)
