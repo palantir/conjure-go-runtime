@@ -319,7 +319,6 @@ func TestMetricsMiddleware_InFlightRequests(t *testing.T) {
 		httpclient.WithBaseURLs([]string{srv.URL}),
 		httpclient.WithServiceName("test-service"),
 		httpclient.WithMetrics())
-	httpclient.WithIdleConnTimeout(time.Second)
 	require.NoError(t, err)
 
 	_, err = client.Get(ctx)
