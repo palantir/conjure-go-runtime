@@ -183,40 +183,20 @@ func tlsVersionString(version uint16) string {
 	return ""
 }
 
-// dialer is the interface implemented by net.Dialer and proxy.Dialer
-type dialer interface {
-	Dial(network, addr string) (c net.Conn, err error)
-}
-
-// dialer is the newer interface implemented by net.Dialer and proxy.Dialer
-type contextDialer interface {
-	DialContext(ctx context.Context, network, addr string) (c net.Conn, err error)
-}
-
 // metricsWrappedConn is a wrapper for net.Dialer that tracks a metric of in-flight connections.
 type metricsWrappedDialer struct {
-	dialer         dialer
+	dialer         contextDialer
 	serviceNameTag metrics.Tag
 }
 
 func (d *metricsWrappedDialer) DialContext(ctx context.Context, network, addr string) (net.Conn, error) {
-	var conn net.Conn
-	var err error
-	if cDialer, ok := d.dialer.(contextDialer); ok {
-		conn, err = cDialer.DialContext(ctx, network, addr)
-	} else {
-		conn, err = d.dialer.Dial(network, addr)
-	}
+	conn, err := d.dialer.DialContext(ctx, network, addr)
 	if err != nil {
 		return nil, err
 	}
 	counter := metrics.FromContext(ctx).Counter(MetricInFlightConns, d.serviceNameTag)
 	counter.Inc(1)
 	return &metricsWrappedConn{Conn: conn, counter: counter}, nil
-}
-
-func (d *metricsWrappedDialer) Dial(network, addr string) (net.Conn, error) {
-	return d.DialContext(context.Background(), network, addr)
 }
 
 // metricsWrappedConn is a wrapper for net.Conn that decrements the counter on Close().

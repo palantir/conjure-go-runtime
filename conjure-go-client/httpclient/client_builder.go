@@ -16,6 +16,7 @@
 package httpclient
 
 import (
+	"context"
 	"crypto/tls"
 	"net"
 	"net/http"
@@ -158,19 +159,23 @@ func NewHTTPClient(params ...HTTPClientParam) (*http.Client, error) {
 }
 
 func httpClientAndRoundTripHandlersFromBuilder(b *httpClientBuilder) (*http.Client, []Middleware, error) {
+	dialer, err := newDialer(b)
+	if err != nil {
+		return nil, nil, err
+	}
 	transport := &http.Transport{
 		MaxIdleConns:          b.MaxIdleConns,
 		MaxIdleConnsPerHost:   b.MaxIdleConnsPerHost,
-		Proxy:                 b.Proxy,
 		TLSClientConfig:       b.TLSClientConfig,
 		DisableKeepAlives:     b.DisableKeepAlives,
 		ExpectContinueTimeout: b.ExpectContinueTimeout,
 		IdleConnTimeout:       b.IdleConnTimeout,
 		TLSHandshakeTimeout:   b.TLSHandshakeTimeout,
 		ResponseHeaderTimeout: b.ResponseHeaderTimeout,
+		DialContext:           dialer.DialContext,
 	}
-	if err := configureTransportDialer(b, transport); err != nil {
-		return nil, nil, err
+	if b.Proxy != nil && b.ProxyDialerBuilder == nil {
+		transport.Proxy = b.Proxy
 	}
 	if !b.DisableHTTP2 {
 		if err := http2.ConfigureTransport(transport); err != nil {
@@ -190,35 +195,49 @@ func httpClientAndRoundTripHandlersFromBuilder(b *httpClientBuilder) (*http.Clie
 	}, b.Middlewares, nil
 }
 
-func configureTransportDialer(b *httpClientBuilder, transport *http.Transport) error {
+// dialer is the newer interface implemented by net.Dialer and proxy.Dialer
+type contextDialer interface {
+	DialContext(ctx context.Context, network, addr string) (c net.Conn, err error)
+}
+
+func newDialer(b *httpClientBuilder) (contextDialer, error) {
 	netDialer := &net.Dialer{
 		Timeout:   b.DialTimeout,
 		KeepAlive: b.KeepAlive,
 		DualStack: b.EnableIPV6,
 	}
-	resultDialer := dialer(netDialer)
+
+	resultDialer := contextDialer(netDialer)
+
 	if b.ProxyDialerBuilder != nil {
 		// Used for socks5 proxying
 		proxyDialer, err := b.ProxyDialerBuilder(netDialer)
 		if err != nil {
-			return err
+			return nil, err
 		}
-		resultDialer = proxyDialer
-		transport.Proxy = nil
+		if cDialer, ok := proxyDialer.(contextDialer); ok {
+			resultDialer = cDialer
+		} else {
+			resultDialer = noopContextDialer{Dial: proxyDialer.Dial}
+		}
 	}
+
 	if b.metricsMiddleware != nil {
 		serviceNameTag, err := metrics.NewTag(MetricTagServiceName, b.ServiceName)
 		if err != nil {
-			return err // should never happen, already checked by MetricsMiddleware()
+			return nil, err // should never happen, already checked by MetricsMiddleware()
 		}
 		resultDialer = &metricsWrappedDialer{dialer: resultDialer, serviceNameTag: serviceNameTag}
 	}
 
-	if cDialer, ok := resultDialer.(contextDialer); ok {
-		transport.DialContext = cDialer.DialContext
-	} else {
-		transport.Dial = resultDialer.Dial
-	}
+	return resultDialer, nil
+}
 
-	return nil
+// noopContextDialer handles old proxy dialers that do not support context.
+type noopContextDialer struct {
+	Dial func(network, addr string) (net.Conn, error)
+}
+
+func (n noopContextDialer) DialContext(_ context.Context, network, addr string) (c net.Conn, err error) {
+	return n.Dial(network, addr)
 }
