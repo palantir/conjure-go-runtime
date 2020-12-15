@@ -335,6 +335,6 @@ func TestMetricsMiddleware_InFlightRequests(t *testing.T) {
 	dialerMetric := rootRegistry.Counter(httpclient.MetricInFlightConns, serviceNameTag)
 	assert.Equal(t, int64(1), dialerMetric.Count(), "%s should be nonzero immediately after a request", httpclient.MetricInFlightConns)
 	srv.Close()
-	time.Sleep(time.Second)
-	assert.Equal(t, int64(0), dialerMetric.Count(), "%s should be zero after the idle connection timeout", httpclient.MetricInFlightConns)
+	// N.B. (bmoylan): if this test ends up being flaky, it's because the client-side closes fast but asynchronously and we could add a small time.Sleep.
+	assert.Equal(t, int64(0), dialerMetric.Count(), "%s should be zero after the server closes the connection", httpclient.MetricInFlightConns)
 }

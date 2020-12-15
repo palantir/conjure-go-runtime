@@ -183,7 +183,7 @@ func tlsVersionString(version uint16) string {
 	return ""
 }
 
-// metricsWrappedConn is a wrapper for net.Dialer that tracks a metric of in-flight connections.
+// metricsWrappedDialer is a wrapper for net.Dialer that tracks a metric of in-flight connections.
 type metricsWrappedDialer struct {
 	dialer         contextDialer
 	serviceNameTag metrics.Tag
