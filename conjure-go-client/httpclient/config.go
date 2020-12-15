@@ -81,6 +81,13 @@ type ClientConfig struct {
 	// fully writing the request headers if the request has an "Expect: 100-continue" header.
 	ExpectContinueTimeout *time.Duration `json:"expect-continue-timeout,omitempty" yaml:"expect-continue-timeout,omitempty"`
 
+	// MaxIdleConns sets the number of reusable TCP connections the client will maintain.
+	// If unset, the client defaults to 32.
+	MaxIdleConns *int `json:"max-idle-conns,omitempty" yaml:"max-idle-conns,omitempty"`
+	// MaxIdleConnsPerHost sets the number of reusable TCP connections the client will maintain per destination.
+	// If unset, the client defaults to 32.
+	MaxIdleConnsPerHost *int `json:"max-idle-conns-per-host,omitempty" yaml:"max-idle-conns-per-host,omitempty"`
+
 	// Metrics allows disabling metric emission or adding additional static tags to the client metrics.
 	Metrics MetricsConfig `json:"metrics,omitempty" yaml:"metrics,omitempty"`
 	// Security configures the TLS configuration for the client. It accepts file paths which should be
@@ -147,6 +154,12 @@ func (c ServicesConfig) ClientConfig(serviceName string) ClientConfig {
 	}
 	if conf.ExpectContinueTimeout == nil && c.Default.ExpectContinueTimeout != nil {
 		conf.ExpectContinueTimeout = c.Default.ExpectContinueTimeout
+	}
+	if conf.MaxIdleConns == nil && c.Default.MaxIdleConns != nil {
+		conf.MaxIdleConns = c.Default.MaxIdleConns
+	}
+	if conf.MaxIdleConnsPerHost == nil && c.Default.MaxIdleConnsPerHost != nil {
+		conf.MaxIdleConnsPerHost = c.Default.MaxIdleConnsPerHost
 	}
 	if conf.Metrics.Enabled == nil && c.Default.Metrics.Enabled != nil {
 		conf.Metrics.Enabled = c.Default.Metrics.Enabled
@@ -264,6 +277,15 @@ func configToParams(c ClientConfig) ([]ClientParam, error) {
 	}
 	if c.ExpectContinueTimeout != nil && *c.ExpectContinueTimeout != 0 {
 		params = append(params, WithExpectContinueTimeout(*c.ExpectContinueTimeout))
+	}
+
+	// Connections
+
+	if c.MaxIdleConns != nil && *c.MaxIdleConns != 0 {
+		params = append(params, WithMaxIdleConns(*c.MaxIdleConns))
+	}
+	if c.MaxIdleConnsPerHost != nil && *c.MaxIdleConnsPerHost != 0 {
+		params = append(params, WithMaxIdleConnsPerHost(*c.MaxIdleConnsPerHost))
 	}
 
 	// N.B. we only have one timeout field (not based on method) so just take the max of read and write for now.
