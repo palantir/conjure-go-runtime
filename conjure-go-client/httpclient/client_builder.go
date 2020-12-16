@@ -16,6 +16,7 @@
 package httpclient
 
 import (
+	"context"
 	"crypto/tls"
 	"net"
 	"net/http"
@@ -23,6 +24,7 @@ import (
 	"time"
 
 	"github.com/palantir/pkg/bytesbuffers"
+	"github.com/palantir/pkg/metrics"
 	"github.com/palantir/pkg/retry"
 	"github.com/palantir/pkg/tlsconfig"
 	werror "github.com/palantir/witchcraft-go-error"
@@ -157,16 +159,14 @@ func NewHTTPClient(params ...HTTPClientParam) (*http.Client, error) {
 }
 
 func httpClientAndRoundTripHandlersFromBuilder(b *httpClientBuilder) (*http.Client, []Middleware, error) {
-	dialer := &net.Dialer{
-		Timeout:   b.DialTimeout,
-		KeepAlive: b.KeepAlive,
-		DualStack: b.EnableIPV6,
+	dialer, err := newDialer(b)
+	if err != nil {
+		return nil, nil, err
 	}
 	transport := &http.Transport{
 		DialContext:           dialer.DialContext,
 		MaxIdleConns:          b.MaxIdleConns,
 		MaxIdleConnsPerHost:   b.MaxIdleConnsPerHost,
-		Proxy:                 b.Proxy,
 		TLSClientConfig:       b.TLSClientConfig,
 		DisableKeepAlives:     b.DisableKeepAlives,
 		ExpectContinueTimeout: b.ExpectContinueTimeout,
@@ -174,16 +174,8 @@ func httpClientAndRoundTripHandlersFromBuilder(b *httpClientBuilder) (*http.Clie
 		TLSHandshakeTimeout:   b.TLSHandshakeTimeout,
 		ResponseHeaderTimeout: b.ResponseHeaderTimeout,
 	}
-	if b.ProxyDialerBuilder != nil {
-		// Used for socks5 proxying
-		// TODO: use DialContext if x/proxy ever supports it
-		proxyDialer, err := b.ProxyDialerBuilder(dialer)
-		if err != nil {
-			return nil, nil, err
-		}
-		transport.Dial = proxyDialer.Dial
-		transport.DialContext = nil
-		transport.Proxy = nil
+	if b.Proxy != nil && b.ProxyDialerBuilder == nil {
+		transport.Proxy = b.Proxy
 	}
 	if !b.DisableHTTP2 {
 		if err := http2.ConfigureTransport(transport); err != nil {
@@ -201,4 +193,51 @@ func httpClientAndRoundTripHandlersFromBuilder(b *httpClientBuilder) (*http.Clie
 		Timeout:   b.Timeout,
 		Transport: transport,
 	}, b.Middlewares, nil
+}
+
+// contextDialer is the newer interface implemented by net.Dialer and proxy.Dialer
+type contextDialer interface {
+	DialContext(ctx context.Context, network, addr string) (net.Conn, error)
+}
+
+func newDialer(b *httpClientBuilder) (contextDialer, error) {
+	netDialer := &net.Dialer{
+		Timeout:   b.DialTimeout,
+		KeepAlive: b.KeepAlive,
+		DualStack: b.EnableIPV6,
+	}
+
+	resultDialer := contextDialer(netDialer)
+
+	if b.ProxyDialerBuilder != nil {
+		// Used for socks5 proxying
+		proxyDialer, err := b.ProxyDialerBuilder(netDialer)
+		if err != nil {
+			return nil, err
+		}
+		if cDialer, ok := proxyDialer.(contextDialer); ok {
+			resultDialer = cDialer
+		} else {
+			resultDialer = noopContextDialer{Dial: proxyDialer.Dial}
+		}
+	}
+
+	if b.metricsMiddleware != nil {
+		serviceNameTag, err := metrics.NewTag(MetricTagServiceName, b.ServiceName)
+		if err != nil {
+			return nil, err // should never happen, already checked by MetricsMiddleware()
+		}
+		resultDialer = &metricsWrappedDialer{dialer: resultDialer, serviceNameTag: serviceNameTag}
+	}
+
+	return resultDialer, nil
+}
+
+// noopContextDialer handles old proxy dialers that do not support context.
+type noopContextDialer struct {
+	Dial func(network, addr string) (net.Conn, error)
+}
+
+func (n noopContextDialer) DialContext(_ context.Context, network, addr string) (net.Conn, error) {
+	return n.Dial(network, addr)
 }

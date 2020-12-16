@@ -17,10 +17,12 @@ package httpclient
 import (
 	"context"
 	"crypto/tls"
+	"net"
 	"net/http"
 	"net/http/httptrace"
 	"time"
 
+	gometrics "github.com/palantir/go-metrics"
 	"github.com/palantir/pkg/metrics"
 	werror "github.com/palantir/witchcraft-go-error"
 )
@@ -45,6 +47,15 @@ const (
 	CipherTagKey              = "cipher"
 	NextProtocolTagKey        = "next_protocol"
 	TLSVersionTagKey          = "tls_version"
+
+	MetricConnCreate      = "client.connection.create" // monotonic counter of each new request, tagged with reused:true or reused:false
+	MetricConnInflight    = "client.connection.in-flight"
+	MetricRequestInFlight = "client.request.in-flight"
+)
+
+var (
+	MetricTagConnectionNew    = metrics.MustNewTag("reused", "false")
+	MetricTagConnectionReused = metrics.MustNewTag("reused", "true")
 )
 
 // A TagsProvider returns metrics tags based on an http round trip.
@@ -87,10 +98,12 @@ type metricsMiddleware struct {
 // RoundTrip will emit counter and timer metrics with the name 'mariner.k8sClient.request'
 // and k8s for API group, API version, namespace, resource kind, request method, and response status code.
 func (h *metricsMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+	metrics.FromContext(req.Context()).Counter(MetricRequestInFlight, h.seviceNameTag).Inc(1)
 	start := time.Now()
 	tlsMetricsContext := h.tlsTraceContext(req.Context())
 	resp, err := next.RoundTrip(req.WithContext(tlsMetricsContext))
 	duration := time.Since(start)
+	metrics.FromContext(req.Context()).Counter(MetricRequestInFlight, h.seviceNameTag).Dec(1)
 
 	var tags metrics.Tags
 	for _, tagProvider := range h.Tags {
@@ -139,6 +152,13 @@ func tagRequestMethodName(req *http.Request, _ *http.Response) metrics.Tags {
 func (h *metricsMiddleware) tlsTraceContext(ctx context.Context) context.Context {
 	tags := []metrics.Tag{h.seviceNameTag}
 	return httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{
+		GotConn: func(info httptrace.GotConnInfo) {
+			if info.Reused {
+				metrics.FromContext(ctx).Counter(MetricConnCreate, append(tags, MetricTagConnectionReused)...).Inc(1)
+			} else {
+				metrics.FromContext(ctx).Counter(MetricConnCreate, append(tags, MetricTagConnectionNew)...).Inc(1)
+			}
+		},
 		TLSHandshakeStart: func() {
 			metrics.FromContext(ctx).Meter(MetricTLSHandshakeAttempt, tags...).Mark(1)
 		},
@@ -174,4 +194,31 @@ func tlsVersionString(version uint16) string {
 		return "TLS13"
 	}
 	return ""
+}
+
+// metricsWrappedDialer is a wrapper for net.Dialer that tracks a metric of in-flight connections.
+type metricsWrappedDialer struct {
+	dialer         contextDialer
+	serviceNameTag metrics.Tag
+}
+
+func (d *metricsWrappedDialer) DialContext(ctx context.Context, network, addr string) (net.Conn, error) {
+	conn, err := d.dialer.DialContext(ctx, network, addr)
+	if err != nil {
+		return nil, err
+	}
+	counter := metrics.FromContext(ctx).Counter(MetricConnInflight, d.serviceNameTag)
+	counter.Inc(1)
+	return &metricsWrappedConn{Conn: conn, counter: counter}, nil
+}
+
+// metricsWrappedConn is a wrapper for net.Conn that decrements the counter on Close().
+type metricsWrappedConn struct {
+	net.Conn
+	counter gometrics.Counter
+}
+
+func (m *metricsWrappedConn) Close() error {
+	m.counter.Dec(1)
+	return m.Conn.Close()
 }
