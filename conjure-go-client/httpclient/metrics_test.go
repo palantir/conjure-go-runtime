@@ -307,10 +307,10 @@ func TestMetricsMiddleware_InFlightRequests(t *testing.T) {
 	serviceNameTag := metrics.MustNewTag("service-name", "test-service")
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		dialerMetric := rootRegistry.Counter(httpclient.MetricInFlightConns, serviceNameTag).Count()
-		assert.Equal(t, int64(1), dialerMetric, "%s should be nonzero during a request", httpclient.MetricInFlightConns)
-		clientMetric := rootRegistry.Counter(httpclient.MetricInFlightRequests, serviceNameTag).Count()
-		assert.Equal(t, int64(1), clientMetric, "%s should be nonzero during a request", httpclient.MetricInFlightRequests)
+		dialerMetric := rootRegistry.Counter(httpclient.MetricConnInflight, serviceNameTag).Count()
+		assert.Equal(t, int64(1), dialerMetric, "%s should be nonzero during a request", httpclient.MetricConnInflight)
+		clientMetric := rootRegistry.Counter(httpclient.MetricRequestInFlight, serviceNameTag).Count()
+		assert.Equal(t, int64(1), clientMetric, "%s should be nonzero during a request", httpclient.MetricRequestInFlight)
 		w.WriteHeader(200)
 	}))
 	defer srv.Close()
@@ -323,17 +323,23 @@ func TestMetricsMiddleware_InFlightRequests(t *testing.T) {
 
 	_, err = client.Get(ctx)
 	require.NoError(t, err)
+	newConnsMetric := rootRegistry.Counter(httpclient.MetricConnCreate, httpclient.MetricTagConnectionNew, serviceNameTag)
+	reusedConnsMetric := rootRegistry.Counter(httpclient.MetricConnCreate, httpclient.MetricTagConnectionReused, serviceNameTag)
+	assert.Equal(t, int64(1), newConnsMetric.Count(), "%s|reused:false should be 1 after a request", httpclient.MetricConnCreate)
+	assert.Equal(t, int64(0), reusedConnsMetric.Count(), "%s|reused:true should be 0 after the first request", httpclient.MetricConnCreate)
 
 	// do the request a second time to assert the connection is reused
 	_, err = client.Get(ctx)
 	require.NoError(t, err)
+	assert.Equal(t, int64(1), newConnsMetric.Count(), "%s|reused:false should be 1 after a second request due to reuse", httpclient.MetricConnCreate)
+	assert.Equal(t, int64(1), reusedConnsMetric.Count(), "%s|reused:true should be 1 after a request", httpclient.MetricConnCreate)
 
-	clientMetric := rootRegistry.Counter(httpclient.MetricInFlightRequests, serviceNameTag).Count()
-	assert.Equal(t, int64(0), clientMetric, "%s should be zero after a request", httpclient.MetricInFlightRequests)
+	clientMetric := rootRegistry.Counter(httpclient.MetricRequestInFlight, serviceNameTag)
+	assert.Equal(t, int64(0), clientMetric.Count(), "%s should be zero after a request", httpclient.MetricRequestInFlight)
 
-	dialerMetric := rootRegistry.Counter(httpclient.MetricInFlightConns, serviceNameTag)
-	assert.Equal(t, int64(1), dialerMetric.Count(), "%s should be nonzero immediately after a request", httpclient.MetricInFlightConns)
+	dialerMetric := rootRegistry.Counter(httpclient.MetricConnInflight, serviceNameTag)
+	assert.Equal(t, int64(1), dialerMetric.Count(), "%s should be nonzero immediately after a request", httpclient.MetricConnInflight)
 	srv.Close()
 	// N.B. (bmoylan): if this test ends up being flaky, it's because the client-side closes fast but asynchronously and we could add a small time.Sleep.
-	assert.Equal(t, int64(0), dialerMetric.Count(), "%s should be zero after the server closes the connection", httpclient.MetricInFlightConns)
+	assert.Equal(t, int64(0), dialerMetric.Count(), "%s should be zero after the server closes the connection", httpclient.MetricConnInflight)
 }

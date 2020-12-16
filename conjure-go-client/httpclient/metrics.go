@@ -48,8 +48,14 @@ const (
 	NextProtocolTagKey        = "next_protocol"
 	TLSVersionTagKey          = "tls_version"
 
-	MetricInFlightConns    = "client.conns.inflight"
-	MetricInFlightRequests = "client.request.inflight"
+	MetricConnCreate      = "client.connection.create" // monotonic counter of each new request, tagged with reused:true or reused:false
+	MetricConnInflight    = "client.connection.in-flight"
+	MetricRequestInFlight = "client.request.in-flight"
+)
+
+var (
+	MetricTagConnectionNew    = metrics.MustNewTag("reused", "false")
+	MetricTagConnectionReused = metrics.MustNewTag("reused", "true")
 )
 
 // A TagsProvider returns metrics tags based on an http round trip.
@@ -92,12 +98,12 @@ type metricsMiddleware struct {
 // RoundTrip will emit counter and timer metrics with the name 'mariner.k8sClient.request'
 // and k8s for API group, API version, namespace, resource kind, request method, and response status code.
 func (h *metricsMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (*http.Response, error) {
-	metrics.FromContext(req.Context()).Counter(MetricInFlightRequests, h.seviceNameTag).Inc(1)
+	metrics.FromContext(req.Context()).Counter(MetricRequestInFlight, h.seviceNameTag).Inc(1)
 	start := time.Now()
 	tlsMetricsContext := h.tlsTraceContext(req.Context())
 	resp, err := next.RoundTrip(req.WithContext(tlsMetricsContext))
 	duration := time.Since(start)
-	metrics.FromContext(req.Context()).Counter(MetricInFlightRequests, h.seviceNameTag).Dec(1)
+	metrics.FromContext(req.Context()).Counter(MetricRequestInFlight, h.seviceNameTag).Dec(1)
 
 	var tags metrics.Tags
 	for _, tagProvider := range h.Tags {
@@ -146,6 +152,13 @@ func tagRequestMethodName(req *http.Request, _ *http.Response) metrics.Tags {
 func (h *metricsMiddleware) tlsTraceContext(ctx context.Context) context.Context {
 	tags := []metrics.Tag{h.seviceNameTag}
 	return httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{
+		GotConn: func(info httptrace.GotConnInfo) {
+			if info.Reused {
+				metrics.FromContext(ctx).Counter(MetricConnCreate, append(tags, MetricTagConnectionReused)...).Inc(1)
+			} else {
+				metrics.FromContext(ctx).Counter(MetricConnCreate, append(tags, MetricTagConnectionNew)...).Inc(1)
+			}
+		},
 		TLSHandshakeStart: func() {
 			metrics.FromContext(ctx).Meter(MetricTLSHandshakeAttempt, tags...).Mark(1)
 		},
@@ -194,7 +207,7 @@ func (d *metricsWrappedDialer) DialContext(ctx context.Context, network, addr st
 	if err != nil {
 		return nil, err
 	}
-	counter := metrics.FromContext(ctx).Counter(MetricInFlightConns, d.serviceNameTag)
+	counter := metrics.FromContext(ctx).Counter(MetricConnInflight, d.serviceNameTag)
 	counter.Inc(1)
 	return &metricsWrappedConn{Conn: conn, counter: counter}, nil
 }
