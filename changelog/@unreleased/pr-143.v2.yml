@@ -1,0 +1,6 @@
+type: feature
+feature:
+  description: Generate User-Agent header value based on a `conjure-go-contract/useragent`
+    package designed to generate values based on a list of products.
+  links:
+  - https://github.com/palantir/conjure-go-runtime/pull/143
