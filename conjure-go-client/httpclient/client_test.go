@@ -21,11 +21,14 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"testing"
 
 	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient"
 	"github.com/palantir/conjure-go-runtime/v2/conjure-go-contract/codecs"
+	"github.com/palantir/conjure-go-runtime/v2/conjure-go-contract/useragent"
 	"github.com/palantir/pkg/bytesbuffers"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -155,4 +158,49 @@ func BenchmarkAllocWithBytesBufferPool(b *testing.B) {
 		require.NoError(b, err)
 		runBench(b, client)
 	})
+}
+
+func TestWithUserAgentComponent(t *testing.T) {
+	server1 := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		ua := req.Header.Get("User-Agent")
+		expected := fmt.Sprintf(`client2/v2\.0\.0 client1/v1\.0\.0 default/v0\.0\.0 conjure-go-runtime/unknown golang/1\.\d+\.\d+ \(%s/%s\)`, runtime.GOOS, runtime.GOARCH)
+		assert.Regexp(t, expected, ua)
+		rw.WriteHeader(http.StatusOK)
+	}))
+	defer server1.Close()
+
+	p, err := useragent.NewProduct("default", "v0.0.0")
+	require.NoError(t, err)
+	useragent.Default.Push(p)
+
+	client1, err := httpclient.NewClient(
+		httpclient.WithBaseURLs([]string{server1.URL}),
+		httpclient.WithUserAgentComponent("client1", "v1.0.0"),
+		httpclient.WithUserAgentComponent("client2", "v2.0.0"),
+	)
+	require.NoError(t, err)
+
+	resp1, err := client1.Get(context.Background())
+	require.NoError(t, err)
+	require.NotNil(t, resp1)
+
+	// now ensure that a client built later does not inherit the previous client's config (i.e. the cloning works)
+
+	server2 := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		ua := req.Header.Get("User-Agent")
+		expected := fmt.Sprintf(`default/v0\.0\.0 conjure-go-runtime/unknown golang/1\.\d+\.\d+ \(%s/%s\)`, runtime.GOOS, runtime.GOARCH)
+		assert.Regexp(t, expected, ua)
+		rw.WriteHeader(http.StatusOK)
+	}))
+	defer server2.Close()
+
+	client2, err := httpclient.NewClient(
+		httpclient.WithBaseURLs([]string{server2.URL}),
+	)
+	require.NoError(t, err)
+
+	resp2, err := client2.Get(context.Background())
+	require.NoError(t, err)
+	require.NotNil(t, resp2)
+
 }

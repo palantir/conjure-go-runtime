@@ -23,6 +23,7 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/palantir/conjure-go-runtime/v2/conjure-go-contract/useragent"
 	"github.com/palantir/pkg/bytesbuffers"
 	"github.com/palantir/pkg/metrics"
 	"github.com/palantir/pkg/retry"
@@ -41,6 +42,7 @@ type clientBuilder struct {
 
 	errorDecoder                  ErrorDecoder
 	disableTraceHeaderPropagation bool
+	userAgent                     *useragent.Builder
 }
 
 type httpClientBuilder struct {
@@ -81,6 +83,7 @@ func NewClient(params ...ClientParam) (Client, error) {
 		httpClientBuilder: *getDefaultHTTPClientBuilder(),
 		backoffOptions:    []retry.Option{retry.WithInitialBackoff(250 * time.Millisecond)},
 		errorDecoder:      restErrorDecoder{},
+		userAgent:         useragent.Default.Clone(),
 	}
 	for _, p := range params {
 		if p == nil {
@@ -112,6 +115,7 @@ func NewClient(params ...ClientParam) (Client, error) {
 		metricsMiddleware:             b.metricsMiddleware,
 		errorDecoderMiddleware:        edm,
 		bufferPool:                    b.BytesBufferPool,
+		userAgent:                     b.userAgent,
 	}, nil
 }
 

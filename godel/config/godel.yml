@@ -15,4 +15,4 @@ exclude:
     - \..+
     - vendor
   paths:
-    - godel
+    - conjure-go-contract/useragent/testmain

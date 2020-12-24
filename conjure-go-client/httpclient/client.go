@@ -20,6 +20,7 @@ import (
 	"net/url"
 
 	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient/internal"
+	"github.com/palantir/conjure-go-runtime/v2/conjure-go-contract/useragent"
 	"github.com/palantir/pkg/bytesbuffers"
 	"github.com/palantir/pkg/retry"
 	werror "github.com/palantir/witchcraft-go-error"
@@ -58,6 +59,7 @@ type clientImpl struct {
 	disableTraceHeaderPropagation bool
 	backoffOptions                []retry.Option
 	bufferPool                    bytesbuffers.Pool
+	userAgent                     *useragent.Builder
 }
 
 func (c *clientImpl) Get(ctx context.Context, params ...RequestParam) (*http.Response, error) {
@@ -206,6 +208,9 @@ func (c *clientImpl) initializeRequestHeaders(ctx context.Context) http.Header {
 		if traceID != "" {
 			headers.Set(traceIDHeaderKey, string(traceID))
 		}
+	}
+	if c.userAgent != nil {
+		headers.Set("User-Agent", c.userAgent.String())
 	}
 	return headers
 }

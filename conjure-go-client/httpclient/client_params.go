@@ -23,6 +23,7 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/palantir/conjure-go-runtime/v2/conjure-go-contract/useragent"
 	"github.com/palantir/pkg/bytesbuffers"
 	"github.com/palantir/pkg/retry"
 	werror "github.com/palantir/witchcraft-go-error"
@@ -149,7 +150,21 @@ func WithAuthTokenProvider(provideToken TokenProvider) ClientOrHTTPClientParam {
 	return WithMiddleware(&authTokenMiddleware{provideToken: provideToken})
 }
 
+// WithUserAgentComponent prepends the product to the User-Agent header.
+func WithUserAgentComponent(product string, version string, comments ...string) ClientParam {
+	return clientParamFunc(func(b *clientBuilder) error {
+		p, err := useragent.NewProduct(product, version, comments...)
+		if err != nil {
+			return werror.Wrap(err, "failed to add user-agent component product")
+		}
+		b.userAgent.Push(p)
+		return nil
+	})
+}
+
 // WithUserAgent sets the User-Agent header.
+// If set, overrides generated value from conjure-go-contract/useragent.
+// Deprecated: Use WithUserAgentComponent to get generated value with runtime info.
 func WithUserAgent(userAgent string) ClientOrHTTPClientParam {
 	return WithSetHeader("User-Agent", userAgent)
 }
