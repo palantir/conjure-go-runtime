@@ -130,8 +130,8 @@ func getDefaultHTTPClientBuilder() *httpClientBuilder {
 		ExpectContinueTimeout: 1 * time.Second,
 		// These are higher than the defaults, but match Java and
 		// heuristically work better for our relatively large services.
-		MaxIdleConns:          200,
-		MaxIdleConnsPerHost:   100,
+		MaxIdleConns:        200,
+		MaxIdleConnsPerHost: 100,
 	}
 }
 
