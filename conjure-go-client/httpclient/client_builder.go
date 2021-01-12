@@ -123,13 +123,15 @@ func getDefaultHTTPClientBuilder() *httpClientBuilder {
 		Timeout:               1 * time.Minute,
 		DialTimeout:           30 * time.Second,
 		KeepAlive:             30 * time.Second,
-		MaxIdleConns:          32,
-		MaxIdleConnsPerHost:   32,
 		EnableIPV6:            false,
 		DisableHTTP2:          false,
 		IdleConnTimeout:       90 * time.Second,
 		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
+		// These are higher than the defaults, but match Java and
+		// heuristically work better for our relatively large services.
+		MaxIdleConns:        200,
+		MaxIdleConnsPerHost: 100,
 	}
 }
 
