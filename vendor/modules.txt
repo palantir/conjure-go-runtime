@@ -20,7 +20,7 @@ github.com/palantir/pkg/metrics
 github.com/palantir/pkg/retry
 # github.com/palantir/pkg/safejson v1.0.1
 github.com/palantir/pkg/safejson
-# github.com/palantir/pkg/tlsconfig v1.0.1
+# github.com/palantir/pkg/tlsconfig v1.0.2
 github.com/palantir/pkg/tlsconfig
 # github.com/palantir/pkg/uuid v1.0.1
 github.com/palantir/pkg/uuid
@@ -33,7 +33,7 @@ github.com/palantir/witchcraft-go-logging/internal/gopath
 github.com/palantir/witchcraft-go-logging/wlog
 github.com/palantir/witchcraft-go-logging/wlog/internal
 github.com/palantir/witchcraft-go-logging/wlog/svclog/svc1log
-# github.com/palantir/witchcraft-go-params v1.1.0
+# github.com/palantir/witchcraft-go-params v1.2.0
 github.com/palantir/witchcraft-go-params
 # github.com/palantir/witchcraft-go-tracing v1.2.0
 github.com/palantir/witchcraft-go-tracing/wtracing
