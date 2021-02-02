@@ -60,7 +60,7 @@ type clientImpl struct {
 	backoffOptions                []retry.Option
 	bufferPool                    bytesbuffers.Pool
 
-	mu sync.Mutex
+	mu sync.RWMutex
 }
 
 func (c *clientImpl) Get(ctx context.Context, params ...RequestParam) (*http.Response, error) {
@@ -84,6 +84,8 @@ func (c *clientImpl) Delete(ctx context.Context, params ...RequestParam) (*http.
 }
 
 func (c *clientImpl) Do(ctx context.Context, params ...RequestParam) (*http.Response, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	uris := c.uris
 	if len(uris) == 0 {
 		return nil, werror.ErrorWithContextParams(ctx, "no base URIs are configured")
