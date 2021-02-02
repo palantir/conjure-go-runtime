@@ -124,8 +124,8 @@ func NewClient(params ...ClientParam) (Client, error) {
 	}
 
 	if b.RefreshableConfig != nil {
-		b.RefreshableConfig.Map(func(i interface{}) interface{} {
-			return i.(ClientConfig).URIs
+		b.RefreshableConfig.MapClientConfig(func(clientCfg ClientConfig) interface{} {
+			return clientCfg.URIs
 		}).Subscribe(func(i interface{}) {
 			uris := i.([]string)
 			c.mu.Lock()
