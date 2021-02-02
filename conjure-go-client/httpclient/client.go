@@ -54,13 +54,13 @@ type clientImpl struct {
 	errorDecoderMiddleware Middleware
 	metricsMiddleware      Middleware
 
-	uris                          []string
 	maxRetries                    int
 	disableTraceHeaderPropagation bool
 	backoffOptions                []retry.Option
 	bufferPool                    bytesbuffers.Pool
 
-	mu sync.RWMutex
+	mu   sync.RWMutex
+	uris []string
 }
 
 func (c *clientImpl) Get(ctx context.Context, params ...RequestParam) (*http.Response, error) {
