@@ -18,7 +18,6 @@ package httpclient
 import (
 	"context"
 	"crypto/tls"
-	"github.com/palantir/pkg/refreshable"
 	"net"
 	"net/http"
 	"net/url"
@@ -26,6 +25,7 @@ import (
 
 	"github.com/palantir/pkg/bytesbuffers"
 	"github.com/palantir/pkg/metrics"
+	"github.com/palantir/pkg/refreshable"
 	"github.com/palantir/pkg/retry"
 	"github.com/palantir/pkg/tlsconfig"
 	werror "github.com/palantir/witchcraft-go-error"
@@ -103,12 +103,13 @@ func NewClient(params ...ClientParam) (Client, error) {
 	}
 
 	if b.maxRetries == 0 {
-		b.maxRetries = 2 * len(b.uris.CurrentStringSlice())
+		if b.uris != nil {
+			b.maxRetries = 2 * len(b.uris.CurrentStringSlice())
+		}
 	}
 
 	c := &clientImpl{
 		client:                        *client,
-		uris:                          b.uris.CurrentStringSlice(),
 		maxRetries:                    b.maxRetries,
 		backoffOptions:                b.backoffOptions,
 		disableTraceHeaderPropagation: b.disableTraceHeaderPropagation,
@@ -116,6 +117,10 @@ func NewClient(params ...ClientParam) (Client, error) {
 		metricsMiddleware:             b.metricsMiddleware,
 		errorDecoderMiddleware:        edm,
 		bufferPool:                    b.BytesBufferPool,
+	}
+
+	if b.uris != nil {
+		c.uris = b.uris.CurrentStringSlice()
 	}
 
 	if b.RefreshableConfig != nil {
