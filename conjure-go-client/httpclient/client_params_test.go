@@ -34,7 +34,7 @@ func TestBuilder(t *testing.T) {
 
 	refreshableCfg := refreshable.NewDefaultRefreshable(ClientConfig{
 		ServiceName: "test",
-		URIs:        []string{"https://palantir.com"},
+		URIs:        []string{testAddr},
 	})
 
 	for _, test := range []struct {
@@ -113,6 +113,9 @@ func TestBuilder(t *testing.T) {
 			Name:  "RefreshableConfig",
 			Param: WithRefreshableConfig(NewRefreshingClientConfig(refreshableCfg)),
 			Test: func(t *testing.T, client *clientImpl) {
+				// check URIs is set prior to the change
+				assert.Equal(t, []string{testAddr}, client.uris)
+				// update the client config with a new URI
 				newConfig := ClientConfig{
 					ServiceName: "test",
 					URIs:        []string{"https://changed-uri.local"},
