@@ -431,9 +431,9 @@ func setBasicAuth(h http.Header, username, password string) {
 	h.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString(basicAuthBytes))
 }
 
-func WithRefreshableConfig(config refreshable.Refreshable) ClientParam {
+func WithRefreshableConfig(config RefreshableClientConfig) ClientParam {
 	return clientParamFunc(func(b *clientBuilder) error {
-		params, err := configToParams(config.(RefreshableClientConfig).CurrentClientConfig())
+		params, err := configToParams(config.CurrentClientConfig())
 		if err != nil {
 			return err
 		}
@@ -442,7 +442,7 @@ func WithRefreshableConfig(config refreshable.Refreshable) ClientParam {
 				return err
 			}
 		}
-		b.RefreshableConfig = config.(RefreshableClientConfig)
+		b.RefreshableConfig = config
 		return nil
 	})
 }
