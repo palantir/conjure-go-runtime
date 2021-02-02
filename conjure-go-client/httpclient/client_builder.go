@@ -18,6 +18,7 @@ package httpclient
 import (
 	"context"
 	"crypto/tls"
+	"github.com/palantir/pkg/refreshable"
 	"net"
 	"net/http"
 	"net/url"
@@ -35,7 +36,7 @@ import (
 type clientBuilder struct {
 	httpClientBuilder
 
-	uris           []string
+	uris           refreshable.StringSlice
 	maxRetries     int
 	backoffOptions []retry.Option
 
@@ -72,6 +73,8 @@ type httpClientBuilder struct {
 	EnableIPV6  bool
 
 	BytesBufferPool bytesbuffers.Pool
+
+	RefreshableConfig RefreshableClientConfig
 }
 
 // NewClient returns a configured client ready for use.
@@ -100,11 +103,12 @@ func NewClient(params ...ClientParam) (Client, error) {
 	}
 
 	if b.maxRetries == 0 {
-		b.maxRetries = 2 * len(b.uris)
+		b.maxRetries = 2 * len(b.uris.CurrentStringSlice())
 	}
-	return &clientImpl{
+
+	c := &clientImpl{
 		client:                        *client,
-		uris:                          b.uris,
+		uris:                          b.uris.CurrentStringSlice(),
 		maxRetries:                    b.maxRetries,
 		backoffOptions:                b.backoffOptions,
 		disableTraceHeaderPropagation: b.disableTraceHeaderPropagation,
@@ -112,7 +116,20 @@ func NewClient(params ...ClientParam) (Client, error) {
 		metricsMiddleware:             b.metricsMiddleware,
 		errorDecoderMiddleware:        edm,
 		bufferPool:                    b.BytesBufferPool,
-	}, nil
+	}
+
+	if b.RefreshableConfig != nil {
+		b.RefreshableConfig.Map(func(i interface{}) interface{} {
+			return i.(ClientConfig).URIs
+		}).Subscribe(func(i interface{}) {
+			uris := i.(ClientConfig).URIs
+			c.mu.Lock()
+			defer c.mu.Unlock()
+			c.uris = uris
+		})
+	}
+
+	return c, nil
 }
 
 func getDefaultHTTPClientBuilder() *httpClientBuilder {

@@ -18,6 +18,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/base64"
+	"github.com/palantir/pkg/refreshable"
 	"net"
 	"net/http"
 	"net/url"
@@ -361,7 +362,7 @@ func WithKeepAlive(keepAlive time.Duration) ClientOrHTTPClientParam {
 // WithBaseURLs sets the base URLs for every request. This is meant to be used in conjunction with WithPath.
 func WithBaseURLs(urls []string) ClientParam {
 	return clientParamFunc(func(b *clientBuilder) error {
-		b.uris = urls
+		b.uris = refreshable.NewStringSlice(refreshable.NewDefaultRefreshable(urls))
 		return nil
 	})
 }
@@ -428,4 +429,20 @@ func WithBasicAuth(username, password string) ClientParam {
 func setBasicAuth(h http.Header, username, password string) {
 	basicAuthBytes := []byte(username + ":" + password)
 	h.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString(basicAuthBytes))
+}
+
+func WithRefreshableConfig(config refreshable.Refreshable) ClientParam {
+	return clientParamFunc(func(b *clientBuilder) error {
+		params, err := configToParams(config.(RefreshableClientConfig).CurrentClientConfig())
+		if err != nil {
+			return err
+		}
+		for _, p := range params {
+			if err := p.apply(b); err != nil {
+				return err
+			}
+		}
+		b.RefreshableConfig = config.(RefreshableClientConfig)
+		return nil
+	})
 }
