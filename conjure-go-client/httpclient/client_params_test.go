@@ -23,6 +23,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/palantir/pkg/refreshable"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -30,6 +31,11 @@ import (
 func TestBuilder(t *testing.T) {
 	testAddr := "https://palantir.com"
 	testURL, _ := url.Parse(testAddr)
+
+	refreshableCfg := refreshable.NewDefaultRefreshable(ClientConfig{
+		ServiceName: "test",
+		URIs:        []string{testAddr},
+	})
 
 	for _, test := range []struct {
 		Name  string
@@ -108,6 +114,22 @@ func TestBuilder(t *testing.T) {
 			Param: WithUnlimitedRetries(),
 			Test: func(t *testing.T, client *clientImpl) {
 				assert.Equal(t, 0, client.maxRetries)
+			},
+		},
+		{
+			Name:  "RefreshableConfig",
+			Param: WithRefreshableConfig(NewRefreshingClientConfig(refreshableCfg)),
+			Test: func(t *testing.T, client *clientImpl) {
+				// check URIs is set prior to the change
+				assert.Equal(t, []string{testAddr}, client.uris.CurrentStringSlice())
+				// update the client config with a new URI
+				newConfig := ClientConfig{
+					ServiceName: "test",
+					URIs:        []string{"https://changed-uri.local"},
+				}
+				err := refreshableCfg.Update(newConfig)
+				require.NoError(t, err)
+				assert.Equal(t, newConfig.URIs, client.uris.CurrentStringSlice(), "client URIs should be updated with the refreshed values")
 			},
 		},
 	} {
