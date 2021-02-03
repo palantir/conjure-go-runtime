@@ -37,7 +37,7 @@ type clientBuilder struct {
 	httpClientBuilder
 
 	uris           refreshable.StringSlice
-	maxRetries     int
+	maxRetries     refreshable.IntPtr
 	backoffOptions []retry.Option
 
 	errorDecoder                  ErrorDecoder
@@ -98,12 +98,6 @@ func NewClient(params ...ClientParam) (Client, error) {
 	var edm Middleware
 	if b.errorDecoder != nil {
 		edm = errorDecoderMiddleware(b.errorDecoder)
-	}
-
-	if b.maxRetries == 0 {
-		if b.uris != nil {
-			b.maxRetries = 2 * len(b.uris.CurrentStringSlice())
-		}
 	}
 
 	return &clientImpl{

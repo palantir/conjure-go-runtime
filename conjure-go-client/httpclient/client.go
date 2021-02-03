@@ -55,7 +55,7 @@ type clientImpl struct {
 	metricsMiddleware      Middleware
 
 	uris                          refreshable.StringSlice
-	maxRetries                    int
+	maxRetries                    refreshable.IntPtr
 	disableTraceHeaderPropagation bool
 	backoffOptions                []retry.Option
 	bufferPool                    bytesbuffers.Pool
@@ -90,10 +90,18 @@ func (c *clientImpl) Do(ctx context.Context, params ...RequestParam) (*http.Resp
 		return nil, werror.ErrorWithContextParams(ctx, "no base URIs are configured")
 	}
 
+	var maxRetries int
+	if c.maxRetries != nil {
+		maxRetries = *c.maxRetries.CurrentIntPtr()
+	}
+	if maxRetries == 0 {
+		maxRetries = 2 * len(uris)
+	}
+
 	var err error
 	var resp *http.Response
 
-	retrier := internal.NewRequestRetrier(uris, retry.Start(ctx, c.backoffOptions...), c.maxRetries)
+	retrier := internal.NewRequestRetrier(uris, retry.Start(ctx, c.backoffOptions...), maxRetries)
 	for retrier.ShouldGetNextURI(resp, err) {
 		uri, retryErr := retrier.GetNextURI(ctx, resp, err)
 		if retryErr != nil {
