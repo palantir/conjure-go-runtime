@@ -54,12 +54,11 @@ type clientImpl struct {
 	errorDecoderMiddleware Middleware
 	metricsMiddleware      Middleware
 
+	uris                          refreshable.StringSlice
 	maxRetries                    int
 	disableTraceHeaderPropagation bool
 	backoffOptions                []retry.Option
 	bufferPool                    bytesbuffers.Pool
-
-	uris refreshable.StringSlice
 }
 
 func (c *clientImpl) Get(ctx context.Context, params ...RequestParam) (*http.Response, error) {
