@@ -105,6 +105,7 @@ func NewClient(params ...ClientParam) (Client, error) {
 		client:                        *client,
 		uris:                          b.uris,
 		maxRetries:                    b.maxRetries,
+		enableUnlimitedRetries:        b.enableUnlimitedRetries,
 		backoffOptions:                b.backoffOptions,
 		disableTraceHeaderPropagation: b.disableTraceHeaderPropagation,
 		middlewares:                   middlewares,
