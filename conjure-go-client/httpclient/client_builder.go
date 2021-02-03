@@ -36,9 +36,10 @@ import (
 type clientBuilder struct {
 	httpClientBuilder
 
-	uris           refreshable.StringSlice
-	maxRetries     refreshable.Int
-	backoffOptions []retry.Option
+	uris                   refreshable.StringSlice
+	maxRetries             refreshable.Int
+	enableUnlimitedRetries bool
+	backoffOptions         []retry.Option
 
 	errorDecoder                  ErrorDecoder
 	disableTraceHeaderPropagation bool

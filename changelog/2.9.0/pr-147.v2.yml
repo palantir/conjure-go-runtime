@@ -1,0 +1,5 @@
+type: improvement
+improvement:
+  description: Add `WithUnlimitedRetries` client param, which sets an unlimited number of retries on transport errors for every request.
+  links:
+  - https://github.com/palantir/conjure-go-runtime/pull/147
