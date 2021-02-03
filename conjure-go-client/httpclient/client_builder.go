@@ -119,16 +119,10 @@ func NewClient(params ...ClientParam) (Client, error) {
 		bufferPool:                    b.BytesBufferPool,
 	}
 
-	if b.uris != nil {
-		c.uris = b.uris.CurrentStringSlice()
-	}
-
 	if b.RefreshableConfig != nil {
-		b.RefreshableConfig.URIs().SubscribeToStringSlice(func(uris []string) {
-			c.mu.Lock()
-			defer c.mu.Unlock()
-			c.uris = uris
-		})
+		c.uris = b.RefreshableConfig.URIs()
+	} else {
+		c.uris = b.uris
 	}
 
 	return c, nil

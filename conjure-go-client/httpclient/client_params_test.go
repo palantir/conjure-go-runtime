@@ -114,7 +114,7 @@ func TestBuilder(t *testing.T) {
 			Param: WithRefreshableConfig(NewRefreshingClientConfig(refreshableCfg)),
 			Test: func(t *testing.T, client *clientImpl) {
 				// check URIs is set prior to the change
-				assert.Equal(t, []string{testAddr}, client.uris)
+				assert.Equal(t, []string{testAddr}, client.uris.CurrentStringSlice())
 				// update the client config with a new URI
 				newConfig := ClientConfig{
 					ServiceName: "test",
@@ -122,7 +122,7 @@ func TestBuilder(t *testing.T) {
 				}
 				err := refreshableCfg.Update(newConfig)
 				require.NoError(t, err)
-				assert.Equal(t, newConfig.URIs, client.uris, "client URIs should be updated with the refreshed values")
+				assert.Equal(t, newConfig.URIs, client.uris.CurrentStringSlice(), "client URIs should be updated with the refreshed values")
 			},
 		},
 	} {
