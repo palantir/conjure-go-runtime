@@ -392,6 +392,15 @@ func WithMaxRetries(maxTransportRetries int) ClientParam {
 	})
 }
 
+// WithUnlimitedRetries sets an unlimited number of retries on transport errors for every request.
+// If set, this supersedes any retry limits set with WithMaxRetries.
+func WithUnlimitedRetries() ClientParam {
+	return clientParamFunc(func(b *clientBuilder) error {
+		b.enableUnlimitedRetries = true
+		return nil
+	})
+}
+
 // WithDisableRestErrors disables the middleware which sets Do()'s returned
 // error to a non-nil value in the case of >= 400 HTTP response.
 func WithDisableRestErrors() ClientParam {
