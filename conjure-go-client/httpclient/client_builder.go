@@ -106,7 +106,7 @@ func NewClient(params ...ClientParam) (Client, error) {
 		}
 	}
 
-	c := &clientImpl{
+	return &clientImpl{
 		client:                        *client,
 		uris:                          b.uris,
 		maxRetries:                    b.maxRetries,
@@ -116,9 +116,7 @@ func NewClient(params ...ClientParam) (Client, error) {
 		metricsMiddleware:             b.metricsMiddleware,
 		errorDecoderMiddleware:        edm,
 		bufferPool:                    b.BytesBufferPool,
-	}
-
-	return c, nil
+	}, nil
 }
 
 func getDefaultHTTPClientBuilder() *httpClientBuilder {
