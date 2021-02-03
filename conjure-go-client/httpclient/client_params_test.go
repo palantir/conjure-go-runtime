@@ -137,6 +137,22 @@ func TestBuilder(t *testing.T) {
 				assert.Equal(t, retries, client.maxRetries.CurrentInt(), "MaxRetries should be updated with the refreshed values")
 			},
 		},
+		{
+			Name:  "RefreshableConfig",
+			Param: WithRefreshableConfig(NewRefreshingClientConfig(refreshableCfg)),
+			Test: func(t *testing.T, client *clientImpl) {
+				// check URIs is set prior to the change
+				assert.Equal(t, []string{testAddr}, client.uris.CurrentStringSlice())
+				// update the client config with a new URI
+				newConfig := ClientConfig{
+					ServiceName: "test",
+					URIs:        []string{"https://changed-uri.local"},
+				}
+				err := refreshableCfg.Update(newConfig)
+				require.NoError(t, err)
+				assert.Equal(t, newConfig.URIs, client.uris.CurrentStringSlice(), "client URIs should be updated with the refreshed values")
+			},
+		},
 	} {
 		t.Run(test.Name, func(t *testing.T) {
 			client, err := NewClient(test.Param)

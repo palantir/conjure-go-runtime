@@ -466,6 +466,7 @@ func WithRefreshableConfig(config RefreshableClientConfig) ClientParam {
 			}
 			return *i
 		}))
+
 		return nil
 	})
 }
