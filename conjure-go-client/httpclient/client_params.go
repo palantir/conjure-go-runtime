@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/palantir/pkg/bytesbuffers"
+	"github.com/palantir/pkg/refreshable"
 	"github.com/palantir/pkg/retry"
 	werror "github.com/palantir/witchcraft-go-error"
 	"golang.org/x/net/proxy"
@@ -370,7 +371,7 @@ func WithKeepAlive(keepAlive time.Duration) ClientOrHTTPClientParam {
 // WithBaseURLs sets the base URLs for every request. This is meant to be used in conjunction with WithPath.
 func WithBaseURLs(urls []string) ClientParam {
 	return clientParamFunc(func(b *clientBuilder) error {
-		b.uris = urls
+		b.uris = refreshable.NewStringSlice(refreshable.NewDefaultRefreshable(urls))
 		return nil
 	})
 }
@@ -447,4 +448,22 @@ func WithBasicAuth(username, password string) ClientParam {
 func setBasicAuth(h http.Header, username, password string) {
 	basicAuthBytes := []byte(username + ":" + password)
 	h.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString(basicAuthBytes))
+}
+
+func WithRefreshableConfig(config RefreshableClientConfig) ClientParam {
+	return clientParamFunc(func(b *clientBuilder) error {
+		// set initial state
+		params, err := configToParams(config.CurrentClientConfig())
+		if err != nil {
+			return err
+		}
+		for _, p := range params {
+			if err := p.apply(b); err != nil {
+				return err
+			}
+		}
+		// set refreshables
+		b.uris = config.URIs()
+		return nil
+	})
 }

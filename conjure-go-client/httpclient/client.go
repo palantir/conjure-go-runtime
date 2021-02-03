@@ -22,6 +22,7 @@ import (
 
 	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient/internal"
 	"github.com/palantir/pkg/bytesbuffers"
+	"github.com/palantir/pkg/refreshable"
 	"github.com/palantir/pkg/retry"
 	werror "github.com/palantir/witchcraft-go-error"
 	"github.com/palantir/witchcraft-go-tracing/wtracing"
@@ -54,7 +55,7 @@ type clientImpl struct {
 	errorDecoderMiddleware Middleware
 	metricsMiddleware      Middleware
 
-	uris                          []string
+	uris                          refreshable.StringSlice
 	maxAttempts                   int
 	disableTraceHeaderPropagation bool
 	backoffOptions                []retry.Option
@@ -82,7 +83,10 @@ func (c *clientImpl) Delete(ctx context.Context, params ...RequestParam) (*http.
 }
 
 func (c *clientImpl) Do(ctx context.Context, params ...RequestParam) (*http.Response, error) {
-	uris := c.uris
+	var uris []string
+	if c.uris != nil {
+		uris = c.uris.CurrentStringSlice()
+	}
 	if len(uris) == 0 {
 		return nil, werror.ErrorWithContextParams(ctx, "no base URIs are configured")
 	}
