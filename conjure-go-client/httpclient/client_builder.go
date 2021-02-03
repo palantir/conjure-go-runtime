@@ -25,6 +25,7 @@ import (
 
 	"github.com/palantir/pkg/bytesbuffers"
 	"github.com/palantir/pkg/metrics"
+	"github.com/palantir/pkg/refreshable"
 	"github.com/palantir/pkg/retry"
 	"github.com/palantir/pkg/tlsconfig"
 	werror "github.com/palantir/witchcraft-go-error"
@@ -35,7 +36,7 @@ import (
 type clientBuilder struct {
 	httpClientBuilder
 
-	uris           []string
+	uris           refreshable.StringSlice
 	maxRetries     int
 	backoffOptions []retry.Option
 
@@ -100,8 +101,11 @@ func NewClient(params ...ClientParam) (Client, error) {
 	}
 
 	if b.maxRetries == 0 {
-		b.maxRetries = 2 * len(b.uris)
+		if b.uris != nil {
+			b.maxRetries = 2 * len(b.uris.CurrentStringSlice())
+		}
 	}
+
 	return &clientImpl{
 		client:                        *client,
 		uris:                          b.uris,
