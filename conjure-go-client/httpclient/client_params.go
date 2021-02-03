@@ -433,16 +433,7 @@ func setBasicAuth(h http.Header, username, password string) {
 
 func WithRefreshableConfig(config RefreshableClientConfig) ClientParam {
 	return clientParamFunc(func(b *clientBuilder) error {
-		params, err := configToParams(config.CurrentClientConfig())
-		if err != nil {
-			return err
-		}
-		for _, p := range params {
-			if err := p.apply(b); err != nil {
-				return err
-			}
-		}
-		b.RefreshableConfig = config
+		b.uris = config.URIs()
 		return nil
 	})
 }

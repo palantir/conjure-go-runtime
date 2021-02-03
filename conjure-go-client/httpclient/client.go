@@ -18,7 +18,6 @@ import (
 	"context"
 	"net/http"
 	"net/url"
-	"sync"
 
 	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient/internal"
 	"github.com/palantir/pkg/bytesbuffers"
@@ -60,7 +59,6 @@ type clientImpl struct {
 	backoffOptions                []retry.Option
 	bufferPool                    bytesbuffers.Pool
 
-	mu   sync.RWMutex
 	uris refreshable.StringSlice
 }
 
@@ -85,8 +83,6 @@ func (c *clientImpl) Delete(ctx context.Context, params ...RequestParam) (*http.
 }
 
 func (c *clientImpl) Do(ctx context.Context, params ...RequestParam) (*http.Response, error) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
 	var uris []string
 	if c.uris != nil {
 		uris = c.uris.CurrentStringSlice()

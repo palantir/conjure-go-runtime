@@ -73,8 +73,6 @@ type httpClientBuilder struct {
 	EnableIPV6  bool
 
 	BytesBufferPool bytesbuffers.Pool
-
-	RefreshableConfig RefreshableClientConfig
 }
 
 // NewClient returns a configured client ready for use.
@@ -110,6 +108,7 @@ func NewClient(params ...ClientParam) (Client, error) {
 
 	c := &clientImpl{
 		client:                        *client,
+		uris:                          b.uris,
 		maxRetries:                    b.maxRetries,
 		backoffOptions:                b.backoffOptions,
 		disableTraceHeaderPropagation: b.disableTraceHeaderPropagation,
@@ -117,12 +116,6 @@ func NewClient(params ...ClientParam) (Client, error) {
 		metricsMiddleware:             b.metricsMiddleware,
 		errorDecoderMiddleware:        edm,
 		bufferPool:                    b.BytesBufferPool,
-	}
-
-	if b.RefreshableConfig != nil {
-		c.uris = b.RefreshableConfig.URIs()
-	} else {
-		c.uris = b.uris
 	}
 
 	return c, nil
