@@ -37,7 +37,7 @@ type clientBuilder struct {
 	httpClientBuilder
 
 	uris           refreshable.StringSlice
-	maxRetries     refreshable.IntPtr
+	maxRetries     refreshable.Int
 	backoffOptions []retry.Option
 
 	errorDecoder                  ErrorDecoder

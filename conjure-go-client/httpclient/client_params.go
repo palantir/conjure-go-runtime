@@ -388,7 +388,7 @@ func WithInitialBackoff(initialBackoff time.Duration) ClientParam {
 // If unset, the client defaults to 2 * size of URIs
 func WithMaxRetries(maxTransportRetries int) ClientParam {
 	return clientParamFunc(func(b *clientBuilder) error {
-		b.maxRetries = refreshable.NewIntPtr(refreshable.NewDefaultRefreshable(&maxTransportRetries))
+		b.maxRetries = refreshable.NewInt(refreshable.NewDefaultRefreshable(maxTransportRetries))
 		return nil
 	})
 }
@@ -445,7 +445,13 @@ func WithRefreshableConfig(config RefreshableClientConfig) ClientParam {
 		}
 		// set refreshables
 		b.uris = config.URIs()
-		b.maxRetries = config.MaxNumRetries()
+		// max retries
+		b.maxRetries = refreshable.NewInt(config.MaxNumRetries().MapIntPtr(func(i *int) interface{} {
+			if i == nil {
+				return 2 * len(config.URIs().CurrentStringSlice())
+			}
+			return *i
+		}))
 		return nil
 	})
 }
