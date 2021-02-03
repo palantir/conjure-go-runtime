@@ -103,6 +103,13 @@ func TestBuilder(t *testing.T) {
 				// No-op: passing nil should not cause panic
 			},
 		},
+		{
+			Name:  "UnlimitedRetries",
+			Param: WithUnlimitedRetries(),
+			Test: func(t *testing.T, client *clientImpl) {
+				assert.Equal(t, 0, client.maxRetries)
+			},
+		},
 	} {
 		t.Run(test.Name, func(t *testing.T) {
 			client, err := NewClient(test.Param)
