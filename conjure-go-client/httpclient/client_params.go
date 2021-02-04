@@ -397,6 +397,7 @@ func WithMaxRetries(maxTransportRetries int) ClientParam {
 // If set, this supersedes any retry limits set with WithMaxRetries.
 func WithUnlimitedRetries() ClientParam {
 	return clientParamFunc(func(b *clientBuilder) error {
+		b.enableUnlimitedRetries = true
 		b.maxRetries = refreshable.NewInt(refreshable.NewDefaultRefreshable(0))
 		return nil
 	})
