@@ -307,7 +307,7 @@ func WithTLSConfig(conf *tls.Config) ClientOrHTTPClientParam {
 // If unset, the client defaults to 30 seconds.
 func WithDialTimeout(timeout time.Duration) ClientOrHTTPClientParam {
 	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
-		b.DialTimeout = refreshable.NewDuration(refreshable.NewDefaultRefreshable(timeout))
+		b.DialTimeout = timeout
 		return nil
 	})
 }
@@ -457,37 +457,31 @@ func WithRefreshableConfig(config RefreshableClientConfig) ClientParam {
 
 		b.IdleConnTimeout = refreshable.NewDuration(config.IdleConnTimeout().MapDurationPtr(func(duration *time.Duration) interface{} {
 			if duration == nil {
-				return 90 * time.Second
+				return defaultIdleConnTimeout
 			}
 			return *duration
 		}))
 		b.TLSHandshakeTimeout = refreshable.NewDuration(config.TLSHandshakeTimeout().MapDurationPtr(func(duration *time.Duration) interface{} {
 			if duration == nil {
-				return 10 * time.Second
+				return defaultTLSHandshakeTimeout
 			}
 			return *duration
 		}))
 		b.ExpectContinueTimeout = refreshable.NewDuration(config.ExpectContinueTimeout().MapDurationPtr(func(duration *time.Duration) interface{} {
 			if duration == nil {
-				return 1 * time.Second
-			}
-			return *duration
-		}))
-		b.DialTimeout = refreshable.NewDuration(config.ConnectTimeout().MapDurationPtr(func(duration *time.Duration) interface{} {
-			if duration == nil {
-				return 30 * time.Second
+				return defaultExpectContinueTimeout
 			}
 			return *duration
 		}))
 		b.MaxIdleConns = refreshable.NewInt(config.MaxIdleConns().MapIntPtr(func(i *int) interface{} {
 			if i == nil {
-				return 200
+				return defaultMaxIdleConns
 			}
 			return *i
 		}))
 		b.MaxIdleConnsPerHost = refreshable.NewInt(config.MaxIdleConnsPerHost().MapIntPtr(func(i *int) interface{} {
 			if i == nil {
-				return 100
+				return defaultMaxIdleConnsPerHost
 			}
 			return *i
 		}))

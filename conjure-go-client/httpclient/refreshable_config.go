@@ -16,153 +16,60 @@ package httpclient
 
 import (
 	"fmt"
+	"net/http"
 	"time"
 )
 
 func (b *httpClientBuilder) handleIdleConnUpdate(c *clientImpl) {
-	errs := make(chan error, 1)
-	unsubscribeIdleConn := b.IdleConnTimeout.SubscribeToDuration(func(_ time.Duration) {
-		err := rebuildClient(c, b)
-		if err != nil {
-			errs <- err
-		}
+	b.IdleConnTimeout.SubscribeToDuration(func(v time.Duration) {
+		t := unwrapTransport(c.client.Transport)
+		t.IdleConnTimeout = v
+		c.client.Transport = t
 	})
-	go func() {
-		select {
-		case err := <-errs:
-			// TODO: Find a way to pass this back to the service log
-			fmt.Printf("encountered an error whilst updating IdleConn: %s\n", err)
-			unsubscribeIdleConn()
-			close(errs)
-			return
-		case <-b.ctx.Done():
-			close(errs)
-			return
-		}
-	}()
 }
 
 func (b *httpClientBuilder) handleTLSHandshakeTimeoutUpdate(c *clientImpl) {
-	errs := make(chan error, 1)
-	unsubscribeTLSHandshakeTimeout := b.TLSHandshakeTimeout.SubscribeToDuration(func(_ time.Duration) {
-		err := rebuildClient(c, b)
-		if err != nil {
-			errs <- err
-		}
+	b.TLSHandshakeTimeout.SubscribeToDuration(func(v time.Duration) {
+		t := unwrapTransport(c.client.Transport)
+		t.TLSHandshakeTimeout = v
+		c.client.Transport = t
 	})
-	go func() {
-		select {
-		case err := <-errs:
-			// TODO: Find a way to pass this back to the service log
-			fmt.Printf("encountered an error whilst updating TLSHandshakeTimeout: %s\n", err)
-			unsubscribeTLSHandshakeTimeout()
-			close(errs)
-			return
-		case <-b.ctx.Done():
-			close(errs)
-			return
-		}
-	}()
 }
 
 func (b *httpClientBuilder) handleExpectContinueTimeoutUpdate(c *clientImpl) {
-	errs := make(chan error, 1)
-	unsubscribeExpectContinueTimeout := b.ExpectContinueTimeout.SubscribeToDuration(func(_ time.Duration) {
-		err := rebuildClient(c, b)
-		if err != nil {
-			errs <- err
-		}
+	b.ExpectContinueTimeout.SubscribeToDuration(func(v time.Duration) {
+		t := unwrapTransport(c.client.Transport)
+		t.ExpectContinueTimeout = v
+		c.client.Transport = t
 	})
-	go func() {
-		select {
-		case err := <-errs:
-			// TODO: Find a way to pass this back to the service log
-			fmt.Printf("encountered an error whilst updating ExpectContinueTimeout: %s\n", err)
-			unsubscribeExpectContinueTimeout()
-			close(errs)
-			return
-		case <-b.ctx.Done():
-			close(errs)
-			return
-		}
-	}()
-}
-
-func (b *httpClientBuilder) handleDialTimeoutUpdate(c *clientImpl) {
-	errs := make(chan error, 1)
-	unsubscribeDialTimeout := b.DialTimeout.SubscribeToDuration(func(_ time.Duration) {
-		err := rebuildClient(c, b)
-		if err != nil {
-			errs <- err
-		}
-	})
-	go func() {
-		select {
-		case err := <-errs:
-			// TODO: Find a way to pass this back to the service log
-			fmt.Printf("encountered an error whilst updating DialTimeout: %s\n", err)
-			unsubscribeDialTimeout()
-			close(errs)
-			return
-		case <-b.ctx.Done():
-			close(errs)
-			return
-		}
-	}()
 }
 
 func (b *httpClientBuilder) handleMaxIdleConnsUpdate(c *clientImpl) {
-	errs := make(chan error, 1)
-	unsubscribeMaxIdleConns := b.MaxIdleConns.SubscribeToInt(func(_ int) {
-		err := rebuildClient(c, b)
-		if err != nil {
-			errs <- err
-		}
+	b.MaxIdleConns.SubscribeToInt(func(v int) {
+		t := unwrapTransport(c.client.Transport)
+		t.MaxIdleConns = v
+		c.client.Transport = t
 	})
-	go func() {
-		select {
-		case err := <-errs:
-			// TODO: Find a way to pass this back to the service log
-			fmt.Printf("encountered an error whilst updating MaxIdleConns: %s\n", err)
-			unsubscribeMaxIdleConns()
-			close(errs)
-			return
-		case <-b.ctx.Done():
-			close(errs)
-			return
-		}
-	}()
 }
 
 func (b *httpClientBuilder) handleMaxIdleConnsPerHostUpdate(c *clientImpl) {
-	errs := make(chan error, 1)
-	unsubscribeMaxIdleConnsPerHost := b.MaxIdleConnsPerHost.SubscribeToInt(func(_ int) {
-		err := rebuildClient(c, b)
-		if err != nil {
-			errs <- err
-		}
+	b.MaxIdleConnsPerHost.SubscribeToInt(func(v int) {
+		t := unwrapTransport(c.client.Transport)
+		t.MaxIdleConnsPerHost = v
+		c.client.Transport = t
 	})
-	go func() {
-		select {
-		case err := <-errs:
-			// TODO: Find a way to pass this back to the service log
-			fmt.Printf("encountered an error whilst updating MaxIdleConnsPerHost: %s\n", err)
-			unsubscribeMaxIdleConnsPerHost()
-			close(errs)
-			return
-		case <-b.ctx.Done():
-			close(errs)
-			return
-		}
-	}()
 }
 
-func rebuildClient(c *clientImpl, b *httpClientBuilder) error {
-	nc, nm, err := httpClientAndRoundTripHandlersFromBuilder(b)
-	if err != nil {
-		return err
+func unwrapTransport(rt http.RoundTripper) *http.Transport {
+	unwrapped := rt
+	for {
+		switch v := unwrapped.(type) {
+		case *wrappedClient:
+			unwrapped = v.baseTransport
+		case *http.Transport:
+			return v
+		default:
+			panic(fmt.Sprintf("unknown roundtripper type %T", unwrapped))
+		}
 	}
-	c.client = *nc
-	c.middlewares = nm
-	return nil
 }
