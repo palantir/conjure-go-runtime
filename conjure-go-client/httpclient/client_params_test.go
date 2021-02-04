@@ -110,13 +110,6 @@ func TestBuilder(t *testing.T) {
 			},
 		},
 		{
-			Name:  "UnlimitedRetries",
-			Param: WithUnlimitedRetries(),
-			Test: func(t *testing.T, client *clientImpl) {
-				assert.Equal(t, 0, client.maxRetries.CurrentInt())
-			},
-		},
-		{
 			Name:  "RefreshableConfig",
 			Param: WithRefreshableConfig(NewRefreshingClientConfig(refreshableCfg)),
 			Test: func(t *testing.T, client *clientImpl) {
@@ -132,7 +125,7 @@ func TestBuilder(t *testing.T) {
 				err := refreshableCfg.Update(newConfig)
 				require.NoError(t, err)
 				assert.Equal(t, newConfig.URIs, client.uris.CurrentStringSlice(), "client URIs should be updated with the refreshed values")
-				assert.Equal(t, retries, client.maxRetries.CurrentInt(), "MaxRetries should be updated with the refreshed values")
+				assert.Equal(t, retries, *client.maxRetries.CurrentIntPtr(), "MaxRetries should be updated with the refreshed values")
 			},
 		},
 	} {

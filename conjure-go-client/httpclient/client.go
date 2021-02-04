@@ -55,8 +55,7 @@ type clientImpl struct {
 	metricsMiddleware      Middleware
 
 	uris                          refreshable.StringSlice
-	maxRetries                    refreshable.Int
-	enableUnlimitedRetries        bool
+	maxRetries                    refreshable.IntPtr
 	disableTraceHeaderPropagation bool
 	backoffOptions                []retry.Option
 	bufferPool                    bytesbuffers.Pool
@@ -93,9 +92,8 @@ func (c *clientImpl) Do(ctx context.Context, params ...RequestParam) (*http.Resp
 
 	var maxRetries int
 	if c.maxRetries != nil {
-		maxRetries = c.maxRetries.CurrentInt()
-	}
-	if !c.enableUnlimitedRetries && maxRetries == 0 {
+		maxRetries = *c.maxRetries.CurrentIntPtr()
+	} else {
 		maxRetries = 2 * len(uris)
 	}
 
