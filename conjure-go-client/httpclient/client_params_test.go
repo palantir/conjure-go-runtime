@@ -122,8 +122,6 @@ func TestBuilder(t *testing.T) {
 			Test: func(t *testing.T, client *clientImpl) {
 				// check URIs is set prior to the change
 				assert.Equal(t, []string{testAddr}, client.uris.CurrentStringSlice())
-				// check the default MaxRetries is 2 x len(uris)
-				assert.Equal(t, 2, client.maxRetries.CurrentInt())
 				// update the client config with a new URI
 				retries := 5
 				newConfig := ClientConfig{

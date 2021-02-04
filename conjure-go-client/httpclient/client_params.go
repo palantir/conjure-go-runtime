@@ -458,11 +458,8 @@ func WithRefreshableConfig(config RefreshableClientConfig) ClientParam {
 
 		// max retries
 		b.maxRetries = refreshable.NewInt(config.MaxNumRetries().MapIntPtr(func(i *int) interface{} {
-			if b.enableUnlimitedRetries {
+			if b.enableUnlimitedRetries || i == nil {
 				return 0
-			}
-			if i == nil {
-				return 2 * len(config.URIs().CurrentStringSlice())
 			}
 			return *i
 		}))
