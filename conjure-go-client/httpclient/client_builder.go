@@ -63,22 +63,26 @@ type httpClientBuilder struct {
 	DisableRecovery       bool
 	DisableTracing        bool
 	DisableKeepAlives     bool
-	IdleConnTimeout       time.Duration
-	TLSHandshakeTimeout   time.Duration
-	ExpectContinueTimeout time.Duration
+	IdleConnTimeout       refreshable.Duration
+	TLSHandshakeTimeout   refreshable.Duration
+	ExpectContinueTimeout refreshable.Duration
 	ResponseHeaderTimeout time.Duration
 
 	// http.Dialer modifiers
-	DialTimeout time.Duration
+	DialTimeout refreshable.Duration
 	KeepAlive   time.Duration
 	EnableIPV6  bool
 
 	BytesBufferPool bytesbuffers.Pool
+
+	ctx context.Context
 }
 
 // NewClient returns a configured client ready for use.
 // We apply "sane defaults" before applying the provided params.
 func NewClient(params ...ClientParam) (Client, error) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	b := &clientBuilder{
 		httpClientBuilder: *getDefaultHTTPClientBuilder(),
 		backoffOptions:    []retry.Option{retry.WithInitialBackoff(250 * time.Millisecond)},
@@ -110,7 +114,9 @@ func NewClient(params ...ClientParam) (Client, error) {
 		}
 	}
 
-	return &clientImpl{
+	b.ctx = ctx
+
+	c := &clientImpl{
 		client:                        *client,
 		uris:                          b.uris,
 		maxRetries:                    b.maxRetries,
@@ -120,7 +126,15 @@ func NewClient(params ...ClientParam) (Client, error) {
 		metricsMiddleware:             b.metricsMiddleware,
 		errorDecoderMiddleware:        edm,
 		bufferPool:                    b.BytesBufferPool,
-	}, nil
+	}
+
+	// watch for config updates that require the client to rebuild
+	b.handleIdleConnUpdate(c)
+	b.handleTLSHandshakeTimeoutUpdate(c)
+	b.handleExpectContinueTimeoutUpdate(c)
+	b.handleDialTimeoutUpdate(c)
+
+	return c, nil
 }
 
 func getDefaultHTTPClientBuilder() *httpClientBuilder {
@@ -129,13 +143,13 @@ func getDefaultHTTPClientBuilder() *httpClientBuilder {
 		// These values are primarily pulled from http.DefaultTransport.
 		TLSClientConfig:       defaultTLSConfig,
 		Timeout:               1 * time.Minute,
-		DialTimeout:           30 * time.Second,
+		DialTimeout:           refreshable.NewDuration(refreshable.NewDefaultRefreshable(30 * time.Second)),
 		KeepAlive:             30 * time.Second,
 		EnableIPV6:            false,
 		DisableHTTP2:          false,
-		IdleConnTimeout:       90 * time.Second,
-		TLSHandshakeTimeout:   10 * time.Second,
-		ExpectContinueTimeout: 1 * time.Second,
+		IdleConnTimeout:       refreshable.NewDuration(refreshable.NewDefaultRefreshable(90 * time.Second)),
+		TLSHandshakeTimeout:   refreshable.NewDuration(refreshable.NewDefaultRefreshable(10 * time.Second)),
+		ExpectContinueTimeout: refreshable.NewDuration(refreshable.NewDefaultRefreshable(1 * time.Second)),
 		// These are higher than the defaults, but match Java and
 		// heuristically work better for our relatively large services.
 		MaxIdleConns:        200,
@@ -179,9 +193,9 @@ func httpClientAndRoundTripHandlersFromBuilder(b *httpClientBuilder) (*http.Clie
 		MaxIdleConnsPerHost:   b.MaxIdleConnsPerHost,
 		TLSClientConfig:       b.TLSClientConfig,
 		DisableKeepAlives:     b.DisableKeepAlives,
-		ExpectContinueTimeout: b.ExpectContinueTimeout,
-		IdleConnTimeout:       b.IdleConnTimeout,
-		TLSHandshakeTimeout:   b.TLSHandshakeTimeout,
+		ExpectContinueTimeout: b.ExpectContinueTimeout.CurrentDuration(),
+		IdleConnTimeout:       b.IdleConnTimeout.CurrentDuration(),
+		TLSHandshakeTimeout:   b.TLSHandshakeTimeout.CurrentDuration(),
 		ResponseHeaderTimeout: b.ResponseHeaderTimeout,
 	}
 	if b.Proxy != nil && b.ProxyDialerBuilder == nil {
@@ -212,7 +226,7 @@ type contextDialer interface {
 
 func newDialer(b *httpClientBuilder) (contextDialer, error) {
 	netDialer := &net.Dialer{
-		Timeout:   b.DialTimeout,
+		Timeout:   b.DialTimeout.CurrentDuration(),
 		KeepAlive: b.KeepAlive,
 		DualStack: b.EnableIPV6,
 	}

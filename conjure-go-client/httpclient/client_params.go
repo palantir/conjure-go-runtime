@@ -307,7 +307,7 @@ func WithTLSConfig(conf *tls.Config) ClientOrHTTPClientParam {
 // If unset, the client defaults to 30 seconds.
 func WithDialTimeout(timeout time.Duration) ClientOrHTTPClientParam {
 	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
-		b.DialTimeout = timeout
+		b.DialTimeout = refreshable.NewDuration(refreshable.NewDefaultRefreshable(timeout))
 		return nil
 	})
 }
@@ -316,7 +316,7 @@ func WithDialTimeout(timeout time.Duration) ClientOrHTTPClientParam {
 // If unset, the client defaults to 90 seconds.
 func WithIdleConnTimeout(timeout time.Duration) ClientOrHTTPClientParam {
 	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
-		b.IdleConnTimeout = timeout
+		b.IdleConnTimeout = refreshable.NewDuration(refreshable.NewDefaultRefreshable(timeout))
 		return nil
 	})
 }
@@ -325,7 +325,7 @@ func WithIdleConnTimeout(timeout time.Duration) ClientOrHTTPClientParam {
 // If unset, the client defaults to 10 seconds.
 func WithTLSHandshakeTimeout(timeout time.Duration) ClientOrHTTPClientParam {
 	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
-		b.TLSHandshakeTimeout = timeout
+		b.TLSHandshakeTimeout = refreshable.NewDuration(refreshable.NewDefaultRefreshable(timeout))
 		return nil
 	})
 }
@@ -335,7 +335,7 @@ func WithTLSHandshakeTimeout(timeout time.Duration) ClientOrHTTPClientParam {
 // If unset, the client defaults to 1 second.
 func WithExpectContinueTimeout(timeout time.Duration) ClientOrHTTPClientParam {
 	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
-		b.ExpectContinueTimeout = timeout
+		b.ExpectContinueTimeout = refreshable.NewDuration(refreshable.NewDefaultRefreshable(timeout))
 		return nil
 	})
 }
@@ -454,6 +454,30 @@ func WithRefreshableConfig(config RefreshableClientConfig) ClientParam {
 		}
 		// set refreshables
 		b.uris = config.URIs()
+		b.IdleConnTimeout = refreshable.NewDuration(config.IdleConnTimeout().MapDurationPtr(func(duration *time.Duration) interface{} {
+			if duration == nil {
+				return 90 * time.Second
+			}
+			return *duration
+		}))
+		b.TLSHandshakeTimeout = refreshable.NewDuration(config.TLSHandshakeTimeout().MapDurationPtr(func(duration *time.Duration) interface{} {
+			if duration == nil {
+				return 10 * time.Second
+			}
+			return *duration
+		}))
+		b.ExpectContinueTimeout = refreshable.NewDuration(config.ExpectContinueTimeout().MapDurationPtr(func(duration *time.Duration) interface{} {
+			if duration == nil {
+				return 1 * time.Second
+			}
+			return *duration
+		}))
+		b.DialTimeout = refreshable.NewDuration(config.ConnectTimeout().MapDurationPtr(func(duration *time.Duration) interface{} {
+			if duration == nil {
+				return 30 * time.Second
+			}
+			return *duration
+		}))
 		return nil
 	})
 }
