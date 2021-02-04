@@ -111,6 +111,52 @@ func (b *httpClientBuilder) handleDialTimeoutUpdate(c *clientImpl) {
 	}()
 }
 
+func (b *httpClientBuilder) handleMaxIdleConnsUpdate(c *clientImpl) {
+	errs := make(chan error, 1)
+	unsubscribeMaxIdleConns := b.MaxIdleConns.SubscribeToInt(func(_ int) {
+		err := rebuildClient(c, b)
+		if err != nil {
+			errs <- err
+		}
+	})
+	go func() {
+		select {
+		case err := <-errs:
+			// TODO: Find a way to pass this back to the service log
+			fmt.Printf("encountered an error whilst updating MaxIdleConns: %s\n", err)
+			unsubscribeMaxIdleConns()
+			close(errs)
+			return
+		case <-b.ctx.Done():
+			close(errs)
+			return
+		}
+	}()
+}
+
+func (b *httpClientBuilder) handleMaxIdleConnsPerHostUpdate(c *clientImpl) {
+	errs := make(chan error, 1)
+	unsubscribeMaxIdleConnsPerHost := b.MaxIdleConnsPerHost.SubscribeToInt(func(_ int) {
+		err := rebuildClient(c, b)
+		if err != nil {
+			errs <- err
+		}
+	})
+	go func() {
+		select {
+		case err := <-errs:
+			// TODO: Find a way to pass this back to the service log
+			fmt.Printf("encountered an error whilst updating MaxIdleConnsPerHost: %s\n", err)
+			unsubscribeMaxIdleConnsPerHost()
+			close(errs)
+			return
+		case <-b.ctx.Done():
+			close(errs)
+			return
+		}
+	}()
+}
+
 func rebuildClient(c *clientImpl, b *httpClientBuilder) error {
 	nc, nm, err := httpClientAndRoundTripHandlersFromBuilder(b)
 	if err != nil {

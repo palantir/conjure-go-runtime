@@ -54,8 +54,8 @@ type httpClientBuilder struct {
 	metricsMiddleware Middleware
 
 	// http.Transport modifiers
-	MaxIdleConns          int
-	MaxIdleConnsPerHost   int
+	MaxIdleConns          refreshable.Int
+	MaxIdleConnsPerHost   refreshable.Int
 	Proxy                 func(*http.Request) (*url.URL, error)
 	ProxyDialerBuilder    func(*net.Dialer) (proxy.Dialer, error)
 	TLSClientConfig       *tls.Config
@@ -128,11 +128,13 @@ func NewClient(params ...ClientParam) (Client, error) {
 		bufferPool:                    b.BytesBufferPool,
 	}
 
-	// watch for config updates that require the client to rebuild
+	// watch for config updates that require the client to be rebuilt
 	b.handleIdleConnUpdate(c)
 	b.handleTLSHandshakeTimeoutUpdate(c)
 	b.handleExpectContinueTimeoutUpdate(c)
 	b.handleDialTimeoutUpdate(c)
+	b.handleMaxIdleConnsUpdate(c)
+	b.handleMaxIdleConnsUpdate(c)
 
 	return c, nil
 }
@@ -152,8 +154,8 @@ func getDefaultHTTPClientBuilder() *httpClientBuilder {
 		ExpectContinueTimeout: refreshable.NewDuration(refreshable.NewDefaultRefreshable(1 * time.Second)),
 		// These are higher than the defaults, but match Java and
 		// heuristically work better for our relatively large services.
-		MaxIdleConns:        200,
-		MaxIdleConnsPerHost: 100,
+		MaxIdleConns:        refreshable.NewInt(refreshable.NewDefaultRefreshable(200)),
+		MaxIdleConnsPerHost: refreshable.NewInt(refreshable.NewDefaultRefreshable(100)),
 	}
 }
 
@@ -189,8 +191,8 @@ func httpClientAndRoundTripHandlersFromBuilder(b *httpClientBuilder) (*http.Clie
 	}
 	transport := &http.Transport{
 		DialContext:           dialer.DialContext,
-		MaxIdleConns:          b.MaxIdleConns,
-		MaxIdleConnsPerHost:   b.MaxIdleConnsPerHost,
+		MaxIdleConns:          b.MaxIdleConns.CurrentInt(),
+		MaxIdleConnsPerHost:   b.MaxIdleConnsPerHost.CurrentInt(),
 		TLSClientConfig:       b.TLSClientConfig,
 		DisableKeepAlives:     b.DisableKeepAlives,
 		ExpectContinueTimeout: b.ExpectContinueTimeout.CurrentDuration(),

@@ -234,7 +234,7 @@ func WithDisableHTTP2() ClientOrHTTPClientParam {
 // will maintain. If unset, the client defaults to 32.
 func WithMaxIdleConns(conns int) ClientOrHTTPClientParam {
 	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
-		b.MaxIdleConns = conns
+		b.MaxIdleConns = refreshable.NewInt(refreshable.NewDefaultRefreshable(conns))
 		return nil
 	})
 }
@@ -243,7 +243,7 @@ func WithMaxIdleConns(conns int) ClientOrHTTPClientParam {
 // will maintain per destination. If unset, the client defaults to 32.
 func WithMaxIdleConnsPerHost(conns int) ClientOrHTTPClientParam {
 	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
-		b.MaxIdleConnsPerHost = conns
+		b.MaxIdleConnsPerHost = refreshable.NewInt(refreshable.NewDefaultRefreshable(conns))
 		return nil
 	})
 }
@@ -454,6 +454,7 @@ func WithRefreshableConfig(config RefreshableClientConfig) ClientParam {
 		}
 		// set refreshables
 		b.uris = config.URIs()
+
 		b.IdleConnTimeout = refreshable.NewDuration(config.IdleConnTimeout().MapDurationPtr(func(duration *time.Duration) interface{} {
 			if duration == nil {
 				return 90 * time.Second
@@ -478,6 +479,19 @@ func WithRefreshableConfig(config RefreshableClientConfig) ClientParam {
 			}
 			return *duration
 		}))
+		b.MaxIdleConns = refreshable.NewInt(config.MaxIdleConns().MapIntPtr(func(i *int) interface{} {
+			if i == nil {
+				return 200
+			}
+			return *i
+		}))
+		b.MaxIdleConnsPerHost = refreshable.NewInt(config.MaxIdleConnsPerHost().MapIntPtr(func(i *int) interface{} {
+			if i == nil {
+				return 100
+			}
+			return *i
+		}))
+
 		return nil
 	})
 }
