@@ -130,7 +130,7 @@ func NewClient(params ...ClientParam) (Client, error) {
 		bufferPool:                    b.BytesBufferPool,
 	}
 
-	// watch for config updates that require the client to be rebuilt
+	// watch for config updates that require the transport to be updated
 	b.handleIdleConnUpdate(c)
 	b.handleTLSHandshakeTimeoutUpdate(c)
 	b.handleExpectContinueTimeoutUpdate(c)
