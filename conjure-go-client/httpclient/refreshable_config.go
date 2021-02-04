@@ -15,48 +15,57 @@
 package httpclient
 
 import (
-	"fmt"
 	"net/http"
 	"time"
 )
 
 func (b *httpClientBuilder) handleIdleConnUpdate(c *clientImpl) {
 	b.IdleConnTimeout.SubscribeToDuration(func(v time.Duration) {
-		t := unwrapTransport(c.client.Transport)
-		t.IdleConnTimeout = v
-		c.client.Transport = t
+		unwrappedTransport := unwrapTransport(c.client.Transport)
+		if unwrappedTransport != nil {
+			unwrappedTransport.IdleConnTimeout = v
+			c.client.Transport = unwrappedTransport
+		}
 	})
 }
 
 func (b *httpClientBuilder) handleTLSHandshakeTimeoutUpdate(c *clientImpl) {
 	b.TLSHandshakeTimeout.SubscribeToDuration(func(v time.Duration) {
-		t := unwrapTransport(c.client.Transport)
-		t.TLSHandshakeTimeout = v
-		c.client.Transport = t
+		unwrappedTransport := unwrapTransport(c.client.Transport)
+		if unwrappedTransport != nil {
+			unwrappedTransport.TLSHandshakeTimeout = v
+			c.client.Transport = unwrappedTransport
+		}
 	})
 }
 
 func (b *httpClientBuilder) handleExpectContinueTimeoutUpdate(c *clientImpl) {
 	b.ExpectContinueTimeout.SubscribeToDuration(func(v time.Duration) {
-		t := unwrapTransport(c.client.Transport)
-		t.ExpectContinueTimeout = v
-		c.client.Transport = t
+		unwrappedTransport := unwrapTransport(c.client.Transport)
+		if unwrappedTransport != nil {
+			unwrappedTransport.ExpectContinueTimeout = v
+			c.client.Transport = unwrappedTransport
+		}
 	})
 }
 
 func (b *httpClientBuilder) handleMaxIdleConnsUpdate(c *clientImpl) {
 	b.MaxIdleConns.SubscribeToInt(func(v int) {
-		t := unwrapTransport(c.client.Transport)
-		t.MaxIdleConns = v
-		c.client.Transport = t
+		unwrappedTransport := unwrapTransport(c.client.Transport)
+		if unwrappedTransport != nil {
+			unwrappedTransport.MaxIdleConns = v
+			c.client.Transport = unwrappedTransport
+		}
 	})
 }
 
 func (b *httpClientBuilder) handleMaxIdleConnsPerHostUpdate(c *clientImpl) {
 	b.MaxIdleConnsPerHost.SubscribeToInt(func(v int) {
-		t := unwrapTransport(c.client.Transport)
-		t.MaxIdleConnsPerHost = v
-		c.client.Transport = t
+		unwrappedTransport := unwrapTransport(c.client.Transport)
+		if unwrappedTransport != nil {
+			unwrappedTransport.MaxIdleConnsPerHost = v
+			c.client.Transport = unwrappedTransport
+		}
 	})
 }
 
@@ -69,7 +78,7 @@ func unwrapTransport(rt http.RoundTripper) *http.Transport {
 		case *http.Transport:
 			return v
 		default:
-			panic(fmt.Sprintf("unknown roundtripper type %T", unwrapped))
+			return nil
 		}
 	}
 }
