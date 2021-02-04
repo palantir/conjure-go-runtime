@@ -37,7 +37,7 @@ type clientBuilder struct {
 	httpClientBuilder
 
 	uris                   refreshable.StringSlice
-	maxRetries             int
+	maxRetries             refreshable.Int
 	enableUnlimitedRetries bool
 	backoffOptions         []retry.Option
 
@@ -101,19 +101,11 @@ func NewClient(params ...ClientParam) (Client, error) {
 		edm = errorDecoderMiddleware(b.errorDecoder)
 	}
 
-	if b.enableUnlimitedRetries {
-		// max retries of 0 indicates no limit
-		b.maxRetries = 0
-	} else if b.maxRetries == 0 {
-		if b.uris != nil {
-			b.maxRetries = 2 * len(b.uris.CurrentStringSlice())
-		}
-	}
-
 	return &clientImpl{
 		client:                        *client,
 		uris:                          b.uris,
 		maxRetries:                    b.maxRetries,
+		enableUnlimitedRetries:        b.enableUnlimitedRetries,
 		backoffOptions:                b.backoffOptions,
 		disableTraceHeaderPropagation: b.disableTraceHeaderPropagation,
 		middlewares:                   middlewares,

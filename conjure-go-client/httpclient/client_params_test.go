@@ -113,7 +113,7 @@ func TestBuilder(t *testing.T) {
 			Name:  "UnlimitedRetries",
 			Param: WithUnlimitedRetries(),
 			Test: func(t *testing.T, client *clientImpl) {
-				assert.Equal(t, 0, client.maxRetries)
+				assert.Equal(t, 0, client.maxRetries.CurrentInt())
 			},
 		},
 		{
@@ -123,13 +123,16 @@ func TestBuilder(t *testing.T) {
 				// check URIs is set prior to the change
 				assert.Equal(t, []string{testAddr}, client.uris.CurrentStringSlice())
 				// update the client config with a new URI
+				retries := 5
 				newConfig := ClientConfig{
-					ServiceName: "test",
-					URIs:        []string{"https://changed-uri.local"},
+					ServiceName:   "test",
+					URIs:          []string{"https://changed-uri.local"},
+					MaxNumRetries: &retries,
 				}
 				err := refreshableCfg.Update(newConfig)
 				require.NoError(t, err)
 				assert.Equal(t, newConfig.URIs, client.uris.CurrentStringSlice(), "client URIs should be updated with the refreshed values")
+				assert.Equal(t, retries, client.maxRetries.CurrentInt(), "MaxRetries should be updated with the refreshed values")
 			},
 		},
 	} {
