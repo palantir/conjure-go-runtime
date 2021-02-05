@@ -473,10 +473,9 @@ func WithRefreshableConfig(config RefreshableClientConfig) ClientParam {
 			}
 			return *duration
 		}))
-		b.Timeout = refreshable.NewDuration(config.Map(func(i interface{}) interface{} {
+		b.Timeout = refreshable.NewDuration(config.MapClientConfig(func(i ClientConfig) interface{} {
 			// N.B. we only have one timeout field (not based on method) so just take the max of read and write for now.
-			timeout := maxTimeout(i.(ClientConfig).WriteTimeout, i.(ClientConfig).ReadTimeout)
-			if timeout != 0 {
+			if timeout := maxTimeout(i.WriteTimeout, i.ReadTimeout); timeout != 0 {
 				return timeout
 			}
 			return defaultClientTimeout
