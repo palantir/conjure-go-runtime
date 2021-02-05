@@ -216,7 +216,7 @@ func WithDisableTraceHeaderPropagation() ClientParam {
 // If unset, the client defaults to 1 minute.
 func WithHTTPTimeout(timeout time.Duration) ClientOrHTTPClientParam {
 	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
-		b.Timeout = timeout
+		b.Timeout = refreshable.NewDuration(refreshable.NewDefaultRefreshable(timeout))
 		return nil
 	})
 }
@@ -234,7 +234,7 @@ func WithDisableHTTP2() ClientOrHTTPClientParam {
 // will maintain. If unset, the client defaults to 32.
 func WithMaxIdleConns(conns int) ClientOrHTTPClientParam {
 	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
-		b.MaxIdleConns = conns
+		b.MaxIdleConns = refreshable.NewInt(refreshable.NewDefaultRefreshable(conns))
 		return nil
 	})
 }
@@ -243,7 +243,7 @@ func WithMaxIdleConns(conns int) ClientOrHTTPClientParam {
 // will maintain per destination. If unset, the client defaults to 32.
 func WithMaxIdleConnsPerHost(conns int) ClientOrHTTPClientParam {
 	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
-		b.MaxIdleConnsPerHost = conns
+		b.MaxIdleConnsPerHost = refreshable.NewInt(refreshable.NewDefaultRefreshable(conns))
 		return nil
 	})
 }
@@ -316,7 +316,7 @@ func WithDialTimeout(timeout time.Duration) ClientOrHTTPClientParam {
 // If unset, the client defaults to 90 seconds.
 func WithIdleConnTimeout(timeout time.Duration) ClientOrHTTPClientParam {
 	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
-		b.IdleConnTimeout = timeout
+		b.IdleConnTimeout = refreshable.NewDuration(refreshable.NewDefaultRefreshable(timeout))
 		return nil
 	})
 }
@@ -325,7 +325,7 @@ func WithIdleConnTimeout(timeout time.Duration) ClientOrHTTPClientParam {
 // If unset, the client defaults to 10 seconds.
 func WithTLSHandshakeTimeout(timeout time.Duration) ClientOrHTTPClientParam {
 	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
-		b.TLSHandshakeTimeout = timeout
+		b.TLSHandshakeTimeout = refreshable.NewDuration(refreshable.NewDefaultRefreshable(timeout))
 		return nil
 	})
 }
@@ -335,7 +335,7 @@ func WithTLSHandshakeTimeout(timeout time.Duration) ClientOrHTTPClientParam {
 // If unset, the client defaults to 1 second.
 func WithExpectContinueTimeout(timeout time.Duration) ClientOrHTTPClientParam {
 	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
-		b.ExpectContinueTimeout = timeout
+		b.ExpectContinueTimeout = refreshable.NewDuration(refreshable.NewDefaultRefreshable(timeout))
 		return nil
 	})
 }
@@ -454,6 +454,45 @@ func WithRefreshableConfig(config RefreshableClientConfig) ClientParam {
 		}
 		// set refreshables
 		b.uris = config.URIs()
+
+		b.IdleConnTimeout = refreshable.NewDuration(config.IdleConnTimeout().MapDurationPtr(func(duration *time.Duration) interface{} {
+			if duration == nil {
+				return defaultIdleConnTimeout
+			}
+			return *duration
+		}))
+		b.TLSHandshakeTimeout = refreshable.NewDuration(config.TLSHandshakeTimeout().MapDurationPtr(func(duration *time.Duration) interface{} {
+			if duration == nil {
+				return defaultTLSHandshakeTimeout
+			}
+			return *duration
+		}))
+		b.ExpectContinueTimeout = refreshable.NewDuration(config.ExpectContinueTimeout().MapDurationPtr(func(duration *time.Duration) interface{} {
+			if duration == nil {
+				return defaultExpectContinueTimeout
+			}
+			return *duration
+		}))
+		b.Timeout = refreshable.NewDuration(config.MapClientConfig(func(i ClientConfig) interface{} {
+			// N.B. we only have one timeout field (not based on method) so just take the max of read and write for now.
+			if timeout := maxTimeout(i.WriteTimeout, i.ReadTimeout); timeout != 0 {
+				return timeout
+			}
+			return defaultClientTimeout
+		}))
+		b.MaxIdleConns = refreshable.NewInt(config.MaxIdleConns().MapIntPtr(func(i *int) interface{} {
+			if i == nil {
+				return defaultMaxIdleConns
+			}
+			return *i
+		}))
+		b.MaxIdleConnsPerHost = refreshable.NewInt(config.MaxIdleConnsPerHost().MapIntPtr(func(i *int) interface{} {
+			if i == nil {
+				return defaultMaxIdleConnsPerHost
+			}
+			return *i
+		}))
+
 		return nil
 	})
 }

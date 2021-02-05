@@ -33,6 +33,18 @@ import (
 	"golang.org/x/net/proxy"
 )
 
+const (
+	defaultIdleConnTimeout       = 90 * time.Second
+	defaultTLSHandshakeTimeout   = 10 * time.Second
+	defaultExpectContinueTimeout = 1 * time.Second
+	defaultClientTimeout         = 1 * time.Minute
+	// defaultMaxIdleConns and defaultMaxIdleConnsPerHost are higher than the
+	// defaults, but match Java and heuristically work better for our relatively
+	// large services.
+	defaultMaxIdleConns        = 200
+	defaultMaxIdleConnsPerHost = 100
+)
+
 type clientBuilder struct {
 	httpClientBuilder
 
@@ -49,13 +61,13 @@ type httpClientBuilder struct {
 	ServiceName string
 
 	// http.Client modifiers
-	Timeout           time.Duration
+	Timeout           refreshable.Duration
 	Middlewares       []Middleware
 	metricsMiddleware Middleware
 
 	// http.Transport modifiers
-	MaxIdleConns          int
-	MaxIdleConnsPerHost   int
+	MaxIdleConns          refreshable.Int
+	MaxIdleConnsPerHost   refreshable.Int
 	Proxy                 func(*http.Request) (*url.URL, error)
 	ProxyDialerBuilder    func(*net.Dialer) (proxy.Dialer, error)
 	TLSClientConfig       *tls.Config
@@ -63,9 +75,9 @@ type httpClientBuilder struct {
 	DisableRecovery       bool
 	DisableTracing        bool
 	DisableKeepAlives     bool
-	IdleConnTimeout       time.Duration
-	TLSHandshakeTimeout   time.Duration
-	ExpectContinueTimeout time.Duration
+	IdleConnTimeout       refreshable.Duration
+	TLSHandshakeTimeout   refreshable.Duration
+	ExpectContinueTimeout refreshable.Duration
 	ResponseHeaderTimeout time.Duration
 
 	// http.Dialer modifiers
@@ -110,7 +122,7 @@ func NewClient(params ...ClientParam) (Client, error) {
 		}
 	}
 
-	return &clientImpl{
+	c := &clientImpl{
 		client:                        *client,
 		uris:                          b.uris,
 		maxRetries:                    b.maxRetries,
@@ -120,7 +132,17 @@ func NewClient(params ...ClientParam) (Client, error) {
 		metricsMiddleware:             b.metricsMiddleware,
 		errorDecoderMiddleware:        edm,
 		bufferPool:                    b.BytesBufferPool,
-	}, nil
+	}
+
+	// watch for config updates that require the transport to be updated
+	b.handleIdleConnUpdate(c)
+	b.handleTLSHandshakeTimeoutUpdate(c)
+	b.handleExpectContinueTimeoutUpdate(c)
+	b.handleMaxIdleConnsUpdate(c)
+	b.handleMaxIdleConnsPerHostUpdate(c)
+	b.handleHTTPClientTimeoutUpdate(c)
+
+	return c, nil
 }
 
 func getDefaultHTTPClientBuilder() *httpClientBuilder {
@@ -128,18 +150,16 @@ func getDefaultHTTPClientBuilder() *httpClientBuilder {
 	return &httpClientBuilder{
 		// These values are primarily pulled from http.DefaultTransport.
 		TLSClientConfig:       defaultTLSConfig,
-		Timeout:               1 * time.Minute,
+		Timeout:               refreshable.NewDuration(refreshable.NewDefaultRefreshable(defaultClientTimeout)),
 		DialTimeout:           30 * time.Second,
 		KeepAlive:             30 * time.Second,
 		EnableIPV6:            false,
 		DisableHTTP2:          false,
-		IdleConnTimeout:       90 * time.Second,
-		TLSHandshakeTimeout:   10 * time.Second,
-		ExpectContinueTimeout: 1 * time.Second,
-		// These are higher than the defaults, but match Java and
-		// heuristically work better for our relatively large services.
-		MaxIdleConns:        200,
-		MaxIdleConnsPerHost: 100,
+		IdleConnTimeout:       refreshable.NewDuration(refreshable.NewDefaultRefreshable(defaultIdleConnTimeout)),
+		TLSHandshakeTimeout:   refreshable.NewDuration(refreshable.NewDefaultRefreshable(defaultTLSHandshakeTimeout)),
+		ExpectContinueTimeout: refreshable.NewDuration(refreshable.NewDefaultRefreshable(defaultExpectContinueTimeout)),
+		MaxIdleConns:          refreshable.NewInt(refreshable.NewDefaultRefreshable(defaultMaxIdleConns)),
+		MaxIdleConnsPerHost:   refreshable.NewInt(refreshable.NewDefaultRefreshable(defaultMaxIdleConnsPerHost)),
 	}
 }
 
@@ -175,13 +195,13 @@ func httpClientAndRoundTripHandlersFromBuilder(b *httpClientBuilder) (*http.Clie
 	}
 	transport := &http.Transport{
 		DialContext:           dialer.DialContext,
-		MaxIdleConns:          b.MaxIdleConns,
-		MaxIdleConnsPerHost:   b.MaxIdleConnsPerHost,
+		MaxIdleConns:          b.MaxIdleConns.CurrentInt(),
+		MaxIdleConnsPerHost:   b.MaxIdleConnsPerHost.CurrentInt(),
 		TLSClientConfig:       b.TLSClientConfig,
 		DisableKeepAlives:     b.DisableKeepAlives,
-		ExpectContinueTimeout: b.ExpectContinueTimeout,
-		IdleConnTimeout:       b.IdleConnTimeout,
-		TLSHandshakeTimeout:   b.TLSHandshakeTimeout,
+		ExpectContinueTimeout: b.ExpectContinueTimeout.CurrentDuration(),
+		IdleConnTimeout:       b.IdleConnTimeout.CurrentDuration(),
+		TLSHandshakeTimeout:   b.TLSHandshakeTimeout.CurrentDuration(),
 		ResponseHeaderTimeout: b.ResponseHeaderTimeout,
 	}
 	if b.Proxy != nil && b.ProxyDialerBuilder == nil {
@@ -200,7 +220,7 @@ func httpClientAndRoundTripHandlersFromBuilder(b *httpClientBuilder) (*http.Clie
 	}
 
 	return &http.Client{
-		Timeout:   b.Timeout,
+		Timeout:   b.Timeout.CurrentDuration(),
 		Transport: transport,
 	}, b.Middlewares, nil
 }

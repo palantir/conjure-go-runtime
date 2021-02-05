@@ -16,7 +16,6 @@ package httpclient
 
 import (
 	"crypto/tls"
-	"fmt"
 	"net/http"
 	"net/url"
 	"os"
@@ -122,14 +121,28 @@ func TestBuilder(t *testing.T) {
 			Test: func(t *testing.T, client *clientImpl) {
 				// check URIs is set prior to the change
 				assert.Equal(t, []string{testAddr}, client.uris.CurrentStringSlice())
-				// update the client config with a new URI
+
 				newConfig := ClientConfig{
-					ServiceName: "test",
-					URIs:        []string{"https://changed-uri.local"},
+					ServiceName:           "test",
+					URIs:                  []string{"https://changed-uri.local"},
+					ReadTimeout:           durationP(2 * time.Minute),
+					WriteTimeout:          durationP(3 * time.Minute),
+					IdleConnTimeout:       durationP(5 * time.Second),
+					TLSHandshakeTimeout:   durationP(7 * time.Second),
+					ExpectContinueTimeout: durationP(9 * time.Second),
+					MaxIdleConns:          intP(50),
+					MaxIdleConnsPerHost:   intP(200),
 				}
 				err := refreshableCfg.Update(newConfig)
 				require.NoError(t, err)
 				assert.Equal(t, newConfig.URIs, client.uris.CurrentStringSlice(), "client URIs should be updated with the refreshed values")
+				transport := unwrapTransport(client.client.Transport)
+				assert.Equal(t, *newConfig.WriteTimeout, client.client.Timeout)
+				assert.Equal(t, *newConfig.IdleConnTimeout, transport.IdleConnTimeout)
+				assert.Equal(t, *newConfig.TLSHandshakeTimeout, transport.TLSHandshakeTimeout)
+				assert.Equal(t, *newConfig.ExpectContinueTimeout, transport.ExpectContinueTimeout)
+				assert.Equal(t, *newConfig.MaxIdleConns, transport.MaxIdleConns)
+				assert.Equal(t, *newConfig.MaxIdleConnsPerHost, transport.MaxIdleConnsPerHost)
 			},
 		},
 	} {
@@ -141,16 +154,9 @@ func TestBuilder(t *testing.T) {
 	}
 }
 
-func unwrapTransport(rt http.RoundTripper) *http.Transport {
-	unwrapped := rt
-	for {
-		switch v := unwrapped.(type) {
-		case *wrappedClient:
-			unwrapped = v.baseTransport
-		case *http.Transport:
-			return v
-		default:
-			panic(fmt.Sprintf("unknown roundtripper type %T", unwrapped))
-		}
-	}
+func intP(i int) *int {
+	return &i
+}
+func durationP(t time.Duration) *time.Duration {
+	return &t
 }

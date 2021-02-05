@@ -289,12 +289,7 @@ func configToParams(c ClientConfig) ([]ClientParam, error) {
 	}
 
 	// N.B. we only have one timeout field (not based on method) so just take the max of read and write for now.
-	var timeout time.Duration
-	if orZero(c.WriteTimeout) > orZero(c.ReadTimeout) {
-		timeout = *c.WriteTimeout
-	} else if c.ReadTimeout != nil {
-		timeout = *c.ReadTimeout
-	}
+	timeout := maxTimeout(c.WriteTimeout, c.ReadTimeout)
 	if timeout != 0 {
 		params = append(params, WithHTTPTimeout(timeout))
 	}
@@ -324,4 +319,14 @@ func orZero(d *time.Duration) time.Duration {
 		return 0
 	}
 	return *d
+}
+
+func maxTimeout(w, r *time.Duration) time.Duration {
+	var timeout time.Duration
+	if orZero(w) > orZero(r) {
+		timeout = *w
+	} else if r != nil {
+		timeout = *r
+	}
+	return timeout
 }
