@@ -37,9 +37,12 @@ const (
 	defaultIdleConnTimeout       = 90 * time.Second
 	defaultTLSHandshakeTimeout   = 10 * time.Second
 	defaultExpectContinueTimeout = 1 * time.Second
-	defaultMaxIdleConns          = 200
-	defaultMaxIdleConnsPerHost   = 100
 	defaultClientTimeout         = 1 * time.Minute
+	// defaultMaxIdleConns and defaultMaxIdleConnsPerHost are higher than the
+	// defaults, but match Java and heuristically work better for our relatively
+	// large services.
+	defaultMaxIdleConns        = 200
+	defaultMaxIdleConnsPerHost = 100
 )
 
 type clientBuilder struct {
@@ -155,10 +158,8 @@ func getDefaultHTTPClientBuilder() *httpClientBuilder {
 		IdleConnTimeout:       refreshable.NewDuration(refreshable.NewDefaultRefreshable(defaultIdleConnTimeout)),
 		TLSHandshakeTimeout:   refreshable.NewDuration(refreshable.NewDefaultRefreshable(defaultTLSHandshakeTimeout)),
 		ExpectContinueTimeout: refreshable.NewDuration(refreshable.NewDefaultRefreshable(defaultExpectContinueTimeout)),
-		// These are higher than the defaults, but match Java and
-		// heuristically work better for our relatively large services.
-		MaxIdleConns:        refreshable.NewInt(refreshable.NewDefaultRefreshable(defaultMaxIdleConns)),
-		MaxIdleConnsPerHost: refreshable.NewInt(refreshable.NewDefaultRefreshable(defaultMaxIdleConnsPerHost)),
+		MaxIdleConns:          refreshable.NewInt(refreshable.NewDefaultRefreshable(defaultMaxIdleConns)),
+		MaxIdleConnsPerHost:   refreshable.NewInt(refreshable.NewDefaultRefreshable(defaultMaxIdleConnsPerHost)),
 	}
 }
 
