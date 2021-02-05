@@ -21,8 +21,7 @@ import (
 
 func (b *httpClientBuilder) handleIdleConnUpdate(c *clientImpl) {
 	b.IdleConnTimeout.SubscribeToDuration(func(v time.Duration) {
-		unwrappedTransport := unwrapTransport(c.client.Transport)
-		if unwrappedTransport != nil {
+		if unwrappedTransport := unwrapTransport(c.client.Transport); unwrappedTransport != nil {
 			unwrappedTransport.IdleConnTimeout = v
 			c.client.Transport = unwrappedTransport
 		}
@@ -31,8 +30,7 @@ func (b *httpClientBuilder) handleIdleConnUpdate(c *clientImpl) {
 
 func (b *httpClientBuilder) handleTLSHandshakeTimeoutUpdate(c *clientImpl) {
 	b.TLSHandshakeTimeout.SubscribeToDuration(func(v time.Duration) {
-		unwrappedTransport := unwrapTransport(c.client.Transport)
-		if unwrappedTransport != nil {
+		if unwrappedTransport := unwrapTransport(c.client.Transport); unwrappedTransport != nil {
 			unwrappedTransport.TLSHandshakeTimeout = v
 			c.client.Transport = unwrappedTransport
 		}
@@ -41,8 +39,7 @@ func (b *httpClientBuilder) handleTLSHandshakeTimeoutUpdate(c *clientImpl) {
 
 func (b *httpClientBuilder) handleExpectContinueTimeoutUpdate(c *clientImpl) {
 	b.ExpectContinueTimeout.SubscribeToDuration(func(v time.Duration) {
-		unwrappedTransport := unwrapTransport(c.client.Transport)
-		if unwrappedTransport != nil {
+		if unwrappedTransport := unwrapTransport(c.client.Transport); unwrappedTransport != nil {
 			unwrappedTransport.ExpectContinueTimeout = v
 			c.client.Transport = unwrappedTransport
 		}
@@ -51,8 +48,7 @@ func (b *httpClientBuilder) handleExpectContinueTimeoutUpdate(c *clientImpl) {
 
 func (b *httpClientBuilder) handleMaxIdleConnsUpdate(c *clientImpl) {
 	b.MaxIdleConns.SubscribeToInt(func(v int) {
-		unwrappedTransport := unwrapTransport(c.client.Transport)
-		if unwrappedTransport != nil {
+		if unwrappedTransport := unwrapTransport(c.client.Transport); unwrappedTransport != nil {
 			unwrappedTransport.MaxIdleConns = v
 			c.client.Transport = unwrappedTransport
 		}
@@ -61,8 +57,7 @@ func (b *httpClientBuilder) handleMaxIdleConnsUpdate(c *clientImpl) {
 
 func (b *httpClientBuilder) handleMaxIdleConnsPerHostUpdate(c *clientImpl) {
 	b.MaxIdleConnsPerHost.SubscribeToInt(func(v int) {
-		unwrappedTransport := unwrapTransport(c.client.Transport)
-		if unwrappedTransport != nil {
+		if unwrappedTransport := unwrapTransport(c.client.Transport); unwrappedTransport != nil {
 			unwrappedTransport.MaxIdleConnsPerHost = v
 			c.client.Transport = unwrappedTransport
 		}
