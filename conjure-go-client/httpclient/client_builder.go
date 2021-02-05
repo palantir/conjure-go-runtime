@@ -39,6 +39,7 @@ const (
 	defaultExpectContinueTimeout = 1 * time.Second
 	defaultMaxIdleConns          = 200
 	defaultMaxIdleConnsPerHost   = 100
+	defaultClientTimeout         = 1 * time.Minute
 )
 
 type clientBuilder struct {
@@ -57,7 +58,7 @@ type httpClientBuilder struct {
 	ServiceName string
 
 	// http.Client modifiers
-	Timeout           time.Duration
+	Timeout           refreshable.Duration
 	Middlewares       []Middleware
 	metricsMiddleware Middleware
 
@@ -136,6 +137,7 @@ func NewClient(params ...ClientParam) (Client, error) {
 	b.handleExpectContinueTimeoutUpdate(c)
 	b.handleMaxIdleConnsUpdate(c)
 	b.handleMaxIdleConnsPerHostUpdate(c)
+	b.handleHTTPClientTimeoutUpdate(c)
 
 	return c, nil
 }
@@ -145,7 +147,7 @@ func getDefaultHTTPClientBuilder() *httpClientBuilder {
 	return &httpClientBuilder{
 		// These values are primarily pulled from http.DefaultTransport.
 		TLSClientConfig:       defaultTLSConfig,
-		Timeout:               1 * time.Minute,
+		Timeout:               refreshable.NewDuration(refreshable.NewDefaultRefreshable(defaultClientTimeout)),
 		DialTimeout:           30 * time.Second,
 		KeepAlive:             30 * time.Second,
 		EnableIPV6:            false,
@@ -217,7 +219,7 @@ func httpClientAndRoundTripHandlersFromBuilder(b *httpClientBuilder) (*http.Clie
 	}
 
 	return &http.Client{
-		Timeout:   b.Timeout,
+		Timeout:   b.Timeout.CurrentDuration(),
 		Transport: transport,
 	}, b.Middlewares, nil
 }

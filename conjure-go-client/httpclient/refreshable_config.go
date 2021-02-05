@@ -69,6 +69,12 @@ func (b *httpClientBuilder) handleMaxIdleConnsPerHostUpdate(c *clientImpl) {
 	})
 }
 
+func (b *httpClientBuilder) handleHTTPClientTimeoutUpdate(c *clientImpl) {
+	b.Timeout.SubscribeToDuration(func(v time.Duration) {
+		c.client.Timeout = v
+	})
+}
+
 func unwrapTransport(rt http.RoundTripper) *http.Transport {
 	unwrapped := rt
 	for {

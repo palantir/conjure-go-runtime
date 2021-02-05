@@ -216,7 +216,7 @@ func WithDisableTraceHeaderPropagation() ClientParam {
 // If unset, the client defaults to 1 minute.
 func WithHTTPTimeout(timeout time.Duration) ClientOrHTTPClientParam {
 	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
-		b.Timeout = timeout
+		b.Timeout = refreshable.NewDuration(refreshable.NewDefaultRefreshable(timeout))
 		return nil
 	})
 }
@@ -472,6 +472,13 @@ func WithRefreshableConfig(config RefreshableClientConfig) ClientParam {
 				return defaultExpectContinueTimeout
 			}
 			return *duration
+		}))
+		b.Timeout = refreshable.NewDuration(config.MapClientConfig(func(i ClientConfig) interface{} {
+			// N.B. we only have one timeout field (not based on method) so just take the max of read and write for now.
+			if timeout := maxTimeout(i.WriteTimeout, i.ReadTimeout); timeout != 0 {
+				return timeout
+			}
+			return defaultClientTimeout
 		}))
 		b.MaxIdleConns = refreshable.NewInt(config.MaxIdleConns().MapIntPtr(func(i *int) interface{} {
 			if i == nil {

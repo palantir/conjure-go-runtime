@@ -122,19 +122,19 @@ func TestBuilder(t *testing.T) {
 				// check URIs is set prior to the change
 				assert.Equal(t, []string{testAddr}, client.uris.CurrentStringSlice())
 				// update the client config with a new URI
-				timeout := 1 * time.Minute
+				timeout := 3 * time.Minute
 				maxIdleConns := 200
 				newConfig := ClientConfig{
 					ServiceName:         "test",
 					URIs:                []string{"https://changed-uri.local"},
-					IdleConnTimeout:     &timeout,
+					WriteTimeout:        &timeout,
 					MaxIdleConnsPerHost: &maxIdleConns,
 				}
 				err := refreshableCfg.Update(newConfig)
 				require.NoError(t, err)
 				assert.Equal(t, newConfig.URIs, client.uris.CurrentStringSlice(), "client URIs should be updated with the refreshed values")
 				transport := unwrapTransport(client.client.Transport)
-				assert.Equal(t, timeout, transport.IdleConnTimeout)
+				assert.Equal(t, timeout, client.client.Timeout)
 				assert.Equal(t, maxIdleConns, transport.MaxIdleConnsPerHost)
 			},
 		},
