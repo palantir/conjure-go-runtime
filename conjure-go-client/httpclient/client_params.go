@@ -385,9 +385,10 @@ func WithInitialBackoff(initialBackoff time.Duration) ClientParam {
 // WithMaxRetries sets the maximum number of retries on transport errors for every request. Backoffs are
 // also capped at this.
 // If unset, the client defaults to 2 * size of URIs
-func WithMaxRetries(maxTransportAttempts int) ClientParam {
+// TODO (#151): Rename to WithMaxAttempts and set maxAttempts directly using the argument provided to the function.
+func WithMaxRetries(maxTransportRetries int) ClientParam {
 	return clientParamFunc(func(b *clientBuilder) error {
-		b.maxAttempts = maxTransportAttempts
+		b.maxAttempts = maxTransportRetries + 1
 		return nil
 	})
 }
