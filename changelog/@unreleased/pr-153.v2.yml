@@ -1,0 +1,5 @@
+type: improvement
+improvement:
+  description: Fix request retrier to handle `httpclient.WithMaxRetries(0)` client configuration.
+  links:
+  - https://github.com/palantir/conjure-go-runtime/pull/153
