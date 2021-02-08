@@ -64,7 +64,7 @@ func (r *RequestRetrier) ShouldGetNextURI(resp *http.Response, respErr error) bo
 	if r.attemptCount == 0 {
 		return true
 	}
-	return r.attemptCount <= r.maxAttempts &&
+	return r.attemptCount < r.maxAttempts &&
 		!r.isMeshURI(r.currentURI) &&
 		r.responseAndErrRetriable(resp, respErr)
 }
