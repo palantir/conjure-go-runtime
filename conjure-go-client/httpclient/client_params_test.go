@@ -107,7 +107,7 @@ func TestBuilder(t *testing.T) {
 			Name:  "UnlimitedRetries",
 			Param: WithUnlimitedRetries(),
 			Test: func(t *testing.T, client *clientImpl) {
-				assert.Equal(t, 0, client.maxRetries)
+				assert.Equal(t, 0, client.maxAttempts)
 			},
 		},
 	} {

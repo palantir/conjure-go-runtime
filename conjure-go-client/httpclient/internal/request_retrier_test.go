@@ -40,15 +40,15 @@ func TestRequestRetrier_HandleMeshURI(t *testing.T) {
 	require.Contains(t, err.Error(), "GetNextURI called, but retry should not be attempted")
 }
 
-func TestRequestRetrier_RetryCount(t *testing.T) {
+func TestRequestRetrier_AttemptCount(t *testing.T) {
 	ctx := context.Background()
-	maxRetries := 3
-	r := NewRequestRetrier([]string{"https://example.com"}, retry.Start(context.Background()), maxRetries)
+	maxAttempts := 3
+	r := NewRequestRetrier([]string{"https://example.com"}, retry.Start(context.Background()), maxAttempts)
 	require.True(t, r.ShouldGetNextURI(nil, nil))
 	// first request is not a retry
 	_, err := r.GetNextURI(ctx, nil, nil)
 	require.NoError(t, err)
-	for i := 0; i < maxRetries; i++ {
+	for i := 0; i < maxAttempts; i++ {
 		_, err = r.GetNextURI(ctx, nil, nil)
 		require.NoError(t, err)
 	}
