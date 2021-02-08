@@ -58,6 +58,15 @@ func TestRequestRetrier_AttemptCount(t *testing.T) {
 	require.Contains(t, err.Error(), "GetNextURI called, but retry should not be attempted")
 }
 
+func TestRequestRetrier_UnlimitedAttempts(t *testing.T) {
+	ctx := context.Background()
+	r := NewRequestRetrier([]string{"https://example.com"}, retry.Start(context.Background()), 0)
+	_, err := r.GetNextURI(ctx, nil, nil)
+	require.NoError(t, err)
+	// it's probably safe to assume that it will succeed again if it succeeds once
+	require.True(t, r.ShouldGetNextURI(nil, nil))
+}
+
 func TestRequestRetrier_UsesLocationHeader(t *testing.T) {
 	respWithLocationHeader := &http.Response{
 		StatusCode: StatusCodeRetryOther,
