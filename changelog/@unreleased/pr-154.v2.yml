@@ -1,0 +1,5 @@
+type: fix
+fix:
+  description: Fix request retrier to handle unlimited retries.
+  links:
+  - https://github.com/palantir/conjure-go-runtime/pull/154

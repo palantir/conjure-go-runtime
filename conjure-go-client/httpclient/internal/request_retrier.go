@@ -64,9 +64,17 @@ func (r *RequestRetrier) ShouldGetNextURI(resp *http.Response, respErr error) bo
 	if r.attemptCount == 0 {
 		return true
 	}
-	return r.attemptCount < r.maxAttempts &&
+	return r.attemptsRemaining() &&
 		!r.isMeshURI(r.currentURI) &&
 		r.responseAndErrRetriable(resp, respErr)
+}
+
+func (r *RequestRetrier) attemptsRemaining() bool {
+	// maxAttempts of 0 indicates no limit
+	if r.maxAttempts == 0 {
+		return true
+	}
+	return r.attemptCount < r.maxAttempts
 }
 
 // GetNextURI returns the next URI a client should use, or an error if there's no suitable URI.
