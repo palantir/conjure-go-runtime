@@ -1,0 +1,5 @@
+type: fix
+fix:
+  description: Safely join baseURI and request path
+  links:
+  - https://github.com/palantir/conjure-go-runtime/pull/155
