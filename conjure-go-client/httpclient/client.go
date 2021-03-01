@@ -220,7 +220,9 @@ func joinURIAndPath(baseURI, reqPath string) (string, error) {
 		return "", werror.Wrap(err, "failed to parse request URL")
 	}
 
-	uri.Path = strings.TrimRight(uri.Path, "/") + "/" + strings.TrimLeft(reqPath, "/")
+	if reqPath != "" {
+		uri.Path = strings.TrimRight(uri.Path, "/") + "/" + strings.TrimLeft(reqPath, "/")
+	}
 
 	return uri.String(), nil
 }

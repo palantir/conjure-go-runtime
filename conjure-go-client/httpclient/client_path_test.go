@@ -57,6 +57,21 @@ func TestJoinURIandPath(t *testing.T) {
 			"////api/",
 			"https://localhost:443/foo/api/",
 		},
+		{
+			"https://localhost:443/foo/",
+			"/api",
+			"https://localhost:443/foo/api",
+		},
+		{
+			"https://localhost",
+			"",
+			"https://localhost",
+		},
+		{
+			"https://localhost/api",
+			"",
+			"https://localhost/api",
+		},
 	} {
 		t.Run("", func(t *testing.T) {
 			actual, err := joinURIAndPath(test.baseURI, test.reqPath)
