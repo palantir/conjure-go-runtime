@@ -80,7 +80,7 @@ func TestBuilder(t *testing.T) {
 			Name:  "ProxyURL",
 			Param: WithProxyFromEnvironment(),
 			Test: func(t *testing.T, client *clientImpl) {
-				require.NoError(t, os.Setenv("http_proxy", testURL.String()))
+				require.NoError(t, os.Setenv("https_proxy", testURL.String()))
 				transport := unwrapTransport(client.client.Transport)
 				resp, err := transport.Proxy(&http.Request{URL: testURL})
 				require.NoError(t, err)
