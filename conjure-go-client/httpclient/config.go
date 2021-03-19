@@ -106,7 +106,6 @@ type SecurityConfig struct {
 	CAFiles  []string `json:"ca-files,omitempty" yaml:"ca-files,omitempty"`
 	CertFile string   `json:"cert-file,omitempty" yaml:"cert-file,omitempty"`
 	KeyFile  string   `json:"key-file,omitempty" yaml:"key-file,omitempty"`
-	CAs      []string `json:"cas"`
 }
 
 // MustClientConfig returns an error if the service name is not configured.
