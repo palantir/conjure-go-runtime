@@ -1,5 +1,5 @@
 type: improvement
-fix:
+improvement:
   description: Surface option for allowing insecure TLS
   links:
   - https://github.com/palantir/conjure-go-runtime/pull/157
