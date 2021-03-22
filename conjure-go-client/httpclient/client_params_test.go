@@ -110,6 +110,14 @@ func TestBuilder(t *testing.T) {
 				assert.Equal(t, 0, client.maxAttempts)
 			},
 		},
+		{
+			Name:  "TLSInsecureSkipVerify",
+			Param: WithTLSInsecureSkipVerify(),
+			Test: func(t *testing.T, client *clientImpl) {
+				transport := unwrapTransport(client.client.Transport)
+				assert.True(t, transport.TLSClientConfig.InsecureSkipVerify)
+			},
+		},
 	} {
 		t.Run(test.Name, func(t *testing.T) {
 			client, err := NewClient(test.Param)
