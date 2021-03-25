@@ -16,6 +16,7 @@ package internal
 
 import (
 	"context"
+	"github.com/palantir/witchcraft-go-logging/wlog/svclog/svc1log"
 	"math/rand"
 	"net/http"
 	"net/url"
@@ -64,9 +65,11 @@ func (r *RequestRetrier) ShouldGetNextURI(resp *http.Response, respErr error) bo
 	if r.attemptCount == 0 {
 		return true
 	}
-	return r.attemptsRemaining() &&
+	shouldGetNextUri := r.attemptsRemaining() &&
 		!r.isMeshURI(r.currentURI) &&
 		r.responseAndErrRetriable(resp, respErr)
+	svc1log.FromContext(context.Background()).Debug("shouldGetUri returned after first attempt", svc1log.SafeParam("shouldGetUri", shouldGetNextUri))
+	return shouldGetNextUri
 }
 
 func (r *RequestRetrier) attemptsRemaining() bool {

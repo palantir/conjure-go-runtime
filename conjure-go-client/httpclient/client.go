@@ -16,6 +16,7 @@ package httpclient
 
 import (
 	"context"
+	"github.com/palantir/witchcraft-go-logging/wlog/svclog/svc1log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -93,10 +94,14 @@ func (c *clientImpl) Do(ctx context.Context, params ...RequestParam) (*http.Resp
 	retrier := internal.NewRequestRetrier(uris, retry.Start(ctx, c.backoffOptions...), c.maxAttempts)
 	for retrier.ShouldGetNextURI(resp, err) {
 		uri, retryErr := retrier.GetNextURI(ctx, resp, err)
+		svc1log.FromContext(ctx).Debug("got next URI", svc1log.SafeParam("uri", uri))
 		if retryErr != nil {
 			return nil, retryErr
 		}
 		resp, err = c.doOnce(ctx, uri, params...)
+		if err != nil {
+			svc1log.FromContext(ctx).Error("request failed with error.. May retry", svc1log.Stacktrace(err))
+		}
 	}
 	if err != nil {
 		return nil, err
