@@ -16,7 +16,7 @@ github.com/palantir/pkg/bytesbuffers
 github.com/palantir/pkg/httpserver
 # github.com/palantir/pkg/metrics v1.0.1
 github.com/palantir/pkg/metrics
-# github.com/palantir/pkg/refreshable v1.1.0
+# github.com/palantir/pkg/refreshable v1.1.0 => ../pkg/refreshable
 github.com/palantir/pkg/refreshable
 # github.com/palantir/pkg/retry v1.1.1
 github.com/palantir/pkg/retry
@@ -48,7 +48,7 @@ github.com/pmezard/go-difflib/difflib
 # github.com/stretchr/testify v1.7.0
 github.com/stretchr/testify/assert
 github.com/stretchr/testify/require
-# golang.org/x/net v0.0.0-20201021035429-f5854403a974
+# golang.org/x/net v0.0.0-20210326220855-61e056675ecf
 golang.org/x/net/http/httpguts
 golang.org/x/net/http2
 golang.org/x/net/http2/hpack

@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/palantir/pkg/bytesbuffers"
+	"github.com/palantir/pkg/metrics"
 	"github.com/palantir/pkg/refreshable"
 	"github.com/palantir/pkg/retry"
 	werror "github.com/palantir/witchcraft-go-error"
@@ -159,6 +160,9 @@ func WithUserAgent(userAgent string) ClientOrHTTPClientParam {
 // The serviceName will appear as the "service-name" tag.
 func WithMetrics(tagProviders ...TagsProvider) ClientOrHTTPClientParam {
 	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
+		b.TransportParams.DisableMetrics = refreshable.NewBool(refreshable.NewDefaultRefreshable(false))
+		b.TransportParams.MetricTagProviders = append(b.TransportParams.MetricTagProviders, tagProviders...)
+
 		m, err := MetricsMiddleware(b.ServiceName, tagProviders...)
 		if err != nil {
 			return err
@@ -452,6 +456,48 @@ func setBasicAuth(h http.Header, username, password string) {
 
 func WithRefreshableConfig(config RefreshableClientConfig) ClientParam {
 	return clientParamFunc(func(b *clientBuilder) error {
+		timeout, _ := refreshable.MapAll([]refreshable.Refreshable{
+			derefDurationPtr(config.ReadTimeout(), 0),
+			derefDurationPtr(config.WriteTimeout(), 0),
+		}, func(vals []interface{}) interface{} {
+			readTimeout := vals[0].(time.Duration)
+			writeTimeout := vals[1].(time.Duration)
+			if writeTimeout > readTimeout {
+				return writeTimeout
+			}
+			return readTimeout
+		})
+		b.Timeout = refreshable.NewDuration(timeout)
+		b.ServiceName = config.ServiceName().CurrentString()
+		b.TransportParams = refreshableClientParams{
+			DisableRecovery:    nil,
+			DisableTracing:     nil,
+			DisableMetrics:     nil,
+			MetricTagProviders: nil,
+			ServiceNameTag:     metrics.Tag{},
+			Timeout:            nil,
+			Transport: refreshableTransportParams{
+				ServiceNameTag:                metrics.Tag{},
+				MetricTagProviders:            nil,
+				DialTimeout:                   nil,
+				DisableHTTP2:                  nil,
+				DisableMetrics:                nil,
+				DisableTraceHeaderPropagation: nil,
+				DisableKeepAlives:             nil,
+				IdleConnTimeout:               nil,
+				EnableIPV6:                    nil,
+				ExpectContinueTimeout:         nil,
+				KeepAlive:                     nil,
+				MaxIdleConns:                  nil,
+				MaxIdleConnsPerHost:           nil,
+				ProxyFromEnvironment:          nil,
+				ProxyURL:                      nil,
+				ResponseHeaderTimeout:         nil,
+				TLSClientConfig:               nil,
+				TLSHandshakeTimeout:           derefDurationPtr(config.TLSHandshakeTimeout(), defaultTLSHandshakeTimeout),
+			},
+		}
+
 		// set initial state
 		params, err := configToParams(config.CurrentClientConfig())
 		if err != nil {
@@ -465,5 +511,14 @@ func WithRefreshableConfig(config RefreshableClientConfig) ClientParam {
 		// set refreshables
 		b.uris = config.URIs()
 		return nil
+	})
+}
+
+func derefDurationPtr(durPtr refreshable.DurationPtr, defaultVal time.Duration) refreshable.Duration {
+	durPtr.MapDurationPtr(func(duration *time.Duration) interface{} {
+		if duration == nil {
+			return defaultVal
+		}
+		return *duration
 	})
 }

@@ -17,6 +17,7 @@ package httpclient
 import (
 	"net/http"
 
+	"github.com/palantir/pkg/refreshable"
 	"github.com/palantir/witchcraft-go-tracing/wtracing"
 	"github.com/palantir/witchcraft-go-tracing/wtracing/propagation/b3"
 )
@@ -26,10 +27,16 @@ import (
 // Only if the RPC method name is set does the middleware create a new span (with that name) for the
 // duration of the request.
 type traceMiddleware struct {
+	Disabled    refreshable.Bool
 	ServiceName string
 }
 
-func (t *traceMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+func (t traceMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+	if t.Disabled != nil && t.Disabled.CurrentBool() {
+		// If we have a Disabled refreshable and it is true, no-op.
+		return next.RoundTrip(req)
+	}
+
 	ctx := req.Context()
 	span := wtracing.SpanFromContext(ctx)
 

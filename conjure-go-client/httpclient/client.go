@@ -50,10 +50,9 @@ type Client interface {
 }
 
 type clientImpl struct {
-	client                 http.Client
+	client                 RefreshableHTTPClient
 	middlewares            []Middleware
 	errorDecoderMiddleware Middleware
-	metricsMiddleware      Middleware
 
 	uris                          refreshable.StringSlice
 	maxAttempts                   int
@@ -148,26 +147,17 @@ func (c *clientImpl) doOnce(ctx context.Context, baseURI string, params ...Reque
 
 	// 2. create the transport and client
 	// shallow copy so we can overwrite the Transport with a wrapped one.
-	clientCopy := c.client
+	clientCopy := *c.client.CurrentHTTPClient()
 	transport := clientCopy.Transport // start with the concrete http.Transport from the client
 
-	middlewares := []Middleware{
-		// must precede the error decoders because they return a nil response and the metrics need the status code of
-		// the raw response.
-		c.metricsMiddleware,
-		// must precede the client error decoder
-		b.errorDecoderMiddleware,
-		// must precede the body middleware so it can read the response body
-		c.errorDecoderMiddleware,
-	}
+	// request decoder must precede the client decoder
+	// must precede the body middleware so it can read the response body
+	transport = wrapTransport(transport, b.errorDecoderMiddleware, c.errorDecoderMiddleware)
 	// must precede the body middleware so it can read the request body
-	middlewares = append(middlewares, c.middlewares...)
-	middlewares = append(middlewares, b.bodyMiddleware)
-	for _, middleware := range middlewares {
-		if middleware != nil {
-			transport = wrapTransport(transport, middleware)
-		}
-	}
+	transport = wrapTransport(transport, c.middlewares...)
+	// must be the outermost middleware because it mutates the return values
+	transport = wrapTransport(transport, b.bodyMiddleware)
+
 	clientCopy.Transport = transport
 
 	// 3. execute the request using the client to get and handle the response
