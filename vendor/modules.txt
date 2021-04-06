@@ -25,7 +25,7 @@ github.com/palantir/pkg/tlsconfig
 # github.com/palantir/pkg/uuid v1.0.1
 github.com/palantir/pkg/uuid
 github.com/palantir/pkg/uuid/internal/uuid
-# github.com/palantir/witchcraft-go-error v1.4.3
+# github.com/palantir/witchcraft-go-error v1.5.0
 github.com/palantir/witchcraft-go-error
 github.com/palantir/witchcraft-go-error/internal/errors
 # github.com/palantir/witchcraft-go-logging v1.13.0
