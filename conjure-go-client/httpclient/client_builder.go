@@ -21,7 +21,7 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient/internal/refreshabletransport"
+	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient/internal/refreshingclient"
 	"github.com/palantir/pkg/bytesbuffers"
 	"github.com/palantir/pkg/metrics"
 	"github.com/palantir/pkg/refreshable"
@@ -53,14 +53,14 @@ type clientBuilder struct {
 
 	BytesBufferPool bytesbuffers.Pool
 	MaxAttempts     refreshable.IntPtr // 0 means no limit. if nil, use 2*len(uris)
-	RetryParams     *refreshabletransport.RetryParams
+	RetryParams     *refreshingclient.RetryParams
 }
 
 type httpClientBuilder struct {
 	ServiceName     metrics.Tag
 	Timeout         refreshable.Duration
-	DialerParams    refreshabletransport.RefreshableDialerParams
-	TransportParams refreshabletransport.RefreshableTransportParams
+	DialerParams    refreshingclient.RefreshableDialerParams
+	TransportParams refreshingclient.RefreshableTransportParams
 	Middlewares     []Middleware
 
 	DisableMetrics      refreshable.Bool
@@ -73,7 +73,7 @@ type httpClientBuilder struct {
 	InjectTraceHeaders refreshable.Bool
 }
 
-func (b *httpClientBuilder) Build(ctx context.Context, params ...HTTPClientParam) (refreshabletransport.RefreshableHTTPClient, error) {
+func (b *httpClientBuilder) Build(ctx context.Context, params ...HTTPClientParam) (refreshingclient.RefreshableHTTPClient, error) {
 	for _, p := range params {
 		if p == nil {
 			continue
@@ -85,16 +85,16 @@ func (b *httpClientBuilder) Build(ctx context.Context, params ...HTTPClientParam
 	dialer := &metricsWrappedDialer{
 		Disabled:       b.DisableMetrics,
 		ServiceNameTag: b.ServiceName,
-		Dialer:         refreshabletransport.NewRefreshableDialer(ctx, b.DialerParams),
+		Dialer:         refreshingclient.NewRefreshableDialer(ctx, b.DialerParams),
 	}
-	transport := refreshabletransport.NewRefreshableTransport(ctx, b.TransportParams, dialer)
+	transport := refreshingclient.NewRefreshableTransport(ctx, b.TransportParams, dialer)
 	transport = wrapTransport(transport,
 		newMetricsMiddleware(b.ServiceName, b.MetricsTagProviders, b.DisableMetrics),
 		traceMiddleware{CreateRequestSpan: b.CreateRequestSpan, InjectHeaders: b.InjectTraceHeaders, ServiceName: b.ServiceName.Value()},
 		recoveryMiddleware{Disabled: b.DisableRecovery})
 	transport = wrapTransport(transport, b.Middlewares...)
 
-	return refreshabletransport.NewRefreshableHTTPClient(ctx, transport, b.Timeout), nil
+	return refreshingclient.NewRefreshableHTTPClient(ctx, transport, b.Timeout), nil
 }
 
 // NewClient returns a configured client ready for use.
@@ -180,12 +180,12 @@ func newClientBuilder() *clientBuilder {
 		HTTP: &httpClientBuilder{
 			ServiceName: metrics.Tag{},
 			Timeout:     refreshable.NewDuration(refreshable.NewDefaultRefreshable(defaultHTTPTimeout)),
-			DialerParams: refreshabletransport.RefreshableDialerParams{Refreshable: refreshable.NewDefaultRefreshable(refreshabletransport.DialerParams{
+			DialerParams: refreshingclient.RefreshableDialerParams{Refreshable: refreshable.NewDefaultRefreshable(refreshingclient.DialerParams{
 				DialTimeout:   defaultDialTimeout,
 				KeepAlive:     defaultKeepAlive,
 				SocksProxyURL: nil,
 			})},
-			TransportParams: refreshabletransport.RefreshableTransportParams{Refreshable: refreshable.NewDefaultRefreshable(refreshabletransport.TransportParams{
+			TransportParams: refreshingclient.RefreshableTransportParams{Refreshable: refreshable.NewDefaultRefreshable(refreshingclient.TransportParams{
 				ServiceNameTag:        metrics.Tag{},
 				MaxIdleConns:          defaultMaxIdleConns,
 				MaxIdleConnsPerHost:   defaultMaxIdleConnsPerHost,
@@ -210,7 +210,7 @@ func newClientBuilder() *clientBuilder {
 		BytesBufferPool: nil,
 		ErrorDecoder:    restErrorDecoder{},
 		MaxAttempts:     refreshable.NewIntPtr(refreshable.NewDefaultRefreshable((*int)(nil))),
-		RetryParams: &refreshabletransport.RetryParams{
+		RetryParams: &refreshingclient.RetryParams{
 			InitialBackoff:      refreshable.NewDuration(refreshable.NewDefaultRefreshable(defaultInitialBackoff)),
 			MaxBackoff:          refreshable.NewDuration(refreshable.NewDefaultRefreshable(defaultMaxBackoff)),
 			Multiplier:          refreshable.NewFloat64(refreshable.NewDefaultRefreshable(float64(defaultMultiplier))),
@@ -233,7 +233,7 @@ func newClientBuilderFromRefreshableConfig(config RefreshableClientConfig) (*cli
 
 	dialer, err := refreshable.MapValidatingRefreshable(config, func(i interface{}) (interface{}, error) {
 		c := i.(ClientConfig)
-		params := refreshabletransport.DialerParams{
+		params := refreshingclient.DialerParams{
 			DialTimeout: derefDurationPtr(c.ConnectTimeout, defaultDialTimeout),
 			KeepAlive:   defaultKeepAlive,
 		}
@@ -246,7 +246,7 @@ func newClientBuilderFromRefreshableConfig(config RefreshableClientConfig) (*cli
 	if err != nil {
 		return nil, err
 	}
-	b.HTTP.DialerParams = refreshabletransport.RefreshableDialerParams{Refreshable: dialer}
+	b.HTTP.DialerParams = refreshingclient.RefreshableDialerParams{Refreshable: dialer}
 
 	transport, err := refreshable.MapValidatingRefreshable(config, func(i interface{}) (interface{}, error) {
 		c := i.(ClientConfig)
@@ -254,7 +254,7 @@ func newClientBuilderFromRefreshableConfig(config RefreshableClientConfig) (*cli
 		if err != nil {
 			return nil, err
 		}
-		params := refreshabletransport.TransportParams{
+		params := refreshingclient.TransportParams{
 			ServiceNameTag:        serviceNameTag,
 			MaxIdleConns:          derefIntPtr(c.MaxIdleConns, defaultMaxIdleConns),
 			MaxIdleConnsPerHost:   derefIntPtr(c.MaxIdleConnsPerHost, defaultMaxIdleConnsPerHost),
@@ -274,7 +274,7 @@ func newClientBuilderFromRefreshableConfig(config RefreshableClientConfig) (*cli
 	if err != nil {
 		return nil, err
 	}
-	b.HTTP.TransportParams = refreshabletransport.RefreshableTransportParams{Refreshable: transport}
+	b.HTTP.TransportParams = refreshingclient.RefreshableTransportParams{Refreshable: transport}
 
 	b.HTTP.Timeout = refreshable.NewDuration(config.MapClientConfig(func(c ClientConfig) interface{} {
 		rt := derefDurationPtr(c.ReadTimeout, 0)

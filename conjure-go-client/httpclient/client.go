@@ -21,7 +21,7 @@ import (
 	"strings"
 
 	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient/internal"
-	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient/internal/refreshabletransport"
+	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient/internal/refreshingclient"
 	"github.com/palantir/pkg/bytesbuffers"
 	"github.com/palantir/pkg/refreshable"
 	"github.com/palantir/pkg/retry"
@@ -50,14 +50,14 @@ type Client interface {
 }
 
 type clientImpl struct {
-	client                 refreshabletransport.RefreshableHTTPClient
+	client                 refreshingclient.RefreshableHTTPClient
 	middlewares            []Middleware
 	errorDecoderMiddleware Middleware
 	recoveryMiddleware     Middleware
 
 	uris         refreshable.StringSlice
 	maxAttempts  refreshable.IntPtr
-	retryOptions refreshabletransport.RefreshableRetryOptions
+	retryOptions refreshingclient.RefreshableRetryOptions
 	bufferPool   bytesbuffers.Pool
 }
 

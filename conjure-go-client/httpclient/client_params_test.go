@@ -23,7 +23,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient/internal/refreshabletransport"
+	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient/internal/refreshingclient"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -157,7 +157,7 @@ func unwrapTransport(rt http.RoundTripper) *http.Transport {
 			unwrapped = v.baseTransport
 		case *http.Transport:
 			return v
-		case *refreshabletransport.RefreshableTransport:
+		case *refreshingclient.RefreshableTransport:
 			return v.Current().(*http.Transport)
 		default:
 			panic(fmt.Sprintf("unknown roundtripper type %T", unwrapped))
