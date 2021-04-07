@@ -317,7 +317,9 @@ func WithProxyURL(proxyURLString string) ClientOrHTTPClientParam {
 func WithTLSConfig(conf *tls.Config) ClientOrHTTPClientParam {
 	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
 		b.TransportParams = b.TransportParams.TransformParams(func(p refreshabletransport.TransportParams) refreshabletransport.TransportParams {
-			p.TLSConfig = conf.Clone()
+			if conf != nil {
+				p.TLSConfig = conf.Clone()
+			}
 			return p
 		})
 		return nil
