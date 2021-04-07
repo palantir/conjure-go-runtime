@@ -65,7 +65,7 @@ func (f httpClientParamFunc) applyHTTPClient(b *httpClientBuilder) error {
 type clientOrHTTPClientParamFunc func(builder *httpClientBuilder) error
 
 func (f clientOrHTTPClientParamFunc) apply(b *clientBuilder) error {
-	return f(b.httpClientBuilder)
+	return f(b.HTTP)
 }
 
 func (f clientOrHTTPClientParamFunc) applyHTTPClient(b *httpClientBuilder) error {
@@ -190,14 +190,14 @@ func WithDisablePanicRecovery() ClientOrHTTPClientParam {
 
 // WithDisableTracing disables the enabled-by-default tracing middleware which
 // instructs the client to propagate trace information using the go-zipkin libraries
-// method of attaching traces to requests. The server at the other end of such a request, should
+// method of attaching traces to requests. The server at the other end of such a request should
 // be instrumented to read zipkin-style headers
 //
 // If a trace is already attached to a request context, then the trace is continued. Otherwise, no
 // trace information is propagate. This will not create a span if one does not exist.
 func WithDisableTracing() ClientOrHTTPClientParam {
 	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
-		b.DisableTracing = refreshable.NewBool(refreshable.NewDefaultRefreshable(true))
+		b.CreateRequestSpan = refreshable.NewBool(refreshable.NewDefaultRefreshable(false))
 		return nil
 	})
 }
@@ -205,9 +205,9 @@ func WithDisableTracing() ClientOrHTTPClientParam {
 // WithDisableTraceHeaderPropagation disables the enabled-by-default traceId header propagation
 // By default, if witchcraft-logging has attached a traceId to the context of the request (for service and request logging),
 // then the client will attach this traceId as a header for future services to do the same if desired
-func WithDisableTraceHeaderPropagation() ClientParam {
-	return clientParamFunc(func(b *clientBuilder) error {
-		b.PropagateTraceHeaders = refreshable.NewBool(refreshable.NewDefaultRefreshable(false))
+func WithDisableTraceHeaderPropagation() ClientOrHTTPClientParam {
+	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
+		b.InjectTraceHeaders = refreshable.NewBool(refreshable.NewDefaultRefreshable(false))
 		return nil
 	})
 }
@@ -479,7 +479,7 @@ func WithDisableRestErrors() ClientParam {
 // WithDisableKeepAlives disables keep alives on the http transport
 func WithDisableKeepAlives() ClientParam {
 	return clientParamFunc(func(b *clientBuilder) error {
-		b.httpClientBuilder.TransportParams = b.httpClientBuilder.TransportParams.TransformParams(func(p refreshabletransport.TransportParams) refreshabletransport.TransportParams {
+		b.HTTP.TransportParams = b.HTTP.TransportParams.TransformParams(func(p refreshabletransport.TransportParams) refreshabletransport.TransportParams {
 			p.DisableKeepAlives = true
 			return p
 		})

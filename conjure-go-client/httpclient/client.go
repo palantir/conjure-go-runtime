@@ -26,7 +26,6 @@ import (
 	"github.com/palantir/pkg/refreshable"
 	"github.com/palantir/pkg/retry"
 	werror "github.com/palantir/witchcraft-go-error"
-	"github.com/palantir/witchcraft-go-tracing/wtracing"
 )
 
 // A Client executes requests to a configured service.
@@ -56,11 +55,10 @@ type clientImpl struct {
 	errorDecoderMiddleware Middleware
 	recoveryMiddleware     Middleware
 
-	uris                  refreshable.StringSlice
-	maxAttempts           refreshable.IntPtr
-	propagateTraceHeaders refreshable.Bool
-	retryOptions          refreshabletransport.RefreshableRetryOptions
-	bufferPool            bytesbuffers.Pool
+	uris         refreshable.StringSlice
+	maxAttempts  refreshable.IntPtr
+	retryOptions refreshabletransport.RefreshableRetryOptions
+	bufferPool   bytesbuffers.Pool
 }
 
 func (c *clientImpl) Get(ctx context.Context, params ...RequestParam) (*http.Response, error) {
@@ -118,7 +116,7 @@ func (c *clientImpl) doOnce(ctx context.Context, baseURI string, params ...Reque
 
 	// 1. create the request
 	b := &requestBuilder{
-		headers:        c.initializeRequestHeaders(ctx),
+		headers:        make(http.Header),
 		query:          make(url.Values),
 		bodyMiddleware: &bodyMiddleware{bufferPool: c.bufferPool},
 	}
@@ -204,17 +202,6 @@ func unwrapURLError(respErr error) error {
 	}
 
 	return werror.Wrap(urlErr.Err, "httpclient request failed", params...)
-}
-
-func (c *clientImpl) initializeRequestHeaders(ctx context.Context) http.Header {
-	headers := make(http.Header)
-	if c.propagateTraceHeaders.CurrentBool() {
-		traceID := wtracing.TraceIDFromContext(ctx)
-		if traceID != "" {
-			headers.Set(traceIDHeaderKey, string(traceID))
-		}
-	}
-	return headers
 }
 
 func joinURIAndPath(baseURI, reqPath string) (string, error) {

@@ -38,19 +38,22 @@ const (
 	defaultExpectContinueTimeout = 1 * time.Second
 	defaultMaxIdleConns          = 200
 	defaultMaxIdleConnsPerHost   = 100
+	defaultInitialBackoff        = 2 * time.Second
+	defaultMaxBackoff            = 250 * time.Millisecond
+	defaultMultiplier            = 2
+	defaultRandomization         = 0.15
 )
 
 type clientBuilder struct {
-	httpClientBuilder *httpClientBuilder
+	HTTP *httpClientBuilder
 
 	URIs refreshable.StringSlice
 
 	ErrorDecoder ErrorDecoder
 
-	BytesBufferPool       bytesbuffers.Pool
-	MaxAttempts           refreshable.IntPtr // 0 means no limit. if nil, use 2*len(uris)
-	PropagateTraceHeaders refreshable.Bool
-	RetryParams           *refreshabletransport.RetryParams
+	BytesBufferPool bytesbuffers.Pool
+	MaxAttempts     refreshable.IntPtr // 0 means no limit. if nil, use 2*len(uris)
+	RetryParams     *refreshabletransport.RetryParams
 }
 
 type httpClientBuilder struct {
@@ -62,8 +65,12 @@ type httpClientBuilder struct {
 
 	DisableMetrics      refreshable.Bool
 	DisableRecovery     refreshable.Bool
-	DisableTracing      refreshable.Bool
 	MetricsTagProviders []TagsProvider
+
+	// These fields are not in configuration so not actually refreshed anywhere,
+	// but treat them as refreshable in case that ever changes.
+	CreateRequestSpan  refreshable.Bool
+	InjectTraceHeaders refreshable.Bool
 }
 
 func (b *httpClientBuilder) Build(ctx context.Context, params ...HTTPClientParam) (refreshabletransport.RefreshableHTTPClient, error) {
@@ -83,7 +90,7 @@ func (b *httpClientBuilder) Build(ctx context.Context, params ...HTTPClientParam
 	transport := refreshabletransport.NewRefreshableTransport(ctx, b.TransportParams, dialer)
 	transport = wrapTransport(transport,
 		newMetricsMiddleware(b.ServiceName, b.MetricsTagProviders, b.DisableMetrics),
-		traceMiddleware{Disabled: b.DisableTracing, ServiceName: b.ServiceName.Value()},
+		traceMiddleware{CreateRequestSpan: b.CreateRequestSpan, InjectHeaders: b.InjectTraceHeaders, ServiceName: b.ServiceName.Value()},
 		recoveryMiddleware{Disabled: b.DisableRecovery})
 	transport = wrapTransport(transport, b.Middlewares...)
 
@@ -97,7 +104,7 @@ func NewClient(params ...ClientParam) (Client, error) {
 	return newClient(context.TODO(), b, params...)
 }
 
-// NewClient returns a configured client ready for use.
+// NewClientFromRefreshableConfig returns a configured client ready for use.
 // We apply "sane defaults" before applying the provided params.
 func NewClientFromRefreshableConfig(ctx context.Context, config RefreshableClientConfig, params ...ClientParam) (Client, error) {
 	b, err := newClientBuilderFromRefreshableConfig(config)
@@ -122,10 +129,10 @@ func newClient(ctx context.Context, b *clientBuilder, params ...ClientParam) (Cl
 		edm = errorDecoderMiddleware{errorDecoder: b.ErrorDecoder}
 	}
 
-	middleware := b.httpClientBuilder.Middlewares
-	b.httpClientBuilder.Middlewares = nil
+	middleware := b.HTTP.Middlewares
+	b.HTTP.Middlewares = nil
 
-	httpClient, err := b.httpClientBuilder.Build(ctx)
+	httpClient, err := b.HTTP.Build(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -135,10 +142,9 @@ func newClient(ctx context.Context, b *clientBuilder, params ...ClientParam) (Cl
 		uris:                   b.URIs,
 		maxAttempts:            b.MaxAttempts,
 		retryOptions:           b.RetryParams,
-		propagateTraceHeaders:  b.PropagateTraceHeaders,
 		middlewares:            middleware,
 		errorDecoderMiddleware: edm,
-		recoveryMiddleware:     &recoveryMiddleware{Disabled: b.httpClientBuilder.DisableRecovery},
+		recoveryMiddleware:     &recoveryMiddleware{Disabled: b.HTTP.DisableRecovery},
 		bufferPool:             b.BytesBufferPool,
 	}, nil
 }
@@ -147,21 +153,21 @@ func newClient(ctx context.Context, b *clientBuilder, params ...ClientParam) (Cl
 // We apply "sane defaults" before applying the provided params.
 func NewHTTPClient(params ...HTTPClientParam) (*http.Client, error) {
 	b := newClientBuilder()
-	provider, err := b.httpClientBuilder.Build(context.TODO(), params...)
+	provider, err := b.HTTP.Build(context.TODO(), params...)
 	if err != nil {
 		return nil, err
 	}
 	return provider.CurrentHTTPClient(), nil
 }
 
-// NewHTTPClient returns a configured http client ready for use.
+// NewHTTPClientFromRefreshableConfig returns a configured http client ready for use.
 // We apply "sane defaults" before applying the provided params.
 func NewHTTPClientFromRefreshableConfig(ctx context.Context, config RefreshableClientConfig, params ...HTTPClientParam) (*http.Client, error) {
 	b, err := newClientBuilderFromRefreshableConfig(config)
 	if err != nil {
 		return nil, err
 	}
-	provider, err := b.httpClientBuilder.Build(ctx, params...)
+	provider, err := b.HTTP.Build(ctx, params...)
 	if err != nil {
 		return nil, err
 	}
@@ -171,7 +177,7 @@ func NewHTTPClientFromRefreshableConfig(ctx context.Context, config RefreshableC
 func newClientBuilder() *clientBuilder {
 	defaultTLSConfig, _ := tlsconfig.NewClientConfig()
 	return &clientBuilder{
-		httpClientBuilder: &httpClientBuilder{
+		HTTP: &httpClientBuilder{
 			ServiceName: metrics.Tag{},
 			Timeout:     refreshable.NewDuration(refreshable.NewDefaultRefreshable(defaultHTTPTimeout)),
 			DialerParams: refreshabletransport.RefreshableDialerParams{Refreshable: refreshable.NewDefaultRefreshable(refreshabletransport.DialerParams{
@@ -193,38 +199,45 @@ func newClientBuilder() *clientBuilder {
 				ProxyFromEnvironment:  true,
 				TLSConfig:             defaultTLSConfig,
 			})},
+			CreateRequestSpan:   refreshable.NewBool(refreshable.NewDefaultRefreshable(true)),
+			InjectTraceHeaders:  refreshable.NewBool(refreshable.NewDefaultRefreshable(true)),
 			DisableMetrics:      refreshable.NewBool(refreshable.NewDefaultRefreshable(false)),
 			DisableRecovery:     refreshable.NewBool(refreshable.NewDefaultRefreshable(false)),
-			DisableTracing:      refreshable.NewBool(refreshable.NewDefaultRefreshable(false)),
 			MetricsTagProviders: nil,
 			Middlewares:         nil,
 		},
-		URIs:                  nil,
-		BytesBufferPool:       nil,
-		ErrorDecoder:          restErrorDecoder{},
-		MaxAttempts:           refreshable.NewIntPtr(refreshable.NewDefaultRefreshable((*int)(nil))),
-		PropagateTraceHeaders: refreshable.NewBool(refreshable.NewDefaultRefreshable(true)),
+		URIs:            nil,
+		BytesBufferPool: nil,
+		ErrorDecoder:    restErrorDecoder{},
+		MaxAttempts:     refreshable.NewIntPtr(refreshable.NewDefaultRefreshable((*int)(nil))),
 		RetryParams: &refreshabletransport.RetryParams{
-			InitialBackoff:      refreshable.NewDuration(refreshable.NewDefaultRefreshable(2 * time.Second)),
-			MaxBackoff:          refreshable.NewDuration(refreshable.NewDefaultRefreshable(250 * time.Millisecond)),
-			Multiplier:          refreshable.NewFloat64(refreshable.NewDefaultRefreshable(float64(2))),
-			RandomizationFactor: refreshable.NewFloat64(refreshable.NewDefaultRefreshable(float64(0.15))),
+			InitialBackoff:      refreshable.NewDuration(refreshable.NewDefaultRefreshable(defaultInitialBackoff)),
+			MaxBackoff:          refreshable.NewDuration(refreshable.NewDefaultRefreshable(defaultMaxBackoff)),
+			Multiplier:          refreshable.NewFloat64(refreshable.NewDefaultRefreshable(float64(defaultMultiplier))),
+			RandomizationFactor: refreshable.NewFloat64(refreshable.NewDefaultRefreshable(float64(defaultRandomization))),
 		},
 	}
 }
 
 func newClientBuilderFromRefreshableConfig(config RefreshableClientConfig) (*clientBuilder, error) {
+	// Create default builder, the overwrite its refreshables with the configured ones.
+	b := newClientBuilder()
+
 	serviceNameTag, err := metrics.NewTag(MetricTagServiceName, config.ServiceName().CurrentString())
 	if err != nil {
 		return nil, werror.Wrap(err, "invalid service name metrics tag")
 	}
+	b.HTTP.ServiceName = serviceNameTag
+
+	b.URIs = config.URIs()
+
 	dialer, err := refreshable.MapValidatingRefreshable(config, func(i interface{}) (interface{}, error) {
 		c := i.(ClientConfig)
 		params := refreshabletransport.DialerParams{
 			DialTimeout: derefDurationPtr(c.ConnectTimeout, defaultDialTimeout),
 			KeepAlive:   defaultKeepAlive,
 		}
-		params.SocksProxyURL, err = parseOptionalProxyUrlWithSchemes(c.ProxyURL, "socks5", "socks5h")
+		params.SocksProxyURL, err = parseOptionalProxyURLWithSchemes(c.ProxyURL, "socks5", "socks5h")
 		if err != nil {
 			return nil, err
 		}
@@ -233,6 +246,7 @@ func newClientBuilderFromRefreshableConfig(config RefreshableClientConfig) (*cli
 	if err != nil {
 		return nil, err
 	}
+	b.HTTP.DialerParams = refreshabletransport.RefreshableDialerParams{Refreshable: dialer}
 
 	transport, err := refreshable.MapValidatingRefreshable(config, func(i interface{}) (interface{}, error) {
 		c := i.(ClientConfig)
@@ -251,7 +265,7 @@ func newClientBuilderFromRefreshableConfig(config RefreshableClientConfig) (*cli
 			TLSConfig:             tlsConfig,
 			TLSHandshakeTimeout:   derefDurationPtr(c.TLSHandshakeTimeout, defaultTLSHandshakeTimeout),
 		}
-		params.HTTPProxyURL, err = parseOptionalProxyUrlWithSchemes(c.ProxyURL, "https", "http")
+		params.HTTPProxyURL, err = parseOptionalProxyURLWithSchemes(c.ProxyURL, "https", "http")
 		if err != nil {
 			return nil, err
 		}
@@ -260,8 +274,9 @@ func newClientBuilderFromRefreshableConfig(config RefreshableClientConfig) (*cli
 	if err != nil {
 		return nil, err
 	}
+	b.HTTP.TransportParams = refreshabletransport.RefreshableTransportParams{Refreshable: transport}
 
-	timeout := refreshable.NewDuration(config.MapClientConfig(func(c ClientConfig) interface{} {
+	b.HTTP.Timeout = refreshable.NewDuration(config.MapClientConfig(func(c ClientConfig) interface{} {
 		rt := derefDurationPtr(c.ReadTimeout, 0)
 		wt := derefDurationPtr(c.WriteTimeout, 0)
 		// return max of read and write
@@ -271,7 +286,7 @@ func newClientBuilderFromRefreshableConfig(config RefreshableClientConfig) (*cli
 		return wt
 	}))
 
-	maxAttempts := refreshable.NewIntPtr(config.MaxNumRetries().MapIntPtr(func(i *int) interface{} {
+	b.MaxAttempts = refreshable.NewIntPtr(config.MaxNumRetries().MapIntPtr(func(i *int) interface{} {
 		var result *int
 		if i != nil {
 			v := *i + 1
@@ -280,18 +295,15 @@ func newClientBuilderFromRefreshableConfig(config RefreshableClientConfig) (*cli
 		return result
 	}))
 
-	initialBackoff := refreshable.NewDuration(config.InitialBackoff().MapDurationPtr(func(duration *time.Duration) interface{} {
-		return derefDurationPtr(duration, 2*time.Second) // match default from retry package
+	b.RetryParams.InitialBackoff = refreshable.NewDuration(config.InitialBackoff().MapDurationPtr(func(duration *time.Duration) interface{} {
+		return derefDurationPtr(duration, defaultInitialBackoff) // match default from retry package
 	}))
 
-	maxBackoff := refreshable.NewDuration(config.MaxBackoff().MapDurationPtr(func(duration *time.Duration) interface{} {
-		return derefDurationPtr(duration, 250*time.Millisecond)
+	b.RetryParams.MaxBackoff = refreshable.NewDuration(config.MaxBackoff().MapDurationPtr(func(duration *time.Duration) interface{} {
+		return derefDurationPtr(duration, defaultMaxBackoff)
 	}))
 
-	multiplier := refreshable.NewFloat64(refreshable.NewDefaultRefreshable(float64(2)))
-	randomization := refreshable.NewFloat64(refreshable.NewDefaultRefreshable(float64(0.15)))
-
-	disableMetrics := refreshable.NewBool(config.Metrics().Enabled().MapBoolPtr(func(b *bool) interface{} {
+	b.HTTP.DisableMetrics = refreshable.NewBool(config.Metrics().Enabled().MapBoolPtr(func(b *bool) interface{} {
 		if b == nil {
 			return false
 		}
@@ -304,35 +316,12 @@ func newClientBuilderFromRefreshableConfig(config RefreshableClientConfig) (*cli
 	if err != nil {
 		return nil, err
 	}
+	metricTagProvider := TagsProviderFunc(func(*http.Request, *http.Response) metrics.Tags {
+		return metricTags.Current().(metrics.Tags)
+	})
+	b.HTTP.MetricsTagProviders = append(b.HTTP.MetricsTagProviders, metricTagProvider)
 
-	return &clientBuilder{
-		httpClientBuilder: &httpClientBuilder{
-			ServiceName:     serviceNameTag,
-			Timeout:         timeout,
-			DialerParams:    refreshabletransport.RefreshableDialerParams{Refreshable: dialer},
-			TransportParams: refreshabletransport.RefreshableTransportParams{Refreshable: transport},
-			DisableMetrics:  disableMetrics,
-			DisableRecovery: refreshable.NewBool(refreshable.NewDefaultRefreshable(false)),
-			DisableTracing:  refreshable.NewBool(refreshable.NewDefaultRefreshable(false)),
-			MetricsTagProviders: []TagsProvider{
-				TagsProviderFunc(func(*http.Request, *http.Response) metrics.Tags {
-					return metricTags.Current().(metrics.Tags)
-				}),
-			},
-			Middlewares: nil,
-		},
-		URIs:                  config.URIs(),
-		BytesBufferPool:       nil,
-		ErrorDecoder:          restErrorDecoder{},
-		MaxAttempts:           maxAttempts,
-		PropagateTraceHeaders: refreshable.NewBool(refreshable.NewDefaultRefreshable(true)),
-		RetryParams: &refreshabletransport.RetryParams{
-			InitialBackoff:      initialBackoff,
-			MaxBackoff:          maxBackoff,
-			Multiplier:          multiplier,
-			RandomizationFactor: randomization,
-		},
-	}, nil
+	return b, nil
 }
 
 func derefDurationPtr(durPtr *time.Duration, defaultVal time.Duration) time.Duration {
@@ -356,7 +345,7 @@ func derefBoolPtr(boolPtr *bool, defaultVal bool) bool {
 	return *boolPtr
 }
 
-func parseOptionalProxyUrlWithSchemes(urlStr *string, schemes ...string) (*url.URL, error) {
+func parseOptionalProxyURLWithSchemes(urlStr *string, schemes ...string) (*url.URL, error) {
 	if urlStr == nil {
 		return nil, nil
 	}

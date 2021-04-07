@@ -27,32 +27,36 @@ import (
 // Only if the RPC method name is set does the middleware create a new span (with that name) for the
 // duration of the request.
 type traceMiddleware struct {
-	Disabled    refreshable.Bool
-	ServiceName string
+	ServiceName       string
+	CreateRequestSpan refreshable.Bool
+	InjectHeaders     refreshable.Bool
 }
 
 func (t traceMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (*http.Response, error) {
-	if t.Disabled != nil && t.Disabled.CurrentBool() {
-		// If we have a Disabled refreshable and it is true, no-op.
-		return next.RoundTrip(req)
-	}
-
 	ctx := req.Context()
 	span := wtracing.SpanFromContext(ctx)
 
-	// Create a child span if a method name is set. Otherwise, fall through and just inject the parent span's headers.
-	if method := getRPCMethodName(req.Context()); method != "" {
-		span, ctx = wtracing.StartSpanFromContext(ctx, wtracing.TracerFromContext(ctx), method,
-			wtracing.WithKind(wtracing.Client),
-			wtracing.WithRemoteEndpoint(&wtracing.Endpoint{ServiceName: t.ServiceName}))
-		if span != nil {
-			defer span.Finish()
+	if t.CreateRequestSpan.CurrentBool() {
+		// Create a child span if a method name is set. Otherwise, fall through and just inject the parent span's headers.
+		if method := getRPCMethodName(req.Context()); method != "" {
+			span, ctx = wtracing.StartSpanFromContext(ctx, wtracing.TracerFromContext(ctx), method,
+				wtracing.WithKind(wtracing.Client),
+				wtracing.WithRemoteEndpoint(&wtracing.Endpoint{ServiceName: t.ServiceName}))
+			if span != nil {
+				defer span.Finish()
+			}
+			req = req.WithContext(ctx)
 		}
-		req = req.WithContext(ctx)
 	}
 
-	if span != nil {
-		b3.SpanInjector(req)(span.Context())
+	if t.InjectHeaders.CurrentBool() {
+		if span != nil {
+			b3.SpanInjector(req)(span.Context())
+		} else {
+			if traceID := wtracing.TraceIDFromContext(ctx); traceID != "" {
+				req.Header.Set(traceIDHeaderKey, string(traceID))
+			}
+		}
 	}
 
 	return next.RoundTrip(req)
