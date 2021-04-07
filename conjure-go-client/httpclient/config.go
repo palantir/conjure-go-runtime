@@ -16,6 +16,7 @@ package httpclient
 
 import (
 	"bytes"
+	"crypto/tls"
 	"io/ioutil"
 	"net/http"
 	"time"
@@ -301,22 +302,31 @@ func configToParams(c ClientConfig) ([]ClientParam, error) {
 
 	// Security (TLS) Config
 
-	var tlsParams []tlsconfig.ClientParam
-	if len(c.Security.CAFiles) != 0 {
-		tlsParams = append(tlsParams, tlsconfig.ClientRootCAFiles(c.Security.CAFiles...))
+	if tlsConfig, err := newTLSConfig(c.Security); err != nil {
+		return nil, err
+	} else if tlsConfig != nil {
+		params = append(params, WithTLSConfig(tlsConfig))
 	}
-	if c.Security.CertFile != "" && c.Security.KeyFile != "" {
-		tlsParams = append(tlsParams, tlsconfig.ClientKeyPairFiles(c.Security.CertFile, c.Security.KeyFile))
+
+	return params, nil
+}
+
+func newTLSConfig(security SecurityConfig) (*tls.Config, error) {
+	var tlsParams []tlsconfig.ClientParam
+	if len(security.CAFiles) != 0 {
+		tlsParams = append(tlsParams, tlsconfig.ClientRootCAFiles(security.CAFiles...))
+	}
+	if security.CertFile != "" && security.KeyFile != "" {
+		tlsParams = append(tlsParams, tlsconfig.ClientKeyPairFiles(security.CertFile, security.KeyFile))
 	}
 	if len(tlsParams) != 0 {
 		tlsConfig, err := tlsconfig.NewClientConfig(tlsParams...)
 		if err != nil {
 			return nil, werror.Wrap(err, "failed to build tlsConfig")
 		}
-		params = append(params, WithTLSConfig(tlsConfig))
+		return tlsConfig, nil
 	}
-
-	return params, nil
+	return nil, nil
 }
 
 func orZero(d *time.Duration) time.Duration {

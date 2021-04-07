@@ -22,6 +22,7 @@ import (
 	"net/http/httptrace"
 	"time"
 
+	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient/internal/refreshabletransport"
 	gometrics "github.com/palantir/go-metrics"
 	"github.com/palantir/pkg/metrics"
 	"github.com/palantir/pkg/refreshable"
@@ -212,7 +213,7 @@ func tlsVersionString(version uint16) string {
 // metricsWrappedDialer is a wrapper for net.Dialer that tracks a metric of in-flight connections.
 type metricsWrappedDialer struct {
 	Disabled       refreshable.Bool
-	Dialer         contextDialer
+	Dialer         refreshabletransport.ContextDialer
 	ServiceNameTag metrics.Tag
 }
 

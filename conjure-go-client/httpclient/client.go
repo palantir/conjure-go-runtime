@@ -21,6 +21,7 @@ import (
 	"strings"
 
 	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient/internal"
+	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient/internal/refreshabletransport"
 	"github.com/palantir/pkg/bytesbuffers"
 	"github.com/palantir/pkg/refreshable"
 	"github.com/palantir/pkg/retry"
@@ -50,14 +51,14 @@ type Client interface {
 }
 
 type clientImpl struct {
-	client                 RefreshableHTTPClient
+	client                 refreshabletransport.RefreshableHTTPClient
 	middlewares            []Middleware
 	errorDecoderMiddleware Middleware
 
 	uris                          refreshable.StringSlice
-	maxAttempts                   int
-	disableTraceHeaderPropagation bool
-	backoffOptions                []retry.Option
+	maxAttempts                   refreshable.Int
+	disableTraceHeaderPropagation refreshable.Bool
+	retryOptions                  refreshabletransport.RefreshableRetryOptions
 	bufferPool                    bytesbuffers.Pool
 }
 
@@ -93,7 +94,7 @@ func (c *clientImpl) Do(ctx context.Context, params ...RequestParam) (*http.Resp
 	var err error
 	var resp *http.Response
 
-	retrier := internal.NewRequestRetrier(uris, retry.Start(ctx, c.backoffOptions...), c.maxAttempts)
+	retrier := internal.NewRequestRetrier(uris, retry.Start(ctx, c.retryOptions.CurrentRetryOptions()...), c.maxAttempts.CurrentInt())
 	for retrier.ShouldGetNextURI(resp, err) {
 		uri, retryErr := retrier.GetNextURI(ctx, resp, err)
 		if retryErr != nil {
@@ -199,7 +200,7 @@ func unwrapURLError(respErr error) error {
 
 func (c *clientImpl) initializeRequestHeaders(ctx context.Context) http.Header {
 	headers := make(http.Header)
-	if !c.disableTraceHeaderPropagation {
+	if !c.disableTraceHeaderPropagation.CurrentBool() {
 		traceID := wtracing.TraceIDFromContext(ctx)
 		if traceID != "" {
 			headers.Set(traceIDHeaderKey, string(traceID))

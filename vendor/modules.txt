@@ -16,7 +16,7 @@ github.com/palantir/pkg/bytesbuffers
 github.com/palantir/pkg/httpserver
 # github.com/palantir/pkg/metrics v1.0.1
 github.com/palantir/pkg/metrics
-# github.com/palantir/pkg/refreshable v1.1.0 => ../pkg/refreshable
+# github.com/palantir/pkg/refreshable v1.2.0 => ../pkg/refreshable
 github.com/palantir/pkg/refreshable
 # github.com/palantir/pkg/retry v1.1.1
 github.com/palantir/pkg/retry
