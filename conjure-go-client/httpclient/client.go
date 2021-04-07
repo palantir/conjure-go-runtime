@@ -54,12 +54,13 @@ type clientImpl struct {
 	client                 refreshabletransport.RefreshableHTTPClient
 	middlewares            []Middleware
 	errorDecoderMiddleware Middleware
+	recoveryMiddleware     Middleware
 
-	uris                          refreshable.StringSlice
-	maxAttempts                   refreshable.Int
-	disableTraceHeaderPropagation refreshable.Bool
-	retryOptions                  refreshabletransport.RefreshableRetryOptions
-	bufferPool                    bytesbuffers.Pool
+	uris                  refreshable.StringSlice
+	maxAttempts           refreshable.IntPtr
+	propagateTraceHeaders refreshable.Bool
+	retryOptions          refreshabletransport.RefreshableRetryOptions
+	bufferPool            bytesbuffers.Pool
 }
 
 func (c *clientImpl) Get(ctx context.Context, params ...RequestParam) (*http.Response, error) {
@@ -94,7 +95,12 @@ func (c *clientImpl) Do(ctx context.Context, params ...RequestParam) (*http.Resp
 	var err error
 	var resp *http.Response
 
-	retrier := internal.NewRequestRetrier(uris, retry.Start(ctx, c.retryOptions.CurrentRetryOptions()...), c.maxAttempts.CurrentInt())
+	attempts := 2 * len(uris)
+	if confMaxAttempts := c.maxAttempts.CurrentIntPtr(); confMaxAttempts != nil {
+		attempts = *confMaxAttempts
+	}
+
+	retrier := internal.NewRequestRetrier(uris, retry.Start(ctx, c.retryOptions.CurrentRetryOptions()...), attempts)
 	for retrier.ShouldGetNextURI(resp, err) {
 		uri, retryErr := retrier.GetNextURI(ctx, resp, err)
 		if retryErr != nil {
@@ -156,8 +162,10 @@ func (c *clientImpl) doOnce(ctx context.Context, baseURI string, params ...Reque
 	transport = wrapTransport(transport, b.errorDecoderMiddleware, c.errorDecoderMiddleware)
 	// must precede the body middleware so it can read the request body
 	transport = wrapTransport(transport, c.middlewares...)
-	// must be the outermost middleware because it mutates the return values
+	// must wrap inner middlewares because it mutates the return values
 	transport = wrapTransport(transport, b.bodyMiddleware)
+	// must be the outermost middleware to recover panics in the rest of the request flow
+	transport = wrapTransport(transport, c.recoveryMiddleware)
 
 	clientCopy.Transport = transport
 
@@ -200,7 +208,7 @@ func unwrapURLError(respErr error) error {
 
 func (c *clientImpl) initializeRequestHeaders(ctx context.Context) http.Header {
 	headers := make(http.Header)
-	if !c.disableTraceHeaderPropagation.CurrentBool() {
+	if c.propagateTraceHeaders.CurrentBool() {
 		traceID := wtracing.TraceIDFromContext(ctx)
 		if traceID != "" {
 			headers.Set(traceIDHeaderKey, string(traceID))

@@ -170,8 +170,8 @@ func WithMetrics(tagProviders ...TagsProvider) ClientOrHTTPClientParam {
 
 // WithBytesBufferPool stores a bytes buffer pool on the client for use in encoding request bodies.
 // This prevents allocating a new byte buffer for every request.
-func WithBytesBufferPool(pool bytesbuffers.Pool) ClientOrHTTPClientParam {
-	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
+func WithBytesBufferPool(pool bytesbuffers.Pool) ClientParam {
+	return clientParamFunc(func(b *clientBuilder) error {
 		b.BytesBufferPool = pool
 		return nil
 	})
@@ -207,7 +207,7 @@ func WithDisableTracing() ClientOrHTTPClientParam {
 // then the client will attach this traceId as a header for future services to do the same if desired
 func WithDisableTraceHeaderPropagation() ClientParam {
 	return clientParamFunc(func(b *clientBuilder) error {
-		b.disableTraceHeaderPropagation = true
+		b.PropagateTraceHeaders = refreshable.NewBool(refreshable.NewDefaultRefreshable(false))
 		return nil
 	})
 }
@@ -268,6 +268,7 @@ func WithNoProxy() ClientOrHTTPClientParam {
 		})
 		b.TransportParams = b.TransportParams.TransformParams(func(p refreshabletransport.TransportParams) refreshabletransport.TransportParams {
 			p.HTTPProxyURL = nil
+			p.ProxyFromEnvironment = false
 			return p
 		})
 		return nil
@@ -414,7 +415,7 @@ func WithKeepAlive(keepAlive time.Duration) ClientOrHTTPClientParam {
 // WithBaseURLs sets the base URLs for every request. This is meant to be used in conjunction with WithPath.
 func WithBaseURLs(urls []string) ClientParam {
 	return clientParamFunc(func(b *clientBuilder) error {
-		b.uris = refreshable.NewStringSlice(refreshable.NewDefaultRefreshable(urls))
+		b.URIs = refreshable.NewStringSlice(refreshable.NewDefaultRefreshable(urls))
 		return nil
 	})
 }
@@ -445,8 +446,9 @@ func WithInitialBackoff(initialBackoff time.Duration) ClientParam {
 // TODO (#151): Rename to WithMaxAttempts and set maxAttempts directly using the argument provided to the function.
 func WithMaxRetries(maxTransportRetries int) ClientParam {
 	return clientParamFunc(func(b *clientBuilder) error {
-		b.RetryParams.MaxAttempts = refreshable.NewInt(b.RetryParams.MaxAttempts.MapInt(func(int) interface{} {
-			return maxTransportRetries + 1
+		b.MaxAttempts = refreshable.NewIntPtr(b.MaxAttempts.MapIntPtr(func(*int) interface{} {
+			v := maxTransportRetries + 1
+			return &v
 		}))
 		return nil
 	})
@@ -456,9 +458,10 @@ func WithMaxRetries(maxTransportRetries int) ClientParam {
 // If set, this supersedes any retry limits set with WithMaxRetries.
 func WithUnlimitedRetries() ClientParam {
 	return clientParamFunc(func(b *clientBuilder) error {
-		b.RetryParams.MaxAttempts = refreshable.NewInt(b.RetryParams.MaxAttempts.MapInt(func(int) interface{} {
+		b.MaxAttempts = refreshable.NewIntPtr(b.MaxAttempts.MapIntPtr(func(*int) interface{} {
 			// max attempts of 0 indicates no limit
-			return 0
+			v := 0
+			return &v
 		}))
 		return nil
 	})
@@ -468,7 +471,7 @@ func WithUnlimitedRetries() ClientParam {
 // error to a non-nil value in the case of >= 400 HTTP response.
 func WithDisableRestErrors() ClientParam {
 	return clientParamFunc(func(b *clientBuilder) error {
-		b.errorDecoder = nil
+		b.ErrorDecoder = nil
 		return nil
 	})
 }
@@ -486,7 +489,7 @@ func WithDisableKeepAlives() ClientParam {
 
 func WithErrorDecoder(errorDecoder ErrorDecoder) ClientParam {
 	return clientParamFunc(func(b *clientBuilder) error {
-		b.errorDecoder = errorDecoder
+		b.ErrorDecoder = errorDecoder
 		return nil
 	})
 }
@@ -504,4 +507,3 @@ func setBasicAuth(h http.Header, username, password string) {
 	basicAuthBytes := []byte(username + ":" + password)
 	h.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString(basicAuthBytes))
 }
-

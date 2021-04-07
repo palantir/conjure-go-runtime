@@ -203,6 +203,12 @@ func (c ServicesConfig) ClientConfig(serviceName string) ClientConfig {
 	return conf
 }
 
+func RefreshableClientConfigFromServiceConfig(servicesConfig RefreshableServicesConfig, serviceName string) RefreshableClientConfig {
+	return NewRefreshingClientConfig(servicesConfig.MapServicesConfig(func(servicesConfig ServicesConfig) interface{} {
+		return servicesConfig.ClientConfig(serviceName)
+	}))
+}
+
 func configToParams(c ClientConfig) ([]ClientParam, error) {
 	var params []ClientParam
 
