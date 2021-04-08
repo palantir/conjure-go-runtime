@@ -72,6 +72,14 @@ func (f TagsProviderFunc) Tags(req *http.Request, resp *http.Response) metrics.T
 	return f(req, resp)
 }
 
+type refreshableMetricsTagsProvider struct {
+	refreshable.Refreshable // contains metrics.Tags
+}
+
+func (r refreshableMetricsTagsProvider) Tags(req *http.Request, resp *http.Response) metrics.Tags {
+	return r.Current().(metrics.Tags)
+}
+
 // MetricsMiddleware updates the "client.response" timer metric on every request.
 // By default, metrics are tagged with 'service-name', 'method', and 'family' (of the
 // status code). This metric name and tag set matches http-remoting's DefaultHostMetrics:

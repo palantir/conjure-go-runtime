@@ -50,7 +50,7 @@ type Client interface {
 }
 
 type clientImpl struct {
-	client                 refreshingclient.RefreshableHTTPClient
+	client                 RefreshableHTTPClient
 	middlewares            []Middleware
 	errorDecoderMiddleware Middleware
 	recoveryMiddleware     Middleware
@@ -98,7 +98,7 @@ func (c *clientImpl) Do(ctx context.Context, params ...RequestParam) (*http.Resp
 		attempts = *confMaxAttempts
 	}
 
-	retrier := internal.NewRequestRetrier(uris, retry.Start(ctx, c.retryOptions.CurrentRetryOptions()...), attempts)
+	retrier := internal.NewRequestRetrier(uris, retry.Start(ctx, c.retryOptions.RetryOptions()...), attempts)
 	for retrier.ShouldGetNextURI(resp, err) {
 		uri, retryErr := retrier.GetNextURI(ctx, resp, err)
 		if retryErr != nil {

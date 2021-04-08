@@ -15,34 +15,52 @@
 package refreshingclient
 
 import (
+	"time"
+
 	"github.com/palantir/pkg/refreshable"
 	"github.com/palantir/pkg/retry"
 )
 
 type RefreshableRetryOptions interface {
-	CurrentRetryOptions() []retry.Option
+	RetryOptions() []retry.Option
 }
 
 type RetryParams struct {
-	InitialBackoff      refreshable.Duration
-	MaxBackoff          refreshable.Duration
-	Multiplier          refreshable.Float64
-	RandomizationFactor refreshable.Float64
+	InitialBackoff      *time.Duration
+	MaxBackoff          *time.Duration
+	Multiplier          *float64
+	RandomizationFactor *float64
 }
 
-func (p *RetryParams) CurrentRetryOptions() []retry.Option {
+type RefreshableRetryParams struct {
+	RefreshableRetryOptions
+	refreshable.Refreshable // contains RetryParams
+}
+
+// TransformParams accepts a mapping function which will be applied to the params value as it is evaluated.
+// This can be used to layer/overwrite configuration before building the RefreshableDialer.
+func (r RefreshableRetryParams) TransformParams(mapFn func(p RetryParams) RetryParams) RefreshableRetryParams {
+	return RefreshableRetryParams{
+		Refreshable: r.Map(func(i interface{}) interface{} {
+			return mapFn(i.(RetryParams))
+		}),
+	}
+}
+
+func (r RefreshableRetryParams) RetryOptions() []retry.Option {
+	p := r.Current().(RetryParams)
 	var opts []retry.Option
 	if p.InitialBackoff != nil {
-		opts = append(opts, retry.WithInitialBackoff(p.InitialBackoff.CurrentDuration()))
+		opts = append(opts, retry.WithInitialBackoff(*p.InitialBackoff))
 	}
 	if p.MaxBackoff != nil {
-		opts = append(opts, retry.WithMaxBackoff(p.MaxBackoff.CurrentDuration()))
+		opts = append(opts, retry.WithMaxBackoff(*p.MaxBackoff))
 	}
 	if p.Multiplier != nil {
-		opts = append(opts, retry.WithMultiplier(p.Multiplier.CurrentFloat64()))
+		opts = append(opts, retry.WithMultiplier(*p.Multiplier))
 	}
 	if p.RandomizationFactor != nil {
-		opts = append(opts, retry.WithRandomizationFactor(p.RandomizationFactor.CurrentFloat64()))
+		opts = append(opts, retry.WithRandomizationFactor(*p.RandomizationFactor))
 	}
 	return opts
 }

@@ -112,7 +112,11 @@ func WithServiceName(serviceName string) ClientOrHTTPClientParam {
 		if err != nil {
 			return err
 		}
-		b.ServiceName = tag
+		b.ServiceNameTag = tag
+		b.TransportParams = b.TransportParams.TransformParams(func(p refreshingclient.TransportParams) refreshingclient.TransportParams {
+			p.ServiceNameTag = tag
+			return p
+		})
 		return nil
 	})
 }
@@ -425,9 +429,10 @@ func WithBaseURLs(urls []string) ClientParam {
 // WithMaxBackoff sets the maximum backoff between retried calls to the same URI. Defaults to no limit.
 func WithMaxBackoff(maxBackoff time.Duration) ClientParam {
 	return clientParamFunc(func(b *clientBuilder) error {
-		b.RetryParams.MaxBackoff = refreshable.NewDuration(b.RetryParams.MaxBackoff.MapDuration(func(time.Duration) interface{} {
-			return maxBackoff
-		}))
+		b.RetryParams = b.RetryParams.TransformParams(func(p refreshingclient.RetryParams) refreshingclient.RetryParams {
+			p.MaxBackoff = &maxBackoff
+			return p
+		})
 		return nil
 	})
 }
@@ -435,9 +440,10 @@ func WithMaxBackoff(maxBackoff time.Duration) ClientParam {
 // WithInitialBackoff sets the initial backoff between retried calls to the same URI. Defaults to 250ms.
 func WithInitialBackoff(initialBackoff time.Duration) ClientParam {
 	return clientParamFunc(func(b *clientBuilder) error {
-		b.RetryParams.InitialBackoff = refreshable.NewDuration(b.RetryParams.InitialBackoff.MapDuration(func(time.Duration) interface{} {
-			return initialBackoff
-		}))
+		b.RetryParams = b.RetryParams.TransformParams(func(p refreshingclient.RetryParams) refreshingclient.RetryParams {
+			p.InitialBackoff = &initialBackoff
+			return p
+		})
 		return nil
 	})
 }

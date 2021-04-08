@@ -51,7 +51,7 @@ func NewRefreshableDialer(ctx context.Context, p RefreshableDialerParams) Contex
 			proxyDialer, err := proxy.FromURL(p.SocksProxyURL, dialer.(proxy.Dialer))
 			if err != nil {
 				// should never happen; checked in the validating refreshable
-				svc1log.FromContext(ctx).Error("Failed to construct socks5 dialer", svc1log.Stacktrace(err))
+				svc1log.FromContext(ctx).Error("Failed to construct socks5 dialer. Please report this as a bug in conjure-go-runtime.", svc1log.Stacktrace(err))
 				return dialer
 			}
 			return proxyDialer.(ContextDialer)
