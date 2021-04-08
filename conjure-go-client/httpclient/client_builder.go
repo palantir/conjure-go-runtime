@@ -286,7 +286,7 @@ func newClientBuilderFromRefreshableConfig(ctx context.Context, config Refreshab
 		return params.uris
 	}))
 
-	return b, refreshingParams.(*refreshable.ValidatingRefreshable).LastValidateErr, nil
+	return b, refreshingParams.LastValidateErr, nil
 }
 
 func newValidParamsSnapshot(ctx context.Context, config ClientConfig, serviceNameTag metrics.Tag) (validParamsSnapshot, error) {
