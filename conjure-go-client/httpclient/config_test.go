@@ -15,9 +15,12 @@
 package httpclient
 
 import (
+	"context"
 	"testing"
 	"time"
 
+	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient/internal/refreshingclient"
+	"github.com/palantir/pkg/refreshable"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v2"
@@ -124,6 +127,76 @@ clients:
 			err := yaml.UnmarshalStrict([]byte(test.ServicesConfigYAML), &actual)
 			require.NoError(t, err)
 			require.Equal(t, test.ExpectedConfig, actual.Clients)
+		})
+	}
+}
+
+func TestRefreshableClientConfig(t *testing.T) {
+	const serviceName = "serviceName"
+	initialConfig := ServicesConfig{
+		Default: ClientConfig{
+			URIs:                  nil,
+			APIToken:              nil,
+			APITokenFile:          nil,
+			DisableHTTP2:          nil,
+			ProxyFromEnvironment:  nil,
+			ProxyURL:              nil,
+			MaxNumRetries:         nil,
+			InitialBackoff:        nil,
+			MaxBackoff:            newDurationPtr(time.Minute),
+			ConnectTimeout:        nil,
+			ReadTimeout:           nil,
+			WriteTimeout:          nil,
+			IdleConnTimeout:       nil,
+			TLSHandshakeTimeout:   nil,
+			ExpectContinueTimeout: nil,
+			MaxIdleConns:          nil,
+			MaxIdleConnsPerHost:   nil,
+			Metrics:               MetricsConfig{},
+			Security:              SecurityConfig{},
+		},
+		Services: map[string]ClientConfig{
+			serviceName: {
+				URIs:                  nil,
+				APIToken:              nil,
+				APITokenFile:          nil,
+				DisableHTTP2:          nil,
+				ProxyFromEnvironment:  nil,
+				ProxyURL:              nil,
+				MaxNumRetries:         nil,
+				InitialBackoff:        nil,
+				MaxBackoff:            nil,
+				ConnectTimeout:        nil,
+				ReadTimeout:           nil,
+				WriteTimeout:          nil,
+				IdleConnTimeout:       nil,
+				TLSHandshakeTimeout:   nil,
+				ExpectContinueTimeout: nil,
+				MaxIdleConns:          nil,
+				MaxIdleConnsPerHost:   nil,
+				Metrics:               MetricsConfig{},
+				Security:              SecurityConfig{},
+			},
+		},
+	}
+	refreshableServicesConfig := NewRefreshingServicesConfig(refreshable.NewDefaultRefreshable(initialConfig))
+	refreshableClientConfig := RefreshableClientConfigFromServiceConfig(refreshableServicesConfig, serviceName)
+	client, err := NewClientFromRefreshableConfig(context.Background(), refreshableClientConfig)
+	require.NoError(t, err)
+
+	currentRetryParams := func() refreshingclient.RetryParams {
+		return client.(*clientImpl).retryOptions.(refreshingclient.RefreshableRetryParams).Current().(refreshingclient.RetryParams)
+	}
+
+	require.Equal(t, time.Minute, currentRetryParams().MaxBackoff)
+
+	for _, test := range []struct {
+		Name        string
+		ServiceName string
+		Configs     []ServicesConfig
+		Verify      []func(t *testing.T, c *clientImpl)
+	}{} {
+		t.Run(test.Name, func(t *testing.T) {
 		})
 	}
 }
