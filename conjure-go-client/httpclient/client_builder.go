@@ -32,7 +32,7 @@ import (
 )
 
 const (
-	defaultDialTimeout           = 5 * time.Second
+	defaultDialTimeout           = 10 * time.Second
 	defaultHTTPTimeout           = 60 * time.Second
 	defaultKeepAlive             = 30 * time.Second
 	defaultIdleConnTimeout       = 90 * time.Second
