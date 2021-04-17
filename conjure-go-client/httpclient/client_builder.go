@@ -42,8 +42,6 @@ const (
 	defaultMaxIdleConnsPerHost   = 100
 	defaultInitialBackoff        = 250 * time.Millisecond
 	defaultMaxBackoff            = 2 * time.Second
-	defaultMultiplier            = float64(2)
-	defaultRandomization         = 0.15
 )
 
 type clientBuilder struct {
@@ -141,7 +139,7 @@ func newClient(ctx context.Context, b *clientBuilder, params ...ClientParam) (Cl
 	return &clientImpl{
 		client:                 httpClient,
 		uris:                   b.URIs,
-		retryOptions:           b.RetryParams,
+		backoffOptions:         b.RetryParams,
 		middlewares:            middleware,
 		errorDecoderMiddleware: edm,
 		recoveryMiddleware:     &recoveryMiddleware{Disabled: b.HTTP.DisableRecovery},
@@ -209,11 +207,9 @@ func newClientBuilder() *clientBuilder {
 		BytesBufferPool: nil,
 		ErrorDecoder:    restErrorDecoder{},
 		RetryParams: refreshingclient.RefreshableRetryParams{
-			MaxAttempts:         refreshable.NewIntPtr(refreshable.NewDefaultRefreshable((*int)(nil))),
-			InitialBackoff:      refreshable.NewDuration(refreshable.NewDefaultRefreshable(defaultInitialBackoff)),
-			MaxBackoff:          refreshable.NewDuration(refreshable.NewDefaultRefreshable(defaultMaxBackoff)),
-			Multiplier:          refreshable.NewFloat64(refreshable.NewDefaultRefreshable(defaultMultiplier)),
-			RandomizationFactor: refreshable.NewFloat64(refreshable.NewDefaultRefreshable(defaultRandomization)),
+			MaxAttempts:    refreshable.NewIntPtr(refreshable.NewDefaultRefreshable((*int)(nil))),
+			InitialBackoff: refreshable.NewDuration(refreshable.NewDefaultRefreshable(defaultInitialBackoff)),
+			MaxBackoff:     refreshable.NewDuration(refreshable.NewDefaultRefreshable(defaultMaxBackoff)),
 		},
 	}
 }

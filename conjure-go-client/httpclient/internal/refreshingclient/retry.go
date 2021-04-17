@@ -22,23 +22,14 @@ import (
 )
 
 type RefreshableRetryParams struct {
-	MaxAttempts         refreshable.IntPtr // 0 means no limit. If nil, uses 2*len(uris).
-	InitialBackoff      refreshable.Duration
-	MaxBackoff          refreshable.Duration
-	Multiplier          refreshable.Float64
-	RandomizationFactor refreshable.Float64
+	MaxAttempts    refreshable.IntPtr // 0 means no limit. If nil, uses 2*len(uris).
+	InitialBackoff refreshable.Duration
+	MaxBackoff     refreshable.Duration
 }
 
-func (r RefreshableRetryParams) Start(ctx context.Context, numURIs int) retry.Retrier {
-	attempts := 2 * numURIs
-	if rMaxAttempts := r.MaxAttempts.CurrentIntPtr(); rMaxAttempts != nil {
-		attempts = *rMaxAttempts
-	}
+func (r RefreshableRetryParams) Start(ctx context.Context) retry.Retrier {
 	return retry.Start(ctx,
-		retry.WithMaxAttempts(attempts),
 		retry.WithInitialBackoff(r.InitialBackoff.CurrentDuration()),
 		retry.WithMaxBackoff(r.MaxBackoff.CurrentDuration()),
-		retry.WithMultiplier(r.Multiplier.CurrentFloat64()),
-		retry.WithRandomizationFactor(r.RandomizationFactor.CurrentFloat64()),
 	)
 }

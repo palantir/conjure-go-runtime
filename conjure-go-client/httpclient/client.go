@@ -24,7 +24,6 @@ import (
 	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient/internal/refreshingclient"
 	"github.com/palantir/pkg/bytesbuffers"
 	"github.com/palantir/pkg/refreshable"
-	"github.com/palantir/pkg/retry"
 	werror "github.com/palantir/witchcraft-go-error"
 )
 
@@ -55,9 +54,10 @@ type clientImpl struct {
 	errorDecoderMiddleware Middleware
 	recoveryMiddleware     Middleware
 
-	uris         refreshable.StringSlice
-	retryOptions refreshingclient.RefreshableRetryParams
-	bufferPool   bytesbuffers.Pool
+	uris           refreshable.StringSlice
+	maxAttempts    refreshable.IntPtr // 0 means no limit. If nil, uses 2*len(uris).
+	backoffOptions refreshingclient.RefreshableRetryParams
+	bufferPool     bytesbuffers.Pool
 }
 
 func (c *clientImpl) Get(ctx context.Context, params ...RequestParam) (*http.Response, error) {
@@ -97,7 +97,7 @@ func (c *clientImpl) Do(ctx context.Context, params ...RequestParam) (*http.Resp
 		attempts = *confMaxAttempts
 	}
 
-	retrier := internal.NewRequestRetrier(uris, c.retryOptions.Start(ctx, len(uris)))
+	retrier := internal.NewRequestRetrier(uris, c.backoffOptions.Start(ctx), attempts)
 	for retrier.ShouldGetNextURI(resp, err) {
 		uri, retryErr := retrier.GetNextURI(ctx, resp, err)
 		if retryErr != nil {

@@ -162,9 +162,8 @@ func TestRefreshableClientConfig(t *testing.T) {
 	client, err := NewClientFromRefreshableConfig(context.Background(), refreshableClientConfig)
 	require.NoError(t, err, "expected to create a client from empty client config")
 
-	currentRetryParams := func() refreshingclient.RetryParams {
-		return client.(*clientImpl).retryOptions.(refreshingclient.RefreshableRetryParams).Current().(refreshingclient.RetryParams)
-	}
+	retryParams := client.(*clientImpl).backoffOptions
+
 	currentHTTPClient := func() *http.Client {
 		return client.(*clientImpl).client.CurrentHTTPClient()
 	}
@@ -194,12 +193,9 @@ func TestRefreshableClientConfig(t *testing.T) {
 	t.Run("default config", func(t *testing.T) {
 		assert.Equal(t, defaultHTTPTimeout, currentHTTPClient().Timeout, "http timeout not set to default")
 
-		assert.Equal(t, refreshingclient.RetryParams{
-			InitialBackoff:      newDurationPtr(defaultInitialBackoff),
-			MaxBackoff:          newDurationPtr(defaultMaxBackoff),
-			Multiplier:          newFloatPtr(defaultMultiplier),
-			RandomizationFactor: newFloatPtr(defaultRandomization),
-		}, currentRetryParams())
+		assert.Nil(t, retryParams.MaxAttempts.CurrentIntPtr())
+		assert.Equal(t, defaultInitialBackoff, retryParams.InitialBackoff.CurrentDuration())
+		assert.Equal(t, defaultMaxBackoff, retryParams.MaxBackoff.CurrentDuration())
 
 		initialTransport, initialMiddlewares := currentHTTPTransport()
 		assert.Equal(t, defaultMaxIdleConns, initialTransport.MaxIdleConns)
