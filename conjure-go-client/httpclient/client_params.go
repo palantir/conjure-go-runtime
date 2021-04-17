@@ -426,13 +426,11 @@ func WithBaseURLs(urls []string) ClientParam {
 	})
 }
 
-// WithMaxBackoff sets the maximum backoff between retried calls to the same URI. Defaults to no limit.
+// WithMaxBackoff sets the maximum backoff between retried calls to the same URI.
+// Defaults to 2 seconds. <= 0 indicates no limit.
 func WithMaxBackoff(maxBackoff time.Duration) ClientParam {
 	return clientParamFunc(func(b *clientBuilder) error {
-		b.RetryParams = b.RetryParams.TransformParams(func(p refreshingclient.RetryParams) refreshingclient.RetryParams {
-			p.MaxBackoff = &maxBackoff
-			return p
-		})
+		b.RetryParams.MaxBackoff = refreshable.NewDuration(refreshable.NewDefaultRefreshable(maxBackoff))
 		return nil
 	})
 }
@@ -440,10 +438,7 @@ func WithMaxBackoff(maxBackoff time.Duration) ClientParam {
 // WithInitialBackoff sets the initial backoff between retried calls to the same URI. Defaults to 250ms.
 func WithInitialBackoff(initialBackoff time.Duration) ClientParam {
 	return clientParamFunc(func(b *clientBuilder) error {
-		b.RetryParams = b.RetryParams.TransformParams(func(p refreshingclient.RetryParams) refreshingclient.RetryParams {
-			p.InitialBackoff = &initialBackoff
-			return p
-		})
+		b.RetryParams.InitialBackoff = refreshable.NewDuration(refreshable.NewDefaultRefreshable(initialBackoff))
 		return nil
 	})
 }
@@ -454,10 +449,8 @@ func WithInitialBackoff(initialBackoff time.Duration) ClientParam {
 // TODO (#151): Rename to WithMaxAttempts and set maxAttempts directly using the argument provided to the function.
 func WithMaxRetries(maxTransportRetries int) ClientParam {
 	return clientParamFunc(func(b *clientBuilder) error {
-		b.MaxAttempts = refreshable.NewIntPtr(b.MaxAttempts.MapIntPtr(func(*int) interface{} {
-			v := maxTransportRetries + 1
-			return &v
-		}))
+		attempts := maxTransportRetries + 1
+		b.RetryParams.MaxAttempts = refreshable.NewIntPtr(refreshable.NewDefaultRefreshable(&attempts))
 		return nil
 	})
 }
@@ -466,11 +459,9 @@ func WithMaxRetries(maxTransportRetries int) ClientParam {
 // If set, this supersedes any retry limits set with WithMaxRetries.
 func WithUnlimitedRetries() ClientParam {
 	return clientParamFunc(func(b *clientBuilder) error {
-		b.MaxAttempts = refreshable.NewIntPtr(b.MaxAttempts.MapIntPtr(func(*int) interface{} {
-			// max attempts of 0 indicates no limit
-			v := 0
-			return &v
-		}))
+		// max attempts of 0 indicates no limit
+		attempts := 0
+		b.RetryParams.MaxAttempts = refreshable.NewIntPtr(refreshable.NewDefaultRefreshable(&attempts))
 		return nil
 	})
 }

@@ -40,8 +40,8 @@ const (
 	defaultExpectContinueTimeout = 1 * time.Second
 	defaultMaxIdleConns          = 200
 	defaultMaxIdleConnsPerHost   = 100
-	defaultInitialBackoff        = 2 * time.Second
-	defaultMaxBackoff            = 250 * time.Millisecond
+	defaultInitialBackoff        = 250 * time.Millisecond
+	defaultMaxBackoff            = 2 * time.Second
 	defaultMultiplier            = float64(2)
 	defaultRandomization         = 0.15
 )
@@ -54,7 +54,6 @@ type clientBuilder struct {
 	ErrorDecoder ErrorDecoder
 
 	BytesBufferPool bytesbuffers.Pool
-	MaxAttempts     refreshable.IntPtr // 0 means no limit. if nil, use 2*len(uris)
 	RetryParams     refreshingclient.RefreshableRetryParams
 }
 
@@ -110,8 +109,7 @@ func NewClient(params ...ClientParam) (Client, error) {
 // We apply "sane defaults" before applying the provided params.
 func NewClientFromRefreshableConfig(ctx context.Context, config RefreshableClientConfig, params ...ClientParam) (Client, error) {
 	b := newClientBuilder()
-	b, _, err := newClientBuilderFromRefreshableConfig(ctx, config, b, nil)
-	if err != nil {
+	if err := newClientBuilderFromRefreshableConfig(ctx, config, b, nil); err != nil {
 		return nil, err
 	}
 	return newClient(ctx, b, params...)
@@ -143,7 +141,6 @@ func newClient(ctx context.Context, b *clientBuilder, params ...ClientParam) (Cl
 	return &clientImpl{
 		client:                 httpClient,
 		uris:                   b.URIs,
-		maxAttempts:            b.MaxAttempts,
 		retryOptions:           b.RetryParams,
 		middlewares:            middleware,
 		errorDecoderMiddleware: edm,
@@ -170,8 +167,7 @@ type RefreshableHTTPClient = refreshingclient.RefreshableHTTPClient
 // We apply "sane defaults" before applying the provided params.
 func NewHTTPClientFromRefreshableConfig(ctx context.Context, config RefreshableClientConfig, params ...HTTPClientParam) (RefreshableHTTPClient, error) {
 	b := newClientBuilder()
-	b, _, err := newClientBuilderFromRefreshableConfig(ctx, config, b, nil)
-	if err != nil {
+	if err := newClientBuilderFromRefreshableConfig(ctx, config, b, nil); err != nil {
 		return nil, err
 	}
 	return b.HTTP.Build(ctx, params...)
@@ -212,14 +208,12 @@ func newClientBuilder() *clientBuilder {
 		URIs:            nil,
 		BytesBufferPool: nil,
 		ErrorDecoder:    restErrorDecoder{},
-		MaxAttempts:     refreshable.NewIntPtr(refreshable.NewDefaultRefreshable((*int)(nil))),
 		RetryParams: refreshingclient.RefreshableRetryParams{
-			Refreshable: refreshable.NewDefaultRefreshable(refreshingclient.RetryParams{
-				InitialBackoff:      newDurationPtr(defaultInitialBackoff),
-				MaxBackoff:          newDurationPtr(defaultMaxBackoff),
-				Multiplier:          newFloatPtr(defaultMultiplier),
-				RandomizationFactor: newFloatPtr(defaultRandomization),
-			}),
+			MaxAttempts:         refreshable.NewIntPtr(refreshable.NewDefaultRefreshable((*int)(nil))),
+			InitialBackoff:      refreshable.NewDuration(refreshable.NewDefaultRefreshable(defaultInitialBackoff)),
+			MaxBackoff:          refreshable.NewDuration(refreshable.NewDefaultRefreshable(defaultMaxBackoff)),
+			Multiplier:          refreshable.NewFloat64(refreshable.NewDefaultRefreshable(defaultMultiplier)),
+			RandomizationFactor: refreshable.NewFloat64(refreshable.NewDefaultRefreshable(defaultRandomization)),
 		},
 	}
 }
@@ -227,66 +221,69 @@ func newClientBuilder() *clientBuilder {
 // validParamsSnapshot represents a set of fields derived from a snapshot of ClientConfig.
 // It is designed for use within a refreshable: fields are comparable with reflect.DeepEqual
 // so unnecessary updates are not pushed to subscribers.
+// Values are generally known to be "valid" to minimize downstream error handling.
 type validParamsSnapshot struct {
 	dialer         refreshingclient.DialerParams
 	disableMetrics bool
-	maxAttempts    *int
 	metricsTags    metrics.Tags
-	retry          refreshingclient.RetryParams
 	timeout        time.Duration
 	transport      refreshingclient.TransportParams
 	uris           []string
 }
 
-func newClientBuilderFromRefreshableConfig(ctx context.Context, config RefreshableClientConfig, b *clientBuilder, reloadErrorSubmitter func(error)) (_ *clientBuilder, reloadError func() error, err error) {
-	serviceNameTag, err := metrics.NewTag(MetricTagServiceName, config.CurrentClientConfig().ServiceName)
+func newClientBuilderFromRefreshableConfig(ctx context.Context, config RefreshableClientConfig, b *clientBuilder, reloadErrorSubmitter func(error)) error {
+	var err error
+	b.HTTP.ServiceNameTag, err = metrics.NewTag(MetricTagServiceName, config.CurrentClientConfig().ServiceName)
 	if err != nil {
-		return nil, nil, werror.Wrap(err, "invalid service name metrics tag")
+		return werror.WrapWithContextParams(ctx, err, "invalid service name metrics tag")
 	}
 	config.ServiceName().SubscribeToString(func(s string) {
 		svc1log.FromContext(ctx).Warn("Service name changed but can not be live-reloaded.",
-			svc1log.SafeParam("existingServiceName", serviceNameTag.Value()),
+			svc1log.SafeParam("existingServiceName", b.HTTP.ServiceNameTag.Value()),
 			svc1log.SafeParam("updatedServiceName", s))
 	})
 
 	refreshingParams, err := refreshable.NewMapValidatingRefreshable(config, func(i interface{}) (interface{}, error) {
-		p, err := newValidParamsSnapshot(ctx, i.(ClientConfig), serviceNameTag)
+		p, err := newValidParamsSnapshot(ctx, i.(ClientConfig), b.HTTP.ServiceNameTag)
 		if reloadErrorSubmitter != nil {
 			reloadErrorSubmitter(err)
 		}
 		return p, err
 	})
 	if err != nil {
-		return nil, nil, err
+		return err
 	}
-	b.HTTP.DialerParams.Refreshable = mapValidParamsSnapshot(refreshingParams, func(params validParamsSnapshot) interface{} {
+	mapValidParamsSnapshot := func(mapFn func(params validParamsSnapshot) interface{}) refreshable.Refreshable {
+		return refreshingParams.Map(func(i interface{}) interface{} {
+			return mapFn(i.(validParamsSnapshot))
+		})
+	}
+	b.HTTP.DialerParams.Refreshable = mapValidParamsSnapshot(func(params validParamsSnapshot) interface{} {
 		return params.dialer
 	})
-	b.HTTP.TransportParams.Refreshable = mapValidParamsSnapshot(refreshingParams, func(params validParamsSnapshot) interface{} {
+	b.HTTP.TransportParams.Refreshable = mapValidParamsSnapshot(func(params validParamsSnapshot) interface{} {
 		return params.transport
 	})
-	b.HTTP.Timeout = refreshable.NewDuration(mapValidParamsSnapshot(refreshingParams, func(params validParamsSnapshot) interface{} {
+	b.HTTP.Timeout = refreshable.NewDuration(mapValidParamsSnapshot(func(params validParamsSnapshot) interface{} {
 		return params.timeout
 	}))
-	b.HTTP.DisableMetrics = refreshable.NewBool(mapValidParamsSnapshot(refreshingParams, func(params validParamsSnapshot) interface{} {
+	b.HTTP.DisableMetrics = refreshable.NewBool(mapValidParamsSnapshot(func(params validParamsSnapshot) interface{} {
 		return params.disableMetrics
 	}))
-	b.HTTP.MetricsTagProviders = append(b.HTTP.MetricsTagProviders, refreshableMetricsTagsProvider{Refreshable: mapValidParamsSnapshot(refreshingParams, func(params validParamsSnapshot) interface{} {
+	b.HTTP.MetricsTagProviders = append(b.HTTP.MetricsTagProviders, refreshableMetricsTagsProvider{Refreshable: mapValidParamsSnapshot(func(params validParamsSnapshot) interface{} {
 		return params.metricsTags
 	})})
-	b.HTTP.ServiceNameTag = serviceNameTag
-
-	b.MaxAttempts = refreshable.NewIntPtr(mapValidParamsSnapshot(refreshingParams, func(params validParamsSnapshot) interface{} {
-		return params.maxAttempts
-	}))
-	b.RetryParams.Refreshable = mapValidParamsSnapshot(refreshingParams, func(params validParamsSnapshot) interface{} {
-		return params.retry
-	})
-	b.URIs = refreshable.NewStringSlice(mapValidParamsSnapshot(refreshingParams, func(params validParamsSnapshot) interface{} {
+	b.URIs = refreshable.NewStringSlice(mapValidParamsSnapshot(func(params validParamsSnapshot) interface{} {
 		return params.uris
 	}))
-
-	return b, refreshingParams.LastValidateErr, nil
+	b.RetryParams.MaxAttempts = config.MaxNumRetries()
+	b.RetryParams.InitialBackoff = refreshable.NewDuration(config.InitialBackoff().MapDurationPtr(func(duration *time.Duration) interface{} {
+		return derefDurationPtr(duration, defaultInitialBackoff)
+	}))
+	b.RetryParams.MaxBackoff = refreshable.NewDuration(config.MaxBackoff().MapDurationPtr(func(duration *time.Duration) interface{} {
+		return derefDurationPtr(duration, defaultMaxBackoff)
+	}))
+	return nil
 }
 
 func newValidParamsSnapshot(ctx context.Context, config ClientConfig, serviceNameTag metrics.Tag) (validParamsSnapshot, error) {
@@ -334,20 +331,6 @@ func newValidParamsSnapshot(ctx context.Context, config ClientConfig, serviceNam
 		return validParamsSnapshot{}, err
 	}
 
-	multiplier := defaultMultiplier
-	randomization := defaultRandomization
-	var maxAttempts *int
-	if config.MaxNumRetries != nil {
-		a := *config.MaxNumRetries + 1
-		maxAttempts = &a
-	}
-	retry := refreshingclient.RetryParams{
-		InitialBackoff:      config.InitialBackoff,
-		MaxBackoff:          config.MaxBackoff,
-		Multiplier:          &multiplier,
-		RandomizationFactor: &randomization,
-	}
-
 	timeout := defaultHTTPTimeout
 	if config.ReadTimeout != nil || config.WriteTimeout != nil {
 		rt := derefDurationPtr(config.ReadTimeout, 0)
@@ -375,19 +358,11 @@ func newValidParamsSnapshot(ctx context.Context, config ClientConfig, serviceNam
 	return validParamsSnapshot{
 		dialer:         dialer,
 		disableMetrics: disableMetrics,
-		maxAttempts:    maxAttempts,
 		metricsTags:    metricsTags,
-		retry:          retry,
 		timeout:        timeout,
 		transport:      transport,
 		uris:           uris,
 	}, nil
-}
-
-func mapValidParamsSnapshot(r refreshable.Refreshable, mapFn func(params validParamsSnapshot) interface{}) refreshable.Refreshable {
-	return r.Map(func(i interface{}) interface{} {
-		return mapFn(i.(validParamsSnapshot))
-	})
 }
 
 func newDurationPtr(dur time.Duration) *time.Duration {

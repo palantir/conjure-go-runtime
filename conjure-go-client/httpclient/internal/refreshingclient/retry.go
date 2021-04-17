@@ -15,52 +15,30 @@
 package refreshingclient
 
 import (
-	"time"
+	"context"
 
 	"github.com/palantir/pkg/refreshable"
 	"github.com/palantir/pkg/retry"
 )
 
-type RefreshableRetryOptions interface {
-	RetryOptions() []retry.Option
-}
-
-type RetryParams struct {
-	InitialBackoff      *time.Duration
-	MaxBackoff          *time.Duration
-	Multiplier          *float64
-	RandomizationFactor *float64
-}
-
 type RefreshableRetryParams struct {
-	RefreshableRetryOptions
-	refreshable.Refreshable // contains RetryParams
+	MaxAttempts         refreshable.IntPtr // 0 means no limit. If nil, uses 2*len(uris).
+	InitialBackoff      refreshable.Duration
+	MaxBackoff          refreshable.Duration
+	Multiplier          refreshable.Float64
+	RandomizationFactor refreshable.Float64
 }
 
-// TransformParams accepts a mapping function which will be applied to the params value as it is evaluated.
-// This can be used to layer/overwrite configuration before building the RefreshableDialer.
-func (r RefreshableRetryParams) TransformParams(mapFn func(p RetryParams) RetryParams) RefreshableRetryParams {
-	return RefreshableRetryParams{
-		Refreshable: r.Map(func(i interface{}) interface{} {
-			return mapFn(i.(RetryParams))
-		}),
+func (r RefreshableRetryParams) Start(ctx context.Context, numURIs int) retry.Retrier {
+	attempts := 2 * numURIs
+	if rMaxAttempts := r.MaxAttempts.CurrentIntPtr(); rMaxAttempts != nil {
+		attempts = *rMaxAttempts
 	}
-}
-
-func (r RefreshableRetryParams) RetryOptions() []retry.Option {
-	p := r.Current().(RetryParams)
-	var opts []retry.Option
-	if p.InitialBackoff != nil {
-		opts = append(opts, retry.WithInitialBackoff(*p.InitialBackoff))
-	}
-	if p.MaxBackoff != nil {
-		opts = append(opts, retry.WithMaxBackoff(*p.MaxBackoff))
-	}
-	if p.Multiplier != nil {
-		opts = append(opts, retry.WithMultiplier(*p.Multiplier))
-	}
-	if p.RandomizationFactor != nil {
-		opts = append(opts, retry.WithRandomizationFactor(*p.RandomizationFactor))
-	}
-	return opts
+	return retry.Start(ctx,
+		retry.WithMaxAttempts(attempts),
+		retry.WithInitialBackoff(r.InitialBackoff.CurrentDuration()),
+		retry.WithMaxBackoff(r.MaxBackoff.CurrentDuration()),
+		retry.WithMultiplier(r.Multiplier.CurrentFloat64()),
+		retry.WithRandomizationFactor(r.RandomizationFactor.CurrentFloat64()),
+	)
 }

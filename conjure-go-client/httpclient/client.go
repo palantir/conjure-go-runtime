@@ -56,8 +56,7 @@ type clientImpl struct {
 	recoveryMiddleware     Middleware
 
 	uris         refreshable.StringSlice
-	maxAttempts  refreshable.IntPtr
-	retryOptions refreshingclient.RefreshableRetryOptions
+	retryOptions refreshingclient.RefreshableRetryParams
 	bufferPool   bytesbuffers.Pool
 }
 
@@ -98,7 +97,7 @@ func (c *clientImpl) Do(ctx context.Context, params ...RequestParam) (*http.Resp
 		attempts = *confMaxAttempts
 	}
 
-	retrier := internal.NewRequestRetrier(uris, retry.Start(ctx, c.retryOptions.RetryOptions()...), attempts)
+	retrier := internal.NewRequestRetrier(uris, c.retryOptions.Start(ctx, len(uris)))
 	for retrier.ShouldGetNextURI(resp, err) {
 		uri, retryErr := retrier.GetNextURI(ctx, resp, err)
 		if retryErr != nil {

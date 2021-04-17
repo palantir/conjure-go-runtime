@@ -16,10 +16,12 @@ package httpclient
 
 import (
 	"context"
+	"net/http"
 	"testing"
 	"time"
 
 	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient/internal/refreshingclient"
+	"github.com/palantir/pkg/metrics"
 	"github.com/palantir/pkg/refreshable"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -134,69 +136,126 @@ clients:
 func TestRefreshableClientConfig(t *testing.T) {
 	const serviceName = "serviceName"
 	initialConfig := ServicesConfig{
-		Default: ClientConfig{
-			URIs:                  nil,
-			APIToken:              nil,
-			APITokenFile:          nil,
-			DisableHTTP2:          nil,
-			ProxyFromEnvironment:  nil,
-			ProxyURL:              nil,
-			MaxNumRetries:         nil,
-			InitialBackoff:        nil,
-			MaxBackoff:            newDurationPtr(time.Minute),
-			ConnectTimeout:        nil,
-			ReadTimeout:           nil,
-			WriteTimeout:          nil,
-			IdleConnTimeout:       nil,
-			TLSHandshakeTimeout:   nil,
-			ExpectContinueTimeout: nil,
-			MaxIdleConns:          nil,
-			MaxIdleConnsPerHost:   nil,
-			Metrics:               MetricsConfig{},
-			Security:              SecurityConfig{},
-		},
-		Services: map[string]ClientConfig{
-			serviceName: {
-				URIs:                  nil,
-				APIToken:              nil,
-				APITokenFile:          nil,
-				DisableHTTP2:          nil,
-				ProxyFromEnvironment:  nil,
-				ProxyURL:              nil,
-				MaxNumRetries:         nil,
-				InitialBackoff:        nil,
-				MaxBackoff:            nil,
-				ConnectTimeout:        nil,
-				ReadTimeout:           nil,
-				WriteTimeout:          nil,
-				IdleConnTimeout:       nil,
-				TLSHandshakeTimeout:   nil,
-				ExpectContinueTimeout: nil,
-				MaxIdleConns:          nil,
-				MaxIdleConnsPerHost:   nil,
-				Metrics:               MetricsConfig{},
-				Security:              SecurityConfig{},
-			},
-		},
+		Default:  ClientConfig{},
+		Services: map[string]ClientConfig{},
 	}
-	refreshableServicesConfig := NewRefreshingServicesConfig(refreshable.NewDefaultRefreshable(initialConfig))
+	initialConfigBytes, err := yaml.Marshal(initialConfig)
+	require.NoError(t, err)
+	refreshableConfigBytes := refreshable.NewDefaultRefreshable(initialConfigBytes)
+	//updateRefreshableBytes := func(s ServicesConfig) {
+	//	b, err := yaml.Marshal(s)
+	//	if err != nil {
+	//		panic(err)
+	//	}
+	//	if err :=  refreshableConfigBytes.Update(b); err != nil {
+	//		panic(err)
+	//	}
+	//}
+	refreshableServicesConfig := NewRefreshingServicesConfig(refreshableConfigBytes.Map(func(i interface{}) interface{} {
+		var c ServicesConfig
+		if err := yaml.Unmarshal(i.([]byte), &c); err != nil {
+			panic(err)
+		}
+		return c
+	}))
 	refreshableClientConfig := RefreshableClientConfigFromServiceConfig(refreshableServicesConfig, serviceName)
 	client, err := NewClientFromRefreshableConfig(context.Background(), refreshableClientConfig)
-	require.NoError(t, err)
+	require.NoError(t, err, "expected to create a client from empty client config")
 
 	currentRetryParams := func() refreshingclient.RetryParams {
 		return client.(*clientImpl).retryOptions.(refreshingclient.RefreshableRetryParams).Current().(refreshingclient.RetryParams)
 	}
-
-	require.Equal(t, time.Minute, currentRetryParams().MaxBackoff)
-
-	for _, test := range []struct {
-		Name        string
-		ServiceName string
-		Configs     []ServicesConfig
-		Verify      []func(t *testing.T, c *clientImpl)
-	}{} {
-		t.Run(test.Name, func(t *testing.T) {
-		})
+	currentHTTPClient := func() *http.Client {
+		return client.(*clientImpl).client.CurrentHTTPClient()
 	}
+	currentHTTPTransport := func() (*http.Transport, []Middleware) {
+		c := currentHTTPClient()
+		unwrapped := c.Transport
+		var middlewares []Middleware
+		for {
+			switch r := unwrapped.(type) {
+			case *wrappedClient:
+				unwrapped = r.baseTransport
+				middlewares = append(middlewares, r.middleware)
+			case *refreshingclient.RefreshableTransport:
+				unwrapped = r.Current().(http.RoundTripper)
+			case *http.Transport:
+				return r, middlewares
+			default:
+				panic(r)
+			}
+		}
+	}
+	var (
+		recoveryM recoveryMiddleware
+		traceM    traceMiddleware
+		metricsM  *metricsMiddleware
+	)
+	t.Run("default config", func(t *testing.T) {
+		assert.Equal(t, defaultHTTPTimeout, currentHTTPClient().Timeout, "http timeout not set to default")
+
+		assert.Equal(t, refreshingclient.RetryParams{
+			InitialBackoff:      newDurationPtr(defaultInitialBackoff),
+			MaxBackoff:          newDurationPtr(defaultMaxBackoff),
+			Multiplier:          newFloatPtr(defaultMultiplier),
+			RandomizationFactor: newFloatPtr(defaultRandomization),
+		}, currentRetryParams())
+
+		initialTransport, initialMiddlewares := currentHTTPTransport()
+		assert.Equal(t, defaultMaxIdleConns, initialTransport.MaxIdleConns)
+		assert.Equal(t, defaultMaxIdleConnsPerHost, initialTransport.MaxIdleConnsPerHost)
+		assert.Equal(t, defaultIdleConnTimeout, initialTransport.IdleConnTimeout)
+		assert.Equal(t, defaultExpectContinueTimeout, initialTransport.ExpectContinueTimeout)
+		assert.Equal(t, defaultTLSHandshakeTimeout, initialTransport.TLSHandshakeTimeout)
+		assert.Equal(t, false, initialTransport.DisableKeepAlives)
+
+		if assert.Len(t, initialMiddlewares, 3) {
+			if assert.IsType(t, recoveryMiddleware{}, initialMiddlewares[0]) {
+				recoveryM = initialMiddlewares[0].(recoveryMiddleware)
+				assert.False(t, recoveryM.Disabled.CurrentBool())
+			}
+			if assert.IsType(t, traceMiddleware{}, initialMiddlewares[1]) {
+				traceM = initialMiddlewares[1].(traceMiddleware)
+				assert.True(t, traceM.CreateRequestSpan.CurrentBool())
+				assert.True(t, traceM.InjectHeaders.CurrentBool())
+			}
+			if assert.IsType(t, &metricsMiddleware{}, initialMiddlewares[2]) {
+				metricsM = initialMiddlewares[2].(*metricsMiddleware)
+				assert.False(t, metricsM.Disabled.CurrentBool())
+				assert.Equal(t, metrics.MustNewTag(MetricTagServiceName, serviceName), metricsM.ServiceNameTag)
+			}
+		}
+	})
+
+	//&http.Transport{
+	//	Proxy:                  nil,
+	//	DialContext:            nil,
+	//	Dial:                   nil,
+	//	DialTLSContext:         nil,
+	//	DialTLS:                nil,
+	//	TLSClientConfig:        nil,
+	//	DisableCompression:     false,
+	//	ResponseHeaderTimeout:  0,
+	//	ExpectContinueTimeout:  0,
+	//	TLSNextProto:           nil,
+	//	ProxyConnectHeader:     nil,
+	//	GetProxyConnectHeader:  nil,
+	//	MaxResponseHeaderBytes: 0,
+	//	WriteBufferSize:        0,
+	//	ReadBufferSize:         0,
+	//	ForceAttemptHTTP2:      false,
+	//}
+	//
+	//defaultDialTimeout           = 10 * time.Second
+	//defaultKeepAlive             = 30 * time.Second
+
+	//for _, test := range []struct {
+	//	Name        string
+	//	ServiceName string
+	//	Configs     []ServicesConfig
+	//	Verify      []func(t *testing.T, c *clientImpl)
+	//}{} {
+	//	t.Run(test.Name, func(t *testing.T) {
+	//	})
+	//}
 }
