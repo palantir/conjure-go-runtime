@@ -53,7 +53,7 @@ func TestBuilder(t *testing.T) {
 			Name:  "DisableHTTP2",
 			Param: WithDisableHTTP2(),
 			Test: func(t *testing.T, client *clientImpl) {
-				transport := unwrapTransport(client.client.CurrentHTTPClient().Transport)
+				transport, _ := unwrapTransport(client.client.CurrentHTTPClient().Transport)
 				assert.NotContains(t, transport.TLSClientConfig.NextProtos, "h2")
 			},
 		},
@@ -61,7 +61,7 @@ func TestBuilder(t *testing.T) {
 			Name:  "NoProxy",
 			Param: WithNoProxy(),
 			Test: func(t *testing.T, client *clientImpl) {
-				transport := unwrapTransport(client.client.CurrentHTTPClient().Transport)
+				transport, _ := unwrapTransport(client.client.CurrentHTTPClient().Transport)
 				proxy := transport.Proxy
 				assert.Nil(t, proxy)
 			},
@@ -70,7 +70,7 @@ func TestBuilder(t *testing.T) {
 			Name:  "MaxIdleConns",
 			Param: WithMaxIdleConns(100),
 			Test: func(t *testing.T, client *clientImpl) {
-				transport := unwrapTransport(client.client.CurrentHTTPClient().Transport)
+				transport, _ := unwrapTransport(client.client.CurrentHTTPClient().Transport)
 				assert.Equal(t, 100, transport.MaxIdleConns)
 			},
 		},
@@ -78,7 +78,7 @@ func TestBuilder(t *testing.T) {
 			Name:  "MaxIdleConnsPerHost",
 			Param: WithMaxIdleConnsPerHost(50),
 			Test: func(t *testing.T, client *clientImpl) {
-				transport := unwrapTransport(client.client.CurrentHTTPClient().Transport)
+				transport, _ := unwrapTransport(client.client.CurrentHTTPClient().Transport)
 				assert.Equal(t, 50, transport.MaxIdleConnsPerHost)
 			},
 		},
@@ -87,7 +87,7 @@ func TestBuilder(t *testing.T) {
 			Param: WithProxyFromEnvironment(),
 			Test: func(t *testing.T, client *clientImpl) {
 				require.NoError(t, os.Setenv("https_proxy", testURL.String()))
-				transport := unwrapTransport(client.client.CurrentHTTPClient().Transport)
+				transport, _ := unwrapTransport(client.client.CurrentHTTPClient().Transport)
 				resp, err := transport.Proxy(&http.Request{URL: testURL})
 				require.NoError(t, err)
 				require.NotNil(t, resp)
@@ -98,7 +98,7 @@ func TestBuilder(t *testing.T) {
 			Name:  "TLSConfig",
 			Param: WithTLSConfig(&tls.Config{InsecureSkipVerify: true}),
 			Test: func(t *testing.T, client *clientImpl) {
-				transport := unwrapTransport(client.client.CurrentHTTPClient().Transport)
+				transport, _ := unwrapTransport(client.client.CurrentHTTPClient().Transport)
 				assert.True(t, transport.TLSClientConfig.InsecureSkipVerify, "InsecureSkipVerify should stay set")
 			},
 		},
@@ -120,7 +120,7 @@ func TestBuilder(t *testing.T) {
 			Name:  "TLSInsecureSkipVerify",
 			Param: WithTLSInsecureSkipVerify(),
 			Test: func(t *testing.T, client *clientImpl) {
-				transport := unwrapTransport(client.client.CurrentHTTPClient().Transport)
+				transport, _ := unwrapTransport(client.client.CurrentHTTPClient().Transport)
 				assert.True(t, transport.TLSClientConfig.InsecureSkipVerify)
 			},
 		},
@@ -149,16 +149,18 @@ func TestBuilder(t *testing.T) {
 	}
 }
 
-func unwrapTransport(rt http.RoundTripper) *http.Transport {
+func unwrapTransport(rt http.RoundTripper) (*http.Transport, []Middleware) {
 	unwrapped := rt
+	var middlewares []Middleware
 	for {
 		switch v := unwrapped.(type) {
+		case *refreshingclient.RefreshableTransport:
+			unwrapped = v.Current().(http.RoundTripper)
 		case *wrappedClient:
 			unwrapped = v.baseTransport
+			middlewares = append(middlewares, v.middleware)
 		case *http.Transport:
-			return v
-		case *refreshingclient.RefreshableTransport:
-			return v.Current().(*http.Transport)
+			return v, middlewares
 		default:
 			panic(fmt.Sprintf("unknown roundtripper type %T", unwrapped))
 		}

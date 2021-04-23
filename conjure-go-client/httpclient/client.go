@@ -56,7 +56,7 @@ type clientImpl struct {
 
 	uris           refreshable.StringSlice
 	maxAttempts    refreshable.IntPtr // 0 means no limit. If nil, uses 2*len(uris).
-	backoffOptions refreshingclient.RefreshableRetryParams
+	backoffOptions refreshingclient.RetryParams
 	bufferPool     bytesbuffers.Pool
 }
 

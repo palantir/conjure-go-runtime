@@ -113,10 +113,6 @@ func WithServiceName(serviceName string) ClientOrHTTPClientParam {
 			return err
 		}
 		b.ServiceNameTag = tag
-		b.TransportParams = b.TransportParams.TransformParams(func(p refreshingclient.TransportParams) refreshingclient.TransportParams {
-			p.ServiceNameTag = tag
-			return p
-		})
 		return nil
 	})
 }
@@ -320,12 +316,7 @@ func WithProxyURL(proxyURLString string) ClientOrHTTPClientParam {
 // The palantir/pkg/tlsconfig package is recommended to build a tls.Config from sane defaults.
 func WithTLSConfig(conf *tls.Config) ClientOrHTTPClientParam {
 	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
-		b.TransportParams = b.TransportParams.TransformParams(func(p refreshingclient.TransportParams) refreshingclient.TransportParams {
-			if conf != nil {
-				p.TLSConfig = conf.Clone()
-			}
-			return p
-		})
+		b.TLSConfig = conf.Clone()
 		return nil
 	})
 }
@@ -334,12 +325,9 @@ func WithTLSConfig(conf *tls.Config) ClientOrHTTPClientParam {
 // This option should only be used in clients that have way to establish trust with servers.
 func WithTLSInsecureSkipVerify() ClientOrHTTPClientParam {
 	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
-		b.TransportParams = b.TransportParams.TransformParams(func(p refreshingclient.TransportParams) refreshingclient.TransportParams {
-			conf := p.TLSConfig.Clone()
-			conf.InsecureSkipVerify = true
-			p.TLSConfig = conf
-			return p
-		})
+		if b.TLSConfig != nil {
+			b.TLSConfig.InsecureSkipVerify = true
+		}
 		return nil
 	})
 }

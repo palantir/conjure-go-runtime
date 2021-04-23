@@ -16,11 +16,11 @@ package httpclient
 
 import (
 	"context"
+	"crypto/tls"
 	"net/http"
 	"testing"
 	"time"
 
-	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient/internal/refreshingclient"
 	"github.com/palantir/pkg/metrics"
 	"github.com/palantir/pkg/refreshable"
 	"github.com/stretchr/testify/assert"
@@ -135,6 +135,54 @@ clients:
 
 func TestRefreshableClientConfig(t *testing.T) {
 	const serviceName = "serviceName"
+	// testDefaultClient is pulled out becuase we also use it to test the non-refreshable version which is backed by the same infra.
+	testDefaultClient := func(t *testing.T, client *clientImpl) {
+		httpClient := client.client.CurrentHTTPClient()
+		assert.Equal(t, defaultHTTPTimeout, httpClient.Timeout, "http timeout not set to default")
+
+		assert.Nil(t, client.backoffOptions.MaxAttempts.CurrentIntPtr())
+		assert.Equal(t, defaultInitialBackoff, client.backoffOptions.InitialBackoff.CurrentDuration())
+		assert.Equal(t, defaultMaxBackoff, client.backoffOptions.MaxBackoff.CurrentDuration())
+
+		initialTransport, initialMiddlewares := unwrapTransport(httpClient.Transport)
+		assert.Equal(t, defaultMaxIdleConns, initialTransport.MaxIdleConns)
+		assert.Equal(t, defaultMaxIdleConnsPerHost, initialTransport.MaxIdleConnsPerHost)
+		assert.Equal(t, defaultIdleConnTimeout, initialTransport.IdleConnTimeout)
+		assert.Equal(t, defaultExpectContinueTimeout, initialTransport.ExpectContinueTimeout)
+		assert.Equal(t, defaultTLSHandshakeTimeout, initialTransport.TLSHandshakeTimeout)
+		assert.Equal(t, false, initialTransport.DisableKeepAlives)
+
+		if assert.Len(t, initialMiddlewares, 3) {
+			if assert.IsType(t, recoveryMiddleware{}, initialMiddlewares[0]) {
+				recoveryM := initialMiddlewares[0].(recoveryMiddleware)
+				assert.False(t, recoveryM.Disabled.CurrentBool())
+			}
+			if assert.IsType(t, traceMiddleware{}, initialMiddlewares[1]) {
+				traceM := initialMiddlewares[1].(traceMiddleware)
+				assert.True(t, traceM.CreateRequestSpan.CurrentBool())
+				assert.True(t, traceM.InjectHeaders.CurrentBool())
+			}
+			if assert.IsType(t, &metricsMiddleware{}, initialMiddlewares[2]) {
+				metricsM := initialMiddlewares[2].(*metricsMiddleware)
+				assert.False(t, metricsM.Disabled.CurrentBool())
+				assert.Equal(t, metrics.MustNewTag(MetricTagServiceName, serviceName), metricsM.ServiceNameTag)
+			}
+		}
+
+		if assert.NotNil(t, initialTransport.TLSClientConfig) {
+			assert.False(t, initialTransport.TLSClientConfig.InsecureSkipVerify)
+			assert.EqualValues(t, tls.VersionTLS12, initialTransport.TLSClientConfig.MinVersion)
+		}
+
+	}
+	t.Run("default static config", func(t *testing.T) {
+		client, err := NewClient(WithConfig(ClientConfig{ServiceName: serviceName}))
+		require.NoError(t, err)
+		testDefaultClient(t, client.(*clientImpl))
+	})
+
+	// Build a refreshable client from the ground up -- start with an empty configuration, then add/mutate values.
+
 	initialConfig := ServicesConfig{
 		Default:  ClientConfig{},
 		Services: map[string]ClientConfig{},
@@ -142,15 +190,15 @@ func TestRefreshableClientConfig(t *testing.T) {
 	initialConfigBytes, err := yaml.Marshal(initialConfig)
 	require.NoError(t, err)
 	refreshableConfigBytes := refreshable.NewDefaultRefreshable(initialConfigBytes)
-	//updateRefreshableBytes := func(s ServicesConfig) {
-	//	b, err := yaml.Marshal(s)
-	//	if err != nil {
-	//		panic(err)
-	//	}
-	//	if err :=  refreshableConfigBytes.Update(b); err != nil {
-	//		panic(err)
-	//	}
-	//}
+	updateRefreshableBytes := func(s ServicesConfig) {
+		b, err := yaml.Marshal(s)
+		if err != nil {
+			panic(err)
+		}
+		if err := refreshableConfigBytes.Update(b); err != nil {
+			panic(err)
+		}
+	}
 	refreshableServicesConfig := NewRefreshingServicesConfig(refreshableConfigBytes.Map(func(i interface{}) interface{} {
 		var c ServicesConfig
 		if err := yaml.Unmarshal(i.([]byte), &c); err != nil {
@@ -162,65 +210,43 @@ func TestRefreshableClientConfig(t *testing.T) {
 	client, err := NewClientFromRefreshableConfig(context.Background(), refreshableClientConfig)
 	require.NoError(t, err, "expected to create a client from empty client config")
 
-	retryParams := client.(*clientImpl).backoffOptions
+	t.Run("default refreshable config", func(t *testing.T) {
+		testDefaultClient(t, client.(*clientImpl))
+	})
 
 	currentHTTPClient := func() *http.Client {
 		return client.(*clientImpl).client.CurrentHTTPClient()
 	}
-	currentHTTPTransport := func() (*http.Transport, []Middleware) {
-		c := currentHTTPClient()
-		unwrapped := c.Transport
-		var middlewares []Middleware
-		for {
-			switch r := unwrapped.(type) {
-			case *wrappedClient:
-				unwrapped = r.baseTransport
-				middlewares = append(middlewares, r.middleware)
-			case *refreshingclient.RefreshableTransport:
-				unwrapped = r.Current().(http.RoundTripper)
-			case *http.Transport:
-				return r, middlewares
-			default:
-				panic(r)
-			}
-		}
-	}
-	var (
-		recoveryM recoveryMiddleware
-		traceM    traceMiddleware
-		metricsM  *metricsMiddleware
-	)
-	t.Run("default config", func(t *testing.T) {
-		assert.Equal(t, defaultHTTPTimeout, currentHTTPClient().Timeout, "http timeout not set to default")
+	//require.NoError(t, os.Setenv("REFRESHABLE_DEBUG", "true"))
+	t.Run("update timeout, transport unchanged", func(t *testing.T) {
+		oldClient := currentHTTPClient()
+		oldTransport, oldMiddlewares := unwrapTransport(oldClient.Transport)
 
-		assert.Nil(t, retryParams.MaxAttempts.CurrentIntPtr())
-		assert.Equal(t, defaultInitialBackoff, retryParams.InitialBackoff.CurrentDuration())
-		assert.Equal(t, defaultMaxBackoff, retryParams.MaxBackoff.CurrentDuration())
+		t.Run("service config", func(t *testing.T) {
+			serviceCfg := initialConfig.Services[serviceName]
+			serviceCfg.WriteTimeout = newDurationPtr(time.Second)
+			initialConfig.Services[serviceName] = serviceCfg
+			updateRefreshableBytes(initialConfig)
 
-		initialTransport, initialMiddlewares := currentHTTPTransport()
-		assert.Equal(t, defaultMaxIdleConns, initialTransport.MaxIdleConns)
-		assert.Equal(t, defaultMaxIdleConnsPerHost, initialTransport.MaxIdleConnsPerHost)
-		assert.Equal(t, defaultIdleConnTimeout, initialTransport.IdleConnTimeout)
-		assert.Equal(t, defaultExpectContinueTimeout, initialTransport.ExpectContinueTimeout)
-		assert.Equal(t, defaultTLSHandshakeTimeout, initialTransport.TLSHandshakeTimeout)
-		assert.Equal(t, false, initialTransport.DisableKeepAlives)
+			newClient := currentHTTPClient()
+			newTransport, newMiddlewares := unwrapTransport(newClient.Transport)
+			assert.Equal(t, time.Second, newClient.Timeout)
+			assert.NotEqual(t, oldClient, newClient, "expected new http client to be constructed")
+			assert.Equal(t, oldTransport, newTransport, "expected transport to remain unchanged")
+			assert.Equal(t, oldMiddlewares, newMiddlewares, "expected middlewares to remain unchanged")
+		})
+		t.Run("default config", func(t *testing.T) {
+			initialConfig.Default.ReadTimeout = newDurationPtr(time.Hour)
+			updateRefreshableBytes(initialConfig)
 
-		if assert.Len(t, initialMiddlewares, 3) {
-			if assert.IsType(t, recoveryMiddleware{}, initialMiddlewares[0]) {
-				recoveryM = initialMiddlewares[0].(recoveryMiddleware)
-				assert.False(t, recoveryM.Disabled.CurrentBool())
-			}
-			if assert.IsType(t, traceMiddleware{}, initialMiddlewares[1]) {
-				traceM = initialMiddlewares[1].(traceMiddleware)
-				assert.True(t, traceM.CreateRequestSpan.CurrentBool())
-				assert.True(t, traceM.InjectHeaders.CurrentBool())
-			}
-			if assert.IsType(t, &metricsMiddleware{}, initialMiddlewares[2]) {
-				metricsM = initialMiddlewares[2].(*metricsMiddleware)
-				assert.False(t, metricsM.Disabled.CurrentBool())
-				assert.Equal(t, metrics.MustNewTag(MetricTagServiceName, serviceName), metricsM.ServiceNameTag)
-			}
-		}
+			newClient := currentHTTPClient()
+			newTransport, newMiddlewares := unwrapTransport(newClient.Transport)
+			assert.Equal(t, time.Hour, currentHTTPClient().Timeout)
+			assert.NotEqual(t, oldClient, newClient, "expected new http client to be constructed")
+			assert.Equal(t, oldTransport, newTransport, "expected transport to remain unchanged")
+			assert.Equal(t, oldMiddlewares, newMiddlewares, "expected middlewares to remain unchanged")
+		})
+
 	})
 
 	//&http.Transport{

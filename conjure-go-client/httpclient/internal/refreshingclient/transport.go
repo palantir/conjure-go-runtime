@@ -21,14 +21,12 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/palantir/pkg/metrics"
 	"github.com/palantir/pkg/refreshable"
 	"github.com/palantir/witchcraft-go-logging/wlog/svclog/svc1log"
 	"golang.org/x/net/http2"
 )
 
 type TransportParams struct {
-	ServiceNameTag        metrics.Tag
 	MaxIdleConns          int
 	MaxIdleConnsPerHost   int
 	DisableHTTP2          bool
@@ -39,33 +37,22 @@ type TransportParams struct {
 	TLSHandshakeTimeout   time.Duration
 	HTTPProxyURL          *url.URL
 	ProxyFromEnvironment  bool
-	TLSConfig             *tls.Config
 }
 
-func NewRefreshableTransport(ctx context.Context, p RefreshableTransportParams, dialer ContextDialer) http.RoundTripper {
+func NewRefreshableTransport(ctx context.Context, p RefreshableTransportParams, tlsConfig *tls.Config, dialer ContextDialer) http.RoundTripper {
 	return &RefreshableTransport{
 		Refreshable: p.Map(func(i interface{}) interface{} {
-			return newTransport(ctx, i.(TransportParams), dialer)
+			return newTransport(ctx, i.(TransportParams), tlsConfig, dialer)
 		}),
 	}
-}
-
-type RefreshableTransportParams struct {
-	refreshable.Refreshable // contains TransportParams
-}
-
-func (r RefreshableTransportParams) CurrentDialerParams() TransportParams {
-	return r.Current().(TransportParams)
 }
 
 // TransformParams accepts a mapping function which will be applied to the params value as it is evaluated.
 // This can be used to layer/overwrite configuration before building the RefreshableTransport.
-func (r RefreshableTransportParams) TransformParams(mapFn func(p TransportParams) TransportParams) RefreshableTransportParams {
-	return RefreshableTransportParams{
-		Refreshable: r.Map(func(i interface{}) interface{} {
-			return mapFn(i.(TransportParams))
-		}),
-	}
+func (r RefreshingTransportParams) TransformParams(mapFn func(p TransportParams) TransportParams) RefreshableTransportParams {
+	return NewRefreshingTransportParams(r.MapTransportParams(func(params TransportParams) interface{} {
+		return mapFn(params)
+	}))
 }
 
 // RefreshableTransport implements http.RoundTripper backed by a refreshable *http.Transport.
@@ -78,12 +65,13 @@ func (r RefreshableTransport) RoundTrip(req *http.Request) (*http.Response, erro
 	return r.Current().(*http.Transport).RoundTrip(req)
 }
 
-func newTransport(ctx context.Context, p TransportParams, dialer ContextDialer) *http.Transport {
+func newTransport(ctx context.Context, p TransportParams, tlsConfig *tls.Config, dialer ContextDialer) *http.Transport {
+	svc1log.FromContext(ctx).Debug("Reconstructing HTTP Transport")
 	transport := &http.Transport{
 		DialContext:           dialer.DialContext,
 		MaxIdleConns:          p.MaxIdleConns,
 		MaxIdleConnsPerHost:   p.MaxIdleConnsPerHost,
-		TLSClientConfig:       p.TLSConfig,
+		TLSClientConfig:       tlsConfig,
 		DisableKeepAlives:     p.DisableKeepAlives,
 		ExpectContinueTimeout: p.ExpectContinueTimeout,
 		IdleConnTimeout:       p.IdleConnTimeout,

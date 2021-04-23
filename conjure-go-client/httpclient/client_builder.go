@@ -17,6 +17,7 @@ package httpclient
 
 import (
 	"context"
+	"crypto/tls"
 	"net/http"
 	"net/url"
 	"sort"
@@ -52,13 +53,14 @@ type clientBuilder struct {
 	ErrorDecoder ErrorDecoder
 
 	BytesBufferPool bytesbuffers.Pool
-	RetryParams     refreshingclient.RefreshableRetryParams
+	RetryParams     refreshingclient.RetryParams
 }
 
 type httpClientBuilder struct {
 	ServiceNameTag  metrics.Tag // service name is not refreshable.
 	Timeout         refreshable.Duration
 	DialerParams    refreshingclient.RefreshableDialerParams
+	TLSConfig       *tls.Config // TODO: Make this refreshingclient.RefreshableTLSConfig and wire into transport
 	TransportParams refreshingclient.RefreshableTransportParams
 	Middlewares     []Middleware
 
@@ -86,7 +88,7 @@ func (b *httpClientBuilder) Build(ctx context.Context, params ...HTTPClientParam
 		ServiceNameTag: b.ServiceNameTag,
 		Dialer:         refreshingclient.NewRefreshableDialer(ctx, b.DialerParams),
 	}
-	transport := refreshingclient.NewRefreshableTransport(ctx, b.TransportParams, dialer)
+	transport := refreshingclient.NewRefreshableTransport(ctx, b.TransportParams, b.TLSConfig, dialer)
 	transport = wrapTransport(transport,
 		newMetricsMiddleware(b.ServiceNameTag, b.MetricsTagProviders, b.DisableMetrics),
 		traceMiddleware{CreateRequestSpan: b.CreateRequestSpan, InjectHeaders: b.InjectTraceHeaders, ServiceName: b.ServiceNameTag.Value()},
@@ -182,8 +184,8 @@ func newClientBuilder() *clientBuilder {
 				KeepAlive:     defaultKeepAlive,
 				SocksProxyURL: nil,
 			})},
+			TLSConfig: defaultTLSConfig,
 			TransportParams: refreshingclient.RefreshableTransportParams{Refreshable: refreshable.NewDefaultRefreshable(refreshingclient.TransportParams{
-				ServiceNameTag:        metrics.Tag{},
 				MaxIdleConns:          defaultMaxIdleConns,
 				MaxIdleConnsPerHost:   defaultMaxIdleConnsPerHost,
 				DisableHTTP2:          false,
@@ -194,7 +196,6 @@ func newClientBuilder() *clientBuilder {
 				TLSHandshakeTimeout:   defaultTLSHandshakeTimeout,
 				HTTPProxyURL:          nil,
 				ProxyFromEnvironment:  true,
-				TLSConfig:             defaultTLSConfig,
 			})},
 			CreateRequestSpan:   refreshable.NewBool(refreshable.NewDefaultRefreshable(true)),
 			InjectTraceHeaders:  refreshable.NewBool(refreshable.NewDefaultRefreshable(true)),
@@ -206,25 +207,12 @@ func newClientBuilder() *clientBuilder {
 		URIs:            nil,
 		BytesBufferPool: nil,
 		ErrorDecoder:    restErrorDecoder{},
-		RetryParams: refreshingclient.RefreshableRetryParams{
+		RetryParams: refreshingclient.RetryParams{
 			MaxAttempts:    refreshable.NewIntPtr(refreshable.NewDefaultRefreshable((*int)(nil))),
 			InitialBackoff: refreshable.NewDuration(refreshable.NewDefaultRefreshable(defaultInitialBackoff)),
 			MaxBackoff:     refreshable.NewDuration(refreshable.NewDefaultRefreshable(defaultMaxBackoff)),
 		},
 	}
-}
-
-// validParamsSnapshot represents a set of fields derived from a snapshot of ClientConfig.
-// It is designed for use within a refreshable: fields are comparable with reflect.DeepEqual
-// so unnecessary updates are not pushed to subscribers.
-// Values are generally known to be "valid" to minimize downstream error handling.
-type validParamsSnapshot struct {
-	dialer         refreshingclient.DialerParams
-	disableMetrics bool
-	metricsTags    metrics.Tags
-	timeout        time.Duration
-	transport      refreshingclient.TransportParams
-	uris           []string
 }
 
 func newClientBuilderFromRefreshableConfig(ctx context.Context, config RefreshableClientConfig, b *clientBuilder, reloadErrorSubmitter func(error)) error {
@@ -234,13 +222,37 @@ func newClientBuilderFromRefreshableConfig(ctx context.Context, config Refreshab
 		return werror.WrapWithContextParams(ctx, err, "invalid service name metrics tag")
 	}
 	config.ServiceName().SubscribeToString(func(s string) {
-		svc1log.FromContext(ctx).Warn("Service name changed but can not be live-reloaded.",
+		svc1log.FromContext(ctx).Warn("conjure-go-runtime: Service name changed but can not be live-reloaded.",
 			svc1log.SafeParam("existingServiceName", b.HTTP.ServiceNameTag.Value()),
 			svc1log.SafeParam("updatedServiceName", s))
 	})
 
+	//TODO: Implement refreshable TLS configuration.
+	// It is hard to represent all of the configuration (e.g. a dynamic function for GetCertificate) in primitive values friendly to reflect.DeepEqual.
+	currentSecurity := config.Security().CurrentSecurityConfig()
+	if tlsConfig, err := newTLSConfig(currentSecurity); err != nil {
+		return err
+	} else if tlsConfig != nil {
+		b.HTTP.TLSConfig = tlsConfig
+	}
+	config.Security().CAFiles().SubscribeToStringSlice(func(caFiles []string) {
+		svc1log.FromContext(ctx).Warn("conjure-go-runtime: CAFiles configuration changed but can not be live-reloaded.",
+			svc1log.SafeParam("existingCAFiles", currentSecurity.CAFiles),
+			svc1log.SafeParam("ignoredCAFiles", caFiles))
+	})
+	config.Security().CertFile().SubscribeToString(func(certFile string) {
+		svc1log.FromContext(ctx).Warn("conjure-go-runtime: CertFile configuration changed but can not be live-reloaded.",
+			svc1log.SafeParam("existingCertFile", currentSecurity.CertFile),
+			svc1log.SafeParam("ignoredCertFile", certFile))
+	})
+	config.Security().KeyFile().SubscribeToString(func(keyFile string) {
+		svc1log.FromContext(ctx).Warn("conjure-go-runtime: KeyFile configuration changed but can not be live-reloaded.",
+			svc1log.SafeParam("existingKeyFile", currentSecurity.KeyFile),
+			svc1log.SafeParam("ignoredKeyFile", keyFile))
+	})
+
 	refreshingParams, err := refreshable.NewMapValidatingRefreshable(config, func(i interface{}) (interface{}, error) {
-		p, err := newValidParamsSnapshot(ctx, i.(ClientConfig), b.HTTP.ServiceNameTag)
+		p, err := newValidParamsSnapshot(ctx, i.(ClientConfig))
 		if reloadErrorSubmitter != nil {
 			reloadErrorSubmitter(err)
 		}
@@ -255,22 +267,22 @@ func newClientBuilderFromRefreshableConfig(ctx context.Context, config Refreshab
 		})
 	}
 	b.HTTP.DialerParams.Refreshable = mapValidParamsSnapshot(func(params validParamsSnapshot) interface{} {
-		return params.dialer
+		return params.Dialer
 	})
 	b.HTTP.TransportParams.Refreshable = mapValidParamsSnapshot(func(params validParamsSnapshot) interface{} {
-		return params.transport
+		return params.Transport
 	})
 	b.HTTP.Timeout = refreshable.NewDuration(mapValidParamsSnapshot(func(params validParamsSnapshot) interface{} {
-		return params.timeout
+		return params.Timeout
 	}))
 	b.HTTP.DisableMetrics = refreshable.NewBool(mapValidParamsSnapshot(func(params validParamsSnapshot) interface{} {
-		return params.disableMetrics
+		return params.DisableMetrics
 	}))
 	b.HTTP.MetricsTagProviders = append(b.HTTP.MetricsTagProviders, refreshableMetricsTagsProvider{Refreshable: mapValidParamsSnapshot(func(params validParamsSnapshot) interface{} {
-		return params.metricsTags
+		return params.MetricsTags
 	})})
 	b.URIs = refreshable.NewStringSlice(mapValidParamsSnapshot(func(params validParamsSnapshot) interface{} {
-		return params.uris
+		return params.URIs
 	}))
 	b.RetryParams.MaxAttempts = config.MaxNumRetries()
 	b.RetryParams.InitialBackoff = refreshable.NewDuration(config.InitialBackoff().MapDurationPtr(func(duration *time.Duration) interface{} {
@@ -282,26 +294,32 @@ func newClientBuilderFromRefreshableConfig(ctx context.Context, config Refreshab
 	return nil
 }
 
-func newValidParamsSnapshot(ctx context.Context, config ClientConfig, serviceNameTag metrics.Tag) (validParamsSnapshot, error) {
+// validParamsSnapshot represents a set of fields derived from a snapshot of ClientConfig.
+// It is designed for use within a refreshable: fields are comparable with reflect.DeepEqual
+// so unnecessary updates are not pushed to subscribers.
+// Values are generally known to be "valid" to minimize downstream error handling.
+type validParamsSnapshot struct {
+	Dialer         refreshingclient.DialerParams
+	DisableMetrics bool
+	MetricsTags    metrics.Tags
+	Timeout        time.Duration
+	Transport      refreshingclient.TransportParams
+	URIs           []string
+}
+
+func newValidParamsSnapshot(ctx context.Context, config ClientConfig) (validParamsSnapshot, error) {
 	dialer := refreshingclient.DialerParams{
 		DialTimeout: derefDurationPtr(config.ConnectTimeout, defaultDialTimeout),
 		KeepAlive:   defaultKeepAlive,
 	}
 
-	tlsConfig, err := newTLSConfig(config.Security)
-	if err != nil {
-		return validParamsSnapshot{}, err
-	}
-
 	transport := refreshingclient.TransportParams{
-		ServiceNameTag:        serviceNameTag,
 		MaxIdleConns:          derefIntPtr(config.MaxIdleConns, defaultMaxIdleConns),
 		MaxIdleConnsPerHost:   derefIntPtr(config.MaxIdleConnsPerHost, defaultMaxIdleConnsPerHost),
 		DisableHTTP2:          derefBoolPtr(config.DisableHTTP2, false),
 		IdleConnTimeout:       derefDurationPtr(config.IdleConnTimeout, defaultIdleConnTimeout),
 		ExpectContinueTimeout: derefDurationPtr(config.ExpectContinueTimeout, defaultExpectContinueTimeout),
 		ProxyFromEnvironment:  derefBoolPtr(config.ProxyFromEnvironment, false),
-		TLSConfig:             tlsConfig,
 		TLSHandshakeTimeout:   derefDurationPtr(config.TLSHandshakeTimeout, defaultTLSHandshakeTimeout),
 	}
 
@@ -352,12 +370,12 @@ func newValidParamsSnapshot(ctx context.Context, config ClientConfig, serviceNam
 	sort.Strings(uris)
 
 	return validParamsSnapshot{
-		dialer:         dialer,
-		disableMetrics: disableMetrics,
-		metricsTags:    metricsTags,
-		timeout:        timeout,
-		transport:      transport,
-		uris:           uris,
+		Dialer:         dialer,
+		DisableMetrics: disableMetrics,
+		MetricsTags:    metricsTags,
+		Timeout:        timeout,
+		Transport:      transport,
+		URIs:           uris,
 	}, nil
 }
 
@@ -384,8 +402,4 @@ func derefBoolPtr(boolPtr *bool, defaultVal bool) bool {
 		return defaultVal
 	}
 	return *boolPtr
-}
-
-func newFloatPtr(f float64) *float64 {
-	return &f
 }

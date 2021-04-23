@@ -1,5 +1,11 @@
 # github.com/davecgh/go-spew v1.1.1
 github.com/davecgh/go-spew/spew
+# github.com/google/go-cmp v0.5.5
+github.com/google/go-cmp/cmp
+github.com/google/go-cmp/cmp/internal/diff
+github.com/google/go-cmp/cmp/internal/flags
+github.com/google/go-cmp/cmp/internal/function
+github.com/google/go-cmp/cmp/internal/value
 # github.com/openzipkin/zipkin-go v0.2.2
 github.com/openzipkin/zipkin-go
 github.com/openzipkin/zipkin-go/idgenerator
@@ -16,7 +22,7 @@ github.com/palantir/pkg/bytesbuffers
 github.com/palantir/pkg/httpserver
 # github.com/palantir/pkg/metrics v1.0.1
 github.com/palantir/pkg/metrics
-# github.com/palantir/pkg/refreshable v1.3.0
+# github.com/palantir/pkg/refreshable v1.3.0 => ../pkg/refreshable
 github.com/palantir/pkg/refreshable
 # github.com/palantir/pkg/retry v1.1.1
 github.com/palantir/pkg/retry

@@ -59,22 +59,12 @@ func NewRefreshableDialer(ctx context.Context, p RefreshableDialerParams) Contex
 	}
 }
 
-type RefreshableDialerParams struct {
-	refreshable.Refreshable // contains DialerParams
-}
-
-func (r RefreshableDialerParams) CurrentDialerParams() DialerParams {
-	return r.Current().(DialerParams)
-}
-
 // TransformParams accepts a mapping function which will be applied to the params value as it is evaluated.
 // This can be used to layer/overwrite configuration before building the RefreshableDialer.
-func (r RefreshableDialerParams) TransformParams(mapFn func(p DialerParams) DialerParams) RefreshableDialerParams {
-	return RefreshableDialerParams{
-		Refreshable: r.Map(func(i interface{}) interface{} {
-			return mapFn(i.(DialerParams))
-		}),
-	}
+func (r RefreshingDialerParams) TransformParams(mapFn func(p DialerParams) DialerParams) RefreshableDialerParams {
+	return NewRefreshingDialerParams(r.MapDialerParams(func(params DialerParams) interface{} {
+		return mapFn(params)
+	}))
 }
 
 type RefreshableDialer struct {

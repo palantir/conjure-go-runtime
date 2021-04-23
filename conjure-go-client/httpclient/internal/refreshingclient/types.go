@@ -15,21 +15,16 @@
 package refreshingclient
 
 import (
-	"context"
+	"time"
 
-	"github.com/palantir/pkg/refreshable"
-	"github.com/palantir/pkg/retry"
+	"github.com/palantir/pkg/metrics"
 )
 
-type RetryParams struct {
-	MaxAttempts    refreshable.IntPtr // 0 means no limit. If nil, uses 2*len(uris).
-	InitialBackoff refreshable.Duration
-	MaxBackoff     refreshable.Duration
-}
-
-func (r RetryParams) Start(ctx context.Context) retry.Retrier {
-	return retry.Start(ctx,
-		retry.WithInitialBackoff(r.InitialBackoff.CurrentDuration()),
-		retry.WithMaxBackoff(r.MaxBackoff.CurrentDuration()),
-	)
+type ValidatedClientParams struct {
+	Dialer         DialerParams
+	DisableMetrics bool
+	MetricsTags    metrics.Tags
+	Timeout        time.Duration
+	Transport      TransportParams
+	URIs           []string
 }

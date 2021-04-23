@@ -238,37 +238,6 @@ func (r RefreshingClientConfig) Security() RefreshableSecurityConfig {
 	}))
 }
 
-type RefreshableInt64 interface {
-	refreshable.Refreshable
-	CurrentInt64() int64
-	MapInt64(func(int64) interface{}) refreshable.Refreshable
-	SubscribeToInt64(func(int64)) (unsubscribe func())
-}
-
-type RefreshingInt64 struct {
-	refreshable.Refreshable
-}
-
-func NewRefreshingInt64(in refreshable.Refreshable) RefreshingInt64 {
-	return RefreshingInt64{Refreshable: in}
-}
-
-func (r RefreshingInt64) CurrentInt64() int64 {
-	return r.Current().(int64)
-}
-
-func (r RefreshingInt64) MapInt64(mapFn func(int64) interface{}) refreshable.Refreshable {
-	return r.Map(func(i interface{}) interface{} {
-		return mapFn(i.(int64))
-	})
-}
-
-func (r RefreshingInt64) SubscribeToInt64(consumer func(int64)) (unsubscribe func()) {
-	return r.Subscribe(func(i interface{}) {
-		consumer(i.(int64))
-	})
-}
-
 type RefreshableMetricsConfig interface {
 	refreshable.Refreshable
 	CurrentMetricsConfig() MetricsConfig
