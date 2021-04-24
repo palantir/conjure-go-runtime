@@ -7,7 +7,7 @@ require (
 	github.com/palantir/pkg/bytesbuffers v1.0.1
 	github.com/palantir/pkg/httpserver v1.0.1
 	github.com/palantir/pkg/metrics v1.0.1
-	github.com/palantir/pkg/refreshable v1.3.0
+	github.com/palantir/pkg/refreshable v1.3.2
 	github.com/palantir/pkg/retry v1.1.1
 	github.com/palantir/pkg/safejson v1.0.1
 	github.com/palantir/pkg/tlsconfig v1.1.0
@@ -20,5 +20,3 @@ require (
 	golang.org/x/net v0.0.0-20210326220855-61e056675ecf
 	gopkg.in/yaml.v2 v2.3.0
 )
-
-replace github.com/palantir/pkg/refreshable => ../pkg/refreshable

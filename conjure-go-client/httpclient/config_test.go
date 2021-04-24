@@ -222,7 +222,6 @@ func TestRefreshableClientConfig(t *testing.T) {
 	currentHTTPClient := func() *http.Client {
 		return client.(*clientImpl).client.CurrentHTTPClient()
 	}
-	//require.NoError(t, os.Setenv("REFRESHABLE_DEBUG", "true"))
 	t.Run("update timeout, transport unchanged", func(t *testing.T) {
 		oldClient := currentHTTPClient()
 		oldTransport, oldMiddlewares := unwrapTransport(oldClient.Transport)

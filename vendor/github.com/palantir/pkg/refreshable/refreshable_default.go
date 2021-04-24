@@ -6,12 +6,9 @@ package refreshable
 
 import (
 	"fmt"
-	"os"
 	"reflect"
 	"sync"
 	"sync/atomic"
-
-	"github.com/google/go-cmp/cmp"
 )
 
 type DefaultRefreshable struct {
@@ -40,17 +37,8 @@ func (d *DefaultRefreshable) Update(val interface{}) error {
 		return fmt.Errorf("new refreshable value must be type %s: got %s", d.typ, valType)
 	}
 
-	if _, ok := os.LookupEnv("REFRESHABLE_DEBUG"); ok {
-		diff := cmp.Diff(d.current.Load(), val)
-		if diff == "" {
-			return nil
-		} else {
-			fmt.Println(diff)
-		}
-	} else {
-		if reflect.DeepEqual(d.current.Load(), val) {
-			return nil
-		}
+	if reflect.DeepEqual(d.current.Load(), val) {
+		return nil
 	}
 	d.current.Store(val)
 
