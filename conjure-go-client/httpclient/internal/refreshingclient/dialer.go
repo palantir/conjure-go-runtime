@@ -59,9 +59,9 @@ func NewRefreshableDialer(ctx context.Context, p RefreshableDialerParams) Contex
 	}
 }
 
-// TransformParams accepts a mapping function which will be applied to the params value as it is evaluated.
+// ConfigureDialer accepts a mapping function which will be applied to the params value as it is evaluated.
 // This can be used to layer/overwrite configuration before building the RefreshableDialer.
-func (r RefreshingDialerParams) TransformParams(mapFn func(p DialerParams) DialerParams) RefreshableDialerParams {
+func ConfigureDialer(r RefreshableDialerParams, mapFn func(p DialerParams) DialerParams) RefreshableDialerParams {
 	return NewRefreshingDialerParams(r.MapDialerParams(func(params DialerParams) interface{} {
 		return mapFn(params)
 	}))

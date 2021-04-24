@@ -140,9 +140,11 @@ func TestRefreshableClientConfig(t *testing.T) {
 		httpClient := client.client.CurrentHTTPClient()
 		assert.Equal(t, defaultHTTPTimeout, httpClient.Timeout, "http timeout not set to default")
 
-		assert.Nil(t, client.backoffOptions.MaxAttempts.CurrentIntPtr())
-		assert.Equal(t, defaultInitialBackoff, client.backoffOptions.InitialBackoff.CurrentDuration())
-		assert.Equal(t, defaultMaxBackoff, client.backoffOptions.MaxBackoff.CurrentDuration())
+		if client.maxAttempts != nil {
+			assert.Nil(t, client.maxAttempts.CurrentIntPtr())
+		}
+		assert.Equal(t, defaultInitialBackoff, client.backoffOptions.InitialBackoff().CurrentDuration())
+		assert.Equal(t, defaultMaxBackoff, client.backoffOptions.MaxBackoff().CurrentDuration())
 
 		initialTransport, initialMiddlewares := unwrapTransport(httpClient.Transport)
 		assert.Equal(t, defaultMaxIdleConns, initialTransport.MaxIdleConns)
@@ -169,9 +171,12 @@ func TestRefreshableClientConfig(t *testing.T) {
 			}
 		}
 
-		if assert.NotNil(t, initialTransport.TLSClientConfig) {
-			assert.False(t, initialTransport.TLSClientConfig.InsecureSkipVerify)
-			assert.EqualValues(t, tls.VersionTLS12, initialTransport.TLSClientConfig.MinVersion)
+		if tlsConfig := initialTransport.TLSClientConfig; assert.NotNil(t, tlsConfig) {
+			assert.False(t, tlsConfig.InsecureSkipVerify)
+			assert.True(t, tlsConfig.PreferServerCipherSuites)
+			if assert.NotZero(t, tlsConfig.MinVersion, "tls min version not set") {
+				assert.Equal(t, uint16(tls.VersionTLS12), tlsConfig.MinVersion, "unexpected tls min version")
+			}
 		}
 
 	}
@@ -280,4 +285,8 @@ func TestRefreshableClientConfig(t *testing.T) {
 	//	t.Run(test.Name, func(t *testing.T) {
 	//	})
 	//}
+}
+
+func newDurationPtr(dur time.Duration) *time.Duration {
+	return &dur
 }

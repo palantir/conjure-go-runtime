@@ -20,10 +20,16 @@ import (
 	"github.com/palantir/pkg/metrics"
 )
 
+// ValidatedClientParams represents a set of fields derived from a snapshot of ClientConfig.
+// It is designed for use within a refreshable: fields are comparable with reflect.DeepEqual
+// so unnecessary updates are not pushed to subscribers.
+// Values are generally known to be "valid" to minimize downstream error handling.
 type ValidatedClientParams struct {
 	Dialer         DialerParams
 	DisableMetrics bool
+	MaxAttempts    *int
 	MetricsTags    metrics.Tags
+	Retry          RetryParams
 	Timeout        time.Duration
 	Transport      TransportParams
 	URIs           []string

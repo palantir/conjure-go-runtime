@@ -47,9 +47,9 @@ func NewRefreshableTransport(ctx context.Context, p RefreshableTransportParams, 
 	}
 }
 
-// TransformParams accepts a mapping function which will be applied to the params value as it is evaluated.
-// This can be used to layer/overwrite configuration before building the RefreshableTransport.
-func (r RefreshingTransportParams) TransformParams(mapFn func(p TransportParams) TransportParams) RefreshableTransportParams {
+// ConfigureTransport accepts a mapping function which will be applied to the params value as it is evaluated.
+// This can be used to layer/overwrite configuration before building the RefreshableTransportParams.
+func ConfigureTransport(r RefreshableTransportParams, mapFn func(p TransportParams) TransportParams) RefreshableTransportParams {
 	return NewRefreshingTransportParams(r.MapTransportParams(func(params TransportParams) interface{} {
 		return mapFn(params)
 	}))

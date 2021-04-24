@@ -16,14 +16,19 @@ package httpclient
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"io/ioutil"
 	"net/http"
+	"net/url"
+	"sort"
 	"time"
 
+	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient/internal/refreshingclient"
 	"github.com/palantir/pkg/metrics"
 	"github.com/palantir/pkg/tlsconfig"
 	werror "github.com/palantir/witchcraft-go-error"
+	"github.com/palantir/witchcraft-go-logging/wlog/svclog/svc1log"
 )
 
 // ServicesConfig is the top-level configuration struct for all HTTP clients. It supports
@@ -203,12 +208,6 @@ func (c ServicesConfig) ClientConfig(serviceName string) ClientConfig {
 	return conf
 }
 
-func RefreshableClientConfigFromServiceConfig(servicesConfig RefreshableServicesConfig, serviceName string) RefreshableClientConfig {
-	return NewRefreshingClientConfig(servicesConfig.MapServicesConfig(func(servicesConfig ServicesConfig) interface{} {
-		return servicesConfig.ClientConfig(serviceName)
-	}))
-}
-
 func configToParams(c ClientConfig) ([]ClientParam, error) {
 	var params []ClientParam
 
@@ -317,6 +316,120 @@ func configToParams(c ClientConfig) ([]ClientParam, error) {
 	return params, nil
 }
 
+func RefreshableClientConfigFromServiceConfig(servicesConfig RefreshableServicesConfig, serviceName string) RefreshableClientConfig {
+	return NewRefreshingClientConfig(servicesConfig.MapServicesConfig(func(servicesConfig ServicesConfig) interface{} {
+		return servicesConfig.ClientConfig(serviceName)
+	}))
+}
+
+func newValidatedClientParamsFromConfig(ctx context.Context, config ClientConfig) (refreshingclient.ValidatedClientParams, error) {
+	dialer := refreshingclient.DialerParams{
+		DialTimeout: derefDurationPtr(config.ConnectTimeout, defaultDialTimeout),
+		KeepAlive:   defaultKeepAlive,
+	}
+
+	transport := refreshingclient.TransportParams{
+		MaxIdleConns:          derefIntPtr(config.MaxIdleConns, defaultMaxIdleConns),
+		MaxIdleConnsPerHost:   derefIntPtr(config.MaxIdleConnsPerHost, defaultMaxIdleConnsPerHost),
+		DisableHTTP2:          derefBoolPtr(config.DisableHTTP2, false),
+		IdleConnTimeout:       derefDurationPtr(config.IdleConnTimeout, defaultIdleConnTimeout),
+		ExpectContinueTimeout: derefDurationPtr(config.ExpectContinueTimeout, defaultExpectContinueTimeout),
+		ProxyFromEnvironment:  derefBoolPtr(config.ProxyFromEnvironment, false),
+		TLSHandshakeTimeout:   derefDurationPtr(config.TLSHandshakeTimeout, defaultTLSHandshakeTimeout),
+	}
+
+	if config.ProxyURL != nil {
+		proxyURL, err := url.ParseRequestURI(*config.ProxyURL)
+		if err != nil {
+			return refreshingclient.ValidatedClientParams{}, werror.WrapWithContextParams(ctx, err, "invalid proxy url")
+		}
+		switch proxyURL.Scheme {
+		case "http", "https":
+			transport.HTTPProxyURL = proxyURL
+		case "socks5", "socks5h":
+			dialer.SocksProxyURL = proxyURL
+		default:
+			return refreshingclient.ValidatedClientParams{}, werror.WrapWithContextParams(ctx, err, "invalid proxy url: only http(s) and socks5 are supported")
+		}
+	}
+
+	disableMetrics := config.Metrics.Enabled != nil && !*config.Metrics.Enabled
+
+	metricsTags, err := metrics.NewTags(config.Metrics.Tags)
+	if err != nil {
+		return refreshingclient.ValidatedClientParams{}, err
+	}
+
+	retryParams := refreshingclient.RetryParams{
+		InitialBackoff: derefDurationPtr(config.InitialBackoff, defaultInitialBackoff),
+		MaxBackoff:     derefDurationPtr(config.MaxBackoff, defaultMaxBackoff),
+	}
+	var maxAttempts *int
+	if config.MaxNumRetries != nil {
+		attempts := *config.MaxNumRetries + 1
+		maxAttempts = &attempts
+	}
+
+	timeout := defaultHTTPTimeout
+	if config.ReadTimeout != nil || config.WriteTimeout != nil {
+		rt := derefDurationPtr(config.ReadTimeout, 0)
+		wt := derefDurationPtr(config.WriteTimeout, 0)
+		// return max of read and write
+		if rt > wt {
+			timeout = rt
+		} else {
+			timeout = wt
+		}
+	}
+
+	var uris []string
+	for _, uriStr := range config.URIs {
+		if uriStr == "" {
+			continue
+		}
+		if _, err := url.ParseRequestURI(uriStr); err != nil {
+			return refreshingclient.ValidatedClientParams{}, werror.WrapWithContextParams(ctx, err, "invalid url")
+		}
+		uris = append(uris, uriStr)
+	}
+	sort.Strings(uris)
+
+	return refreshingclient.ValidatedClientParams{
+		Dialer:         dialer,
+		DisableMetrics: disableMetrics,
+		MaxAttempts:    maxAttempts,
+		MetricsTags:    metricsTags,
+		Retry:          retryParams,
+		Timeout:        timeout,
+		Transport:      transport,
+		URIs:           uris,
+	}, nil
+}
+
+func subscribeTLSConfigUpdateWarning(ctx context.Context, security RefreshableSecurityConfig) (*tls.Config, error) {
+	//TODO: Implement refreshable TLS configuration.
+	// It is hard to represent all of the configuration (e.g. a dynamic function for GetCertificate) in primitive values friendly to reflect.DeepEqual.
+	currentSecurity := security.CurrentSecurityConfig()
+
+	security.CAFiles().SubscribeToStringSlice(func(caFiles []string) {
+		svc1log.FromContext(ctx).Warn("conjure-go-runtime: CAFiles configuration changed but can not be live-reloaded.",
+			svc1log.SafeParam("existingCAFiles", currentSecurity.CAFiles),
+			svc1log.SafeParam("ignoredCAFiles", caFiles))
+	})
+	security.CertFile().SubscribeToString(func(certFile string) {
+		svc1log.FromContext(ctx).Warn("conjure-go-runtime: CertFile configuration changed but can not be live-reloaded.",
+			svc1log.SafeParam("existingCertFile", currentSecurity.CertFile),
+			svc1log.SafeParam("ignoredCertFile", certFile))
+	})
+	security.KeyFile().SubscribeToString(func(keyFile string) {
+		svc1log.FromContext(ctx).Warn("conjure-go-runtime: KeyFile configuration changed but can not be live-reloaded.",
+			svc1log.SafeParam("existingKeyFile", currentSecurity.KeyFile),
+			svc1log.SafeParam("ignoredKeyFile", keyFile))
+	})
+
+	return newTLSConfig(currentSecurity)
+}
+
 func newTLSConfig(security SecurityConfig) (*tls.Config, error) {
 	var tlsParams []tlsconfig.ClientParam
 	if len(security.CAFiles) != 0 {
@@ -335,9 +448,27 @@ func newTLSConfig(security SecurityConfig) (*tls.Config, error) {
 	return nil, nil
 }
 
-func orZero(d *time.Duration) time.Duration {
-	if d == nil {
-		return 0
+func derefDurationPtr(durPtr *time.Duration, defaultVal time.Duration) time.Duration {
+	if durPtr == nil {
+		return defaultVal
 	}
-	return *d
+	return *durPtr
+}
+
+func derefIntPtr(intPtr *int, defaultVal int) int {
+	if intPtr == nil {
+		return defaultVal
+	}
+	return *intPtr
+}
+
+func derefBoolPtr(boolPtr *bool, defaultVal bool) bool {
+	if boolPtr == nil {
+		return defaultVal
+	}
+	return *boolPtr
+}
+
+func orZero(d *time.Duration) time.Duration {
+	return derefDurationPtr(d, 0)
 }

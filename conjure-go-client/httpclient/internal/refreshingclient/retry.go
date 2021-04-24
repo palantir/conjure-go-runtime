@@ -16,20 +16,27 @@ package refreshingclient
 
 import (
 	"context"
+	"time"
 
-	"github.com/palantir/pkg/refreshable"
 	"github.com/palantir/pkg/retry"
 )
 
 type RetryParams struct {
-	MaxAttempts    refreshable.IntPtr // 0 means no limit. If nil, uses 2*len(uris).
-	InitialBackoff refreshable.Duration
-	MaxBackoff     refreshable.Duration
+	InitialBackoff time.Duration
+	MaxBackoff     time.Duration
+}
+
+// ConfigureRetry accepts a mapping function which will be applied to the params value as it is evaluated.
+// This can be used to layer/overwrite configuration before building the RefreshableRetryParams.
+func ConfigureRetry(r RefreshableRetryParams, mapFn func(p RetryParams) RetryParams) RefreshableRetryParams {
+	return NewRefreshingRetryParams(r.MapRetryParams(func(params RetryParams) interface{} {
+		return mapFn(params)
+	}))
 }
 
 func (r RetryParams) Start(ctx context.Context) retry.Retrier {
 	return retry.Start(ctx,
-		retry.WithInitialBackoff(r.InitialBackoff.CurrentDuration()),
-		retry.WithMaxBackoff(r.MaxBackoff.CurrentDuration()),
+		retry.WithInitialBackoff(r.InitialBackoff),
+		retry.WithMaxBackoff(r.MaxBackoff),
 	)
 }

@@ -56,7 +56,7 @@ type clientImpl struct {
 
 	uris           refreshable.StringSlice
 	maxAttempts    refreshable.IntPtr // 0 means no limit. If nil, uses 2*len(uris).
-	backoffOptions refreshingclient.RetryParams
+	backoffOptions refreshingclient.RefreshableRetryParams
 	bufferPool     bytesbuffers.Pool
 }
 
@@ -93,11 +93,13 @@ func (c *clientImpl) Do(ctx context.Context, params ...RequestParam) (*http.Resp
 	var resp *http.Response
 
 	attempts := 2 * len(uris)
-	if confMaxAttempts := c.maxAttempts.CurrentIntPtr(); confMaxAttempts != nil {
-		attempts = *confMaxAttempts
+	if c.maxAttempts != nil {
+		if confMaxAttempts := c.maxAttempts.CurrentIntPtr(); confMaxAttempts != nil {
+			attempts = *confMaxAttempts
+		}
 	}
 
-	retrier := internal.NewRequestRetrier(uris, c.backoffOptions.Start(ctx), attempts)
+	retrier := internal.NewRequestRetrier(uris, c.backoffOptions.CurrentRetryParams().Start(ctx), attempts)
 	for retrier.ShouldGetNextURI(resp, err) {
 		uri, retryErr := retrier.GetNextURI(ctx, resp, err)
 		if retryErr != nil {
