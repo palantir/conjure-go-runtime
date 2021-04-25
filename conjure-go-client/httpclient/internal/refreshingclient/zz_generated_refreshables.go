@@ -15,6 +15,7 @@ type RefreshableValidatedClientParams interface {
 	MapValidatedClientParams(func(ValidatedClientParams) interface{}) refreshable.Refreshable
 	SubscribeToValidatedClientParams(func(ValidatedClientParams)) (unsubscribe func())
 
+	APIToken() refreshable.StringPtr
 	Dialer() RefreshableDialerParams
 	DisableMetrics() refreshable.Bool
 	MaxAttempts() refreshable.IntPtr
@@ -47,6 +48,12 @@ func (r RefreshingValidatedClientParams) SubscribeToValidatedClientParams(consum
 	return r.Subscribe(func(i interface{}) {
 		consumer(i.(ValidatedClientParams))
 	})
+}
+
+func (r RefreshingValidatedClientParams) APIToken() refreshable.StringPtr {
+	return refreshable.NewStringPtr(r.MapValidatedClientParams(func(i ValidatedClientParams) interface{} {
+		return i.APIToken
+	}))
 }
 
 func (r RefreshingValidatedClientParams) Dialer() RefreshableDialerParams {

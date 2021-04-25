@@ -17,7 +17,6 @@ package httpclient
 import (
 	"net/http"
 
-	"github.com/palantir/pkg/refreshable"
 	"github.com/palantir/witchcraft-go-tracing/wtracing"
 	"github.com/palantir/witchcraft-go-tracing/wtracing/propagation/b3"
 )
@@ -28,15 +27,15 @@ import (
 // duration of the request.
 type traceMiddleware struct {
 	ServiceName       string
-	CreateRequestSpan refreshable.Bool
-	InjectHeaders     refreshable.Bool
+	CreateRequestSpan bool
+	InjectHeaders     bool
 }
 
 func (t traceMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (*http.Response, error) {
 	ctx := req.Context()
 	span := wtracing.SpanFromContext(ctx)
 
-	if t.CreateRequestSpan.CurrentBool() {
+	if t.CreateRequestSpan {
 		// Create a child span if a method name is set. Otherwise, fall through and just inject the parent span's headers.
 		if method := getRPCMethodName(req.Context()); method != "" {
 			span, ctx = wtracing.StartSpanFromContext(ctx, wtracing.TracerFromContext(ctx), method,
@@ -49,7 +48,7 @@ func (t traceMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (*
 		}
 	}
 
-	if t.InjectHeaders.CurrentBool() {
+	if t.InjectHeaders {
 		if span != nil {
 			b3.SpanInjector(req)(span.Context())
 		} else {

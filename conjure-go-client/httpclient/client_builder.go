@@ -64,13 +64,13 @@ type httpClientBuilder struct {
 	Middlewares     []Middleware
 
 	DisableMetrics      refreshable.Bool
-	DisableRecovery     refreshable.Bool
 	MetricsTagProviders []TagsProvider
 
 	// These fields are not in configuration so not actually refreshed anywhere,
-	// but treat them as refreshable in case that ever changes.
-	CreateRequestSpan  refreshable.Bool
-	InjectTraceHeaders refreshable.Bool
+	// but they could become refreshing if we need them to.
+	CreateRequestSpan  bool
+	DisableRecovery    bool
+	InjectTraceHeaders bool
 }
 
 func (b *httpClientBuilder) Build(ctx context.Context, params ...HTTPClientParam) (RefreshableHTTPClient, error) {
@@ -88,13 +88,18 @@ func (b *httpClientBuilder) Build(ctx context.Context, params ...HTTPClientParam
 		Dialer:         refreshingclient.NewRefreshableDialer(ctx, b.DialerParams),
 	}
 	transport := refreshingclient.NewRefreshableTransport(ctx, b.TransportParams, b.TLSConfig, dialer)
-	transport = wrapTransport(transport,
-		newMetricsMiddleware(b.ServiceNameTag, b.MetricsTagProviders, b.DisableMetrics),
-		traceMiddleware{CreateRequestSpan: b.CreateRequestSpan, InjectHeaders: b.InjectTraceHeaders, ServiceName: b.ServiceNameTag.Value()},
-		recoveryMiddleware{Disabled: b.DisableRecovery})
+	transport = wrapTransport(transport, newMetricsMiddleware(b.ServiceNameTag, b.MetricsTagProviders, b.DisableMetrics))
+	transport = wrapTransport(transport, traceMiddleware{
+		ServiceName:       b.ServiceNameTag.Value(),
+		CreateRequestSpan: b.CreateRequestSpan,
+		InjectHeaders:     b.InjectTraceHeaders,
+	})
+	if !b.DisableRecovery {
+		transport = wrapTransport(transport, recoveryMiddleware{})
+	}
 	transport = wrapTransport(transport, b.Middlewares...)
 
-	return refreshingclient.NewRefreshableHTTPClient(ctx, transport, b.Timeout), nil
+	return refreshingclient.NewRefreshableHTTPClient(transport, b.Timeout), nil
 }
 
 // NewClient returns a configured client ready for use.
@@ -137,6 +142,11 @@ func newClient(ctx context.Context, b *clientBuilder, params ...ClientParam) (Cl
 		return nil, err
 	}
 
+	var recovery Middleware
+	if !b.HTTP.DisableRecovery {
+		recovery = recoveryMiddleware{}
+	}
+
 	return &clientImpl{
 		client:                 httpClient,
 		uris:                   b.URIs,
@@ -144,7 +154,7 @@ func newClient(ctx context.Context, b *clientBuilder, params ...ClientParam) (Cl
 		backoffOptions:         b.RetryParams,
 		middlewares:            middleware,
 		errorDecoderMiddleware: edm,
-		recoveryMiddleware:     &recoveryMiddleware{Disabled: b.HTTP.DisableRecovery},
+		recoveryMiddleware:     recovery,
 		bufferPool:             b.BytesBufferPool,
 	}, nil
 }
@@ -197,10 +207,10 @@ func newClientBuilder() *clientBuilder {
 				HTTPProxyURL:          nil,
 				ProxyFromEnvironment:  true,
 			})),
-			CreateRequestSpan:   refreshable.NewBool(refreshable.NewDefaultRefreshable(true)),
-			InjectTraceHeaders:  refreshable.NewBool(refreshable.NewDefaultRefreshable(true)),
 			DisableMetrics:      refreshable.NewBool(refreshable.NewDefaultRefreshable(false)),
-			DisableRecovery:     refreshable.NewBool(refreshable.NewDefaultRefreshable(false)),
+			DisableRecovery:     false,
+			CreateRequestSpan:   true,
+			InjectTraceHeaders:  true,
 			MetricsTagProviders: nil,
 			Middlewares:         nil,
 		},
@@ -250,6 +260,7 @@ func newClientBuilderFromRefreshableConfig(ctx context.Context, config Refreshab
 	b.HTTP.Timeout = validParams.Timeout()
 	b.HTTP.DisableMetrics = validParams.DisableMetrics()
 	b.HTTP.MetricsTagProviders = append(b.HTTP.MetricsTagProviders, refreshableMetricsTagsProvider{validParams.MetricsTags()})
+	b.HTTP.Middlewares = append(b.HTTP.Middlewares, newAuthTokenMiddlewareFromRefreshable(validParams.APIToken()))
 	b.URIs = validParams.URIs()
 	b.MaxAttempts = validParams.MaxAttempts()
 	b.RetryParams = validParams.Retry()

@@ -353,6 +353,19 @@ func newValidatedClientParamsFromConfig(ctx context.Context, config ClientConfig
 		}
 	}
 
+	var apiToken *string
+	if config.APIToken != nil {
+		apiToken = config.APIToken
+	} else if config.APITokenFile != nil {
+		file := *config.APITokenFile
+		token, err := ioutil.ReadFile(file)
+		if err != nil {
+			return refreshingclient.ValidatedClientParams{}, werror.WrapWithContextParams(ctx, err, "failed to read api-token-file", werror.SafeParam("file", file))
+		}
+		tokenStr := string(token)
+		apiToken = &tokenStr
+	}
+
 	disableMetrics := config.Metrics.Enabled != nil && !*config.Metrics.Enabled
 
 	metricsTags, err := metrics.NewTags(config.Metrics.Tags)
@@ -395,6 +408,7 @@ func newValidatedClientParamsFromConfig(ctx context.Context, config ClientConfig
 	sort.Strings(uris)
 
 	return refreshingclient.ValidatedClientParams{
+		APIToken:       apiToken,
 		Dialer:         dialer,
 		DisableMetrics: disableMetrics,
 		MaxAttempts:    maxAttempts,

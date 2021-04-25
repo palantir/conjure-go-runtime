@@ -183,7 +183,7 @@ func WithBytesBufferPool(pool bytesbuffers.Pool) ClientParam {
 // If errMiddleware is not nil, it is invoked on the recovered object.
 func WithDisablePanicRecovery() ClientOrHTTPClientParam {
 	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
-		b.DisableRecovery = refreshable.NewBool(refreshable.NewDefaultRefreshable(true))
+		b.DisableRecovery = true
 		return nil
 	})
 }
@@ -197,7 +197,7 @@ func WithDisablePanicRecovery() ClientOrHTTPClientParam {
 // trace information is propagate. This will not create a span if one does not exist.
 func WithDisableTracing() ClientOrHTTPClientParam {
 	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
-		b.CreateRequestSpan = refreshable.NewBool(refreshable.NewDefaultRefreshable(false))
+		b.CreateRequestSpan = false
 		return nil
 	})
 }
@@ -207,7 +207,7 @@ func WithDisableTracing() ClientOrHTTPClientParam {
 // then the client will attach this traceId as a header for future services to do the same if desired
 func WithDisableTraceHeaderPropagation() ClientOrHTTPClientParam {
 	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
-		b.InjectTraceHeaders = refreshable.NewBool(refreshable.NewDefaultRefreshable(false))
+		b.InjectTraceHeaders = false
 		return nil
 	})
 }

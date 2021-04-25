@@ -18,21 +18,13 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/palantir/pkg/refreshable"
 	werror "github.com/palantir/witchcraft-go-error"
 )
 
 // recoveryMiddleware recovers panics encountered during the request and returns them as an error.
-type recoveryMiddleware struct {
-	Disabled refreshable.Bool
-}
+type recoveryMiddleware struct{}
 
 func (h recoveryMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (resp *http.Response, err error) {
-	if h.Disabled != nil && h.Disabled.CurrentBool() {
-		// If we have a Disabled refreshable and it is true, no-op.
-		return next.RoundTrip(req)
-	}
-
 	defer func() {
 		if r := recover(); r != nil {
 			// panics contain function arguments (like maybe auth tokens), so we must log them unsafe.

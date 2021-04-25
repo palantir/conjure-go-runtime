@@ -39,6 +39,7 @@ type ContextDialer interface {
 func NewRefreshableDialer(ctx context.Context, p RefreshableDialerParams) ContextDialer {
 	return &RefreshableDialer{
 		Refreshable: p.Map(func(i interface{}) interface{} {
+			svc1log.FromContext(ctx).Debug("Reconstructing HTTP Dialer")
 			p := i.(DialerParams)
 
 			var dialer ContextDialer = &net.Dialer{

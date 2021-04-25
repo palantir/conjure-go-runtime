@@ -15,7 +15,6 @@
 package refreshingclient
 
 import (
-	"context"
 	"net/http"
 	"time"
 
@@ -35,7 +34,7 @@ func (r refreshableHTTPClient) CurrentHTTPClient() *http.Client {
 	return r.Current().(*http.Client)
 }
 
-func NewRefreshableHTTPClient(ctx context.Context, rt http.RoundTripper, timeout refreshable.Duration) RefreshableHTTPClient {
+func NewRefreshableHTTPClient(rt http.RoundTripper, timeout refreshable.Duration) RefreshableHTTPClient {
 	return refreshableHTTPClient{
 		Refreshable: timeout.MapDuration(func(timeout time.Duration) interface{} {
 			return &http.Client{

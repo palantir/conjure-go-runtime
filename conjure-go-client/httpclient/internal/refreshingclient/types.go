@@ -25,6 +25,7 @@ import (
 // so unnecessary updates are not pushed to subscribers.
 // Values are generally known to be "valid" to minimize downstream error handling.
 type ValidatedClientParams struct {
+	APIToken       *string
 	Dialer         DialerParams
 	DisableMetrics bool
 	MaxAttempts    *int
