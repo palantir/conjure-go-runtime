@@ -2,9 +2,7 @@
 
 package httpclient
 
-import (
-	refreshable "github.com/palantir/pkg/refreshable"
-)
+import refreshable "github.com/palantir/pkg/refreshable"
 
 type RefreshableServicesConfig interface {
 	refreshable.Refreshable
