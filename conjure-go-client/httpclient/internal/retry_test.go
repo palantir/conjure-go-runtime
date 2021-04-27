@@ -42,6 +42,23 @@ func TestRetryResponseParsers(t *testing.T) {
 			},
 		},
 		{
+			Name: "307 RetryTemporaryRedirect without Location",
+			Response: &http.Response{
+				Header:     http.Header{},
+				StatusCode: 307,
+			},
+			IsRetryOther: true,
+		},
+		{
+			Name: "307 RetryTemporaryRedirect with Location",
+			Response: &http.Response{
+				Header:     http.Header{"Location": []string{"https://host-2:8443/app"}},
+				StatusCode: 307,
+			},
+			IsRetryOther:  true,
+			RetryOtherURL: "https://host-2:8443/app",
+		},
+		{
 			Name: "308 RetryOther without Location",
 			Response: &http.Response{
 				Header:     http.Header{},

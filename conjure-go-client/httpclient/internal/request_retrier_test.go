@@ -209,6 +209,30 @@ func TestRequestRetrier_GetNextURI(t *testing.T) {
 			shouldRetryBackoff: true,
 			shouldRetryReset:   false,
 		},
+		{
+			name: "retries another URI if gets retry temporary redirect response without location",
+			resp: &http.Response{
+				StatusCode: StatusCodeRetryTemporaryRedirect,
+			},
+			respErr:            nil,
+			uris:               []string{"a", "b"},
+			shouldRetry:        true,
+			shouldRetrySameURI: false,
+			shouldRetryBackoff: false,
+			shouldRetryReset:   false,
+		},
+		{
+			name: "retries single URI and backs off if gets retry temporary redirect response without location",
+			resp: &http.Response{
+				StatusCode: StatusCodeRetryTemporaryRedirect,
+			},
+			respErr:            nil,
+			uris:               []string{"a"},
+			shouldRetry:        true,
+			shouldRetrySameURI: true,
+			shouldRetryBackoff: true,
+			shouldRetryReset:   false,
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()
