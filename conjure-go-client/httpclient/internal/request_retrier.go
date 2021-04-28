@@ -88,12 +88,25 @@ func (r *RequestRetrier) GetNextURI(ctx context.Context, resp *http.Response, re
 	if r.attemptCount == 0 {
 		return r.removeMeshSchemeIfPresent(r.currentURI), nil
 	} else if !r.ShouldGetNextURI(resp, respErr) {
+		svc1log.FromContext(ctx).Debug("cannot retry with respErr", svc1log.SafeParam("error", respErr.Error()))
 		return "", r.getErrorForUnretriableResponse(ctx, resp, respErr)
 	}
 	return r.doRetrySelection(ctx, resp, respErr), nil
 }
 
 func (r *RequestRetrier) doRetrySelection(ctx context.Context, resp *http.Response, respErr error) string {
+	if resp != nil {
+		svc1log.FromContext(ctx).Debug("doRetrySelection resp",
+			svc1log.SafeParam("statusCode", resp.StatusCode),
+			svc1log.SafeParam("status", resp.Status))
+	}
+	svc1log.FromContext(ctx).Debug("doRetrySelection respErr",
+		svc1log.SafeParam("error", respErr.Error()))
+	if code, ok := StatusCodeFromError(respErr); ok {
+		svc1log.FromContext(ctx).Debug("doRetrySelection respErr code",
+			svc1log.SafeParam("code", code))
+	}
+
 	retryFn := r.getRetryFn(resp, respErr)
 	if retryFn != nil {
 		retryFn(ctx)
@@ -146,12 +159,17 @@ func (r *RequestRetrier) nextURIOrBackoff(ctx context.Context) {
 	if performBackoff || len(r.uris) == 1 {
 		r.retrier.Next()
 	}
+	svc1log.FromContext(ctx).Debug("nextURIOrBackoff",
+		svc1log.SafeParam("uris", r.uris),
+		svc1log.SafeParam("failedURIs", r.failedURIs),
+		svc1log.SafeParam("nextURI", r.currentURI))
 }
 
 // Marks the current URI as failed, gets the next URI, and performs a backoff as determined by the retrier.
 func (r *RequestRetrier) nextURIAndBackoff(ctx context.Context) {
 	r.markFailedAndMoveToNextURI()
 	svc1log.FromContext(ctx).Debug("nextURIAndBackoff",
+		svc1log.SafeParam("uris", r.uris),
 		svc1log.SafeParam("failedURIs", r.failedURIs),
 		svc1log.SafeParam("nextURI", r.currentURI))
 	r.retrier.Next()

@@ -90,6 +90,7 @@ func (c *clientImpl) Do(ctx context.Context, params ...RequestParam) (*http.Resp
 
 	var err error
 	var resp *http.Response
+	counter := 0
 
 	retrier := internal.NewRequestRetrier(uris, retry.Start(ctx, c.backoffOptions...), c.maxAttempts)
 	for retrier.ShouldGetNextURI(resp, err) {
@@ -99,13 +100,21 @@ func (c *clientImpl) Do(ctx context.Context, params ...RequestParam) (*http.Resp
 				svc1log.SafeParam("statusCode", resp.StatusCode),
 				svc1log.SafeParam("status", resp.Status))
 		}
+		if err != nil {
+			svc1log.FromContext(ctx).Debug("err",
+				svc1log.SafeParam("error", err.Error()))
+		}
 		svc1log.FromContext(ctx).Debug("next URI",
 			svc1log.SafeParam("uri", uri),
-			svc1log.SafeParam("maxAttempts", c.maxAttempts))
+			svc1log.SafeParam("maxAttempts", c.maxAttempts),
+			svc1log.SafeParam("counter", counter))
 		if retryErr != nil {
+			svc1log.FromContext(ctx).Debug("retry Err",
+				svc1log.SafeParam("retryErr", retryErr.Error()))
 			return nil, retryErr
 		}
 		resp, err = c.doOnce(ctx, uri, params...)
+		counter++
 	}
 	if err != nil {
 		return nil, err
