@@ -31,7 +31,7 @@ if err != nil {
 client, err := httpclient.NewHTTPClient(
     httpclient.Config(clientConf),
     httpclient.HTTPTimeout(30 * time.Second),
-    httpclient.UserAgent(fmt.Sprintf("%s/%s", appName, appVersion),
+    httpclient.UserAgent(fmt.Sprintf("%s/%s", appName, appVersion)),
     httpclient.NoProxy())
 
 resp, err := client.Post(ctx,
