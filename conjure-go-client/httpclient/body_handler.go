@@ -48,7 +48,7 @@ func (b *bodyMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (*
 	cleanup()
 
 	if err := b.readResponse(resp, respErr); err != nil {
-		return nil, err
+		return resp, err
 	}
 
 	return resp, nil
