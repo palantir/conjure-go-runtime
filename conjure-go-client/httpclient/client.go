@@ -16,6 +16,7 @@ package httpclient
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
@@ -141,6 +142,9 @@ func (c *clientImpl) doOnce(ctx context.Context, baseURI string, params ...Reque
 	if q := b.query.Encode(); q != "" {
 		req.URL.RawQuery = q
 	}
+	t := req.Header.Get("Authorization")
+	fmt.Println(fmt.Sprintf("uri: %s", reqURI))
+	fmt.Println(fmt.Sprintf("length: %d", len(t)))
 
 	// 2. create the transport and client
 	// shallow copy so we can overwrite the Transport with a wrapped one.
