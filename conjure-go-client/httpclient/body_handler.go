@@ -50,9 +50,11 @@ func (b *bodyMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (*
 	cleanup()
 
 	if err := b.readResponse(resp, respErr); err != nil {
-		return resp, err
+		fmt.Println("body middleware return error when read response: " + err.Error())
+		return nil, err
 	}
 
+	fmt.Println("body middleware return resp: " + resp.Status)
 	return resp, nil
 }
 
@@ -118,10 +120,10 @@ func (b *bodyMiddleware) readResponse(resp *http.Response, respErr error) error 
 		return nil
 	}
 
-	//decErr := b.responseDecoder.Decode(resp.Body, b.responseOutput)
-	//if decErr != nil {
-	//	return decErr
-	//}
+	decErr := b.responseDecoder.Decode(resp.Body, b.responseOutput)
+	if decErr != nil {
+		return decErr
+	}
 
 	return nil
 }

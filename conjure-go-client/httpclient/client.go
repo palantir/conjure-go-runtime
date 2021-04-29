@@ -172,6 +172,13 @@ func (c *clientImpl) doOnce(ctx context.Context, baseURI string, params ...Reque
 		// must precede the body middleware so it can read the response body
 		c.errorDecoderMiddleware,
 	}
+
+	if b.errorDecoderMiddleware == nil {
+		svc1log.FromContext(ctx).Debug("request error decoder is nil")
+	}
+	if c.errorDecoderMiddleware == nil {
+		svc1log.FromContext(ctx).Debug("error decoder is nil")
+	}
 	// must precede the body middleware so it can read the request body
 	middlewares = append(middlewares, c.middlewares...)
 	middlewares = append(middlewares, b.bodyMiddleware)

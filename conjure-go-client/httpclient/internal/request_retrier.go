@@ -16,6 +16,7 @@ package internal
 
 import (
 	"context"
+	"fmt"
 	"math/rand"
 	"net/http"
 	"net/url"
@@ -23,7 +24,6 @@ import (
 
 	"github.com/palantir/pkg/retry"
 	werror "github.com/palantir/witchcraft-go-error"
-	"github.com/palantir/witchcraft-go-logging/wlog/svclog/svc1log"
 )
 
 const (
@@ -88,25 +88,20 @@ func (r *RequestRetrier) GetNextURI(ctx context.Context, resp *http.Response, re
 	if r.attemptCount == 0 {
 		return r.removeMeshSchemeIfPresent(r.currentURI), nil
 	} else if !r.ShouldGetNextURI(resp, respErr) {
-		svc1log.FromContext(ctx).Debug("cannot retry with respErr", svc1log.SafeParam("error", respErr.Error()))
 		return "", r.getErrorForUnretriableResponse(ctx, resp, respErr)
 	}
 	return r.doRetrySelection(ctx, resp, respErr), nil
 }
 
 func (r *RequestRetrier) doRetrySelection(ctx context.Context, resp *http.Response, respErr error) string {
+	fmt.Print("do retry selection: ")
 	if resp != nil {
-		svc1log.FromContext(ctx).Debug("doRetrySelection resp",
-			svc1log.SafeParam("statusCode", resp.StatusCode),
-			svc1log.SafeParam("status", resp.Status))
+		fmt.Print(resp.Status + " - ")
 	}
-	svc1log.FromContext(ctx).Debug("doRetrySelection respErr",
-		svc1log.SafeParam("error", respErr.Error()))
-	if code, ok := StatusCodeFromError(respErr); ok {
-		svc1log.FromContext(ctx).Debug("doRetrySelection respErr code",
-			svc1log.SafeParam("code", code))
+	if respErr != nil {
+		fmt.Print(respErr.Error())
 	}
-
+	fmt.Println("")
 	retryFn := r.getRetryFn(resp, respErr)
 	if retryFn != nil {
 		retryFn(ctx)
@@ -121,21 +116,21 @@ func (r *RequestRetrier) responseAndErrRetriable(resp *http.Response, respErr er
 
 func (r *RequestRetrier) getRetryFn(resp *http.Response, respErr error) func(ctx context.Context) {
 	if retryOther, _ := isThrottleResponse(resp, respErr); retryOther {
+		fmt.Println("throttle")
 		// 429: throttle
 		// Immediately backoff and select the next URI.
 		// TODO(whickman): use the retry-after header once #81 is resolved
 		return r.nextURIAndBackoff
 	} else if isUnavailableResponse(resp, respErr) || resp == nil {
+		fmt.Println("unavailable or resp nil")
 		// 503: go to next node
 		// Or if we get a nil response, we can assume there is a problem with host and can move on to the next.
 		return r.nextURIOrBackoff
 	} else if shouldTryOther, otherURI := isRetryOtherResponse(resp); shouldTryOther {
+		fmt.Println("retry other response: " + otherURI.String())
 		// 307 or 308: go to next node, or particular node if provided.
 		if otherURI != nil {
 			return func(ctx context.Context) {
-				svc1log.FromContext(ctx).Debug("setURIAndResetBackoff",
-					svc1log.SafeParam("currentURI", r.currentURI),
-					svc1log.SafeParam("nextURI", otherURI.String()))
 				r.setURIAndResetBackoff(otherURI)
 			}
 		}
@@ -159,19 +154,11 @@ func (r *RequestRetrier) nextURIOrBackoff(ctx context.Context) {
 	if performBackoff || len(r.uris) == 1 {
 		r.retrier.Next()
 	}
-	svc1log.FromContext(ctx).Debug("nextURIOrBackoff",
-		svc1log.SafeParam("uris", r.uris),
-		svc1log.SafeParam("failedURIs", r.failedURIs),
-		svc1log.SafeParam("nextURI", r.currentURI))
 }
 
 // Marks the current URI as failed, gets the next URI, and performs a backoff as determined by the retrier.
 func (r *RequestRetrier) nextURIAndBackoff(ctx context.Context) {
 	r.markFailedAndMoveToNextURI()
-	svc1log.FromContext(ctx).Debug("nextURIAndBackoff",
-		svc1log.SafeParam("uris", r.uris),
-		svc1log.SafeParam("failedURIs", r.failedURIs),
-		svc1log.SafeParam("nextURI", r.currentURI))
 	r.retrier.Next()
 }
 

@@ -45,12 +45,18 @@ func errorDecoderMiddleware(errorDecoder ErrorDecoder) Middleware {
 		resp, err := next.RoundTrip(req)
 		// if error is already set, it is more severe than our HTTP error. Just return it.
 		if resp == nil || err != nil {
+			fmt.Println("error decoder middleware return error from next")
+			if err != nil {
+				fmt.Println("error: " + err.Error())
+			}
 			return nil, err
 		}
 		if errorDecoder.Handles(resp) {
 			defer internal.DrainBody(resp)
+			fmt.Println("error decoder middleware decoding error: " + resp.Status)
 			return nil, errorDecoder.DecodeError(resp)
 		}
+		fmt.Println("error decoder middleware return resp: " + resp.Status)
 		return resp, nil
 	})
 }
@@ -88,12 +94,15 @@ func (d restErrorDecoder) DecodeError(resp *http.Response) error {
 
 	// If JSON, try to unmarshal as conjure error
 	if isJSON := strings.Contains(resp.Header.Get("Content-Type"), codecs.JSON.ContentType()); !isJSON {
+		fmt.Println("error decoder middleware return error not json: " + resp.Header.Get("Content-Type"))
 		return werror.Error(resp.Status, statusParam, werror.UnsafeParam("responseBody", string(body)))
 	}
 	conjureErr, err := errors.UnmarshalError(body)
 	if err != nil {
+		fmt.Println("error decoder middleware return error cannot unmarshal: " + err.Error())
 		return werror.Wrap(err, "", statusParam, werror.UnsafeParam("responseBody", string(body)))
 	}
+	fmt.Println("error decoder middleware return conjure error: " + conjureErr.Error())
 	return werror.Wrap(conjureErr, "", statusParam)
 }
 
