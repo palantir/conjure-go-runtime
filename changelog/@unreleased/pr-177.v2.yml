@@ -1,0 +1,5 @@
+type: fix
+fix:
+  description: Skip decoding the body if response status is redirect
+  links:
+  - https://github.com/palantir/conjure-go-runtime/pull/177
