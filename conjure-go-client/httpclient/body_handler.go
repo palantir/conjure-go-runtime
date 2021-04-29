@@ -16,6 +16,7 @@ package httpclient
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -39,6 +40,7 @@ type bodyMiddleware struct {
 }
 
 func (b *bodyMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+	fmt.Println("running body middleware")
 	cleanup, err := b.setRequestBody(req)
 	if err != nil {
 		return nil, err
@@ -116,10 +118,10 @@ func (b *bodyMiddleware) readResponse(resp *http.Response, respErr error) error 
 		return nil
 	}
 
-	decErr := b.responseDecoder.Decode(resp.Body, b.responseOutput)
-	if decErr != nil {
-		return decErr
-	}
+	//decErr := b.responseDecoder.Decode(resp.Body, b.responseOutput)
+	//if decErr != nil {
+	//	return decErr
+	//}
 
 	return nil
 }

@@ -15,6 +15,7 @@
 package httpclient
 
 import (
+	"fmt"
 	"io/ioutil"
 	"net/http"
 	"strings"
@@ -40,6 +41,7 @@ type ErrorDecoder interface {
 // In this case, the *http.Response returned will be nil.
 func errorDecoderMiddleware(errorDecoder ErrorDecoder) Middleware {
 	return MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+		fmt.Println("running error decoder middleware")
 		resp, err := next.RoundTrip(req)
 		// if error is already set, it is more severe than our HTTP error. Just return it.
 		if resp == nil || err != nil {

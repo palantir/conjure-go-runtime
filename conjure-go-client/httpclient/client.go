@@ -109,8 +109,6 @@ func (c *clientImpl) Do(ctx context.Context, params ...RequestParam) (*http.Resp
 			svc1log.SafeParam("maxAttempts", c.maxAttempts),
 			svc1log.SafeParam("counter", counter))
 		if retryErr != nil {
-			svc1log.FromContext(ctx).Debug("retry Err",
-				svc1log.SafeParam("retryErr", retryErr.Error()))
 			return nil, retryErr
 		}
 		resp, err = c.doOnce(ctx, uri, params...)
@@ -186,6 +184,13 @@ func (c *clientImpl) doOnce(ctx context.Context, baseURI string, params ...Reque
 
 	// 3. execute the request using the client to get and handle the response
 	resp, respErr := clientCopy.Do(req)
+	if resp == nil {
+		svc1log.FromContext(ctx).Debug("the resp is nil")
+	}
+	if respErr != nil {
+		safeParams, _ := werror.ParamsFromError(respErr)
+		svc1log.FromContext(ctx).Debug("respErr with safeParams", svc1log.SafeParams(safeParams))
+	}
 
 	// unless this is exactly the scenario where the caller has opted into being responsible for draining and closing
 	// the response body, be sure to do so here.
