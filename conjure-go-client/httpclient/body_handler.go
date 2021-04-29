@@ -16,11 +16,11 @@ package httpclient
 
 import (
 	"bytes"
-	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient/internal"
 	"io"
 	"io/ioutil"
 	"net/http"
 
+	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient/internal"
 	"github.com/palantir/conjure-go-runtime/v2/conjure-go-contract/codecs"
 	"github.com/palantir/pkg/bytesbuffers"
 	werror "github.com/palantir/witchcraft-go-error"
@@ -119,6 +119,7 @@ func (b *bodyMiddleware) readResponse(resp *http.Response, respErr error) error 
 
 	// Verify the response status. If the response is redirect, no need to decode the body
 	// the client will retry on the new location in the header
+	// TODO: could remove this once #81 is resolved
 	if resp.StatusCode == internal.StatusCodeRetryOther ||
 		resp.StatusCode == internal.StatusCodeRetryTemporaryRedirect {
 		return nil
