@@ -16,6 +16,7 @@ package httpclient
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
@@ -24,7 +25,6 @@ import (
 	"github.com/palantir/pkg/bytesbuffers"
 	"github.com/palantir/pkg/retry"
 	werror "github.com/palantir/witchcraft-go-error"
-	"github.com/palantir/witchcraft-go-logging/wlog/svclog/svc1log"
 	"github.com/palantir/witchcraft-go-tracing/wtracing"
 )
 
@@ -95,23 +95,24 @@ func (c *clientImpl) Do(ctx context.Context, params ...RequestParam) (*http.Resp
 	retrier := internal.NewRequestRetrier(uris, retry.Start(ctx, c.backoffOptions...), c.maxAttempts)
 	for retrier.ShouldGetNextURI(resp, err) {
 		uri, retryErr := retrier.GetNextURI(ctx, resp, err)
-		if resp != nil {
-			svc1log.FromContext(ctx).Debug("resp",
-				svc1log.SafeParam("statusCode", resp.StatusCode),
-				svc1log.SafeParam("status", resp.Status))
+		if resp == nil {
+			fmt.Println("the resp is nil after GetNextURI")
+		} else {
+			fmt.Println("the resp is not nil after GetNextURI: " + resp.Status)
 		}
-		if err != nil {
-			svc1log.FromContext(ctx).Debug("err",
-				svc1log.SafeParam("error", err.Error()))
-		}
-		svc1log.FromContext(ctx).Debug("next URI",
-			svc1log.SafeParam("uri", uri),
-			svc1log.SafeParam("maxAttempts", c.maxAttempts),
-			svc1log.SafeParam("counter", counter))
+
+		fmt.Println("next URI: " + uri + fmt.Sprintf(" //// %d", counter))
+
 		if retryErr != nil {
+			fmt.Println("retryErr is not nil: " + retryErr.Error())
 			return nil, retryErr
 		}
 		resp, err = c.doOnce(ctx, uri, params...)
+		if resp == nil {
+			fmt.Println("the resp is nil after do once")
+		} else {
+			fmt.Println("the resp is not nil after do once: " + resp.Status)
+		}
 		counter++
 	}
 	if err != nil {
@@ -148,6 +149,8 @@ func (c *clientImpl) doOnce(ctx context.Context, baseURI string, params ...Reque
 	if err != nil {
 		return nil, err
 	}
+
+	fmt.Println("request URI is: " + reqURI)
 	req, err := http.NewRequest(b.method, reqURI, nil)
 	if err != nil {
 		return nil, werror.Wrap(err, "failed to build new HTTP request")
@@ -172,13 +175,6 @@ func (c *clientImpl) doOnce(ctx context.Context, baseURI string, params ...Reque
 		// must precede the body middleware so it can read the response body
 		c.errorDecoderMiddleware,
 	}
-
-	if b.errorDecoderMiddleware == nil {
-		svc1log.FromContext(ctx).Debug("request error decoder is nil")
-	}
-	if c.errorDecoderMiddleware == nil {
-		svc1log.FromContext(ctx).Debug("error decoder is nil")
-	}
 	// must precede the body middleware so it can read the request body
 	middlewares = append(middlewares, c.middlewares...)
 	middlewares = append(middlewares, b.bodyMiddleware)
@@ -192,11 +188,12 @@ func (c *clientImpl) doOnce(ctx context.Context, baseURI string, params ...Reque
 	// 3. execute the request using the client to get and handle the response
 	resp, respErr := clientCopy.Do(req)
 	if resp == nil {
-		svc1log.FromContext(ctx).Debug("the resp is nil")
+		fmt.Println("the resp is nil after client do")
+	} else {
+		fmt.Println("the resp is not nil after client do: " + resp.Status)
 	}
 	if respErr != nil {
-		safeParams, _ := werror.ParamsFromError(respErr)
-		svc1log.FromContext(ctx).Debug("respErr with safeParams", svc1log.SafeParams(safeParams))
+		fmt.Println("the resp err after client do: " + respErr.Error())
 	}
 
 	// unless this is exactly the scenario where the caller has opted into being responsible for draining and closing

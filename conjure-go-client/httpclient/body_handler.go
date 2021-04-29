@@ -51,7 +51,7 @@ func (b *bodyMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (*
 
 	if err := b.readResponse(resp, respErr); err != nil {
 		fmt.Println("body middleware return error when read response: " + err.Error())
-		return nil, err
+		return resp, err
 	}
 
 	fmt.Println("body middleware return resp: " + resp.Status)
