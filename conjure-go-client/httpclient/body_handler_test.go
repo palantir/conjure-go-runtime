@@ -172,3 +172,47 @@ func TestRedirectWithBodyAndBytesBuffer(t *testing.T) {
 	assert.Equal(t, resp.StatusCode, 200)
 	assert.Equal(t, respVar, actualRespVar)
 }
+
+func TestRedirectResponseWithUnexpectedBody(t *testing.T) {
+	reqVar := map[string]string{"1": "2"}
+	redirectResp := "<html><body>307</body></html>"
+	respVar := map[string]string{"3": "4"}
+
+	server := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		var actualReqVar map[string]string
+		err := codecs.JSON.Decode(req.Body, &actualReqVar)
+		assert.NoError(t, err)
+		assert.Equal(t, reqVar, actualReqVar)
+
+		switch req.URL.Path {
+		case "/redirect":
+			rw.Header().Add("Location", "/location")
+			rw.WriteHeader(307)
+			_, err = rw.Write([]byte(redirectResp))
+			assert.NoError(t, err)
+		case "/location":
+			assert.NoError(t, codecs.JSON.Encode(rw, respVar))
+		}
+	}))
+	defer server.Close()
+
+	client, err := httpclient.NewClient(
+		httpclient.WithUserAgent("TestNewRequest"),
+		httpclient.WithBaseURLs([]string{server.URL}),
+		httpclient.WithBytesBufferPool(bytesbuffers.NewSizedPool(1, 10)),
+	)
+	require.NoError(t, err)
+
+	var actualRespVar map[string]string
+	resp, err := client.Do(context.Background(),
+		httpclient.WithRequestMethod(http.MethodPost),
+		httpclient.WithPath("/redirect"),
+		httpclient.WithJSONRequest(&reqVar),
+		httpclient.WithJSONResponse(&actualRespVar),
+	)
+
+	assert.NoError(t, err)
+	assert.NotNil(t, resp)
+	assert.Equal(t, resp.StatusCode, 200)
+	assert.Equal(t, respVar, actualRespVar)
+}
