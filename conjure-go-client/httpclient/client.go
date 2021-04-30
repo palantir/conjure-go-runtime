@@ -221,7 +221,11 @@ func joinURIAndPath(baseURI, reqPath string) (string, error) {
 	}
 
 	if reqPath != "" {
-		uri.Path = strings.TrimRight(uri.Path, "/") + "/" + strings.TrimLeft(reqPath, "/")
+		trimedBaseURI := strings.TrimRight(uri.Path, "/")
+		trimedRequestURI := strings.TrimLeft(reqPath, "/")
+		// the base URI might be the full URI returned by redirects
+		trimedBaseURI = strings.TrimSuffix(trimedBaseURI, trimedRequestURI)
+		uri.Path = trimedBaseURI + "/" + trimedRequestURI
 	}
 
 	return uri.String(), nil
