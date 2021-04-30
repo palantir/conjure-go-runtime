@@ -54,7 +54,7 @@ func errorDecoderMiddleware(errorDecoder ErrorDecoder) Middleware {
 }
 
 // restErrorDecoder is our default error decoder.
-// It handles responses of status code >= 400. In this case,
+// It handles responses of status code >= 307. In this case,
 // we create and return a werror with the 'statusCode' parameter
 // set to the integer value from the response.
 //
@@ -69,33 +69,45 @@ type restErrorDecoder struct{}
 var _ ErrorDecoder = restErrorDecoder{}
 
 func (d restErrorDecoder) Handles(resp *http.Response) bool {
-	return resp.StatusCode >= http.StatusBadRequest
+	return resp.StatusCode >= http.StatusTemporaryRedirect
 }
 
 func (d restErrorDecoder) DecodeError(resp *http.Response) error {
-	statusParam := werror.SafeParam("statusCode", resp.StatusCode)
+	params := map[string]interface{}{
+		"statusCode": resp.StatusCode,
+	}
+	if resp.StatusCode >= http.StatusTemporaryRedirect &&
+		resp.StatusCode < http.StatusBadRequest {
+		params["location"] = resp.Header.Get("Location")
+	}
+	wparams := werror.SafeParams(params)
 
 	// TODO(#98): If a byte buffer pool is configured, use it to avoid an allocation.
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		return werror.Wrap(err, "server returned an error and failed to read body", statusParam)
+		return werror.Wrap(err, "server returned an error and failed to read body", wparams)
 	}
 	if len(body) == 0 {
-		return werror.Error(resp.Status, statusParam)
+		return werror.Error(resp.Status, wparams)
 	}
 
 	// If JSON, try to unmarshal as conjure error
 	if isJSON := strings.Contains(resp.Header.Get("Content-Type"), codecs.JSON.ContentType()); !isJSON {
-		return werror.Error(resp.Status, statusParam, werror.UnsafeParam("responseBody", string(body)))
+		return werror.Error(resp.Status, wparams, werror.UnsafeParam("responseBody", string(body)))
 	}
 	conjureErr, err := errors.UnmarshalError(body)
 	if err != nil {
-		return werror.Wrap(err, "", statusParam, werror.UnsafeParam("responseBody", string(body)))
+		return werror.Wrap(err, "", wparams, werror.UnsafeParam("responseBody", string(body)))
 	}
-	return werror.Wrap(conjureErr, "", statusParam)
+	return werror.Wrap(conjureErr, "", wparams)
 }
 
 // StatusCodeFromError wraps the internal StatusCodeFromError func. For behavior details, see its docs.
 func StatusCodeFromError(err error) (statusCode int, ok bool) {
 	return internal.StatusCodeFromError(err)
+}
+
+// LocationFromError wraps the internal LocationFromError func. For behavior details, see its docs.
+func LocationFromError(err error) (location string, ok bool) {
+	return internal.LocationFromError(err)
 }

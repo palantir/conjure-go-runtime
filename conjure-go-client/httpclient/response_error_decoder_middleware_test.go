@@ -55,6 +55,34 @@ func TestErrorDecoderMiddlewares(t *testing.T) {
 			},
 		},
 		{
+			name: "307 no location",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(307)
+			},
+			verify: func(t *testing.T, u *url.URL, err error) {
+				assert.EqualError(t, err, "httpclient request failed: 307 Temporary Redirect")
+				code, ok := httpclient.StatusCodeFromError(err)
+				assert.True(t, ok)
+				assert.Equal(t, 307, code)
+				location, ok := httpclient.LocationFromError(err)
+				assert.True(t, ok)
+				assert.Equal(t, "", location)
+			},
+		},
+		{
+			name: "307 with location",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Location", "https://google.com")
+				w.WriteHeader(307)
+			},
+			verify: func(t *testing.T, u *url.URL, err error) {
+				verify404(t, err)
+				assert.EqualError(t, err, "httpclient request failed: 404 Not Found")
+				safeParams, _ := werror.ParamsFromError(err)
+				assert.Equal(t, map[string]interface{}{"requestHost": "google.com", "requestMethod": "Get", "statusCode": 404}, safeParams)
+			},
+		},
+		{
 			name:         "404 DisableRestErrors",
 			handler:      http.NotFound,
 			decoderParam: httpclient.WithDisableRestErrors(),

@@ -111,17 +111,19 @@ func (r *RequestRetrier) getRetryFn(resp *http.Response, respErr error) func() {
 		// Immediately backoff and select the next URI.
 		// TODO(whickman): use the retry-after header once #81 is resolved
 		return r.nextURIAndBackoff
-	} else if isUnavailableResponse(resp, respErr) || resp == nil {
+	} else if isUnavailableResponse(resp, respErr) {
 		// 503: go to next node
-		// Or if we get a nil response, we can assume there is a problem with host and can move on to the next.
 		return r.nextURIOrBackoff
-	} else if shouldTryOther, otherURI := isRetryOtherResponse(resp); shouldTryOther {
+	} else if shouldTryOther, otherURI := isRetryOtherResponse(resp, respErr); shouldTryOther {
 		// 307 or 308: go to next node, or particular node if provided.
 		if otherURI != nil {
 			return func() {
 				r.setURIAndResetBackoff(otherURI)
 			}
 		}
+		return r.nextURIOrBackoff
+	} else if resp == nil {
+		// if we get a nil response, we can assume there is a problem with host and can move on to the next.
 		return r.nextURIOrBackoff
 	}
 	return nil

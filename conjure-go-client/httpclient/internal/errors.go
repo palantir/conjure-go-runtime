@@ -32,3 +32,17 @@ func StatusCodeFromError(err error) (statusCode int, ok bool) {
 	statusCode, ok = statusCodeI.(int)
 	return statusCode, ok
 }
+
+// LocationFromError retrieves the 'location' parameter from the provided werror.
+// If the error is not a werror or does not have the location param, ok is false.
+//
+// The default client error decoder sets the location parameter on its returned errors
+// if the status code is 3xx and a location is set in the response header
+func LocationFromError(err error) (location string, ok bool) {
+	locationI, ok := werror.ParamFromError(err, "location")
+	if !ok {
+		return "", false
+	}
+	location, ok = locationI.(string)
+	return location, ok
+}
