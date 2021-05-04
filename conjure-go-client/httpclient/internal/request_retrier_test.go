@@ -84,6 +84,25 @@ func TestRequestRetrier_UsesLocationHeader(t *testing.T) {
 	require.Equal(t, uri, "http://example.com")
 }
 
+func TestRequestRetrier_UsesLocationFromErr(t *testing.T) {
+	ctx := context.Background()
+	r := NewRequestRetrier([]string{"http://example-1.com"}, retry.Start(context.Background()), 2)
+	respErr := werror.ErrorWithContextParams(context.Background(), "307",
+		werror.SafeParam("statusCode", 307),
+		werror.SafeParam("location", "http://example-2.com"))
+	require.True(t, r.ShouldGetNextURI(nil, nil))
+	uri, err := r.GetNextURI(ctx, nil, nil)
+	require.NoError(t, err)
+	require.Equal(t, uri, "http://example-1.com")
+	require.False(t, r.IsRelocatedURI(uri))
+
+	require.True(t, r.ShouldGetNextURI(nil, respErr))
+	uri, err = r.GetNextURI(ctx, nil, respErr)
+	require.NoError(t, err)
+	require.Equal(t, uri, "http://example-2.com")
+	require.True(t, r.IsRelocatedURI(uri))
+}
+
 func TestRequestRetrier_GetNextURI(t *testing.T) {
 	for _, tc := range []struct {
 		name               string

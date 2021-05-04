@@ -76,10 +76,7 @@ func TestErrorDecoderMiddlewares(t *testing.T) {
 				w.WriteHeader(307)
 			},
 			verify: func(t *testing.T, u *url.URL, err error) {
-				verify404(t, err)
-				assert.EqualError(t, err, "httpclient request failed: 404 Not Found")
-				safeParams, _ := werror.ParamsFromError(err)
-				assert.Equal(t, map[string]interface{}{"requestHost": "google.com", "requestMethod": "Get", "statusCode": 404}, safeParams)
+				assert.NoError(t, err)
 			},
 		},
 		{

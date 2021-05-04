@@ -96,7 +96,7 @@ func (c *clientImpl) Do(ctx context.Context, params ...RequestParam) (*http.Resp
 		if retryErr != nil {
 			return nil, retryErr
 		}
-		resp, err = c.doOnce(ctx, uri, params...)
+		resp, err = c.doOnce(ctx, uri, retrier.IsRelocatedURI(uri), params...)
 	}
 	if err != nil {
 		return nil, err
@@ -104,7 +104,12 @@ func (c *clientImpl) Do(ctx context.Context, params ...RequestParam) (*http.Resp
 	return resp, nil
 }
 
-func (c *clientImpl) doOnce(ctx context.Context, baseURI string, params ...RequestParam) (*http.Response, error) {
+func (c *clientImpl) doOnce(
+	ctx context.Context,
+	baseURI string,
+	baseURIOnly bool,
+	params ...RequestParam,
+) (*http.Response, error) {
 
 	// 1. create the request
 	b := &requestBuilder{
@@ -128,7 +133,7 @@ func (c *clientImpl) doOnce(ctx context.Context, baseURI string, params ...Reque
 	if b.method == "" {
 		return nil, werror.Error("httpclient: use WithRequestMethod() to specify HTTP method")
 	}
-	reqURI, err := joinURIAndPath(baseURI, b.path)
+	reqURI, err := joinURIAndPath(baseURI, b.path, baseURIOnly)
 	if err != nil {
 		return nil, err
 	}
@@ -214,18 +219,14 @@ func (c *clientImpl) initializeRequestHeaders(ctx context.Context) http.Header {
 	return headers
 }
 
-func joinURIAndPath(baseURI, reqPath string) (string, error) {
+func joinURIAndPath(baseURI, reqPath string, baseURIOnly bool) (string, error) {
 	uri, err := url.Parse(baseURI)
 	if err != nil {
 		return "", werror.Wrap(err, "failed to parse request URL")
 	}
 
-	if reqPath != "" {
-		trimedBaseURI := strings.TrimRight(uri.Path, "/")
-		trimedRequestURI := strings.TrimLeft(reqPath, "/")
-		// the base URI might be the full URI returned by redirects
-		trimedBaseURI = strings.TrimRight(strings.TrimSuffix(trimedBaseURI, trimedRequestURI), "/")
-		uri.Path = trimedBaseURI + "/" + trimedRequestURI
+	if !baseURIOnly && reqPath != "" {
+		uri.Path = strings.TrimRight(uri.Path, "/") + "/" + strings.TrimLeft(reqPath, "/")
 	}
 
 	return uri.String(), nil

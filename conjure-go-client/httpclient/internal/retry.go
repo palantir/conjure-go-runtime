@@ -61,8 +61,7 @@ const (
 
 func isRetryOtherResponse(resp *http.Response, err error) (bool, *url.URL) {
 	errCode, ok := StatusCodeFromError(err)
-	if ok &&
-		(errCode == StatusCodeRetryOther || errCode == StatusCodeRetryTemporaryRedirect) {
+	if ok && (errCode == StatusCodeRetryOther || errCode == StatusCodeRetryTemporaryRedirect) {
 		locationStr, ok := LocationFromError(err)
 		if ok {
 			return true, parseLocationURL(locationStr)

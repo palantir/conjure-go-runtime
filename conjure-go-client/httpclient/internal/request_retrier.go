@@ -34,13 +34,14 @@ const (
 // In the case of servers in a service-mesh, requests will never be retried and the mesh URI will only be returned on the
 // first call to GetNextURI
 type RequestRetrier struct {
-	currentURI   string
-	retrier      retry.Retrier
-	uris         []string
-	offset       int
-	failedURIs   map[string]struct{}
-	maxAttempts  int
-	attemptCount int
+	currentURI    string
+	retrier       retry.Retrier
+	uris          []string
+	offset        int
+	relocatedURIs map[string]struct{}
+	failedURIs    map[string]struct{}
+	maxAttempts   int
+	attemptCount  int
 }
 
 // NewRequestRetrier creates a new request retrier.
@@ -48,13 +49,14 @@ type RequestRetrier struct {
 func NewRequestRetrier(uris []string, retrier retry.Retrier, maxAttempts int) *RequestRetrier {
 	offset := rand.Intn(len(uris))
 	return &RequestRetrier{
-		currentURI:   uris[offset],
-		retrier:      retrier,
-		uris:         uris,
-		offset:       offset,
-		failedURIs:   map[string]struct{}{},
-		maxAttempts:  maxAttempts,
-		attemptCount: 0,
+		currentURI:    uris[offset],
+		retrier:       retrier,
+		uris:          uris,
+		offset:        offset,
+		relocatedURIs: map[string]struct{}{},
+		failedURIs:    map[string]struct{}{},
+		maxAttempts:   maxAttempts,
+		attemptCount:  0,
 	}
 }
 
@@ -131,6 +133,7 @@ func (r *RequestRetrier) getRetryFn(resp *http.Response, respErr error) func() {
 
 func (r *RequestRetrier) setURIAndResetBackoff(otherURI *url.URL) {
 	nextURI := otherURI.String()
+	r.relocatedURIs[otherURI.String()] = struct{}{}
 	r.retrier.Reset()
 	r.currentURI = nextURI
 }
@@ -169,6 +172,12 @@ func (r *RequestRetrier) removeMeshSchemeIfPresent(uri string) string {
 
 func (r *RequestRetrier) isMeshURI(uri string) bool {
 	return strings.HasPrefix(uri, meshSchemePrefix)
+}
+
+// IsRelocatedURI is a helper function to identify if the provided URI is a relocated URI from response during retry
+func (r *RequestRetrier) IsRelocatedURI(uri string) bool {
+	_, relocatedURI := r.relocatedURIs[uri]
+	return relocatedURI
 }
 
 func (r *RequestRetrier) getErrorForUnretriableResponse(ctx context.Context, resp *http.Response, respErr error) error {
