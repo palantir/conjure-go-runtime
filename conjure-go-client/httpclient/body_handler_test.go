@@ -135,6 +135,7 @@ func TestRawRequestRetry(t *testing.T) {
 func TestRedirectWithBodyAndBytesBuffer(t *testing.T) {
 	reqVar := map[string]string{"1": "2"}
 	respVar := map[string]string{"3": "4"}
+
 	server := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
 		var actualReqVar map[string]string
 		err := codecs.JSON.Decode(req.Body, &actualReqVar)
@@ -149,7 +150,6 @@ func TestRedirectWithBodyAndBytesBuffer(t *testing.T) {
 			assert.NoError(t, codecs.JSON.Encode(rw, respVar))
 		}
 	}))
-
 	defer server.Close()
 
 	client, err := httpclient.NewClient(
