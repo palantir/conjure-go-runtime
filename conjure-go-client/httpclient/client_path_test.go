@@ -23,80 +23,58 @@ import (
 
 func TestJoinURIandPath(t *testing.T) {
 	for _, test := range []struct {
-		baseURI     string
-		reqPath     string
-		baseURIOnly bool
-		expected    string
+		baseURI  string
+		reqPath  string
+		expected string
 	}{
 		{
 			"https://localhost",
 			"/api",
-			false,
 			"https://localhost/api",
 		},
 		{
 			"https://localhost:443",
 			"/api",
-			false,
 			"https://localhost:443/api",
 		},
 		{
 			"https://localhost:443",
 			"api",
-			false,
 			"https://localhost:443/api",
 		},
 		{
 			"https://localhost:443/",
 			"api",
-			false,
 			"https://localhost:443/api",
 		},
 		{
 			"https://localhost:443/foo/",
 			"/api",
-			false,
 			"https://localhost:443/foo/api",
 		},
 		{
 			"https://localhost:443/foo//////",
 			"////api/",
-			false,
 			"https://localhost:443/foo/api/",
 		},
 		{
 			"https://localhost:443/foo/",
 			"/api",
-			false,
 			"https://localhost:443/foo/api",
 		},
 		{
 			"https://localhost",
 			"",
-			false,
 			"https://localhost",
 		},
 		{
 			"https://localhost/api",
 			"",
-			false,
-			"https://localhost/api",
-		},
-		{
-			"https://localhost/api",
-			"/another/api/path",
-			true,
-			"https://localhost/api",
-		},
-		{
-			"https://localhost/api",
-			"",
-			true,
 			"https://localhost/api",
 		},
 	} {
 		t.Run("", func(t *testing.T) {
-			actual, err := joinURIAndPath(test.baseURI, test.reqPath, test.baseURIOnly)
+			actual, err := joinURIAndPath(test.baseURI, test.reqPath)
 			require.NoError(t, err)
 			assert.Equal(t, test.expected, actual)
 		})

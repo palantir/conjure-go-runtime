@@ -73,33 +73,35 @@ func (d restErrorDecoder) Handles(resp *http.Response) bool {
 }
 
 func (d restErrorDecoder) DecodeError(resp *http.Response) error {
-	params := map[string]interface{}{
+	safeParams := map[string]interface{}{
 		"statusCode": resp.StatusCode,
 	}
+	unsafeParams := map[string]interface{}{}
 	if resp.StatusCode >= http.StatusTemporaryRedirect &&
 		resp.StatusCode < http.StatusBadRequest {
-		params["location"] = resp.Header.Get("Location")
+		unsafeParams["location"] = resp.Header.Get("Location")
 	}
-	wparams := werror.SafeParams(params)
+	wSafeParams := werror.SafeParams(safeParams)
+	wUnsafeParams := werror.UnsafeParams(unsafeParams)
 
 	// TODO(#98): If a byte buffer pool is configured, use it to avoid an allocation.
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		return werror.Wrap(err, "server returned an error and failed to read body", wparams)
+		return werror.Wrap(err, "server returned an error and failed to read body", wSafeParams, wUnsafeParams)
 	}
 	if len(body) == 0 {
-		return werror.Error(resp.Status, wparams)
+		return werror.Error(resp.Status, wSafeParams, wUnsafeParams)
 	}
 
 	// If JSON, try to unmarshal as conjure error
 	if isJSON := strings.Contains(resp.Header.Get("Content-Type"), codecs.JSON.ContentType()); !isJSON {
-		return werror.Error(resp.Status, wparams, werror.UnsafeParam("responseBody", string(body)))
+		return werror.Error(resp.Status, wSafeParams, wUnsafeParams, werror.UnsafeParam("responseBody", string(body)))
 	}
 	conjureErr, err := errors.UnmarshalError(body)
 	if err != nil {
-		return werror.Wrap(err, "", wparams, werror.UnsafeParam("responseBody", string(body)))
+		return werror.Wrap(err, "", wSafeParams, wUnsafeParams, werror.UnsafeParam("responseBody", string(body)))
 	}
-	return werror.Wrap(conjureErr, "", wparams)
+	return werror.Wrap(conjureErr, "", wSafeParams, wUnsafeParams)
 }
 
 // StatusCodeFromError wraps the internal StatusCodeFromError func. For behavior details, see its docs.

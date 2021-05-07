@@ -107,7 +107,7 @@ func (c *clientImpl) Do(ctx context.Context, params ...RequestParam) (*http.Resp
 func (c *clientImpl) doOnce(
 	ctx context.Context,
 	baseURI string,
-	baseURIOnly bool,
+	useBaseURIOnly bool,
 	params ...RequestParam,
 ) (*http.Response, error) {
 
@@ -126,6 +126,10 @@ func (c *clientImpl) doOnce(
 			return nil, err
 		}
 	}
+	if useBaseURIOnly {
+		b.path = ""
+	}
+
 	for _, c := range b.configureCtx {
 		ctx = c(ctx)
 	}
@@ -133,7 +137,7 @@ func (c *clientImpl) doOnce(
 	if b.method == "" {
 		return nil, werror.Error("httpclient: use WithRequestMethod() to specify HTTP method")
 	}
-	reqURI, err := joinURIAndPath(baseURI, b.path, baseURIOnly)
+	reqURI, err := joinURIAndPath(baseURI, b.path)
 	if err != nil {
 		return nil, err
 	}
@@ -219,13 +223,13 @@ func (c *clientImpl) initializeRequestHeaders(ctx context.Context) http.Header {
 	return headers
 }
 
-func joinURIAndPath(baseURI, reqPath string, baseURIOnly bool) (string, error) {
+func joinURIAndPath(baseURI, reqPath string) (string, error) {
 	uri, err := url.Parse(baseURI)
 	if err != nil {
 		return "", werror.Wrap(err, "failed to parse request URL")
 	}
 
-	if !baseURIOnly && reqPath != "" {
+	if reqPath != "" {
 		uri.Path = strings.TrimRight(uri.Path, "/") + "/" + strings.TrimLeft(reqPath, "/")
 	}
 

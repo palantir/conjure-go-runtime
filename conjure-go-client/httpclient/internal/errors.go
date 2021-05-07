@@ -26,7 +26,7 @@ import (
 // parameter on the error.
 func StatusCodeFromError(err error) (statusCode int, ok bool) {
 	statusCodeI, ok := werror.ParamFromError(err, "statusCode")
-	if !ok {
+	if statusCodeI == nil {
 		return 0, false
 	}
 	statusCode, ok = statusCodeI.(int)
@@ -39,8 +39,8 @@ func StatusCodeFromError(err error) (statusCode int, ok bool) {
 // The default client error decoder sets the location parameter on its returned errors
 // if the status code is 3xx and a location is set in the response header
 func LocationFromError(err error) (location string, ok bool) {
-	locationI, ok := werror.ParamFromError(err, "location")
-	if !ok {
+	locationI, _ := werror.ParamFromError(err, "location")
+	if locationI == nil {
 		return "", false
 	}
 	location, ok = locationI.(string)
