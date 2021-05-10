@@ -29,10 +29,10 @@ if err != nil {
 	return err
 }
 client, err := httpclient.NewHTTPClient(
-    httpclient.Config(clientConf),
-    httpclient.HTTPTimeout(30 * time.Second),
-    httpclient.UserAgent(fmt.Sprintf("%s/%s", appName, appVersion),
-    httpclient.NoProxy())
+    httpclient.WithConfig(clientConf),
+    httpclient.WithHTTPTimeout(30 * time.Second),
+    httpclient.WithUserAgent(fmt.Sprintf("%s/%s", appName, appVersion)),
+    httpclient.WithNoProxy())
 
 resp, err := client.Post(ctx,
 		httpclient.WithRPCMethodName("CreateFoo"),
