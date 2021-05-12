@@ -26,6 +26,7 @@ import (
 	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient"
 	"github.com/palantir/conjure-go-runtime/v2/conjure-go-contract/codecs"
 	"github.com/palantir/pkg/bytesbuffers"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -62,6 +63,78 @@ func TestCanReadBodyWithBufferPool(t *testing.T) {
 	resp, err := client.Do(context.Background(), httpclient.WithRequestBody(unencodedBody, codecs.Plain), httpclient.WithRequestMethod("GET"))
 	require.NoError(t, err)
 	require.NotNil(t, resp)
+}
+
+func TestCanUseRelocationURI(t *testing.T) {
+	respBody := map[string]string{"key-1": "value-1"}
+
+	relocationServer := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		switch req.URL.Path {
+		case "/newPath":
+			rw.WriteHeader(200)
+			assert.NoError(t, codecs.JSON.Encode(rw, respBody))
+		}
+	}))
+	defer relocationServer.Close()
+
+	server := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		switch req.URL.Path {
+		case "/oldPath":
+			rw.Header().Add("Location", relocationServer.URL+"/newPath")
+			rw.WriteHeader(307)
+		}
+	}))
+	defer server.Close()
+
+	client, err := httpclient.NewClient(
+		httpclient.WithBytesBufferPool(bytesbuffers.NewSizedPool(1, 10)),
+		httpclient.WithBaseURLs([]string{server.URL}),
+	)
+	assert.NoError(t, err)
+
+	var actualRespBody map[string]string
+	resp, err := client.Do(context.Background(),
+		httpclient.WithRequestMethod("GET"),
+		httpclient.WithPath("/oldPath"),
+		httpclient.WithJSONResponse(&actualRespBody),
+	)
+	assert.NoError(t, err)
+	assert.NotNil(t, resp)
+	assert.Equal(t, resp.StatusCode, 200)
+	assert.Equal(t, respBody, actualRespBody)
+}
+
+func TestCanUseSimpleRelocationURI(t *testing.T) {
+	respBody := map[string]string{"key-1": "value-1"}
+
+	server := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		switch req.URL.Path {
+		case "/newPath":
+			rw.WriteHeader(200)
+			assert.NoError(t, codecs.JSON.Encode(rw, respBody))
+		case "/oldPath":
+			rw.Header().Add("Location", "/newPath")
+			rw.WriteHeader(307)
+		}
+	}))
+	defer server.Close()
+
+	client, err := httpclient.NewClient(
+		httpclient.WithBytesBufferPool(bytesbuffers.NewSizedPool(1, 10)),
+		httpclient.WithBaseURLs([]string{server.URL}),
+	)
+	assert.NoError(t, err)
+
+	var actualRespBody map[string]string
+	resp, err := client.Do(context.Background(),
+		httpclient.WithRequestMethod("GET"),
+		httpclient.WithPath("/oldPath"),
+		httpclient.WithJSONResponse(&actualRespBody),
+	)
+	assert.NoError(t, err)
+	assert.NotNil(t, resp)
+	assert.Equal(t, resp.StatusCode, 200)
+	assert.Equal(t, respBody, actualRespBody)
 }
 
 func TestMiddlewareCanReadBody(t *testing.T) {
