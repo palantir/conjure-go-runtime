@@ -7,6 +7,11 @@ plugins:
         checksums:
           darwin-amd64: 08a65d8db9555c4580dbf6cdfd954ffafc687ecbf5a71a643bc190baa9b774ad
           linux-amd64: dda61df35df69154836b4f6caa14f88d6b1a59acdb99005e5f5de986fa33f37b
+    - locator:
+        id: com.palantir.godel-refreshables-plugin:refreshables-plugin:0.3.1
+        checksums:
+          darwin-amd64: a989045052e04b0af5b3937a606eb2e6cc276d9b51db05b276fc23a897921df2
+          linux-amd64: 7a92bd368193023623689d52564b28e4a499e0fb919d9713a86f798ce86ac303
 environment:
   GO111MODULE: "on"
   GOFLAGS: "-mod=vendor"
@@ -14,5 +19,6 @@ exclude:
   names:
     - \..+
     - vendor
+    - zz_generated_refreshables.go
   paths:
     - godel

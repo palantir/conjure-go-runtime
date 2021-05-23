@@ -1,0 +1,5 @@
+type: feature
+feature:
+  description: Add NewClientFromRefreshableConfig and handle live-reloading configuration changes.
+  links:
+  - https://github.com/palantir/conjure-go-runtime/pull/171

@@ -34,9 +34,7 @@ func TestRecoveryMiddleware(t *testing.T) {
 
 	client, err := httpclient.NewClient(
 		httpclient.WithBaseURLs([]string{server.URL}),
-		httpclient.WithMiddleware(httpclient.MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
-			panic(helloErr)
-		})),
+		httpclient.WithMiddleware(panicMiddleware{err: helloErr}),
 	)
 	require.NoError(t, err)
 
@@ -44,4 +42,10 @@ func TestRecoveryMiddleware(t *testing.T) {
 	require.Error(t, err)
 	recovered, _ := werror.ParamFromError(err, "recovered")
 	require.Equal(t, helloErr.Error(), recovered)
+}
+
+type panicMiddleware struct{ err error }
+
+func (p panicMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+	panic(p.err)
 }
