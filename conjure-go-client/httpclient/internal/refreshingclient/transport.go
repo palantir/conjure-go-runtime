@@ -87,6 +87,9 @@ func newTransport(ctx context.Context, p TransportParams, tlsConfig *tls.Config,
 
 	if !p.DisableHTTP2 {
 		if err := http2.ConfigureTransport(transport); err != nil {
+			// ConfigureTransport's only error as of this writing is the idempotent "protocol https already registered."
+			// It should never happen in our usage because this is immediately after creation.
+			// In case of something unexpected, log it and move on.
 			svc1log.FromContext(ctx).Error("failed to configure transport for http2", svc1log.Stacktrace(err))
 		}
 	}
