@@ -1,0 +1,5 @@
+type: improvement
+improvement:
+  description: Allow retry and fetch next URI on status code 307
+  links:
+  - https://github.com/palantir/conjure-go-runtime/pull/174

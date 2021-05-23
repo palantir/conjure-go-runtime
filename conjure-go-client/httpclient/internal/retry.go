@@ -34,6 +34,7 @@ The QosExceptions have a stable mapping to HTTP status codes and response header
 
 * throttle: 429 Too Many Requests, plus optional Retry-After header
 * retryOther: 308 Permanent Redirect, plus Location header indicating the target host
+* retryTemporaryRedirect: 307 Temporary Redirect, plus Location header indicating the target host
 * unavailable: 503 Unavailable
 
 http-remoting clients (both Retrofit2 and JaxRs) handle the above error codes and take the appropriate action:
@@ -52,25 +53,42 @@ The number of retries for 503 and connection errors can be configured via Client
 */
 
 const (
-	StatusCodeRetryOther  = http.StatusPermanentRedirect
-	StatusCodeThrottle    = http.StatusTooManyRequests
-	StatusCodeUnavailable = http.StatusServiceUnavailable
+	StatusCodeRetryOther             = http.StatusPermanentRedirect
+	StatusCodeRetryTemporaryRedirect = http.StatusTemporaryRedirect
+	StatusCodeThrottle               = http.StatusTooManyRequests
+	StatusCodeUnavailable            = http.StatusServiceUnavailable
 )
 
-func isRetryOtherResponse(resp *http.Response) (bool, *url.URL) {
-	if resp == nil || resp.StatusCode != StatusCodeRetryOther {
+func isRetryOtherResponse(resp *http.Response, err error) (bool, *url.URL) {
+	errCode, ok := StatusCodeFromError(err)
+	if ok && (errCode == StatusCodeRetryOther || errCode == StatusCodeRetryTemporaryRedirect) {
+		locationStr, ok := LocationFromError(err)
+		if ok {
+			return true, parseLocationURL(locationStr)
+		}
+	}
+
+	if resp == nil {
+		return false, nil
+	}
+	if resp.StatusCode != StatusCodeRetryOther &&
+		resp.StatusCode != StatusCodeRetryTemporaryRedirect {
 		return false, nil
 	}
 	locationStr := resp.Header.Get("Location")
+	return true, parseLocationURL(locationStr)
+}
+
+func parseLocationURL(locationStr string) *url.URL {
 	if locationStr == "" {
-		return true, nil
+		return nil
 	}
 	locationURL, err := url.Parse(locationStr)
 	if err != nil {
-		// Unable to parse non-zero header as something we recognize...
-		return true, nil
+		// Unable to parse location as something we recognize
+		return nil
 	}
-	return true, locationURL
+	return locationURL
 }
 
 func isThrottleResponse(resp *http.Response, err error) (bool, time.Duration) {

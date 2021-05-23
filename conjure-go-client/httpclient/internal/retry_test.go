@@ -42,6 +42,23 @@ func TestRetryResponseParsers(t *testing.T) {
 			},
 		},
 		{
+			Name: "307 RetryTemporaryRedirect without Location",
+			Response: &http.Response{
+				Header:     http.Header{},
+				StatusCode: 307,
+			},
+			IsRetryOther: true,
+		},
+		{
+			Name: "307 RetryTemporaryRedirect with Location",
+			Response: &http.Response{
+				Header:     http.Header{"Location": []string{"https://host-2:8443/app"}},
+				StatusCode: 307,
+			},
+			IsRetryOther:  true,
+			RetryOtherURL: "https://host-2:8443/app",
+		},
+		{
 			Name: "308 RetryOther without Location",
 			Response: &http.Response{
 				Header:     http.Header{},
@@ -57,6 +74,20 @@ func TestRetryResponseParsers(t *testing.T) {
 			},
 			IsRetryOther:  true,
 			RetryOtherURL: "https://host-2:8443/app",
+		},
+		{
+			Name: "307 RetryTemporaryRedirect without Location in error",
+			RespErr: werror.Error("error",
+				werror.SafeParam("statusCode", 307),
+				werror.SafeParam("location", "")),
+			IsRetryOther: true,
+		},
+		{
+			Name: "307 RetryTemporaryRedirect with Location in error",
+			RespErr: werror.Error("error",
+				werror.SafeParam("statusCode", 307),
+				werror.SafeParam("location", "https://host-2:8443/app")),
+			IsRetryOther: true,
 		},
 		{
 			Name: "429 throttle without Retry-After",
@@ -98,7 +129,7 @@ func TestRetryResponseParsers(t *testing.T) {
 		},
 	} {
 		t.Run(test.Name, func(t *testing.T) {
-			isRetryOther, retryOtherURL := isRetryOtherResponse(test.Response)
+			isRetryOther, retryOtherURL := isRetryOtherResponse(test.Response, test.RespErr)
 			if assert.Equal(t, test.IsRetryOther, isRetryOther) && test.RetryOtherURL != "" {
 				if assert.NotNil(t, retryOtherURL) {
 					assert.Equal(t, test.RetryOtherURL, retryOtherURL.String())
