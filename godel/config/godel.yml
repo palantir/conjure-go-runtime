@@ -19,5 +19,6 @@ exclude:
   names:
     - \..+
     - vendor
+    - zz_generated_refreshables.go
   paths:
     - godel

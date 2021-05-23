@@ -38,24 +38,22 @@ type ContextDialer interface {
 
 func NewRefreshableDialer(ctx context.Context, p RefreshableDialerParams) ContextDialer {
 	return &RefreshableDialer{
-		Refreshable: p.Map(func(i interface{}) interface{} {
+		Refreshable: p.MapDialerParams(func(p DialerParams) interface{} {
 			svc1log.FromContext(ctx).Debug("Reconstructing HTTP Dialer")
-			p := i.(DialerParams)
-
-			var dialer ContextDialer = &net.Dialer{
+			dialer := &net.Dialer{
 				Timeout:   p.DialTimeout,
 				KeepAlive: p.KeepAlive,
 			}
 			if p.SocksProxyURL == nil {
 				return dialer
 			}
-			proxyDialer, err := proxy.FromURL(p.SocksProxyURL, dialer.(proxy.Dialer))
+			proxyDialer, err := proxy.FromURL(p.SocksProxyURL, dialer)
 			if err != nil {
 				// should never happen; checked in the validating refreshable
 				svc1log.FromContext(ctx).Error("Failed to construct socks5 dialer. Please report this as a bug in conjure-go-runtime.", svc1log.Stacktrace(err))
 				return dialer
 			}
-			return proxyDialer.(ContextDialer)
+			return proxyDialer
 		}),
 	}
 }
