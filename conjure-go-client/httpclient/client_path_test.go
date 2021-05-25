@@ -18,7 +18,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 func TestJoinURIandPath(t *testing.T) {
@@ -72,10 +71,14 @@ func TestJoinURIandPath(t *testing.T) {
 			"",
 			"https://localhost/api",
 		},
+		{
+			"https://localhost",
+			"/api/+ti%2FQojjmKJxpxmY%2FA=",
+			"https://localhost/api/+ti%2FQojjmKJxpxmY%2FA=",
+		},
 	} {
 		t.Run("", func(t *testing.T) {
-			actual, err := joinURIAndPath(test.baseURI, test.reqPath)
-			require.NoError(t, err)
+			actual := joinURIAndPath(test.baseURI, test.reqPath)
 			assert.Equal(t, test.expected, actual)
 		})
 	}
