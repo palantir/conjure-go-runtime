@@ -221,7 +221,7 @@ func (c *clientImpl) initializeRequestHeaders(ctx context.Context) http.Header {
 }
 
 func joinURIAndPath(baseURI, reqPath string) string {
-	fullURI := strings.Trim(baseURI, "/")
+	fullURI := strings.TrimRight(baseURI, "/")
 	if reqPath != "" {
 		fullURI += "/" + strings.TrimLeft(reqPath, "/")
 	}
