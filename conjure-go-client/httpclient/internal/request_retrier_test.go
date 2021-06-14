@@ -185,6 +185,16 @@ func TestRequestRetrier_GetNextURI(t *testing.T) {
 			shouldRetryReset:   false,
 		},
 		{
+			name:               "retries and backs off of the single URI if status 507",
+			resp:               &http.Response{}, // 507 response is non-nil
+			respErr:            werror.ErrorWithContextParams(context.Background(), "507", werror.SafeParam("statusCode", 507)),
+			uris:               []string{"a"},
+			shouldRetry:        true, // Actually fails with false, since getRetryFn will return nil
+			shouldRetrySameURI: true,
+			shouldRetryBackoff: true,
+			shouldRetryReset:   false,
+		},
+		{
 			name:               "returns a new URI and backs off if throttled",
 			resp:               nil,
 			respErr:            werror.ErrorWithContextParams(context.Background(), "429", werror.SafeParam("statusCode", 429)),
