@@ -108,15 +108,16 @@ func (r *RequestRetrier) responseAndErrRetriable(resp *http.Response, respErr er
 }
 
 func (r *RequestRetrier) getRetryFn(resp *http.Response, respErr error) func() {
-	if retryOther, _ := isThrottleResponse(resp, respErr); retryOther {
+	errCode, _ := StatusCodeFromError(respErr)
+	if retryOther, _ := isThrottleResponse(resp, errCode); retryOther {
 		// 429: throttle
 		// Immediately backoff and select the next URI.
 		// TODO(whickman): use the retry-after header once #81 is resolved
 		return r.nextURIAndBackoff
-	} else if isUnavailableResponse(resp, respErr) {
+	} else if isUnavailableResponse(resp, errCode) {
 		// 503: go to next node
 		return r.nextURIOrBackoff
-	} else if shouldTryOther, otherURI := isRetryOtherResponse(resp, respErr); shouldTryOther {
+	} else if shouldTryOther, otherURI := isRetryOtherResponse(resp, respErr, errCode); shouldTryOther {
 		// 307 or 308: go to next node, or particular node if provided.
 		if otherURI != nil {
 			return func() {
