@@ -188,16 +188,16 @@ func (r *RequestRetrier) IsRelocatedURI(uri string) bool {
 	return relocatedURI
 }
 
-func (r *RequestRetrier) getErrorForUnretriableResponse(ctx context.Context, resp *http.Response, respErr error) error {
+func (r *RequestRetrier) getErrorForUnretriableResponse(ctx context.Context, respErr error, responseAndErrRetriable bool, uriInMesh bool) error {
 	message := "GetNextURI called, but retry should not be attempted"
-	params := []werror.Param{
-		werror.SafeParam("attemptCount", r.attemptCount),
-		werror.SafeParam("maxAttempts", r.maxAttempts),
-		werror.SafeParam("statusCodeRetriable", r.responseAndErrRetriable(resp, respErr)),
-		werror.SafeParam("uriInMesh", r.isMeshURI(r.currentURI)),
-	}
+	params := werror.SafeParams(map[string]interface{}{
+		"attemptCount":        r.attemptCount,
+		"maxAttempts":         r.maxAttempts,
+		"statusCodeRetriable": responseAndErrRetriable,
+		"uriInMesh":           uriInMesh,
+	})
 	if respErr != nil {
-		return werror.WrapWithContextParams(ctx, respErr, message, params...)
+		return werror.WrapWithContextParams(ctx, respErr, message, params)
 	}
-	return werror.ErrorWithContextParams(ctx, message, params...)
+	return werror.ErrorWithContextParams(ctx, message, params)
 }
