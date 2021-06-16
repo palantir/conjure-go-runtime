@@ -250,6 +250,44 @@ func TestMetricsMiddleware_ClientTimeout(t *testing.T) {
 	assert.True(t, found, "did not find client.response metric")
 }
 
+func TestMetricsMiddleware_ContextCancelled(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+
+	rootRegistry := metrics.NewRootMetricsRegistry()
+	ctx := metrics.WithRegistry(context.Background(), rootRegistry)
+	ctx, cancel := context.WithCancel(ctx)
+	cancel()
+
+	client, err := httpclient.NewClient(
+		httpclient.WithBaseURLs([]string{srv.URL}),
+		httpclient.WithTLSInsecureSkipVerify(),
+		httpclient.WithServiceName("test-service"),
+		httpclient.WithMetrics())
+	require.NoError(t, err)
+
+	_, err = client.Get(ctx, httpclient.WithRPCMethodName("test-endpoint"))
+	require.EqualError(t, err, "httpclient request failed: context canceled")
+
+	found := false
+	rootRegistry.Each(func(name string, tags metrics.Tags, value metrics.MetricVal) {
+		if name != "client.response" {
+			return
+		}
+		found = true
+		expectedTags := map[metrics.Tag]struct{}{
+			metrics.MustNewTag("family", "timeout"):            {},
+			metrics.MustNewTag("method", "get"):                {},
+			metrics.MustNewTag("method-name", "test-endpoint"): {},
+			metrics.MustNewTag("service-name", "test-service"): {},
+		}
+		assert.Equal(t, expectedTags, tags.ToSet(), "expected timeout tags for %v", err)
+	})
+	assert.True(t, found, "did not find client.response metric")
+}
+
 func TestMetricsMiddleware_SuccessfulTLSHandshake(t *testing.T) {
 	srv := httptest.NewTLSServer(http.NotFoundHandler())
 	defer srv.Close()

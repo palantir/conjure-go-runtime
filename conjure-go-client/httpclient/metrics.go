@@ -122,17 +122,9 @@ func (h *metricsMiddleware) RoundTrip(req *http.Request, next http.RoundTripper)
 }
 
 func tagStatusFamily(_ *http.Request, resp *http.Response, respErr error) metrics.Tags {
-	if respErr != nil {
-		if nerr, ok := werror.RootCause(respErr).(net.Error); ok && nerr.Timeout() {
-			return metrics.Tags{metricTagFamilyTimeout}
-		}
-		switch werror.RootCause(respErr).Error() {
-		//N.B. the http package does not expose these error types
-		case "net/http: request canceled", "net/http: request canceled while waiting for connection":
-			return metrics.Tags{metricTagFamilyTimeout}
-		}
-	}
 	switch {
+	case isTimeoutError(respErr):
+		return metrics.Tags{metricTagFamilyTimeout}
 	case resp == nil, resp.StatusCode < 100, resp.StatusCode > 599:
 		return metrics.Tags{metricTagFamilyOther}
 	case resp.StatusCode < 200:
@@ -238,4 +230,26 @@ type metricsWrappedConn struct {
 func (m *metricsWrappedConn) Close() error {
 	m.counter.Dec(1)
 	return m.Conn.Close()
+}
+
+func isTimeoutError(respErr error) bool {
+	if respErr == nil {
+		return false
+	}
+	rootErr := werror.RootCause(respErr)
+	if rootErr == nil {
+		return false
+	}
+
+	if nerr, ok := rootErr.(net.Error); ok && nerr.Timeout() {
+		return true
+	}
+	if rootErr == context.Canceled || rootErr == context.DeadlineExceeded {
+		return true
+	}
+	//N.B. the http package does not expose these error types
+	if rootErr.Error() == "net/http: request canceled" || rootErr.Error() == "net/http: request canceled while waiting for connection" {
+		return true
+	}
+	return false
 }
