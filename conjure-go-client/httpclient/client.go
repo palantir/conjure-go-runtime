@@ -91,12 +91,12 @@ func (c *clientImpl) Do(ctx context.Context, params ...RequestParam) (*http.Resp
 	var resp *http.Response
 
 	retrier := internal.NewRequestRetrier(uris, retry.Start(ctx, c.backoffOptions...), c.maxAttempts)
-	for retrier.ShouldGetNextURI(resp, err) {
-		uri, retryErr := retrier.GetNextURI(ctx, resp, err)
-		if retryErr != nil {
-			return nil, retryErr
+	for {
+		uri, isRelocated := retrier.GetNextURI(resp, err)
+		if uri == "" {
+			break
 		}
-		resp, err = c.doOnce(ctx, uri, retrier.IsRelocatedURI(uri), params...)
+		resp, err = c.doOnce(ctx, uri, isRelocated, params...)
 	}
 	if err != nil {
 		return nil, err
