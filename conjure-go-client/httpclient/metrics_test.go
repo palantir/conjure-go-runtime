@@ -33,7 +33,7 @@ type fakeTagsProviderFunc struct {
 	key, val string
 }
 
-func (ftpf fakeTagsProviderFunc) Tags(_ *http.Request, _ *http.Response) metrics.Tags {
+func (ftpf fakeTagsProviderFunc) Tags(_ *http.Request, _ *http.Response, _ error) metrics.Tags {
 	return metrics.Tags{
 		metrics.MustNewTag(ftpf.key, ftpf.val),
 	}
@@ -207,6 +207,83 @@ func TestMetricsMiddleware_HTTPClient(t *testing.T) {
 			metrics.MustNewTag("service-name", "test-service"): {},
 		}
 		assert.Equal(t, expectedTags, tags.ToSet())
+	})
+	assert.True(t, found, "did not find client.response metric")
+}
+
+func TestMetricsMiddleware_ClientTimeout(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		time.Sleep(time.Second)
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+
+	rootRegistry := metrics.NewRootMetricsRegistry()
+	ctx := metrics.WithRegistry(context.Background(), rootRegistry)
+
+	client, err := httpclient.NewClient(
+		httpclient.WithBaseURLs([]string{srv.URL}),
+		httpclient.WithTLSInsecureSkipVerify(),
+		httpclient.WithServiceName("test-service"),
+		httpclient.WithHTTPTimeout(time.Millisecond),
+		httpclient.WithMetrics())
+	require.NoError(t, err)
+
+	_, err = client.Get(ctx, httpclient.WithRPCMethodName("test-endpoint"))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "Client.Timeout exceeded while awaiting headers")
+
+	found := false
+	rootRegistry.Each(func(name string, tags metrics.Tags, value metrics.MetricVal) {
+		if name != "client.response" {
+			return
+		}
+		found = true
+		expectedTags := map[metrics.Tag]struct{}{
+			metrics.MustNewTag("family", "timeout"):            {},
+			metrics.MustNewTag("method", "get"):                {},
+			metrics.MustNewTag("method-name", "test-endpoint"): {},
+			metrics.MustNewTag("service-name", "test-service"): {},
+		}
+		assert.Equal(t, expectedTags, tags.ToSet(), "expected timeout tags for %v", err)
+	})
+	assert.True(t, found, "did not find client.response metric")
+}
+
+func TestMetricsMiddleware_ContextCanceled(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+
+	rootRegistry := metrics.NewRootMetricsRegistry()
+	ctx := metrics.WithRegistry(context.Background(), rootRegistry)
+	ctx, cancel := context.WithCancel(ctx)
+	cancel()
+
+	client, err := httpclient.NewClient(
+		httpclient.WithBaseURLs([]string{srv.URL}),
+		httpclient.WithTLSInsecureSkipVerify(),
+		httpclient.WithServiceName("test-service"),
+		httpclient.WithMetrics())
+	require.NoError(t, err)
+
+	_, err = client.Get(ctx, httpclient.WithRPCMethodName("test-endpoint"))
+	require.EqualError(t, err, "httpclient request failed: context canceled")
+
+	found := false
+	rootRegistry.Each(func(name string, tags metrics.Tags, value metrics.MetricVal) {
+		if name != "client.response" {
+			return
+		}
+		found = true
+		expectedTags := map[metrics.Tag]struct{}{
+			metrics.MustNewTag("family", "timeout"):            {},
+			metrics.MustNewTag("method", "get"):                {},
+			metrics.MustNewTag("method-name", "test-endpoint"): {},
+			metrics.MustNewTag("service-name", "test-service"): {},
+		}
+		assert.Equal(t, expectedTags, tags.ToSet(), "expected timeout tags for %v", err)
 	})
 	assert.True(t, found, "did not find client.response metric")
 }
