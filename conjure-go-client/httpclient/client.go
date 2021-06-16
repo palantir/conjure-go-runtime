@@ -24,6 +24,7 @@ import (
 	"github.com/palantir/pkg/bytesbuffers"
 	"github.com/palantir/pkg/retry"
 	werror "github.com/palantir/witchcraft-go-error"
+	"github.com/palantir/witchcraft-go-logging/wlog/svclog/svc1log"
 	"github.com/palantir/witchcraft-go-tracing/wtracing"
 )
 
@@ -95,6 +96,9 @@ func (c *clientImpl) Do(ctx context.Context, params ...RequestParam) (*http.Resp
 		uri, isRelocated := retrier.GetNextURI(resp, err)
 		if uri == "" {
 			break
+		}
+		if err != nil {
+			svc1log.FromContext(ctx).Debug("Retrying request", svc1log.Stacktrace(err))
 		}
 		resp, err = c.doOnce(ctx, uri, isRelocated, params...)
 	}

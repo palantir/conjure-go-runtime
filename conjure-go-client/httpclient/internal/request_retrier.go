@@ -74,6 +74,7 @@ func (r *RequestRetrier) GetNextURI(resp *http.Response, respErr error) (uri str
 	}()
 	if r.attemptCount == 0 {
 		// First attempt is always successful
+		r.retrier.Next() // trigger first retry so later calls have backoff
 		return r.removeMeshSchemeIfPresent(r.currentURI), false
 	}
 	if !r.attemptsRemaining() {
