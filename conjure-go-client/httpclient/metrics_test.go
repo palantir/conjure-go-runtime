@@ -229,10 +229,6 @@ func TestMetricsMiddleware_ClientTimeout(t *testing.T) {
 		httpclient.WithMetrics())
 	require.NoError(t, err)
 
-	//req, err := http.NewRequest(http.MethodGet, srv.URL, nil)
-	//require.NoError(t, err)
-	//req = req.WithContext(httpclient.ContextWithRPCMethodName(ctx, "test-endpoint"))
-
 	_, err = client.Get(ctx, httpclient.WithRPCMethodName("test-endpoint"))
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "Client.Timeout exceeded while awaiting headers")

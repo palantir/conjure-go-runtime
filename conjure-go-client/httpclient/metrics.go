@@ -57,7 +57,6 @@ var (
 	metricTagFamily5xx     = metrics.MustNewTag(metricTagFamily, "5xx")
 	metricTagFamilyOther   = metrics.MustNewTag(metricTagFamily, "other")
 	metricTagFamilyTimeout = metrics.MustNewTag(metricTagFamily, "timeout")
-	metricTagFamilyUnknown = metrics.MustNewTag(metricTagFamily, "unknown")
 )
 
 // A TagsProvider returns metrics tags based on an http round trip.
@@ -148,7 +147,7 @@ func tagStatusFamily(_ *http.Request, resp *http.Response, respErr error) metric
 		return metrics.Tags{metricTagFamily5xx}
 	}
 	// unreachable
-	return metrics.Tags{metricTagFamilyUnknown}
+	return metrics.Tags{}
 }
 
 func tagRequestMethod(req *http.Request, _ *http.Response, _ error) metrics.Tags {
