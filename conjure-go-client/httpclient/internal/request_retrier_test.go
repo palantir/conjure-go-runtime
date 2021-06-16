@@ -18,89 +18,98 @@ import (
 	"context"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/palantir/pkg/retry"
 	werror "github.com/palantir/witchcraft-go-error"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 var _ retry.Retrier = &mockRetrier{}
 
 func TestRequestRetrier_HandleMeshURI(t *testing.T) {
-	ctx := context.Background()
 	r := NewRequestRetrier([]string{"mesh-http://example.com"}, retry.Start(context.Background()), 1)
-	require.True(t, r.ShouldGetNextURI(nil, nil))
-	uri, err := r.GetNextURI(ctx, nil, nil)
-	require.NoError(t, err)
+	uri, _ := r.GetNextURI(nil, nil)
 	require.Equal(t, uri, "http://example.com")
+
 	respErr := werror.ErrorWithContextParams(context.Background(), "error", werror.SafeParam("statusCode", 429))
-	require.False(t, r.ShouldGetNextURI(nil, respErr))
-	_, err = r.GetNextURI(ctx, nil, respErr)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "GetNextURI called, but retry should not be attempted")
+	uri, _ = r.GetNextURI(nil, respErr)
+	require.Empty(t, uri)
 }
 
 func TestRequestRetrier_AttemptCount(t *testing.T) {
-	ctx := context.Background()
 	maxAttempts := 3
 	r := NewRequestRetrier([]string{"https://example.com"}, retry.Start(context.Background()), maxAttempts)
-	require.True(t, r.ShouldGetNextURI(nil, nil))
 	// first request is not a retry
-	_, err := r.GetNextURI(ctx, nil, nil)
-	require.NoError(t, err)
+	uri, _ := r.GetNextURI(nil, nil)
+	require.Equal(t, uri, "https://example.com")
+
 	for i := 0; i < maxAttempts-1; i++ {
-		_, err = r.GetNextURI(ctx, nil, nil)
-		require.NoError(t, err)
+		uri, _ = r.GetNextURI(nil, nil)
+		require.Equal(t, uri, "https://example.com")
 	}
-	require.False(t, r.ShouldGetNextURI(nil, nil))
-	_, err = r.GetNextURI(ctx, nil, nil)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "GetNextURI called, but retry should not be attempted")
+	uri, _ = r.GetNextURI(nil, nil)
+	require.Empty(t, uri)
 }
 
 func TestRequestRetrier_UnlimitedAttempts(t *testing.T) {
-	ctx := context.Background()
-	r := NewRequestRetrier([]string{"https://example.com"}, retry.Start(context.Background()), 0)
-	_, err := r.GetNextURI(ctx, nil, nil)
-	require.NoError(t, err)
-	// it's probably safe to assume that it will succeed again if it succeeds once
-	require.True(t, r.ShouldGetNextURI(nil, nil))
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	r := NewRequestRetrier([]string{"https://example.com"}, retry.Start(ctx, retry.WithInitialBackoff(50*time.Millisecond), retry.WithRandomizationFactor(0)), 0)
+
+	startTime := time.Now()
+	uri, _ := r.GetNextURI(nil, nil)
+	require.Equal(t, uri, "https://example.com")
+	require.Lessf(t, time.Since(startTime), 49*time.Millisecond, "first GetNextURI should not have any delay")
+
+	startTime = time.Now()
+	uri, _ = r.GetNextURI(nil, nil)
+	require.Equal(t, uri, "https://example.com")
+	assert.Greater(t, time.Since(startTime), 50*time.Millisecond, "delay should be at least 1 backoff")
+	assert.Less(t, time.Since(startTime), 100*time.Millisecond, "delay should be less than 2 backoffs")
+
+	startTime = time.Now()
+	uri, _ = r.GetNextURI(nil, nil)
+	require.Equal(t, uri, "https://example.com")
+	assert.Greater(t, time.Since(startTime), 100*time.Millisecond, "delay should be at least 2 backoffs")
+	assert.Less(t, time.Since(startTime), 200*time.Millisecond, "delay should be less than 3 backoffs")
+
+	// Success should stop retries
+	uri, _ = r.GetNextURI(&http.Response{StatusCode: 200}, nil)
+	require.Empty(t, uri)
 }
 
 func TestRequestRetrier_UsesLocationHeader(t *testing.T) {
 	respWithLocationHeader := &http.Response{
 		StatusCode: StatusCodeRetryOther,
-		Header:     map[string][]string{},
+		Header:     http.Header{"Location": []string{"http://example.com"}},
 	}
-	respWithLocationHeader.Header.Add("Location", "http://example.com")
-	ctx := context.Background()
+
 	r := NewRequestRetrier([]string{"a"}, retry.Start(context.Background()), 2)
-	require.True(t, r.ShouldGetNextURI(nil, nil))
-	_, err := r.GetNextURI(ctx, nil, nil)
-	require.NoError(t, err)
-	require.True(t, r.ShouldGetNextURI(respWithLocationHeader, nil))
-	uri, err := r.GetNextURI(ctx, respWithLocationHeader, nil)
-	require.NoError(t, err)
+	uri, isRelocated := r.GetNextURI(nil, nil)
+	require.Equal(t, uri, "a")
+	require.False(t, isRelocated)
+
+	uri, isRelocated = r.GetNextURI(respWithLocationHeader, nil)
 	require.Equal(t, uri, "http://example.com")
+	require.True(t, isRelocated)
 }
 
 func TestRequestRetrier_UsesLocationFromErr(t *testing.T) {
-	ctx := context.Background()
 	r := NewRequestRetrier([]string{"http://example-1.com"}, retry.Start(context.Background()), 2)
 	respErr := werror.ErrorWithContextParams(context.Background(), "307",
 		werror.SafeParam("statusCode", 307),
 		werror.SafeParam("location", "http://example-2.com"))
-	require.True(t, r.ShouldGetNextURI(nil, nil))
-	uri, err := r.GetNextURI(ctx, nil, nil)
-	require.NoError(t, err)
-	require.Equal(t, uri, "http://example-1.com")
-	require.False(t, r.IsRelocatedURI(uri))
 
-	require.True(t, r.ShouldGetNextURI(nil, respErr))
-	uri, err = r.GetNextURI(ctx, nil, respErr)
-	require.NoError(t, err)
+	uri, isRelocated := r.GetNextURI(nil, nil)
+	require.Equal(t, uri, "http://example-1.com")
+	require.False(t, isRelocated)
+
+	uri, isRelocated = r.GetNextURI(nil, respErr)
 	require.Equal(t, uri, "http://example-2.com")
-	require.True(t, r.IsRelocatedURI(uri))
+	require.True(t, isRelocated)
 }
 
 func TestRequestRetrier_GetNextURI(t *testing.T) {
@@ -254,19 +263,14 @@ func TestRequestRetrier_GetNextURI(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			ctx := context.Background()
 			retrier := newMockRetrier()
 			r := NewRequestRetrier(tc.uris, retrier, 2)
 			// first URI isn't a retry
-			firstURI, _ := r.GetNextURI(ctx, nil, nil)
-			if !tc.shouldRetry {
-				require.False(t, r.ShouldGetNextURI(tc.resp, tc.respErr))
-			} else {
-				require.True(t, r.ShouldGetNextURI(tc.resp, tc.respErr))
-			}
-			retryURI, err := r.GetNextURI(ctx, tc.resp, tc.respErr)
+			firstURI, _ := r.GetNextURI(nil, nil)
+			require.NotEmpty(t, firstURI)
+
+			retryURI, _ := r.GetNextURI(tc.resp, tc.respErr)
 			if tc.shouldRetry {
-				require.NoError(t, err)
 				require.Contains(t, tc.uris, retryURI)
 				if tc.shouldRetrySameURI {
 					require.Equal(t, retryURI, firstURI)
@@ -280,8 +284,7 @@ func TestRequestRetrier_GetNextURI(t *testing.T) {
 					require.True(t, retrier.DidGetNext)
 				}
 			} else {
-				require.Error(t, err)
-				require.Contains(t, err.Error(), "GetNextURI called, but retry should not be attempted")
+				require.Empty(t, retryURI)
 			}
 		})
 	}
