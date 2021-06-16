@@ -104,10 +104,11 @@ func (r *RequestRetrier) doRetrySelection(resp *http.Response, respErr error) st
 }
 
 func (r *RequestRetrier) responseAndErrRetriable(resp *http.Response, respErr error) bool {
-	return r.getRetryFn(resp, respErr) != nil
+	shouldRetry := r.getRetryFn(resp, respErr)
+	return shouldRetry != nil && shouldRetry()
 }
 
-func (r *RequestRetrier) getRetryFn(resp *http.Response, respErr error) func() {
+func (r *RequestRetrier) getRetryFn(resp *http.Response, respErr error) func() bool {
 	if retryOther, _ := isThrottleResponse(resp, respErr); retryOther {
 		// 429: throttle
 		// Immediately backoff and select the next URI.
@@ -119,8 +120,9 @@ func (r *RequestRetrier) getRetryFn(resp *http.Response, respErr error) func() {
 	} else if shouldTryOther, otherURI := isRetryOtherResponse(resp, respErr); shouldTryOther {
 		// 307 or 308: go to next node, or particular node if provided.
 		if otherURI != nil {
-			return func() {
+			return func() bool {
 				r.setURIAndResetBackoff(otherURI)
+				return true
 			}
 		}
 		return r.nextURIOrBackoff
@@ -147,19 +149,20 @@ func (r *RequestRetrier) setURIAndResetBackoff(otherURI *url.URL) {
 
 // If lastURI was already marked failed, we perform a backoff as determined by the retrier before returning the next URI and its offset.
 // Otherwise, we add lastURI to failedURIs and return the next URI and its offset immediately.
-func (r *RequestRetrier) nextURIOrBackoff() {
+func (r *RequestRetrier) nextURIOrBackoff() bool {
 	_, performBackoff := r.failedURIs[r.currentURI]
 	r.markFailedAndMoveToNextURI()
 	// If the URI has failed before, perform a backoff
 	if performBackoff || len(r.uris) == 1 {
-		r.retrier.Next()
+		return r.retrier.Next()
 	}
+	return true
 }
 
 // Marks the current URI as failed, gets the next URI, and performs a backoff as determined by the retrier.
-func (r *RequestRetrier) nextURIAndBackoff() {
+func (r *RequestRetrier) nextURIAndBackoff() bool {
 	r.markFailedAndMoveToNextURI()
-	r.retrier.Next()
+	return r.retrier.Next()
 }
 
 func (r *RequestRetrier) markFailedAndMoveToNextURI() {
