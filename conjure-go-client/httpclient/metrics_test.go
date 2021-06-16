@@ -250,7 +250,7 @@ func TestMetricsMiddleware_ClientTimeout(t *testing.T) {
 	assert.True(t, found, "did not find client.response metric")
 }
 
-func TestMetricsMiddleware_ContextCancelled(t *testing.T) {
+func TestMetricsMiddleware_ContextCanceled(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(200)
 	}))

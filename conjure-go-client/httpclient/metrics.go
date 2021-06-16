@@ -17,6 +17,7 @@ package httpclient
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"net"
 	"net/http"
 	"net/http/httptrace"
@@ -60,6 +61,7 @@ var (
 )
 
 // A TagsProvider returns metrics tags based on an http round trip.
+// The 'error' argument is that returned from the request (if any).
 type TagsProvider interface {
 	Tags(*http.Request, *http.Response, error) metrics.Tags
 }
@@ -244,10 +246,10 @@ func isTimeoutError(respErr error) bool {
 	if nerr, ok := rootErr.(net.Error); ok && nerr.Timeout() {
 		return true
 	}
-	if rootErr == context.Canceled || rootErr == context.DeadlineExceeded {
+	if errors.Is(rootErr, context.Canceled) || errors.Is(rootErr, context.DeadlineExceeded) {
 		return true
 	}
-	//N.B. the http package does not expose these error types
+	// N.B. the http package does not expose these error types
 	if rootErr.Error() == "net/http: request canceled" || rootErr.Error() == "net/http: request canceled while waiting for connection" {
 		return true
 	}
