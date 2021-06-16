@@ -81,6 +81,22 @@ func TestRequestRetrier_UnlimitedAttempts(t *testing.T) {
 	require.Empty(t, uri)
 }
 
+func TestRequestRetrier_ContextCanceled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	r := NewRequestRetrier([]string{"https://example.com"}, retry.Start(ctx), 0)
+
+	// First attempt should return a URI to ensure that the client can instrument the request even
+	// if the context is done
+	uri, _ := r.GetNextURI(nil, nil)
+	require.Equal(t, uri, "https://example.com")
+
+	// Subsequent attempt should stop retries
+	uri, _ = r.GetNextURI(nil, nil)
+	require.Empty(t, uri)
+}
+
 func TestRequestRetrier_UsesLocationHeader(t *testing.T) {
 	respWithLocationHeader := &http.Response{
 		StatusCode: StatusCodeRetryOther,

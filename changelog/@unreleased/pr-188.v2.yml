@@ -1,0 +1,5 @@
+type: fix
+fix:
+  description: Check return value of `retrier.Next()` before retrying
+  links:
+  - https://github.com/palantir/conjure-go-runtime/pull/188
