@@ -1,9 +1,10 @@
 type: improvement
 improvement:
   description: |-
-    Configure the HTTP2 transport with a ReadIdleTimeout
+    Configure the HTTP2 transport to handle broken/idle connections
 
-    The ReadIdleTimeout enables the ping health check every configured duration which will be used to clean up broken or idle connections forcing the client to re-connect.
+    Two timeout values were added, ReadIdleTimeout and PingTimeout, that are both interrelated.
+    The ReadIdleTimeout enables the ping health check every configured duration if no frame has been received on the HTTP/2 connection. The PingTimeout can be used to configure the total amount of time to wait for a ping response before closing the connection. Both of these timeout values assist in cleaning up broken or idle connections forcing the client to re-connect.
     This is the current known workaround for the following Go issue:
     https://github.com/golang/go/issues/36026
   links:
