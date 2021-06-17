@@ -58,9 +58,6 @@ func testProxy(t *testing.T, readIdleTimeout, pingTimeout time.Duration, expecte
 	u, err := url.Parse(ts.URL)
 	require.NoError(t, err)
 	proxy := newProxyServer(t, u.Host)
-	defer func() {
-		require.NoError(t, proxy.ln.Close())
-	}()
 	stopCh := make(chan struct{})
 	go proxy.serve(t, stopCh, false)
 
@@ -111,6 +108,7 @@ func testProxy(t *testing.T, readIdleTimeout, pingTimeout time.Duration, expecte
 		require.Equal(t, expectedRespBody, actualResp)
 	}
 	require.Equal(t, expectedDials, proxy.DialCount())
+	require.NoError(t, proxy.ln.Close())
 }
 
 type proxyServer struct {
