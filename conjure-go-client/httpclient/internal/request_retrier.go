@@ -46,7 +46,8 @@ type RequestRetrier struct {
 // Regardless of maxAttempts, mesh URIs will never be retried.
 func NewRequestRetrier(uris []string, retrier retry.Retrier, maxAttempts int) *RequestRetrier {
 	offset := 0
-	urisCopy := append([]string(nil), uris...)
+	urisCopy := make([]string, len(uris))
+	copy(urisCopy, uris)
 	rand.Shuffle(len(urisCopy), func(i, j int) { urisCopy[i], urisCopy[j] = urisCopy[j], urisCopy[i] })
 	return &RequestRetrier{
 		currentURI:    uris[offset],

@@ -192,13 +192,13 @@ func TestFailoverDistribution(t *testing.T) {
 	// Disable one server
 	servers[0].Close()
 	for i := 0; i < requests; i++ {
-			_, err = cli.Do(context.Background(), WithRequestMethod("GET"))
-			assert.NoError(t, err)
+		_, err = cli.Do(context.Background(), WithRequestMethod("GET"))
+		assert.NoError(t, err)
 	}
 	assert.Equal(t, requests, totalHits)
 	for i := 0; i < serverCount; i++ {
 		// Validate that requests are evenly distributed across servers
-		assert.True(t, serverHits[i] < 2 * requests / serverCount)
+		assert.True(t, serverHits[i] < 2*requests/serverCount)
 	}
 }
 
@@ -227,10 +227,10 @@ func TestSleep(t *testing.T) {
 }
 
 func TestRoundRobin(t *testing.T) {
-	requestsPerSever := make([]int, 3)
+	requestsPerServer := make([]int, 3)
 	getHandler := func(i int) http.Handler {
 		return http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
-			requestsPerSever[i]++
+			requestsPerServer[i]++
 			rw.WriteHeader(http.StatusServiceUnavailable)
 		})
 	}
@@ -241,7 +241,7 @@ func TestRoundRobin(t *testing.T) {
 	require.NoError(t, err)
 	_, err = cli.Do(context.Background(), WithRequestMethod("GET"))
 	assert.Error(t, err)
-	assert.Equal(t, []int{2, 2, 2}, requestsPerSever)
+	assert.Equal(t, []int{2, 2, 2}, requestsPerServer)
 }
 
 func TestFailover_ConnectionRefused(t *testing.T) {
