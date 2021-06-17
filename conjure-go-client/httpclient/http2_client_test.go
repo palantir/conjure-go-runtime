@@ -96,7 +96,7 @@ func testProxy(t *testing.T, readIdleTimeout, pingTimeout time.Duration, expecte
 	go proxy.serve(t, stopCh, expectErr)
 	defer close(stopCh)
 
-	<-time.After(1 + readIdleTimeout + pingTimeout)
+	<-time.After(time.Second + readIdleTimeout + pingTimeout)
 
 	// Second Request
 	resp, err = client.Get(ctx,
