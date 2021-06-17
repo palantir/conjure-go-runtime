@@ -292,6 +292,12 @@ func configToParams(c ClientConfig) ([]ClientParam, error) {
 	if c.ExpectContinueTimeout != nil && *c.ExpectContinueTimeout != 0 {
 		params = append(params, WithExpectContinueTimeout(*c.ExpectContinueTimeout))
 	}
+	if c.HTTP2ReadIdleTimeout != nil && *c.HTTP2ReadIdleTimeout != 0 {
+		params = append(params, WithHTTP2ReadIdleTimeout(*c.HTTP2ReadIdleTimeout))
+	}
+	if c.HTTP2PingTimeout != nil && *c.HTTP2PingTimeout != 0 {
+		params = append(params, WithHTTP2PingTimeout(*c.HTTP2PingTimeout))
+	}
 
 	// Connections
 
