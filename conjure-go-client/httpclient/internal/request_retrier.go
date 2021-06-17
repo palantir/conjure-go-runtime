@@ -50,7 +50,7 @@ func NewRequestRetrier(uris []string, retrier retry.Retrier, maxAttempts int) *R
 	copy(urisCopy, uris)
 	rand.Shuffle(len(urisCopy), func(i, j int) { urisCopy[i], urisCopy[j] = urisCopy[j], urisCopy[i] })
 	return &RequestRetrier{
-		currentURI:    uris[offset],
+		currentURI:    urisCopy[offset],
 		retrier:       retrier,
 		uris:          urisCopy,
 		offset:        offset,
