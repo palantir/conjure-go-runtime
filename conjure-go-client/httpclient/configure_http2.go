@@ -25,8 +25,8 @@ import (
 
 // configureHTTP2 will attempt to configure net/http HTTP/1 Transport to use HTTP/2.
 // It returns an error if t1 has already been HTTP/2-enabled.
-func configureHTTP2(transport *http.Transport) error {
-	if err := http2.ConfigureTransport(transport); err != nil {
+func configureHTTP2(t1 *http.Transport) error {
+	if err := http2.ConfigureTransport(t1); err != nil {
 		return werror.Wrap(err, "failed to configure transport for http2")
 	}
 	return nil
