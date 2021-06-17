@@ -88,6 +88,8 @@ clients:
     my-2nd-service:
       api-token: so-secret-2
       read-timeout: 2m
+      http2-read-idle-timeout: 10s
+      http2-ping-timeout: 5s
 `,
 			ExpectedConfig: ServicesConfig{
 				Services: map[string]ClientConfig{
@@ -96,8 +98,10 @@ clients:
 						ReadTimeout: &[]time.Duration{time.Minute}[0],
 					},
 					"my-2nd-service": {
-						APIToken:    &[]string{"so-secret-2"}[0],
-						ReadTimeout: &[]time.Duration{2 * time.Minute}[0],
+						APIToken:             &[]string{"so-secret-2"}[0],
+						ReadTimeout:          &[]time.Duration{2 * time.Minute}[0],
+						HTTP2ReadIdleTimeout: &[]time.Duration{10 * time.Second}[0],
+						HTTP2PingTimeout:     &[]time.Duration{5 * time.Second}[0],
 					},
 				},
 			},
