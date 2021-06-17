@@ -27,8 +27,6 @@ import (
 	"github.com/palantir/pkg/metrics"
 	"github.com/palantir/pkg/retry"
 	"github.com/palantir/pkg/tlsconfig"
-	werror "github.com/palantir/witchcraft-go-error"
-	"golang.org/x/net/http2"
 	"golang.org/x/net/proxy"
 )
 
@@ -184,8 +182,8 @@ func httpClientAndRoundTripHandlersFromBuilder(b *httpClientBuilder) (*http.Clie
 		transport.Proxy = b.Proxy
 	}
 	if !b.DisableHTTP2 {
-		if err := http2.ConfigureTransport(transport); err != nil {
-			return nil, nil, werror.Wrap(err, "failed to configure transport for http2")
+		if err := configureHTTP2(transport); err != nil {
+			return nil, nil, err
 		}
 	}
 	if !b.DisableTracing {
