@@ -27,18 +27,23 @@ import (
 // configureHTTP2 will attempt to configure net/http HTTP/1 Transport to use HTTP/2.
 // The provided readIdleTimeout will set the underlying HTTP/2 transport ReadIdleTimeout.
 // It returns an error if t1 has already been HTTP/2-enabled.
-func configureHTTP2(t1 *http.Transport, readIdleTimeout time.Duration) error {
+func configureHTTP2(t1 *http.Transport, readIdleTimeout, pingTimeout time.Duration) error {
 	http2Transport, err := http2.ConfigureTransports(t1)
 	if err != nil {
 		return werror.Wrap(err, "failed to configure transport for http2")
 	}
-	// ReadIdleTimeout is the timeout after which a health check using ping
-	// frame will be carried out if no frame is received on the connection.
-	// Setting this value will enable health checks and allows broken idle
+	// ReadIdleTimeout is the amount of time to wait before running periodic health checks (pings)
+	// after not receiving a frame from the HTTP/2 connection.
+	// Setting this value will enable the health checks and allows broken idle
 	// connections to be pruned more quickly, preventing the client from
 	// attempting to re-use connections that will no longer work.
 	// ref: https://github.com/golang/go/issues/36026
 	http2Transport.ReadIdleTimeout = readIdleTimeout
+
+	// PingTimeout configures the amount of time to wait for a ping response (health check)
+	// before closing an HTTP/2 connection. The PingTimeout is only valid if
+	// the above ReadIdleTimeout is > 0.
+	http2Transport.PingTimeout = pingTimeout
 
 	return nil
 }

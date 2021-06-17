@@ -65,6 +65,7 @@ type httpClientBuilder struct {
 	ExpectContinueTimeout time.Duration
 	ResponseHeaderTimeout time.Duration
 	HTTP2ReadIdleTimeout  time.Duration
+	HTTP2PingTimeout      time.Duration
 
 	// http.Dialer modifiers
 	DialTimeout time.Duration
@@ -132,6 +133,7 @@ func getDefaultHTTPClientBuilder() *httpClientBuilder {
 		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
 		HTTP2ReadIdleTimeout:  30 * time.Second,
+		HTTP2PingTimeout:      15 * time.Second,
 		// These are higher than the defaults, but match Java and
 		// heuristically work better for our relatively large services.
 		MaxIdleConns:        200,
@@ -184,7 +186,7 @@ func httpClientAndRoundTripHandlersFromBuilder(b *httpClientBuilder) (*http.Clie
 		transport.Proxy = b.Proxy
 	}
 	if !b.DisableHTTP2 {
-		if err := configureHTTP2(transport, b.HTTP2ReadIdleTimeout); err != nil {
+		if err := configureHTTP2(transport, b.HTTP2ReadIdleTimeout, b.HTTP2PingTimeout); err != nil {
 			return nil, nil, err
 		}
 	}
