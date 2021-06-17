@@ -229,6 +229,18 @@ func WithDisableHTTP2() ClientOrHTTPClientParam {
 	})
 }
 
+// WithHTTP2ReadIdleTimeout configures the HTTP/2 ReadIdleTimeout.
+// A ReadIdleTimeout > 0 will enable health checks and allows broken/idle
+// connections to be pruned more quickly, preventing the client from
+// attempting to re-use connections that will no longer work.
+// If unset, the client defaults to 30 seconds, if HTTP2 is enabled.
+func WithHTTP2ReadIdleTimeout(timeout time.Duration) ClientOrHTTPClientParam {
+	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
+		b.HTTP2ReadIdleTimeout = timeout
+		return nil
+	})
+}
+
 // WithMaxIdleConns sets the number of reusable TCP connections the client
 // will maintain. If unset, the client defaults to 32.
 func WithMaxIdleConns(conns int) ClientOrHTTPClientParam {
