@@ -1,0 +1,10 @@
+type: improvement
+improvement:
+  description: |-
+    Configure the HTTP2 transport with a ReadIdleTimeout
+
+    The ReadIdleTimeout enables the ping health check every configured duration which will be used to clean up broken or idle connections forcing the client to re-connect.
+    This is the current known workaround for the following Go issue:
+    https://github.com/golang/go/issues/36026
+  links:
+  - https://github.com/palantir/conjure-go-runtime/pull/189
