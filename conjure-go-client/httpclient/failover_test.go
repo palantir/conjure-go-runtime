@@ -170,6 +170,38 @@ func TestFailoverOtherURL(t *testing.T) {
 	assert.True(t, didHitS1)
 }
 
+func TestFailoverDistribution(t *testing.T) {
+	requests := 100
+	serverCount := 3
+	totalHits := 0
+	serverHits := make([]int, serverCount)
+	servers := make([]*httptest.Server, serverCount)
+	urls := make([]string, serverCount)
+	for i := 0; i < serverCount; i++ {
+		serverIndex := i
+		servers[serverIndex] = httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+			serverHits[serverIndex]++
+			totalHits++
+			rw.WriteHeader(http.StatusOK)
+		}))
+		urls[serverIndex] = servers[serverIndex].URL
+	}
+	cli, err := NewClient(WithBaseURLs(urls))
+	require.NoError(t, err)
+
+	// Disable one server
+	servers[0].Close()
+	for i := 0; i < requests; i++ {
+			_, err = cli.Do(context.Background(), WithRequestMethod("GET"))
+			assert.NoError(t, err)
+	}
+	assert.Equal(t, requests, totalHits)
+	for i := 0; i < serverCount; i++ {
+		// Validate that requests are evenly distributed across servers
+		assert.True(t, serverHits[i] < 2 * requests / serverCount)
+	}
+}
+
 func TestSleep(t *testing.T) {
 	n := 0
 	handler := http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
