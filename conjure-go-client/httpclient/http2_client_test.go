@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// +build go1.16
+
 package httpclient_test
 
 import (
@@ -21,6 +23,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -30,16 +33,18 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestHTTP2ClientReusesBrokenConnection asserts the behavior of an HTTP/2 client that re-uses
+// TestHTTP2Client_reusesBrokenConnection asserts the behavior of an HTTP/2 client that re-uses
 // a broken connection and fails to make requests. The clients ReadIdleTimeout is set to 0, which means
 // there will be no HTTP/2 health checks enabled and thus the client will re-use existing (broken) connections.
-func TestHTTP2ClientReusesBrokenConnection(t *testing.T) {
+func TestHTTP2Client_reusesBrokenConnection(t *testing.T) {
+	// The second request, which re-uses the broken connection, will cause an error
+	// "use of closed network connection" so we should only expect to have 1 dial succeed.
 	testProxy(t, 0, 0, 1, true)
 }
 
-// TestHTTP2ClientReconnectsOnBrokenConnection asserts the behavior of an HTTP/2 client that has
+// TestHTTP2Client_reconnectsOnBrokenConnection asserts the behavior of an HTTP/2 client that has
 // the ReadIdleTimeout configured very low which forces the client to re-connect on subsequent requests.
-func TestHTTP2ClientReconnectsOnBrokenConnection(t *testing.T) {
+func TestHTTP2Client_reconnectsOnBrokenConnection(t *testing.T) {
 	testProxy(t, time.Second, time.Second, 2, false)
 }
 
@@ -128,6 +133,18 @@ func newProxyServer(t *testing.T, proxyURL string) *proxyServer {
 	}
 }
 
+func (p *proxyServer) serve(t *testing.T, stopCh chan struct{}, expectErr bool) {
+	conn, err := p.ln.Accept()
+	if expectErr {
+		require.Error(t, err)
+		require.True(t, strings.Contains(err.Error(), "use of closed network connection"))
+		return
+	}
+	require.NoError(t, err)
+	atomic.AddInt32(&p.dialCount, 1)
+	go p.handleConnection(t, conn, stopCh)
+}
+
 func (p *proxyServer) handleConnection(t *testing.T, in net.Conn, stopCh chan struct{}) {
 	out, err := net.Dial("tcp", p.proxyURL)
 	require.NoError(t, err)
@@ -139,17 +156,6 @@ func (p *proxyServer) handleConnection(t *testing.T, in net.Conn, stopCh chan st
 	}()
 	<-stopCh
 	require.NoError(t, out.Close())
-}
-
-func (p *proxyServer) serve(t *testing.T, stopCh chan struct{}, expectErr bool) {
-	conn, err := p.ln.Accept()
-	if expectErr {
-		require.Error(t, err)
-	} else {
-		require.NoError(t, err)
-	}
-	atomic.AddInt32(&p.dialCount, 1)
-	go p.handleConnection(t, conn, stopCh)
 }
 
 func (p *proxyServer) DialCount() int {
