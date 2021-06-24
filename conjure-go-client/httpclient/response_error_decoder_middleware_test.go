@@ -192,7 +192,7 @@ func TestErrorDecoderMiddlewares(t *testing.T) {
 			tsURL, err := url.Parse(ts.URL)
 			require.NoError(t, err)
 
-			client, err := httpclient.NewClient(httpclient.WithBaseURLs([]string{ts.URL}), tc.decoderParam)
+			client, err := httpclient.NewClient(httpclient.WithBaseURLs([]string{ts.URL}), httpclient.WithNoProxy(), tc.decoderParam)
 			require.NoError(t, err)
 
 			_, err = client.Get(ctx, httpclient.WithPath("/path"))
