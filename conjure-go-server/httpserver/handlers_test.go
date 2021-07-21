@@ -167,7 +167,7 @@ func TestHandler_ServeHTTP(t *testing.T) {
 				require.NoError(t, err)
 				assert.Equal(t, "ERROR", logLine["level"])
 				assert.Equal(t, fmt.Sprintf("error handling request: INTERNAL Default:Internal (%v)", conjure500Err.InstanceID()), logLine["message"])
-				assert.Equal(t, map[string]interface{}{"param": "value", "errorInstanceId": conjure500Err.InstanceID().String()}, logLine["params"])
+				assert.Equal(t, map[string]interface{}{"param": "value", "errorInstanceId": conjure500Err.InstanceID().String(), "errorName": conjure500Err.Name()}, logLine["params"])
 			},
 		},
 		{
@@ -190,7 +190,7 @@ func TestHandler_ServeHTTP(t *testing.T) {
 				require.NoError(t, err)
 				assert.Equal(t, "INFO", logLine["level"])
 				assert.Equal(t, fmt.Sprintf("error handling request: NOT_FOUND Default:NotFound (%v)", conjure404Err.InstanceID()), logLine["message"])
-				assert.Equal(t, map[string]interface{}{"param": "value", "errorInstanceId": conjure404Err.InstanceID().String()}, logLine["params"])
+				assert.Equal(t, map[string]interface{}{"param": "value", "errorInstanceId": conjure404Err.InstanceID().String(), "errorName": conjure404Err.Name()}, logLine["params"])
 			},
 		},
 		{
@@ -213,7 +213,7 @@ func TestHandler_ServeHTTP(t *testing.T) {
 				require.NoError(t, err)
 				assert.Equal(t, "INFO", logLine["level"])
 				assert.Equal(t, fmt.Sprintf("error handling request: a bad thing: NOT_FOUND Default:NotFound (%v)", conjure404Err.InstanceID()), logLine["message"])
-				assert.Equal(t, map[string]interface{}{"param": "value", "errorInstanceId": conjure404Err.InstanceID().String()}, logLine["params"])
+				assert.Equal(t, map[string]interface{}{"param": "value", "errorInstanceId": conjure404Err.InstanceID().String(), "errorName": conjure404Err.Name()}, logLine["params"])
 				assert.Equal(t, map[string]interface{}{"unsafeParam": "unsafeValue"}, logLine["unsafeParams"])
 			},
 		},

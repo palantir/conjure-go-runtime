@@ -159,7 +159,7 @@ func TestErrorDecoderMiddlewares(t *testing.T) {
 				assert.Equal(t, errors.DefaultNotFound.Name(), conjureErr.Name())
 
 				safeParams, unsafeParams := werror.ParamsFromError(err)
-				assert.Equal(t, map[string]interface{}{"requestHost": u.Host, "requestMethod": "Get", "errorInstanceId": id, "statusCode": 404}, safeParams)
+				assert.Equal(t, map[string]interface{}{"requestHost": u.Host, "requestMethod": "Get", "errorInstanceId": id, "errorName": "Default:NotFound", "statusCode": 404}, safeParams)
 				assert.Equal(t, map[string]interface{}{"requestPath": "/path", "stringParam": "stringValue"}, unsafeParams)
 			},
 		},
