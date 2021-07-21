@@ -1,6 +1,6 @@
 module github.com/palantir/conjure-go-runtime/v2
 
-go 1.13
+go 1.16
 
 require (
 	github.com/palantir/go-metrics v1.1.0
