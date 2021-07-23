@@ -9,6 +9,7 @@ require (
 	github.com/palantir/pkg/metrics v1.0.1
 	github.com/palantir/pkg/retry v1.1.1
 	github.com/palantir/pkg/safejson v1.0.1
+	github.com/palantir/pkg/safeyaml v1.0.1
 	github.com/palantir/pkg/tlsconfig v1.1.0
 	github.com/palantir/pkg/uuid v1.0.1
 	github.com/palantir/witchcraft-go-error v1.5.0

@@ -1,0 +1,5 @@
+version: 1
+projects:
+  sink:
+    output-dir: ./conjure-go-client
+    ir-locator: ./conjure-go-client/clienterrors/errors.yml

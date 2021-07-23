@@ -1,0 +1,32 @@
+types:
+  definitions:
+    default-package: clienterrors
+    errors:
+      CanceledByClient:
+        namespace: HttpClient
+        code: INTERNAL
+      ConnectionRefused:
+        namespace: HttpClient
+        code: INTERNAL
+        safe-args:
+          address: string
+      DialTimeout:
+        namespace: HttpClient
+        code: TIMEOUT
+        safe-args:
+          address: string
+      DnsLookupFailed:
+        namespace: HttpClient
+        code: INTERNAL
+        safe-args:
+          address: string
+      DnsNoSuchHost:
+        namespace: HttpClient
+        code: INTERNAL
+        safe-args:
+          address: string
+      DnsTimeout:
+        namespace: HttpClient
+        code: INTERNAL
+        safe-args:
+          address: string

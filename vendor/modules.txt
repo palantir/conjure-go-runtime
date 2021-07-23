@@ -26,9 +26,14 @@ github.com/palantir/pkg/retry
 # github.com/palantir/pkg/safejson v1.0.1
 ## explicit
 github.com/palantir/pkg/safejson
+# github.com/palantir/pkg/safeyaml v1.0.1
+## explicit
+github.com/palantir/pkg/safeyaml
 # github.com/palantir/pkg/tlsconfig v1.1.0
 ## explicit
 github.com/palantir/pkg/tlsconfig
+# github.com/palantir/pkg/transform v1.0.0
+github.com/palantir/pkg/transform
 # github.com/palantir/pkg/uuid v1.0.1
 ## explicit
 github.com/palantir/pkg/uuid
