@@ -15,7 +15,6 @@
 package codecs
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 
@@ -38,19 +37,6 @@ func (codecJSON) Accept() string {
 }
 
 func (codecJSON) Decode(r io.Reader, v interface{}) error {
-	if unmarshaler, ok := v.(json.Unmarshaler); ok {
-		data, err := io.ReadAll(r)
-		if err != nil {
-			return err
-		}
-		return unmarshaler.UnmarshalJSON(data)
-	} else if unmarshalFunc, ok := v.(func([]byte) error); ok {
-		data, err := io.ReadAll(r)
-		if err != nil {
-			return err
-		}
-		return unmarshalFunc(data)
-	}
 	if err := safejson.Decoder(r).Decode(v); err != nil {
 		return fmt.Errorf("failed to decode JSON-encoded value: %s", err.Error())
 	}
@@ -58,11 +44,6 @@ func (codecJSON) Decode(r io.Reader, v interface{}) error {
 }
 
 func (c codecJSON) Unmarshal(data []byte, v interface{}) error {
-	if unmarshaler, ok := v.(json.Unmarshaler); ok {
-		return unmarshaler.UnmarshalJSON(data)
-	} else if unmarshalFunc, ok := v.(func([]byte) error); ok {
-		return unmarshalFunc(data)
-	}
 	return safejson.Unmarshal(data, v)
 }
 
@@ -71,14 +52,6 @@ func (codecJSON) ContentType() string {
 }
 
 func (codecJSON) Encode(w io.Writer, v interface{}) error {
-	if marshaler, ok := v.(json.Marshaler); ok {
-		data, err := marshaler.MarshalJSON()
-		if err != nil {
-			return err
-		}
-		_, err = w.Write(data)
-		return err
-	}
 	if err := safejson.Encoder(w).Encode(v); err != nil {
 		return fmt.Errorf("failed to JSON-encode value: %s", err.Error())
 	}
@@ -86,8 +59,50 @@ func (codecJSON) Encode(w io.Writer, v interface{}) error {
 }
 
 func (c codecJSON) Marshal(v interface{}) ([]byte, error) {
-	if marshaler, ok := v.(json.Marshaler); ok {
-		return marshaler.MarshalJSON()
-	}
 	return safejson.Marshal(v)
+}
+
+var JSONFunc Codec = codecJSONFunc{}
+
+type codecJSONFunc struct{}
+
+func (c codecJSONFunc) Accept() string {
+	return contentTypeJSON
+}
+
+func (c codecJSONFunc) Decode(r io.Reader, v interface{}) error {
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return err
+	}
+	return c.Unmarshal(data, v)
+}
+
+func (c codecJSONFunc) Unmarshal(data []byte, v interface{}) error {
+	unmarshal, ok := v.(func([]byte) error)
+	if !ok {
+		return fmt.Errorf("codecs.JSONFunc requires unmarshal argument of type func([]byte) error")
+	}
+	return unmarshal(data)
+}
+
+func (c codecJSONFunc) ContentType() string {
+	return contentTypeJSON
+}
+
+func (c codecJSONFunc) Encode(w io.Writer, v interface{}) error {
+	data, err := c.Marshal(v)
+	if err != nil {
+		return err
+	}
+	_, err = w.Write(data)
+	return err
+}
+
+func (c codecJSONFunc) Marshal(v interface{}) ([]byte, error) {
+	marshal, ok := v.(func() ([]byte, error))
+	if !ok {
+		return nil, fmt.Errorf("codecs.JSONFunc requires marshal argument of type func() ([]byte, error)")
+	}
+	return marshal()
 }
