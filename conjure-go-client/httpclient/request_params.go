@@ -137,6 +137,23 @@ func WithJSONRequest(input interface{}) RequestParam {
 	return WithRequestBody(input, codecs.JSON)
 }
 
+// WithRequestMarshalFunc sets the request body to the input marshaled using the marshalFunc.
+func WithRequestMarshalFunc(marshalFunc func() ([]byte, error)) RequestParam {
+	return requestParamFunc(func(b *requestBuilder) error {
+		b.bodyMiddleware.requestMarshaler = marshalFunc
+		return nil
+	})
+}
+
+// WithRequestAppendFunc sets the request body to the input appended using the appendFunc.
+// appendFunc should append data to the input buf and return the result (possibly not the same slice as was provided).
+func WithRequestAppendFunc(appendFunc func(buf []byte) ([]byte, error)) RequestParam {
+	return requestParamFunc(func(b *requestBuilder) error {
+		b.bodyMiddleware.requestAppender = appendFunc
+		return nil
+	})
+}
+
 // WithResponseBody provides a struct into which the body
 // middleware will decode as the response body. Decoding is
 // handled by the impl passed to WithResponseBody.
@@ -181,6 +198,14 @@ func WithRawResponseBody() RequestParam {
 // The request will return an error if decoding fails.
 func WithJSONResponse(output interface{}) RequestParam {
 	return WithResponseBody(output, codecs.JSON)
+}
+
+// WithResponseUnmarshalFunc decodes the response body using the provided unmarshalFunc.
+func WithResponseUnmarshalFunc(unmarshalFunc func(data []byte) error) RequestParam {
+	return requestParamFunc(func(b *requestBuilder) error {
+		b.bodyMiddleware.responseUnmarshaler = unmarshalFunc
+		return nil
+	})
 }
 
 // WithCompressedRequest wraps the 'codec'-encoded request body in zlib compression.
