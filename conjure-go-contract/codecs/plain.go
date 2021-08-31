@@ -16,7 +16,6 @@ package codecs
 
 import (
 	"encoding"
-	"fmt"
 	"io"
 	"io/ioutil"
 	"reflect"
@@ -31,10 +30,6 @@ const (
 // Plain implements a text/plain codec. Values used to marshal/unmarshal
 // must be of type string or encoding.TextMarshaler/encoding.TextUnmarshaler.
 var Plain Codec = codecPlain{}
-
-type StringUnmarshaler interface {
-	UnmarshalString(data string) error
-}
 
 type codecPlain struct{}
 
@@ -55,8 +50,6 @@ func (codecPlain) Unmarshal(data []byte, v interface{}) error {
 	case *string:
 		*t = string(data)
 		return nil
-	case StringUnmarshaler:
-		return t.UnmarshalString(string(data))
 	case encoding.TextUnmarshaler:
 		return t.UnmarshalText(data)
 	}
@@ -80,8 +73,6 @@ func (codecPlain) Marshal(v interface{}) ([]byte, error) {
 	switch t := v.(type) {
 	case string:
 		return []byte(t), nil
-	case fmt.Stringer:
-		return []byte(t.String()), nil
 	case encoding.TextMarshaler:
 		return t.MarshalText()
 	default:
