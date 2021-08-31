@@ -138,18 +138,20 @@ func WithJSONRequest(input interface{}) RequestParam {
 }
 
 // WithRequestMarshalFunc sets the request body to the input marshaled using the marshalFunc.
-func WithRequestMarshalFunc(marshalFunc func() ([]byte, error)) RequestParam {
+func WithRequestMarshalFunc(contentTypeHeader string, marshalFunc func() ([]byte, error)) RequestParam {
 	return requestParamFunc(func(b *requestBuilder) error {
 		b.bodyMiddleware.requestMarshaler = marshalFunc
+		b.headers.Set("Content-Type", contentTypeHeader)
 		return nil
 	})
 }
 
 // WithRequestAppendFunc sets the request body to the input appended using the appendFunc.
 // appendFunc should append data to the input buf and return the result (possibly not the same slice as was provided).
-func WithRequestAppendFunc(appendFunc func(buf []byte) ([]byte, error)) RequestParam {
+func WithRequestAppendFunc(contentTypeHeader string, appendFunc func(buf []byte) ([]byte, error)) RequestParam {
 	return requestParamFunc(func(b *requestBuilder) error {
 		b.bodyMiddleware.requestAppender = appendFunc
+		b.headers.Set("Content-Type", contentTypeHeader)
 		return nil
 	})
 }
@@ -201,9 +203,20 @@ func WithJSONResponse(output interface{}) RequestParam {
 }
 
 // WithResponseUnmarshalFunc decodes the response body using the provided unmarshalFunc.
-func WithResponseUnmarshalFunc(unmarshalFunc func(data []byte) error) RequestParam {
+func WithResponseUnmarshalFunc(acceptHeader string, unmarshalFunc func(data []byte) error) RequestParam {
 	return requestParamFunc(func(b *requestBuilder) error {
 		b.bodyMiddleware.responseUnmarshaler = unmarshalFunc
+		b.headers.Set("Accept", acceptHeader)
+		return nil
+	})
+}
+
+// WithRequestZLibCompression wraps the 'codec'-encoded request body in zlib compression.
+// Use this instead of WithCompressedRequest if the request does not use a Codec.
+func WithRequestZLibCompression() RequestParam {
+	return requestParamFunc(func(b *requestBuilder) error {
+		b.headers.Set("Content-Encoding", "deflate")
+		b.bodyMiddleware.requestCompression = true
 		return nil
 	})
 }

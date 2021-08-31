@@ -16,6 +16,7 @@ package httpclient
 
 import (
 	"bytes"
+	"compress/zlib"
 	"context"
 	"io"
 	"io/ioutil"
@@ -31,10 +32,11 @@ type bodyMiddleware struct {
 	// * requestInput & requestEncoder: the encoder's Encode method is called with requestInput
 	// * requestMarshaler: a reference to some object's method (e.g. MarshalJSON) for encoding bytes.
 	// * requestAppender: a reference to some object's method (e.g. AppendJSON) method for appending encoded bytes to a buffer.
-	requestInput     interface{}
-	requestEncoder   codecs.Encoder
-	requestMarshaler func() ([]byte, error)
-	requestAppender  func([]byte) ([]byte, error)
+	requestInput       interface{}
+	requestEncoder     codecs.Encoder
+	requestMarshaler   func() ([]byte, error)
+	requestAppender    func([]byte) ([]byte, error)
+	requestCompression bool
 
 	// Response handler modes, only one can be non-nil:
 	// * rawOutput: the body of the response is not drained before returning -- the caller must read from and properly close the response body.
@@ -106,10 +108,21 @@ func (b *bodyMiddleware) setRequestBody(req *http.Request, buf *bytes.Buffer) er
 	}
 
 	if len(data) > 0 {
-		req.Body = ioutil.NopCloser(bytes.NewReader(data))
-		req.ContentLength = int64(len(data))
-		req.GetBody = func() (io.ReadCloser, error) {
-			return ioutil.NopCloser(bytes.NewReader(data)), nil
+		if b.requestCompression {
+			var err error
+			req.Body, err = zlib.NewReader(bytes.NewReader(data))
+			if err != nil {
+				return err
+			}
+			req.GetBody = func() (io.ReadCloser, error) {
+				return zlib.NewReader(bytes.NewReader(data))
+			}
+		} else {
+			req.Body = ioutil.NopCloser(bytes.NewReader(data))
+			req.ContentLength = int64(len(data))
+			req.GetBody = func() (io.ReadCloser, error) {
+				return ioutil.NopCloser(bytes.NewReader(data)), nil
+			}
 		}
 	} else {
 		req.Body = http.NoBody

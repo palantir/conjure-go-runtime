@@ -65,40 +65,6 @@ func TestJSONBody(t *testing.T) {
 	assert.Equal(t, respVar, actualRespVar)
 }
 
-func TestJSONBodyMarshaler(t *testing.T) {
-	reqVar := map[string]string{"1": "2"}
-	respVar := map[string]string{"3": "4"}
-
-	server := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
-		assert.Equal(t, "TestNewRequest", req.Header.Get("User-Agent"))
-		var actualReqVar map[string]string
-		err := codecs.JSON.Decode(req.Body, &actualReqVar)
-		assert.NoError(t, err)
-		assert.Equal(t, reqVar, actualReqVar)
-
-		err = codecs.JSON.Encode(rw, respVar)
-		assert.NoError(t, err)
-	}))
-	defer server.Close()
-
-	client, err := httpclient.NewClient(
-		httpclient.WithUserAgent("TestNewRequest"),
-		httpclient.WithBaseURLs([]string{server.URL}),
-	)
-	require.NoError(t, err)
-
-	var actualRespVar map[string]string
-	resp, err := client.Do(context.Background(),
-		httpclient.WithRequestMethod(http.MethodPost),
-		httpclient.WithJSONRequest(&reqVar),
-		httpclient.WithJSONResponse(&actualRespVar),
-	)
-
-	assert.NoError(t, err)
-	assert.NotNil(t, resp)
-	assert.Equal(t, respVar, actualRespVar)
-}
-
 func TestRawBody(t *testing.T) {
 	reqVar := []byte{0x01, 0x00}
 	respVar := []byte{0x00, 0x01}
