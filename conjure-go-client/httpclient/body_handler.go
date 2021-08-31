@@ -16,6 +16,8 @@ package httpclient
 
 import (
 	"bytes"
+	"compress/zlib"
+	"context"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -26,100 +28,134 @@ import (
 )
 
 type bodyMiddleware struct {
-	requestInput   interface{}
-	requestEncoder codecs.Encoder
+	// Request body modes, only one can be non-nil:
+	// * requestInput & requestEncoder: the encoder's Encode method is called with requestInput
+	// * requestMarshaler: a reference to some object's method (e.g. MarshalJSON) for encoding bytes.
+	// * requestAppender: a reference to some object's method (e.g. AppendJSON) method for appending encoded bytes to a buffer.
+	requestInput       interface{}
+	requestEncoder     codecs.Encoder
+	requestMarshaler   func() ([]byte, error)
+	requestAppender    func([]byte) ([]byte, error)
+	requestCompression bool
 
-	// if rawOutput is true, the body of the response is not drained before returning -- it is the responsibility of the
-	// caller to read from and properly close the response body.
-	rawOutput       bool
-	responseOutput  interface{}
-	responseDecoder codecs.Decoder
+	// Response handler modes, only one can be non-nil:
+	// * rawOutput: the body of the response is not drained before returning -- the caller must read from and properly close the response body.
+	// * responseOutput & responseDecoder: the decoder's Decode method is called with responseOutput (a pointer to some object)
+	// * responseUnmarshaler: a reference to some object's method for decoding bytes.
+	rawOutput           bool
+	responseOutput      interface{}
+	responseDecoder     codecs.Decoder
+	responseUnmarshaler func([]byte) error
 
 	bufferPool bytesbuffers.Pool
 }
 
 func (b *bodyMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (*http.Response, error) {
-	cleanup, err := b.setRequestBody(req)
-	if err != nil {
+	buf, cleanup := b.newBuffer()
+	defer cleanup()
+
+	if err := b.setRequestBody(req, buf); err != nil {
 		return nil, err
 	}
 
 	resp, respErr := next.RoundTrip(req)
-	cleanup()
-
-	if err := b.readResponse(resp, respErr); err != nil {
+	if respErr != nil {
+		return nil, respErr
+	}
+	// reset buffer to be reused for response
+	buf.Reset()
+	if err := b.readResponse(req.Context(), resp, buf); err != nil {
 		return nil, err
 	}
-
 	return resp, nil
 }
 
 // setRequestBody returns a function that should be called once the request has been completed.
-func (b *bodyMiddleware) setRequestBody(req *http.Request) (func(), error) {
-	cleanup := func() {}
-
-	if b.requestInput == nil {
-		return cleanup, nil
-	}
-
-	// Special case: if the requestInput is an io.ReadCloser and the requestEncoder is nil,
-	// use the provided input directly as the request body.
-	if bodyReadCloser, ok := b.requestInput.(io.ReadCloser); ok && b.requestEncoder == nil {
-		req.Body = bodyReadCloser
-		// Use the same heuristic as http.NewRequest to generate the "GetBody" function.
-		if newReq, err := http.NewRequest("", "", bodyReadCloser); err == nil {
-			req.GetBody = newReq.GetBody
+func (b *bodyMiddleware) setRequestBody(req *http.Request, buf *bytes.Buffer) error {
+	var data []byte
+	switch {
+	case b.requestEncoder == nil && b.requestInput != nil:
+		// Special case: if the requestInput is an io.ReadCloser and the requestEncoder is nil,
+		// use the provided input directly as the request body.
+		if bodyReadCloser, ok := b.requestInput.(io.ReadCloser); ok {
+			req.Body = bodyReadCloser
+			// Use the same heuristic as http.NewRequest to generate the "GetBody" function.
+			if newReq, err := http.NewRequest("", "", bodyReadCloser); err == nil {
+				req.GetBody = newReq.GetBody
+			}
+			return nil
 		}
-		return cleanup, nil
-	}
-
-	var buf *bytes.Buffer
-	if b.bufferPool != nil {
-		buf = b.bufferPool.Get()
-		cleanup = func() {
-			b.bufferPool.Put(buf)
+		return werror.ErrorWithContextParams(req.Context(), "requestEncoder required when requestInput is set")
+	case b.requestEncoder != nil:
+		if err := b.requestEncoder.Encode(buf, b.requestInput); err != nil {
+			return werror.WrapWithContextParams(req.Context(), err, "encode request object")
 		}
-	} else {
-		buf = new(bytes.Buffer)
+		data = buf.Bytes()
+	case b.requestMarshaler != nil:
+		var err error
+		data, err = b.requestMarshaler()
+		if err != nil {
+			return werror.WrapWithContextParams(req.Context(), err, "marshal request object")
+		}
+	case b.requestAppender != nil:
+		var err error
+		data, err = b.requestAppender(buf.Bytes())
+		if err != nil {
+			return werror.WrapWithContextParams(req.Context(), err, "append request object")
+		}
+	default:
+		return nil
 	}
 
-	if err := b.requestEncoder.Encode(buf, b.requestInput); err != nil {
-		return cleanup, werror.Wrap(err, "failed to encode request object")
-	}
-
-	if buf.Len() != 0 {
-		req.Body = ioutil.NopCloser(buf)
-		req.ContentLength = int64(buf.Len())
-		req.GetBody = func() (io.ReadCloser, error) {
-			return ioutil.NopCloser(bytes.NewReader(buf.Bytes())), nil
+	if len(data) > 0 {
+		if b.requestCompression {
+			var err error
+			req.Body, err = zlib.NewReader(bytes.NewReader(data))
+			if err != nil {
+				return err
+			}
+			req.GetBody = func() (io.ReadCloser, error) {
+				return zlib.NewReader(bytes.NewReader(data))
+			}
+		} else {
+			req.Body = ioutil.NopCloser(bytes.NewReader(data))
+			req.ContentLength = int64(len(data))
+			req.GetBody = func() (io.ReadCloser, error) {
+				return ioutil.NopCloser(bytes.NewReader(data)), nil
+			}
 		}
 	} else {
 		req.Body = http.NoBody
 		req.GetBody = func() (io.ReadCloser, error) { return http.NoBody, nil }
 	}
-	return cleanup, nil
+	return nil
 }
 
-func (b *bodyMiddleware) readResponse(resp *http.Response, respErr error) error {
-	// If rawOutput is true, return response directly without draining or closing body
-	if b.rawOutput && respErr == nil {
+func (b *bodyMiddleware) readResponse(ctx context.Context, resp *http.Response, buf *bytes.Buffer) error {
+	switch {
+	case b.rawOutput:
+		// If rawOutput is true, return response directly without draining or closing body
 		return nil
-	}
-
-	if respErr != nil {
-		return respErr
-	}
-
-	// Verify we have a body to unmarshal. If the request was unsuccessful, the errorMiddleware will
-	// set a non-nil error and return no response.
-	if b.responseOutput == nil || resp == nil || resp.Body == nil || resp.ContentLength == 0 {
+	case resp == nil, resp.Body == nil:
+		// this should never happen, but we do not want to panic
+		return werror.ErrorWithContextParams(ctx, "nil response body")
+	case resp.Body == http.NoBody:
 		return nil
+	case b.responseDecoder != nil:
+		return b.responseDecoder.Decode(resp.Body, b.responseOutput)
+	case b.responseUnmarshaler != nil:
+		if _, err := buf.ReadFrom(resp.Body); err != nil {
+			return werror.WrapWithContextParams(ctx, err, "read from response body")
+		}
+		return b.responseUnmarshaler(buf.Bytes())
 	}
-
-	decErr := b.responseDecoder.Decode(resp.Body, b.responseOutput)
-	if decErr != nil {
-		return decErr
-	}
-
 	return nil
+}
+
+func (b *bodyMiddleware) newBuffer() (*bytes.Buffer, func()) {
+	if b.bufferPool == nil {
+		return new(bytes.Buffer), func() {}
+	}
+	buf := b.bufferPool.Get()
+	return buf, func() { b.bufferPool.Put(buf) }
 }
