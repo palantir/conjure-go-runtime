@@ -46,6 +46,8 @@ type bodyMiddleware struct {
 	responseOutput      interface{}
 	responseDecoder     codecs.Decoder
 	responseUnmarshaler func([]byte) error
+	// error if response is 200 and body is empty
+	responseRequired bool
 
 	bufferPool bytesbuffers.Pool
 }
@@ -133,13 +135,16 @@ func (b *bodyMiddleware) setRequestBody(req *http.Request, buf *bytes.Buffer) er
 
 func (b *bodyMiddleware) readResponse(ctx context.Context, resp *http.Response, buf *bytes.Buffer) error {
 	switch {
+	case resp == nil || resp.Body == nil:
+		// this should never happen, but we do not want to panic
+		return werror.ErrorWithContextParams(ctx, "nil response body")
 	case b.rawOutput:
 		// If rawOutput is true, return response directly without draining or closing body
 		return nil
-	case resp == nil, resp.Body == nil:
-		// this should never happen, but we do not want to panic
-		return werror.ErrorWithContextParams(ctx, "nil response body")
 	case resp.Body == http.NoBody:
+		if b.responseRequired && resp.StatusCode == http.StatusOK {
+			return werror.ErrorWithContextParams(ctx, "empty response body")
+		}
 		return nil
 	case b.responseDecoder != nil:
 		return b.responseDecoder.Decode(resp.Body, b.responseOutput)

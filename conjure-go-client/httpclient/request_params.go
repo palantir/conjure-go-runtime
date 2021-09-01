@@ -229,6 +229,15 @@ func WithResponseUnmarshalFunc(acceptHeader string, unmarshalFunc func(data []by
 	})
 }
 
+// WithRequiredResponse indicates that the endpoint may not return an empty body.
+// A 200 response with an empty body will result in an error.
+func WithRequiredResponse() RequestParam {
+	return requestParamFunc(func(b *requestBuilder) error {
+		b.bodyMiddleware.responseRequired = true
+		return nil
+	})
+}
+
 // WithCompressedRequest wraps the 'codec'-encoded request body in zlib compression.
 func WithCompressedRequest(input interface{}, codec codecs.Codec) RequestParam {
 	return requestParamFunc(func(b *requestBuilder) error {
