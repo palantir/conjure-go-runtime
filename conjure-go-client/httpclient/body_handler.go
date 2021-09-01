@@ -142,7 +142,7 @@ func (b *bodyMiddleware) readResponse(ctx context.Context, resp *http.Response, 
 		// If rawOutput is true, return response directly without draining or closing body
 		return nil
 	case resp.Body == http.NoBody:
-		if b.responseRequired && resp.StatusCode == http.StatusOK {
+		if b.responseRequired && resp.StatusCode < 299 {
 			return werror.ErrorWithContextParams(ctx, "empty response body")
 		}
 		return nil
