@@ -229,3 +229,60 @@ func BenchmarkAllocWithBytesBufferPool(b *testing.B) {
 		runBench(b, client)
 	})
 }
+
+func BenchmarkUnavailableURIs(b *testing.B) {
+	server := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		rw.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+	unavailableServer := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		rw.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer unavailableServer.Close()
+
+	runBench := func(b *testing.B, client httpclient.Client) {
+		ctx := context.Background()
+		reqBody := httpclient.WithRequestBody("body", codecs.Plain)
+		reqMethod := httpclient.WithRequestMethod("GET")
+		for _, count := range []int{10, 100, 1000} {
+			b.Run(fmt.Sprintf("count=%d", count), func(b *testing.B) {
+				b.ReportAllocs()
+				for i := 0; i < b.N; i++ {
+					for j := 0; j < count; j++ {
+						resp, err := client.Do(ctx, reqBody, reqMethod)
+						require.NoError(b, err)
+						require.NotNil(b, resp)
+					}
+				}
+			})
+		}
+	}
+	b.Run("FourAvailableServers", func(b *testing.B) {
+		client, err := httpclient.NewClient(
+			httpclient.WithBaseURLs([]string{server.URL, server.URL, server.URL, server.URL}),
+		)
+		require.NoError(b, err)
+		runBench(b, client)
+	})
+	b.Run("OneOutOfFourUnavailableServers", func(b *testing.B) {
+		client, err := httpclient.NewClient(
+			httpclient.WithBaseURLs([]string{server.URL, server.URL, server.URL, unavailableServer.URL}),
+		)
+		require.NoError(b, err)
+		runBench(b, client)
+	})
+	b.Run("OneOutOfThreeUnavailableServers", func(b *testing.B) {
+		client, err := httpclient.NewClient(
+			httpclient.WithBaseURLs([]string{server.URL, server.URL, unavailableServer.URL}),
+		)
+		require.NoError(b, err)
+		runBench(b, client)
+	})
+	b.Run("OneOutOfTwoUnavailableServers", func(b *testing.B) {
+		client, err := httpclient.NewClient(
+			httpclient.WithBaseURLs([]string{server.URL, unavailableServer.URL}),
+		)
+		require.NoError(b, err)
+		runBench(b, client)
+	})
+}
