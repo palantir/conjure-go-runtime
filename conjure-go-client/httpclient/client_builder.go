@@ -39,6 +39,8 @@ const (
 	defaultExpectContinueTimeout = 1 * time.Second
 	defaultMaxIdleConns          = 200
 	defaultMaxIdleConnsPerHost   = 100
+	defaultHTTP2ReadIdleTimeout  = 30 * time.Second
+	defaultHTTP2PingTimeout      = 15 * time.Second
 	defaultInitialBackoff        = 250 * time.Millisecond
 	defaultMaxBackoff            = 2 * time.Second
 )
@@ -206,6 +208,8 @@ func newClientBuilder() *clientBuilder {
 				TLSHandshakeTimeout:   defaultTLSHandshakeTimeout,
 				HTTPProxyURL:          nil,
 				ProxyFromEnvironment:  true,
+				HTTP2ReadIdleTimeout:  defaultHTTP2ReadIdleTimeout,
+				HTTP2PingTimeout:      defaultHTTP2PingTimeout,
 			})),
 			DisableMetrics:      refreshable.NewBool(refreshable.NewDefaultRefreshable(false)),
 			DisableRecovery:     false,

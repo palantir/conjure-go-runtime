@@ -23,7 +23,6 @@ import (
 
 	"github.com/palantir/pkg/refreshable"
 	"github.com/palantir/witchcraft-go-logging/wlog/svclog/svc1log"
-	"golang.org/x/net/http2"
 )
 
 type TransportParams struct {
@@ -37,6 +36,8 @@ type TransportParams struct {
 	TLSHandshakeTimeout   time.Duration
 	HTTPProxyURL          *url.URL
 	ProxyFromEnvironment  bool
+	HTTP2ReadIdleTimeout  time.Duration
+	HTTP2PingTimeout      time.Duration
 }
 
 func NewRefreshableTransport(ctx context.Context, p RefreshableTransportParams, tlsConfig *tls.Config, dialer ContextDialer) http.RoundTripper {
@@ -86,7 +87,7 @@ func newTransport(ctx context.Context, p TransportParams, tlsConfig *tls.Config,
 	}
 
 	if !p.DisableHTTP2 {
-		if err := http2.ConfigureTransport(transport); err != nil {
+		if err := configureHTTP2(transport, p.HTTP2ReadIdleTimeout, p.HTTP2PingTimeout); err != nil {
 			// ConfigureTransport's only error as of this writing is the idempotent "protocol https already registered."
 			// It should never happen in our usage because this is immediately after creation.
 			// In case of something unexpected, log it and move on.
