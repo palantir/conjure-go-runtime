@@ -68,8 +68,8 @@ type httpClientBuilder struct {
 	DisableMetrics      refreshable.Bool
 	MetricsTagProviders []TagsProvider
 
-	// These fields are not in configuration so not actually refreshed anywhere,
-	// but they could become refreshing if we need them to.
+	// These middleware options are not refreshed anywhere because they are not in ClientConfig,
+	// but they could be made refreshable if ever needed.
 	CreateRequestSpan  bool
 	DisableRecovery    bool
 	InjectTraceHeaders bool

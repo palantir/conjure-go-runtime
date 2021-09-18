@@ -90,15 +90,15 @@ func (c *clientImpl) Do(ctx context.Context, params ...RequestParam) (*http.Resp
 		return nil, werror.ErrorWithContextParams(ctx, "no base URIs are configured")
 	}
 
-	var err error
-	var resp *http.Response
-
 	attempts := 2 * len(uris)
 	if c.maxAttempts != nil {
 		if confMaxAttempts := c.maxAttempts.CurrentIntPtr(); confMaxAttempts != nil {
 			attempts = *confMaxAttempts
 		}
 	}
+
+	var err error
+	var resp *http.Response
 
 	retrier := internal.NewRequestRetrier(uris, c.backoffOptions.CurrentRetryParams().Start(ctx), attempts)
 	for {
@@ -148,12 +148,12 @@ func (c *clientImpl) doOnce(
 	}
 
 	if b.method == "" {
-		return nil, werror.Error("httpclient: use WithRequestMethod() to specify HTTP method")
+		return nil, werror.ErrorWithContextParams(ctx, "httpclient: use WithRequestMethod() to specify HTTP method")
 	}
 	reqURI := joinURIAndPath(baseURI, b.path)
 	req, err := http.NewRequest(b.method, reqURI, nil)
 	if err != nil {
-		return nil, werror.Wrap(err, "failed to build new HTTP request")
+		return nil, werror.WrapWithContextParams(ctx, err, "failed to build new HTTP request")
 	}
 	req = req.WithContext(ctx)
 	req.Header = b.headers
@@ -187,14 +187,14 @@ func (c *clientImpl) doOnce(
 		internal.DrainBody(resp)
 	}
 
-	return resp, unwrapURLError(respErr)
+	return resp, unwrapURLError(ctx, respErr)
 }
 
 // unwrapURLError converts a *url.Error to a werror. We need this because all
 // errors from the stdlib's client.Do are wrapped in *url.Error, and if we
 // were to blindly return that we would lose any werror params stored on the
 // underlying Err.
-func unwrapURLError(respErr error) error {
+func unwrapURLError(ctx context.Context, respErr error) error {
 	if respErr == nil {
 		return nil
 	}
@@ -212,7 +212,7 @@ func unwrapURLError(respErr error) error {
 			werror.UnsafeParam("requestPath", parsedURL.Path))
 	}
 
-	return werror.Wrap(urlErr.Err, "httpclient request failed", params...)
+	return werror.WrapWithContextParams(ctx, urlErr.Err, "httpclient request failed", params...)
 }
 
 func joinURIAndPath(baseURI, reqPath string) string {
