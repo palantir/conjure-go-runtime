@@ -1,0 +1,6 @@
+type: improvement
+improvement:
+  description: CGS error handler logs errors with consistent message rather than logging
+    error contents in the message.
+  links:
+  - https://github.com/palantir/conjure-go-runtime/pull/199

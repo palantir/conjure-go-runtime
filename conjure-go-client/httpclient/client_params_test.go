@@ -78,10 +78,42 @@ func TestBuilder(t *testing.T) {
 			},
 		},
 		{
-			Name:  "ProxyURL",
+			Name:  "ProxyFromEnvironment by default",
+			Param: nil,
+			Test: func(t *testing.T, client *clientImpl) {
+				require.NoError(t, os.Setenv("https_proxy", testURL.String()))
+				transport, _ := unwrapTransport(client.client.CurrentHTTPClient().Transport)
+				resp, err := transport.Proxy(&http.Request{URL: testURL})
+				require.NoError(t, err)
+				require.NotNil(t, resp)
+				require.Equal(t, testURL.String(), resp.String())
+			},
+		},
+		{
+			Name:  "NoProxy",
+			Param: WithNoProxy(),
+			Test: func(t *testing.T, client *clientImpl) {
+				transport, _ := unwrapTransport(client.client.CurrentHTTPClient().Transport)
+				proxy := transport.Proxy
+				assert.Nil(t, proxy)
+			},
+		},
+		{
+			Name:  "ProxyFromEnvironment",
 			Param: WithProxyFromEnvironment(),
 			Test: func(t *testing.T, client *clientImpl) {
 				require.NoError(t, os.Setenv("https_proxy", testURL.String()))
+				transport, _ := unwrapTransport(client.client.CurrentHTTPClient().Transport)
+				resp, err := transport.Proxy(&http.Request{URL: testURL})
+				require.NoError(t, err)
+				require.NotNil(t, resp)
+				require.Equal(t, testURL.String(), resp.String())
+			},
+		},
+		{
+			Name:  "ProxyURL",
+			Param: WithProxyURL(testURL.String()),
+			Test: func(t *testing.T, client *clientImpl) {
 				transport, _ := unwrapTransport(client.client.CurrentHTTPClient().Transport)
 				resp, err := transport.Proxy(&http.Request{URL: testURL})
 				require.NoError(t, err)

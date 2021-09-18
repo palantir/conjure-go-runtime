@@ -159,7 +159,7 @@ func TestErrorDecoderMiddlewares(t *testing.T) {
 				assert.Equal(t, errors.DefaultNotFound.Name(), conjureErr.Name())
 
 				safeParams, unsafeParams := werror.ParamsFromError(err)
-				assert.Equal(t, map[string]interface{}{"requestHost": u.Host, "requestMethod": "Get", "errorInstanceId": id, "statusCode": 404}, safeParams)
+				assert.Equal(t, map[string]interface{}{"requestHost": u.Host, "requestMethod": "Get", "errorInstanceId": id, "errorName": "Default:NotFound", "statusCode": 404}, safeParams)
 				assert.Equal(t, map[string]interface{}{"requestPath": "/path", "stringParam": "stringValue"}, unsafeParams)
 			},
 		},
@@ -192,7 +192,7 @@ func TestErrorDecoderMiddlewares(t *testing.T) {
 			tsURL, err := url.Parse(ts.URL)
 			require.NoError(t, err)
 
-			client, err := httpclient.NewClient(httpclient.WithBaseURLs([]string{ts.URL}), tc.decoderParam)
+			client, err := httpclient.NewClient(httpclient.WithBaseURLs([]string{ts.URL}), httpclient.WithNoProxy(), tc.decoderParam)
 			require.NoError(t, err)
 
 			_, err = client.Get(ctx, httpclient.WithPath("/path"))

@@ -6,38 +6,51 @@ github.com/openzipkin/zipkin-go/idgenerator
 github.com/openzipkin/zipkin-go/model
 github.com/openzipkin/zipkin-go/propagation
 github.com/openzipkin/zipkin-go/reporter
-# github.com/palantir/go-metrics v1.1.0
+# github.com/palantir/go-metrics v1.1.1
+## explicit
 github.com/palantir/go-metrics
 # github.com/palantir/pkg v1.0.1
 github.com/palantir/pkg
 # github.com/palantir/pkg/bytesbuffers v1.0.1
+## explicit
 github.com/palantir/pkg/bytesbuffers
 # github.com/palantir/pkg/httpserver v1.0.1
+## explicit
 github.com/palantir/pkg/httpserver
-# github.com/palantir/pkg/metrics v1.0.1
+# github.com/palantir/pkg/metrics v1.2.0
+## explicit
 github.com/palantir/pkg/metrics
 # github.com/palantir/pkg/refreshable v1.3.2
+## explicit
 github.com/palantir/pkg/refreshable
 # github.com/palantir/pkg/retry v1.1.1
+## explicit
 github.com/palantir/pkg/retry
 # github.com/palantir/pkg/safejson v1.0.1
+## explicit
 github.com/palantir/pkg/safejson
 # github.com/palantir/pkg/tlsconfig v1.1.0
+## explicit
 github.com/palantir/pkg/tlsconfig
 # github.com/palantir/pkg/uuid v1.0.1
+## explicit
 github.com/palantir/pkg/uuid
 github.com/palantir/pkg/uuid/internal/uuid
 # github.com/palantir/witchcraft-go-error v1.5.0
+## explicit
 github.com/palantir/witchcraft-go-error
 github.com/palantir/witchcraft-go-error/internal/errors
-# github.com/palantir/witchcraft-go-logging v1.14.0
+# github.com/palantir/witchcraft-go-logging v1.16.0
+## explicit
 github.com/palantir/witchcraft-go-logging/internal/gopath
 github.com/palantir/witchcraft-go-logging/wlog
 github.com/palantir/witchcraft-go-logging/wlog/internal
 github.com/palantir/witchcraft-go-logging/wlog/svclog/svc1log
 # github.com/palantir/witchcraft-go-params v1.2.0
+## explicit
 github.com/palantir/witchcraft-go-params
 # github.com/palantir/witchcraft-go-tracing v1.4.0
+## explicit
 github.com/palantir/witchcraft-go-tracing/wtracing
 github.com/palantir/witchcraft-go-tracing/wtracing/propagation/b3
 github.com/palantir/witchcraft-go-tracing/wzipkin
@@ -46,21 +59,24 @@ github.com/pkg/errors
 # github.com/pmezard/go-difflib v1.0.0
 github.com/pmezard/go-difflib/difflib
 # github.com/stretchr/testify v1.7.0
+## explicit
 github.com/stretchr/testify/assert
 github.com/stretchr/testify/require
-# golang.org/x/net v0.0.0-20210326220855-61e056675ecf
+# golang.org/x/net v0.0.0-20210614182718-04defd469f4e
+## explicit
 golang.org/x/net/http/httpguts
 golang.org/x/net/http2
 golang.org/x/net/http2/hpack
 golang.org/x/net/idna
 golang.org/x/net/internal/socks
 golang.org/x/net/proxy
-# golang.org/x/text v0.3.3
+# golang.org/x/text v0.3.6
 golang.org/x/text/secure/bidirule
 golang.org/x/text/transform
 golang.org/x/text/unicode/bidi
 golang.org/x/text/unicode/norm
-# gopkg.in/yaml.v2 v2.3.0
+# gopkg.in/yaml.v2 v2.4.0
+## explicit
 gopkg.in/yaml.v2
 # gopkg.in/yaml.v3 v3.0.0-20200313102051-9f266ea9e77c
 gopkg.in/yaml.v3

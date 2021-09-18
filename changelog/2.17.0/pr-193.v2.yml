@@ -1,0 +1,5 @@
+type: fix
+fix:
+  description: Include omitempty for new HTTP2 timeout config options
+  links:
+  - https://github.com/palantir/conjure-go-runtime/pull/193

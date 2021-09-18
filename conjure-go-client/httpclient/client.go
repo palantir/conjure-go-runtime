@@ -25,6 +25,7 @@ import (
 	"github.com/palantir/pkg/bytesbuffers"
 	"github.com/palantir/pkg/refreshable"
 	werror "github.com/palantir/witchcraft-go-error"
+	"github.com/palantir/witchcraft-go-logging/wlog/svclog/svc1log"
 )
 
 // A Client executes requests to a configured service.
@@ -100,12 +101,15 @@ func (c *clientImpl) Do(ctx context.Context, params ...RequestParam) (*http.Resp
 	}
 
 	retrier := internal.NewRequestRetrier(uris, c.backoffOptions.CurrentRetryParams().Start(ctx), attempts)
-	for retrier.ShouldGetNextURI(resp, err) {
-		uri, retryErr := retrier.GetNextURI(ctx, resp, err)
-		if retryErr != nil {
-			return nil, retryErr
+	for {
+		uri, isRelocated := retrier.GetNextURI(resp, err)
+		if uri == "" {
+			break
 		}
-		resp, err = c.doOnce(ctx, uri, retrier.IsRelocatedURI(uri), params...)
+		if err != nil {
+			svc1log.FromContext(ctx).Debug("Retrying request", svc1log.Stacktrace(err))
+		}
+		resp, err = c.doOnce(ctx, uri, isRelocated, params...)
 	}
 	if err != nil {
 		return nil, err
@@ -146,10 +150,7 @@ func (c *clientImpl) doOnce(
 	if b.method == "" {
 		return nil, werror.Error("httpclient: use WithRequestMethod() to specify HTTP method")
 	}
-	reqURI, err := joinURIAndPath(baseURI, b.path)
-	if err != nil {
-		return nil, err
-	}
+	reqURI := joinURIAndPath(baseURI, b.path)
 	req, err := http.NewRequest(b.method, reqURI, nil)
 	if err != nil {
 		return nil, werror.Wrap(err, "failed to build new HTTP request")
@@ -214,15 +215,10 @@ func unwrapURLError(respErr error) error {
 	return werror.Wrap(urlErr.Err, "httpclient request failed", params...)
 }
 
-func joinURIAndPath(baseURI, reqPath string) (string, error) {
-	uri, err := url.Parse(baseURI)
-	if err != nil {
-		return "", werror.Wrap(err, "failed to parse request URL")
-	}
-
+func joinURIAndPath(baseURI, reqPath string) string {
+	fullURI := strings.TrimRight(baseURI, "/")
 	if reqPath != "" {
-		uri.Path = strings.TrimRight(uri.Path, "/") + "/" + strings.TrimLeft(reqPath, "/")
+		fullURI += "/" + strings.TrimLeft(reqPath, "/")
 	}
-
-	return uri.String(), nil
+	return fullURI
 }
