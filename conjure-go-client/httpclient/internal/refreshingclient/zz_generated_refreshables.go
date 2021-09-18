@@ -578,6 +578,8 @@ type RefreshableTransportParams interface {
 	TLSHandshakeTimeout() refreshable.Duration
 	HTTPProxyURL() RefreshableURLPtr
 	ProxyFromEnvironment() refreshable.Bool
+	HTTP2ReadIdleTimeout() refreshable.Duration
+	HTTP2PingTimeout() refreshable.Duration
 }
 
 type RefreshingTransportParams struct {
@@ -661,5 +663,17 @@ func (r RefreshingTransportParams) HTTPProxyURL() RefreshableURLPtr {
 func (r RefreshingTransportParams) ProxyFromEnvironment() refreshable.Bool {
 	return refreshable.NewBool(r.MapTransportParams(func(i TransportParams) interface{} {
 		return i.ProxyFromEnvironment
+	}))
+}
+
+func (r RefreshingTransportParams) HTTP2ReadIdleTimeout() refreshable.Duration {
+	return refreshable.NewDuration(r.MapTransportParams(func(i TransportParams) interface{} {
+		return i.HTTP2ReadIdleTimeout
+	}))
+}
+
+func (r RefreshingTransportParams) HTTP2PingTimeout() refreshable.Duration {
+	return refreshable.NewDuration(r.MapTransportParams(func(i TransportParams) interface{} {
+		return i.HTTP2PingTimeout
 	}))
 }
