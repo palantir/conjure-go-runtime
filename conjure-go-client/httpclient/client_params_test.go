@@ -53,15 +53,6 @@ func TestBuilder(t *testing.T) {
 			},
 		},
 		{
-			Name:  "NoProxy",
-			Param: WithNoProxy(),
-			Test: func(t *testing.T, client *clientImpl) {
-				transport, _ := unwrapTransport(client.client.CurrentHTTPClient().Transport)
-				proxy := transport.Proxy
-				assert.Nil(t, proxy)
-			},
-		},
-		{
 			Name:  "MaxIdleConns",
 			Param: WithMaxIdleConns(100),
 			Test: func(t *testing.T, client *clientImpl) {
