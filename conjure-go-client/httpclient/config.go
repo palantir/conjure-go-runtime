@@ -354,6 +354,8 @@ func newValidatedClientParamsFromConfig(ctx context.Context, config ClientConfig
 		DisableHTTP2:          derefBoolPtr(config.DisableHTTP2, false),
 		IdleConnTimeout:       derefDurationPtr(config.IdleConnTimeout, defaultIdleConnTimeout),
 		ExpectContinueTimeout: derefDurationPtr(config.ExpectContinueTimeout, defaultExpectContinueTimeout),
+		HTTP2PingTimeout:      derefDurationPtr(config.HTTP2PingTimeout, defaultHTTP2PingTimeout),
+		HTTP2ReadIdleTimeout:  derefDurationPtr(config.HTTP2ReadIdleTimeout, defaultHTTP2ReadIdleTimeout),
 		ProxyFromEnvironment:  derefBoolPtr(config.ProxyFromEnvironment, false),
 		TLSHandshakeTimeout:   derefDurationPtr(config.TLSHandshakeTimeout, defaultTLSHandshakeTimeout),
 	}
