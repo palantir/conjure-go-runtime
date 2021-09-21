@@ -1,0 +1,6 @@
+type: improvement
+improvement:
+  description: Add balanced scoring middleware to improve client-side load-balancing
+    based on server responses
+  links:
+  - https://github.com/palantir/conjure-go-runtime/pull/208
