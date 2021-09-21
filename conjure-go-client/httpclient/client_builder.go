@@ -18,12 +18,12 @@ package httpclient
 import (
 	"context"
 	"crypto/tls"
-	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient/internal"
 	"net"
 	"net/http"
 	"net/url"
 	"time"
 
+	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient/internal"
 	"github.com/palantir/pkg/bytesbuffers"
 	"github.com/palantir/pkg/metrics"
 	"github.com/palantir/pkg/retry"
