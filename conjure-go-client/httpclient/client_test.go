@@ -231,10 +231,22 @@ func BenchmarkAllocWithBytesBufferPool(b *testing.B) {
 }
 
 func BenchmarkUnavailableURIs(b *testing.B) {
-	server := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+	server1 := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
 		rw.WriteHeader(http.StatusOK)
 	}))
-	defer server.Close()
+	defer server1.Close()
+	server2 := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		rw.WriteHeader(http.StatusOK)
+	}))
+	defer server2.Close()
+	server3 := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		rw.WriteHeader(http.StatusOK)
+	}))
+	defer server3.Close()
+	server4 := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		rw.WriteHeader(http.StatusOK)
+	}))
+	defer server4.Close()
 	unavailableServer := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
 		rw.WriteHeader(http.StatusServiceUnavailable)
 	}))
@@ -259,28 +271,28 @@ func BenchmarkUnavailableURIs(b *testing.B) {
 	}
 	b.Run("FourAvailableServers", func(b *testing.B) {
 		client, err := httpclient.NewClient(
-			httpclient.WithBaseURLs([]string{server.URL, server.URL, server.URL, server.URL}),
+			httpclient.WithBaseURLs([]string{server1.URL, server2.URL, server3.URL, server4.URL}),
 		)
 		require.NoError(b, err)
 		runBench(b, client)
 	})
 	b.Run("OneOutOfFourUnavailableServers", func(b *testing.B) {
 		client, err := httpclient.NewClient(
-			httpclient.WithBaseURLs([]string{server.URL, server.URL, server.URL, unavailableServer.URL}),
+			httpclient.WithBaseURLs([]string{server1.URL, server2.URL, server3.URL, unavailableServer.URL}),
 		)
 		require.NoError(b, err)
 		runBench(b, client)
 	})
 	b.Run("OneOutOfThreeUnavailableServers", func(b *testing.B) {
 		client, err := httpclient.NewClient(
-			httpclient.WithBaseURLs([]string{server.URL, server.URL, unavailableServer.URL}),
+			httpclient.WithBaseURLs([]string{server1.URL, server2.URL, unavailableServer.URL}),
 		)
 		require.NoError(b, err)
 		runBench(b, client)
 	})
 	b.Run("OneOutOfTwoUnavailableServers", func(b *testing.B) {
 		client, err := httpclient.NewClient(
-			httpclient.WithBaseURLs([]string{server.URL, unavailableServer.URL}),
+			httpclient.WithBaseURLs([]string{server1.URL, unavailableServer.URL}),
 		)
 		require.NoError(b, err)
 		runBench(b, client)

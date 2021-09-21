@@ -44,7 +44,7 @@ func NewBalancedURIScoringMiddleware(uris []string, nanoClock func() int64) Bala
 }
 
 func (u *balancedScorer) GetURIsInOrderOfIncreasingScore() []string {
-	uris := make([]string, len(u.uriInfos))
+	uris := make([]string, 0, len(u.uriInfos))
 	scores := make(map[string]int32, len(u.uriInfos))
 	for uri, info := range u.uriInfos {
 		uris = append(uris, uri)

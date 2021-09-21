@@ -18,6 +18,7 @@ package httpclient
 import (
 	"context"
 	"crypto/tls"
+	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient/internal"
 	"net"
 	"net/http"
 	"net/url"
@@ -109,6 +110,7 @@ func NewClient(params ...ClientParam) (Client, error) {
 	return &clientImpl{
 		client:                        *client,
 		uris:                          b.uris,
+		uriScorer:                     internal.NewBalancedURIScoringMiddleware(b.uris, time.Now().UnixNano),
 		maxAttempts:                   b.maxAttempts,
 		backoffOptions:                b.backoffOptions,
 		disableTraceHeaderPropagation: b.disableTraceHeaderPropagation,
