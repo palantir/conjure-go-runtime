@@ -229,3 +229,89 @@ func BenchmarkAllocWithBytesBufferPool(b *testing.B) {
 		runBench(b, client)
 	})
 }
+
+func BenchmarkUnavailableURIs(b *testing.B) {
+	server1 := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		rw.WriteHeader(http.StatusOK)
+	}))
+	defer server1.Close()
+	server2 := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		rw.WriteHeader(http.StatusOK)
+	}))
+	defer server2.Close()
+	server3 := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		rw.WriteHeader(http.StatusOK)
+	}))
+	defer server3.Close()
+	server4 := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		rw.WriteHeader(http.StatusOK)
+	}))
+	defer server4.Close()
+	unavailableServer := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		rw.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer unavailableServer.Close()
+	unstartedServer := httptest.NewUnstartedServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		rw.WriteHeader(http.StatusServiceUnavailable)
+	}))
+
+	runBench := func(b *testing.B, client httpclient.Client) {
+		ctx := context.Background()
+		reqBody := httpclient.WithRequestBody("body", codecs.Plain)
+		reqMethod := httpclient.WithRequestMethod("GET")
+		for _, count := range []int{10, 100, 1000} {
+			b.Run(fmt.Sprintf("count=%d", count), func(b *testing.B) {
+				b.ReportAllocs()
+				for i := 0; i < b.N; i++ {
+					for j := 0; j < count; j++ {
+						resp, err := client.Do(ctx, reqBody, reqMethod)
+						require.NoError(b, err)
+						require.NotNil(b, resp)
+					}
+				}
+			})
+		}
+	}
+	b.Run("OneAvailableServer", func(b *testing.B) {
+		client, err := httpclient.NewClient(
+			httpclient.WithBaseURLs([]string{server1.URL}),
+		)
+		require.NoError(b, err)
+		runBench(b, client)
+	})
+	b.Run("FourAvailableServers", func(b *testing.B) {
+		client, err := httpclient.NewClient(
+			httpclient.WithBaseURLs([]string{server1.URL, server2.URL, server3.URL, server4.URL}),
+		)
+		require.NoError(b, err)
+		runBench(b, client)
+	})
+	b.Run("OneOutOfFourUnavailableServers", func(b *testing.B) {
+		client, err := httpclient.NewClient(
+			httpclient.WithBaseURLs([]string{server1.URL, server2.URL, server3.URL, unavailableServer.URL}),
+		)
+		require.NoError(b, err)
+		runBench(b, client)
+	})
+	b.Run("OneOutOfThreeUnavailableServers", func(b *testing.B) {
+		client, err := httpclient.NewClient(
+			httpclient.WithBaseURLs([]string{server1.URL, server2.URL, unavailableServer.URL}),
+		)
+		require.NoError(b, err)
+		runBench(b, client)
+	})
+	b.Run("OneOutOfTwoUnavailableServers", func(b *testing.B) {
+		client, err := httpclient.NewClient(
+			httpclient.WithBaseURLs([]string{server1.URL, unavailableServer.URL}),
+		)
+		require.NoError(b, err)
+		runBench(b, client)
+	})
+	b.Run("OneOutOfTwoUnstartedServers", func(b *testing.B) {
+		client, err := httpclient.NewClient(
+			httpclient.WithBaseURLs([]string{server1.URL, unstartedServer.URL}),
+		)
+		require.NoError(b, err)
+		runBench(b, client)
+	})
+}
