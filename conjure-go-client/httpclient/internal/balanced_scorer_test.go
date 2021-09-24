@@ -46,11 +46,13 @@ func TestBalancedScoring(t *testing.T) {
 	uris := []string{server503.URL, server429.URL, server200.URL}
 	scorer := NewBalancedURIScoringMiddleware(uris, func() int64 { return 0 })
 	for _, server := range []*httptest.Server{server200, server429, server503} {
-		req, err := http.NewRequest("GET", server.URL, nil)
-		assert.NoError(t, err)
-		_, err = scorer.RoundTrip(req, server.Client().Transport)
-		assert.NoError(t, err)
+		for i := 0; i < 10; i++ {
+			req, err := http.NewRequest("GET", server.URL, nil)
+			assert.NoError(t, err)
+			_, err = scorer.RoundTrip(req, server.Client().Transport)
+			assert.NoError(t, err)
+		}
 	}
 	scoredUris := scorer.GetURIsInOrderOfIncreasingScore()
-	assert.Equal(t, scoredUris, []string{server200.URL, server429.URL, server503.URL})
+	assert.Equal(t, []string{server200.URL, server429.URL, server503.URL}, scoredUris)
 }
