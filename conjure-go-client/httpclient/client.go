@@ -161,6 +161,8 @@ func (c *clientImpl) doOnce(
 		// must precede the error decoders because they return a nil response and the metrics need the status code of
 		// the raw response.
 		c.metricsMiddleware,
+		// must precede the error decoders because they return a nil response and the scorer needs the status code of
+		// the raw response.
 		c.uriScorer,
 		// must precede the client error decoder
 		b.errorDecoderMiddleware,

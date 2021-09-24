@@ -36,6 +36,7 @@ type URIScoringMiddleware interface {
 
 type balancedScorer struct {
 	uriInfos map[string]uriInfo
+	rand     *rand.Rand
 }
 
 type uriInfo struct {
@@ -59,6 +60,7 @@ func NewBalancedURIScoringMiddleware(uris []string, nanoClock func() int64) URIS
 	}
 	return &balancedScorer{
 		uriInfos,
+		rand.New(rand.NewSource(nanoClock())),
 	}
 }
 
@@ -70,7 +72,7 @@ func (u *balancedScorer) GetURIsInOrderOfIncreasingScore() []string {
 		scores[uri] = info.computeScore()
 	}
 	// Pre-shuffle to avoid overloading first URI when no request are in-flight
-	rand.Shuffle(len(uris), func(i, j int) {
+	u.rand.Shuffle(len(uris), func(i, j int) {
 		uris[i], uris[j] = uris[j], uris[i]
 	})
 	sort.Slice(uris, func(i, j int) bool {

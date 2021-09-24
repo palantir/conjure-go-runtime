@@ -37,11 +37,11 @@ type CourseExponentialDecayReservoir interface {
 var _ CourseExponentialDecayReservoir = (*reservoir)(nil)
 
 type reservoir struct {
-	value                    float64
 	lastDecay                int64
 	nanoClock                func() int64
 	decayIntervalNanoseconds int64
 	mu                       sync.Mutex
+	value                    float64
 }
 
 func NewCourseExponentialDecayReservoir(nanoClock func() int64, halfLife time.Duration) CourseExponentialDecayReservoir {
