@@ -55,8 +55,7 @@ type clientImpl struct {
 	errorDecoderMiddleware Middleware
 	metricsMiddleware      Middleware
 
-	uris                          []string
-	uriScorer                     internal.BalancedURIScoringMiddleware
+	uriScorer                     internal.URIScoringMiddleware
 	maxAttempts                   int
 	disableTraceHeaderPropagation bool
 	backoffOptions                []retry.Option

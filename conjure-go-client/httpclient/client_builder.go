@@ -107,10 +107,17 @@ func NewClient(params ...ClientParam) (Client, error) {
 	} else if b.maxAttempts == 0 {
 		b.maxAttempts = 2 * len(b.uris)
 	}
+	var uriScorer internal.URIScoringMiddleware
+	if len(b.uris) == 1 {
+		uriScorer = internal.NewNoopURIScoringMiddleware(b.uris)
+	} else {
+		uriScorer = internal.NewBalancedURIScoringMiddleware(b.uris, func() int64 {
+			return time.Now().UnixNano()
+		})
+	}
 	return &clientImpl{
 		client:                        *client,
-		uris:                          b.uris,
-		uriScorer:                     internal.NewBalancedURIScoringMiddleware(b.uris, time.Now().UnixNano),
+		uriScorer:                     uriScorer,
 		maxAttempts:                   b.maxAttempts,
 		backoffOptions:                b.backoffOptions,
 		disableTraceHeaderPropagation: b.disableTraceHeaderPropagation,

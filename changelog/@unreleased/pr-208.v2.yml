@@ -1,6 +1,9 @@
 type: improvement
 improvement:
-  description: Add balanced scoring middleware to improve client-side load-balancing
-    based on server responses
+  description: |
+    Add balanced scoring middleware to improve client-side load-balancing based on server responses. Middleware tracks
+    in-flight requests and recent failures per URI to prioritize URIs with fewer in-flight requests and recent failures.
+    This improves average latency in cases which some URIs are unavailable or respond significantly faster or slower
+    than others.
   links:
   - https://github.com/palantir/conjure-go-runtime/pull/208

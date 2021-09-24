@@ -29,12 +29,10 @@ const (
 	failureMemory = 30 * time.Second
 )
 
-type BalancedURIScoringMiddleware interface {
+type URIScoringMiddleware interface {
 	GetURIsInOrderOfIncreasingScore() []string
 	RoundTrip(req *http.Request, next http.RoundTripper) (*http.Response, error)
 }
-
-var _ BalancedURIScoringMiddleware = (*balancedScorer)(nil)
 
 type balancedScorer struct {
 	uriInfos map[string]uriInfo
@@ -45,7 +43,14 @@ type uriInfo struct {
 	recentFailures CourseExponentialDecayReservoir
 }
 
-func NewBalancedURIScoringMiddleware(uris []string, nanoClock func() int64) BalancedURIScoringMiddleware {
+// NewBalancedURIScoringMiddleware returns URI scoring middleware that tracks in-flight requests and recent failures
+// for each URI configured on an HTTP client. URIs are scored based on fewest in-flight requests and recent errors,
+// where client errors are weighted the same as 1/10 of an in-flight request, server errors are weighted as 10
+// in-flight requests, and errors are decayed using exponential decay with a half-life of 30 seconds.
+//
+// This implementation is based on Dialogue's BalancedScoreTracker:
+// https://github.com/palantir/dialogue/blob/develop/dialogue-core/src/main/java/com/palantir/dialogue/core/BalancedScoreTracker.java
+func NewBalancedURIScoringMiddleware(uris []string, nanoClock func() int64) URIScoringMiddleware {
 	uriInfos := make(map[string]uriInfo, len(uris))
 	for _, uri := range uris {
 		uriInfos[uri] = uriInfo{
@@ -83,6 +88,9 @@ func (u *balancedScorer) RoundTrip(req *http.Request, next http.RoundTripper) (*
 	}
 	resp, err := next.RoundTrip(req)
 	if resp == nil || err != nil {
+		if foundInfo {
+			info.recentFailures.Update(failureWeight)
+		}
 		return nil, err
 	}
 	if foundInfo {
