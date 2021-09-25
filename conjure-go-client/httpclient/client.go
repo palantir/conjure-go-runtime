@@ -55,7 +55,7 @@ type clientImpl struct {
 	errorDecoderMiddleware Middleware
 	recoveryMiddleware     Middleware
 
-	uris           refreshable.StringSlice
+	uriScorer      internal.RefreshableURIScoringMiddleware
 	maxAttempts    refreshable.IntPtr // 0 means no limit. If nil, uses 2*len(uris).
 	backoffOptions refreshingclient.RefreshableRetryParams
 	bufferPool     bytesbuffers.Pool
@@ -82,10 +82,7 @@ func (c *clientImpl) Delete(ctx context.Context, params ...RequestParam) (*http.
 }
 
 func (c *clientImpl) Do(ctx context.Context, params ...RequestParam) (*http.Response, error) {
-	var uris []string
-	if c.uris != nil {
-		uris = c.uris.CurrentStringSlice()
-	}
+	uris := c.uriScorer.CurrentURIScoringMiddleware().GetURIsInOrderOfIncreasingScore()
 	if len(uris) == 0 {
 		return nil, werror.ErrorWithContextParams(ctx, "no base URIs are configured")
 	}
@@ -166,12 +163,14 @@ func (c *clientImpl) doOnce(
 	clientCopy := *c.client.CurrentHTTPClient()
 	transport := clientCopy.Transport // start with the concrete http.Transport from the client
 
+	// must precede the error decoders to read the status code of the raw response.
+	transport = wrapTransport(transport, c.uriScorer.CurrentURIScoringMiddleware())
 	// request decoder must precede the client decoder
-	// must precede the body middleware so it can read the response body
+	// must precede the body middleware to read the response body
 	transport = wrapTransport(transport, b.errorDecoderMiddleware, c.errorDecoderMiddleware)
-	// must precede the body middleware so it can read the request body
+	// must precede the body middleware to read the request body
 	transport = wrapTransport(transport, c.middlewares...)
-	// must wrap inner middlewares because it mutates the return values
+	// must wrap inner middlewares to mutate the return values
 	transport = wrapTransport(transport, b.bodyMiddleware)
 	// must be the outermost middleware to recover panics in the rest of the request flow
 	transport = wrapTransport(transport, c.recoveryMiddleware)
