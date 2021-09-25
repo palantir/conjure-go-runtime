@@ -417,7 +417,7 @@ func newValidatedClientParamsFromConfig(ctx context.Context, config ClientConfig
 		}
 	}
 
-	var uris []string
+	uris := make([]string, 0, len(config.URIs))
 	for _, uriStr := range config.URIs {
 		if uriStr == "" {
 			continue
@@ -426,6 +426,9 @@ func newValidatedClientParamsFromConfig(ctx context.Context, config ClientConfig
 			return refreshingclient.ValidatedClientParams{}, werror.WrapWithContextParams(ctx, err, "invalid url")
 		}
 		uris = append(uris, uriStr)
+	}
+	if len(uris) == 0 {
+		return refreshingclient.ValidatedClientParams{}, werror.ErrorWithContextParams(ctx, "uris can not be empty")
 	}
 	sort.Strings(uris)
 
