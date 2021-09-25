@@ -159,6 +159,9 @@ func newClient(ctx context.Context, b *clientBuilder, params ...ClientParam) (Cl
 			return nil, err
 		}
 	}
+	if b.URIs == nil {
+		return nil, werror.ErrorWithContextParams(ctx, "httpclient requires URI configuration")
+	}
 
 	var edm Middleware
 	if b.ErrorDecoder != nil {
