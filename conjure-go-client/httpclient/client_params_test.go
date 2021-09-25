@@ -144,7 +144,7 @@ func TestBuilder(t *testing.T) {
 		},
 	} {
 		t.Run(test.Name, func(t *testing.T) {
-			client, err := NewClient(test.Param)
+			client, err := NewClient(test.Param, WithBaseURLs([]string{"localhost"}))
 			require.NoError(t, err)
 			test.Test(t, client.(*clientImpl))
 		})

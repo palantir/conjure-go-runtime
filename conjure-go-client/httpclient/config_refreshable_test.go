@@ -31,7 +31,7 @@ import (
 
 func TestRefreshableClientConfig(t *testing.T) {
 	const serviceName = "serviceName"
-	// testDefaultClient is pulled out becuase we also use it to test the non-refreshable version which is backed by the same infra.
+	// testDefaultClient is pulled out because we also use it to test the non-refreshable version which is backed by the same infra.
 	testDefaultClient := func(t *testing.T, client *clientImpl) {
 		httpClient := client.client.CurrentHTTPClient()
 		assert.Equal(t, defaultHTTPTimeout, httpClient.Timeout, "http timeout not set to default")
