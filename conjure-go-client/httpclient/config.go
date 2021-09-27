@@ -135,6 +135,8 @@ func (c ServicesConfig) ClientConfig(serviceName string) ClientConfig {
 	return MergeClientConfig(conf, c.Default)
 }
 
+// MergeClientConfig merges two instances of ClientConfig, preferring values from conf over defaults.
+// The ServiceName field is not affected, and is expected to be set in the config before building a Client.
 func MergeClientConfig(conf, defaults ClientConfig) ClientConfig {
 	if len(conf.URIs) == 0 {
 		conf.URIs = defaults.URIs
