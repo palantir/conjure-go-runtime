@@ -50,6 +50,7 @@ type httpClientBuilder struct {
 	Timeout           time.Duration
 	Middlewares       []Middleware
 	metricsMiddleware Middleware
+	URIScorerBuilder  func([]string) internal.URIScoringMiddleware
 
 	// http.Transport modifiers
 	MaxIdleConns          int
@@ -107,17 +108,9 @@ func NewClient(params ...ClientParam) (Client, error) {
 	} else if b.maxAttempts == 0 {
 		b.maxAttempts = 2 * len(b.uris)
 	}
-	var uriScorer internal.URIScoringMiddleware
-	if len(b.uris) == 1 {
-		uriScorer = internal.NewNoopURIScoringMiddleware(b.uris)
-	} else {
-		uriScorer = internal.NewBalancedURIScoringMiddleware(b.uris, func() int64 {
-			return time.Now().UnixNano()
-		})
-	}
 	return &clientImpl{
 		client:                        *client,
-		uriScorer:                     uriScorer,
+		uriScorer:                     b.httpClientBuilder.URIScorerBuilder(b.uris),
 		maxAttempts:                   b.maxAttempts,
 		backoffOptions:                b.backoffOptions,
 		disableTraceHeaderPropagation: b.disableTraceHeaderPropagation,
@@ -130,7 +123,13 @@ func NewClient(params ...ClientParam) (Client, error) {
 
 func getDefaultHTTPClientBuilder() *httpClientBuilder {
 	defaultTLSConfig, _ := tlsconfig.NewClientConfig()
+	uriScorerBuilder := func(uris []string) internal.URIScoringMiddleware {
+		return internal.NewRandomURIScoringMiddleware(uris, func() int64 {
+			return time.Now().UnixNano()
+		})
+	}
 	return &httpClientBuilder{
+		URIScorerBuilder: uriScorerBuilder,
 		// These values are primarily pulled from http.DefaultTransport.
 		Proxy:                 http.ProxyFromEnvironment,
 		TLSClientConfig:       defaultTLSConfig,
