@@ -108,10 +108,9 @@ func NewClient(params ...ClientParam) (Client, error) {
 	} else if b.maxAttempts == 0 {
 		b.maxAttempts = 2 * len(b.uris)
 	}
-	uriScorer := b.httpClientBuilder.URIScorerBuilder(b.uris)
 	return &clientImpl{
 		client:                        *client,
-		uriScorer:                     uriScorer,
+		uriScorer: b.httpClientBuilder.URIScorerBuilder(b.uris),
 		maxAttempts:                   b.maxAttempts,
 		backoffOptions:                b.backoffOptions,
 		disableTraceHeaderPropagation: b.disableTraceHeaderPropagation,
@@ -130,9 +129,9 @@ func getDefaultHTTPClientBuilder() *httpClientBuilder {
 		})
 	}
 	return &httpClientBuilder{
+		URIScorerBuilder:      uriScorerBuilder,
 		// These values are primarily pulled from http.DefaultTransport.
 		Proxy:                 http.ProxyFromEnvironment,
-		URIScorerBuilder:      uriScorerBuilder,
 		TLSClientConfig:       defaultTLSConfig,
 		Timeout:               1 * time.Minute,
 		DialTimeout:           10 * time.Second,

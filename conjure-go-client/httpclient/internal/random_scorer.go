@@ -37,11 +37,11 @@ func (n *randomScorer) RoundTrip(req *http.Request, next http.RoundTripper) (*ht
 	return next.RoundTrip(req)
 }
 
-// NewRandomURIScoringMiddleware returns a URI scorer that randomizes the order of URIs when scoring.  The middleware
-// no-ops on each request.
+// NewRandomURIScoringMiddleware returns a URI scorer that randomizes the order of URIs when scoring using a rand.Rand
+// seeded by the nanoClock function. The middleware no-ops on each request.
 func NewRandomURIScoringMiddleware(uris []string, nanoClock func() int64) URIScoringMiddleware {
 	return &randomScorer{
-		uris,
-		nanoClock,
+		uris: uris,
+		nanoClock: nanoClock,
 	}
 }
