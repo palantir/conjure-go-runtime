@@ -41,7 +41,7 @@ func (n *randomScorer) RoundTrip(req *http.Request, next http.RoundTripper) (*ht
 // seeded by the nanoClock function. The middleware no-ops on each request.
 func NewRandomURIScoringMiddleware(uris []string, nanoClock func() int64) URIScoringMiddleware {
 	return &randomScorer{
-		uris: uris,
+		uris:      uris,
 		nanoClock: nanoClock,
 	}
 }

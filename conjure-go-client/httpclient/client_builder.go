@@ -110,7 +110,7 @@ func NewClient(params ...ClientParam) (Client, error) {
 	}
 	return &clientImpl{
 		client:                        *client,
-		uriScorer: b.httpClientBuilder.URIScorerBuilder(b.uris),
+		uriScorer:                     b.httpClientBuilder.URIScorerBuilder(b.uris),
 		maxAttempts:                   b.maxAttempts,
 		backoffOptions:                b.backoffOptions,
 		disableTraceHeaderPropagation: b.disableTraceHeaderPropagation,
@@ -129,7 +129,7 @@ func getDefaultHTTPClientBuilder() *httpClientBuilder {
 		})
 	}
 	return &httpClientBuilder{
-		URIScorerBuilder:      uriScorerBuilder,
+		URIScorerBuilder: uriScorerBuilder,
 		// These values are primarily pulled from http.DefaultTransport.
 		Proxy:                 http.ProxyFromEnvironment,
 		TLSClientConfig:       defaultTLSConfig,
