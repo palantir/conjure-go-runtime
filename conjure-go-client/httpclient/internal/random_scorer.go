@@ -15,23 +15,33 @@
 package internal
 
 import (
+	"math/rand"
 	"net/http"
 )
 
-type noopScorer struct {
+type randomScorer struct {
 	uris []string
+	rand *rand.Rand
 }
 
-func (n *noopScorer) GetURIsInOrderOfIncreasingScore() []string {
-	return n.uris
+func (n *randomScorer) GetURIsInOrderOfIncreasingScore() []string {
+	uris := make([]string, len(n.uris))
+	copy(uris, n.uris)
+	n.rand.Shuffle(len(uris), func(i, j int) {
+		uris[i] = uris[j]
+	})
+	return uris
 }
 
-func (n *noopScorer) RoundTrip(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+func (n *randomScorer) RoundTrip(req *http.Request, next http.RoundTripper) (*http.Response, error) {
 	return next.RoundTrip(req)
 }
 
-func NewNoopURIScoringMiddleware(uris []string) URIScoringMiddleware {
-	return &noopScorer{
+// NewRandomURIScoringMiddleware returns a URI scorer that randomizes the order of URIs when scoring.  The middleware
+// no-ops on each request.
+func NewRandomURIScoringMiddleware(uris []string, nanoClock func() int64) URIScoringMiddleware {
+	return &randomScorer{
 		uris,
+		rand.New(rand.NewSource(nanoClock())),
 	}
 }
