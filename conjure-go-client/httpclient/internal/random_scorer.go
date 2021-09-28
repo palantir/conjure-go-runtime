@@ -20,15 +20,15 @@ import (
 )
 
 type randomScorer struct {
-	uris []string
-	rand *rand.Rand
+	uris      []string
+	nanoClock func() int64
 }
 
 func (n *randomScorer) GetURIsInOrderOfIncreasingScore() []string {
 	uris := make([]string, len(n.uris))
 	copy(uris, n.uris)
-	n.rand.Shuffle(len(uris), func(i, j int) {
-		uris[i] = uris[j]
+	rand.New(rand.NewSource(n.nanoClock())).Shuffle(len(uris), func(i, j int) {
+		uris[i], uris[j] = uris[j], uris[i]
 	})
 	return uris
 }
@@ -42,6 +42,6 @@ func (n *randomScorer) RoundTrip(req *http.Request, next http.RoundTripper) (*ht
 func NewRandomURIScoringMiddleware(uris []string, nanoClock func() int64) URIScoringMiddleware {
 	return &randomScorer{
 		uris,
-		rand.New(rand.NewSource(nanoClock())),
+		nanoClock,
 	}
 }
