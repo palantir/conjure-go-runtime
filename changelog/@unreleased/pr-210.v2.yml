@@ -1,0 +1,6 @@
+type: improvement
+improvement:
+  description: Make balanced URI scoring optional behavior that can be enabled by
+    configuring the HTTP client.
+  links:
+  - https://github.com/palantir/conjure-go-runtime/pull/210
