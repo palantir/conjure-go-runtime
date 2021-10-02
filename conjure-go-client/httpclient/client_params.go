@@ -22,6 +22,7 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient/internal"
 	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient/internal/refreshingclient"
 	"github.com/palantir/pkg/bytesbuffers"
 	"github.com/palantir/pkg/metrics"
@@ -530,6 +531,19 @@ func WithBasicAuth(username, password string) ClientParam {
 		setBasicAuth(req.Header, username, password)
 		return next.RoundTrip(req)
 	}))
+}
+
+// WithBalancedURIScoring adds middleware that prioritizes sending requests to URIs with the fewest in-flight requests
+// and least recent errors.
+func WithBalancedURIScoring() ClientParam {
+	return clientParamFunc(func(b *clientBuilder) error {
+		b.URIScorerBuilder = func(uris []string) internal.URIScoringMiddleware {
+			return internal.NewBalancedURIScoringMiddleware(uris, func() int64 {
+				return time.Now().UnixNano()
+			})
+		}
+		return nil
+	})
 }
 
 func setBasicAuth(h http.Header, username, password string) {

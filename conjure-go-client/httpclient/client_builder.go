@@ -49,7 +49,8 @@ const (
 type clientBuilder struct {
 	HTTP *httpClientBuilder
 
-	URIs refreshable.StringSlice
+	URIs             refreshable.StringSlice
+	URIScorerBuilder func([]string) internal.URIScoringMiddleware
 
 	ErrorDecoder ErrorDecoder
 
@@ -102,35 +103,7 @@ func (b *httpClientBuilder) Build(ctx context.Context, params ...HTTPClientParam
 	}
 	transport = wrapTransport(transport, b.Middlewares...)
 
-	//<<<<<<< HEAD
 	return refreshingclient.NewRefreshableHTTPClient(transport, b.Timeout), nil
-	//=======
-	//	if b.enableUnlimitedRetries {
-	//		// maxAttempts of 0 indicates no limit
-	//		b.maxAttempts = 0
-	//	} else if b.maxAttempts == 0 {
-	//		b.maxAttempts = 2 * len(b.uris)
-	//	}
-	//	var uriScorer internal.URIScoringMiddleware
-	//	if len(b.uris) == 1 {
-	//		uriScorer = internal.NewNoopURIScoringMiddleware(b.uris)
-	//	} else {
-	//		uriScorer = internal.NewBalancedURIScoringMiddleware(b.uris, func() int64 {
-	//			return time.Now().UnixNano()
-	//		})
-	//	}
-	//	return &clientImpl{
-	//		client:                        *client,
-	//		uriScorer:                     uriScorer,
-	//		maxAttempts:                   b.maxAttempts,
-	//		backoffOptions:                b.backoffOptions,
-	//		disableTraceHeaderPropagation: b.disableTraceHeaderPropagation,
-	//		middlewares:                   middlewares,
-	//		metricsMiddleware:             b.metricsMiddleware,
-	//		errorDecoderMiddleware:        edm,
-	//		bufferPool:                    b.BytesBufferPool,
-	//	}, nil
-	//>>>>>>> develop
 }
 
 // NewClient returns a configured client ready for use.
@@ -180,17 +153,15 @@ func newClient(ctx context.Context, b *clientBuilder, params ...ClientParam) (Cl
 	if !b.HTTP.DisableRecovery {
 		recovery = recoveryMiddleware{}
 	}
-	uris := internal.NewRefreshableURIScoringMiddleware(b.URIs, func(uris []string) internal.URIScoringMiddleware {
-		if len(uris) == 1 {
-			return internal.NewNoopURIScoringMiddleware(uris)
+	uriScorer := internal.NewRefreshableURIScoringMiddleware(b.URIs, func(uris []string) internal.URIScoringMiddleware {
+		if b.URIScorerBuilder == nil {
+			return internal.NewRandomURIScoringMiddleware(uris, func() int64 { return time.Now().UnixNano() })
 		}
-		// TODO? Balanced middleware preserve scoring across reloads by handling dynamically updating URI set.
-		return internal.NewBalancedURIScoringMiddleware(uris, func() int64 { return time.Now().UnixNano() })
+		return b.URIScorerBuilder(uris)
 	})
-
 	return &clientImpl{
 		client:                 httpClient,
-		uriScorer:              uris,
+		uriScorer:              uriScorer,
 		maxAttempts:            b.MaxAttempts,
 		backoffOptions:         b.RetryParams,
 		middlewares:            middleware,

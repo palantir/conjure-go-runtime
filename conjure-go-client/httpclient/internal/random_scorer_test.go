@@ -15,23 +15,17 @@
 package internal
 
 import (
-	"net/http"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
 )
 
-type noopScorer struct {
-	uris []string
-}
-
-func (n *noopScorer) GetURIsInOrderOfIncreasingScore() []string {
-	return n.uris
-}
-
-func (n *noopScorer) RoundTrip(req *http.Request, next http.RoundTripper) (*http.Response, error) {
-	return next.RoundTrip(req)
-}
-
-func NewNoopURIScoringMiddleware(uris []string) URIScoringMiddleware {
-	return &noopScorer{
-		uris,
-	}
+func TestRandomScorerGetURIsRandomizes(t *testing.T) {
+	uris := []string{"uri1", "uri2", "uri3", "uri4", "uri5"}
+	scorer := NewRandomURIScoringMiddleware(uris, func() int64 { return time.Now().UnixNano() })
+	scoredUris1 := scorer.GetURIsInOrderOfIncreasingScore()
+	scoredUris2 := scorer.GetURIsInOrderOfIncreasingScore()
+	assert.ElementsMatch(t, scoredUris1, scoredUris2)
+	assert.NotEqual(t, scoredUris1, scoredUris2)
 }
