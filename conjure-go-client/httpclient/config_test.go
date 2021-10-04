@@ -63,6 +63,7 @@ func TestWithConfigParam(t *testing.T) {
 			"my-service": {
 				ReadTimeout:  &[]time.Duration{2 * time.Second}[0],
 				WriteTimeout: &[]time.Duration{3 * time.Second}[0],
+				URIs:         []string{"https://localhost"},
 			},
 		},
 	}

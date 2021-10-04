@@ -133,7 +133,7 @@ func newClient(ctx context.Context, b *clientBuilder, params ...ClientParam) (Cl
 		}
 	}
 	if b.URIs == nil {
-		return nil, werror.ErrorWithContextParams(ctx, "httpclient requires URI configuration")
+		return nil, werror.Error("httpclient URLs must not be empty", werror.SafeParam("serviceName", b.HTTP.ServiceNameTag.Value()))
 	}
 
 	var edm Middleware

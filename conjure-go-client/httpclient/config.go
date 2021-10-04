@@ -434,7 +434,7 @@ func newValidatedClientParamsFromConfig(ctx context.Context, config ClientConfig
 		uris = append(uris, uriStr)
 	}
 	if len(uris) == 0 {
-		return refreshingclient.ValidatedClientParams{}, werror.ErrorWithContextParams(ctx, "uris can not be empty")
+		return refreshingclient.ValidatedClientParams{}, werror.ErrorWithContextParams(ctx, "httpclient URLs must not be empty")
 	}
 	sort.Strings(uris)
 

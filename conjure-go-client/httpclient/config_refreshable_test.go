@@ -74,7 +74,7 @@ func TestRefreshableClientConfig(t *testing.T) {
 
 	}
 	t.Run("default static config", func(t *testing.T) {
-		client, err := NewClient(WithConfig(ClientConfig{ServiceName: serviceName}))
+		client, err := NewClient(WithConfig(ClientConfig{ServiceName: serviceName, URIs: []string{"https://localhost"}}))
 		require.NoError(t, err)
 		testDefaultClient(t, client.(*clientImpl))
 	})
@@ -105,6 +105,11 @@ func TestRefreshableClientConfig(t *testing.T) {
 		return c
 	}))
 	refreshableClientConfig := RefreshableClientConfigFromServiceConfig(refreshableServicesConfig, serviceName)
+	_, err = NewClientFromRefreshableConfig(context.Background(), refreshableClientConfig)
+	require.EqualError(t, err, "httpclient URLs must not be empty")
+
+	initialConfig.Services[serviceName] = ClientConfig{ServiceName: serviceName, URIs: []string{"https://localhost"}}
+	updateRefreshableBytes(initialConfig)
 	client, err := NewClientFromRefreshableConfig(context.Background(), refreshableClientConfig)
 	require.NoError(t, err, "expected to create a client from empty client config")
 
