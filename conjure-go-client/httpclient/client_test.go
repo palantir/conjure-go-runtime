@@ -32,10 +32,8 @@ import (
 
 func TestNoBaseURIs(t *testing.T) {
 	client, err := httpclient.NewClient()
-	require.NoError(t, err)
-
-	_, err = client.Do(context.Background(), httpclient.WithRequestMethod("GET"))
-	require.Error(t, err)
+	require.EqualError(t, err, "httpclient URLs must not be empty")
+	require.Nil(t, client)
 }
 
 func TestCanReadBodyWithBufferPool(t *testing.T) {
