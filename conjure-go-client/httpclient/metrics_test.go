@@ -120,7 +120,7 @@ func TestRoundTripperWithMetrics(t *testing.T) {
 
 		// create client
 		client, err := httpclient.NewClient(
-			httpclient.WithHTTPTimeout(time.Second),
+			httpclient.WithHTTPTimeout(5*time.Second),
 			httpclient.WithServiceName("my-service"),
 			httpclient.WithMetrics(tagsProviders...),
 			httpclient.WithBaseURLs([]string{serverURLstr}))
@@ -138,10 +138,10 @@ func TestRoundTripperWithMetrics(t *testing.T) {
 		// assert metrics exist in registry
 		var metricName string
 		var metricTags metrics.Tags
-		rootRegistry.Each(metrics.MetricVisitor(func(name string, tags metrics.Tags, _ metrics.MetricVal) {
+		rootRegistry.Each(func(name string, tags metrics.Tags, _ metrics.MetricVal) {
 			metricName = name
 			metricTags = tags
-		}))
+		})
 		assert.Equal(t, "client.response", metricName)
 		expectedTags := append(
 			customTags,
