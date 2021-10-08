@@ -69,7 +69,21 @@ func TestWithConfigParam(t *testing.T) {
 	}
 	client, err := NewClient(WithConfig(conf.ClientConfig("my-service")))
 	require.NoError(t, err)
-	assert.Equal(t, 3*time.Second, client.(*clientImpl).client.Timeout)
+	assert.Equal(t, 3*time.Second, client.(*clientImpl).client.CurrentHTTPClient().Timeout)
+}
+
+func TestWithConfigForHTTPClientParam(t *testing.T) {
+	conf := ServicesConfig{
+		Services: map[string]ClientConfig{
+			"my-service": {
+				ReadTimeout:  &[]time.Duration{2 * time.Second}[0],
+				WriteTimeout: &[]time.Duration{3 * time.Second}[0],
+			},
+		},
+	}
+	client, err := NewHTTPClient(WithConfigForHTTPClient(conf.ClientConfig("my-service")))
+	require.NoError(t, err)
+	assert.Equal(t, 3*time.Second, client.Timeout)
 }
 
 func TestConfigYAML(t *testing.T) {

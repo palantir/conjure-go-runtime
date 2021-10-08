@@ -20,6 +20,9 @@ github.com/palantir/pkg/httpserver
 # github.com/palantir/pkg/metrics v1.2.0
 ## explicit
 github.com/palantir/pkg/metrics
+# github.com/palantir/pkg/refreshable v1.3.2
+## explicit
+github.com/palantir/pkg/refreshable
 # github.com/palantir/pkg/retry v1.1.1
 ## explicit
 github.com/palantir/pkg/retry
