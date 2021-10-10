@@ -98,10 +98,10 @@ func MetricsMiddleware(serviceName string, tagProviders ...TagsProvider) (Middle
 	if err != nil {
 		return nil, werror.Wrap(err, "failed to construct service-name metric tag", werror.SafeParam("serviceName", serviceName))
 	}
-	return newMetricsMiddleware(serviceNameTag, tagProviders, nil), nil
+	return newMetricsMiddleware(serviceNameTag, tagProviders, nil, false), nil
 }
 
-func newMetricsMiddleware(serviceNameTag metrics.Tag, tagProviders []TagsProvider, disabled refreshable.Bool) Middleware {
+func newMetricsMiddleware(serviceNameTag metrics.Tag, tagProviders []TagsProvider, disabled refreshable.Bool, disableConnMetrics bool) Middleware {
 	return &metricsMiddleware{
 		Disabled:       disabled,
 		ServiceNameTag: serviceNameTag,
@@ -112,13 +112,15 @@ func newMetricsMiddleware(serviceNameTag metrics.Tag, tagProviders []TagsProvide
 			TagsProviderFunc(tagRequestMethodName),
 			StaticTagsProvider(metrics.Tags{serviceNameTag}),
 		),
+		disableConnMetrics: disableConnMetrics,
 	}
 }
 
 type metricsMiddleware struct {
-	Disabled       refreshable.Bool
-	ServiceNameTag metrics.Tag
-	Tags           []TagsProvider
+	Disabled           refreshable.Bool
+	ServiceNameTag     metrics.Tag
+	Tags               []TagsProvider
+	disableConnMetrics bool
 }
 
 // RoundTrip will emit counter and timer metrics with the name 'mariner.k8sClient.request'
@@ -131,8 +133,11 @@ func (h *metricsMiddleware) RoundTrip(req *http.Request, next http.RoundTripper)
 
 	metrics.FromContext(req.Context()).Counter(MetricRequestInFlight, h.ServiceNameTag).Inc(1)
 	start := time.Now()
-	tlsMetricsContext := h.tlsTraceContext(req.Context())
-	resp, err := next.RoundTrip(req.WithContext(tlsMetricsContext))
+	ctx := req.Context()
+	if !h.disableConnMetrics {
+		ctx = h.tlsTraceContext(ctx)
+	}
+	resp, err := next.RoundTrip(req.WithContext(ctx))
 	duration := time.Since(start)
 	metrics.FromContext(req.Context()).Counter(MetricRequestInFlight, h.ServiceNameTag).Dec(1)
 
