@@ -112,7 +112,7 @@ func TestRawRequestRetry(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, requestBytes, gotReqBytes)
 		if count == 0 {
-			rw.WriteHeader(http.StatusBadRequest)
+			rw.WriteHeader(http.StatusInternalServerError)
 		}
 		// Otherwise 200 is returned
 		count++
