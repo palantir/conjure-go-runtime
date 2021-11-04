@@ -277,6 +277,46 @@ func TestRequestRetrier_GetNextURI(t *testing.T) {
 			shouldRetryBackoff: true,
 			shouldRetryReset:   false,
 		},
+		{
+			name: "does not retry 400 responses",
+			resp: &http.Response{
+				StatusCode: 400,
+			},
+			uris:               []string{"a", "b"},
+			shouldRetry:        false,
+			shouldRetrySameURI: false,
+			shouldRetryBackoff: false,
+			shouldRetryReset:   false,
+		},
+		{
+			name: "does not retry 404 responses",
+			resp: &http.Response{
+				StatusCode: 404,
+			},
+			uris:               []string{"a", "b"},
+			shouldRetry:        false,
+			shouldRetrySameURI: false,
+			shouldRetryBackoff: false,
+			shouldRetryReset:   false,
+		},
+		{
+			name:               "does not retry 400 errors",
+			respErr:            werror.ErrorWithContextParams(context.Background(), "400", werror.SafeParam("statusCode", 400)),
+			uris:               []string{"a", "b"},
+			shouldRetry:        false,
+			shouldRetrySameURI: false,
+			shouldRetryBackoff: false,
+			shouldRetryReset:   false,
+		},
+		{
+			name:               "does not retry 404s",
+			respErr:            werror.ErrorWithContextParams(context.Background(), "404", werror.SafeParam("statusCode", 404)),
+			uris:               []string{"a", "b"},
+			shouldRetry:        false,
+			shouldRetrySameURI: false,
+			shouldRetryBackoff: false,
+			shouldRetryReset:   false,
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			retrier := newMockRetrier()
