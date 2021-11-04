@@ -126,9 +126,9 @@ clients:
 ## Retry Behavior
 Conjure-go-runtime HTTP clients provide the following retry behavior:
 - HTTP Status Code Handling
+  - 307 (Temporary Redirect), 308 (Permanent Redirect): the client retries the request with the URL included in the HTTP response's 'Location' header.
   - 429 (Too Many Requests): the client retries the request to a different node based on its URI configuration. TODO: support deriving backoff from the retry-after HTTP response header
   - 503 (Service Unavailable): the client retries the request to a different node based on its URI configuration.
-  - 307 (Temporary Redirect), 308 (Permanent Redirect): the client retries the request with the URL included in the HTTP response's 'Location' header.
   - 5XX responses: the client retries the request to a different node based on its URI configuration.
 - Network Error Handling: the client retries the request to a different node based on its URI configuration.
 
