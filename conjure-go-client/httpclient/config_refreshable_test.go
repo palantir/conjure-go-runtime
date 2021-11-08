@@ -49,6 +49,7 @@ func TestRefreshableClientConfig(t *testing.T) {
 		assert.Equal(t, defaultExpectContinueTimeout, initialTransport.ExpectContinueTimeout)
 		assert.Equal(t, defaultTLSHandshakeTimeout, initialTransport.TLSHandshakeTimeout)
 		assert.Equal(t, false, initialTransport.DisableKeepAlives)
+		assert.NotNil(t, initialTransport.Proxy)
 
 		if assert.Len(t, initialMiddlewares, 3) {
 			assert.IsType(t, recoveryMiddleware{}, initialMiddlewares[0])
@@ -209,6 +210,25 @@ func TestRefreshableClientConfig(t *testing.T) {
 		assert.NotContains(t, newTransport.TLSNextProto, "h2")
 
 		initialConfig.Default.DisableHTTP2 = nil
+		updateRefreshableBytes(initialConfig)
+	})
+
+	t.Run("disable proxy, transport updates", func(t *testing.T) {
+		oldClient := currentHTTPClient()
+		oldTransport, _ := unwrapTransport(oldClient.Transport)
+
+		assert.Contains(t, oldTransport.TLSNextProto, "h2")
+
+		disableProxy := false
+		initialConfig.Default.ProxyFromEnvironment = &disableProxy
+		updateRefreshableBytes(initialConfig)
+
+		newClient := currentHTTPClient()
+		newTransport, _ := unwrapTransport(newClient.Transport)
+
+		assert.Nil(t, newTransport.Proxy)
+
+		initialConfig.Default.ProxyFromEnvironment = nil
 		updateRefreshableBytes(initialConfig)
 	})
 }
