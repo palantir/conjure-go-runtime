@@ -8,10 +8,10 @@ plugins:
           darwin-amd64: 394fde518cc913ba808e0e0ecbc00da54ed88f6f71fa57fb1da1836a46b1b74b
           linux-amd64: 110540240a42894f0c76922ee832391938e9f51cac9a0a7c7f24cfcc9f9a34fa
     - locator:
-        id: com.palantir.godel-refreshables-plugin:refreshables-plugin:0.38.0
+        id: com.palantir.godel-refreshables-plugin:refreshables-plugin:0.39.0
         checksums:
-          darwin-amd64: d1a4f29ae86f891442f61de6859ce04e451d3eb42a6bb9886ff01b9f2da06a7e
-          linux-amd64: bccefbe347544e9338bc669b972e22f17de63884c90ea3a529028c510e036f69
+          darwin-amd64: ba6ed58089b1b3abad2ebd9c597411763c95306d2fe15583219a6c4cef7cf68e
+          linux-amd64: 57646a6972c019d39f40c2ca825da5190ccf26e1fbb5bfdf7564254d8ac8c982
 environment:
   GO111MODULE: "on"
   GOFLAGS: "-mod=vendor"
