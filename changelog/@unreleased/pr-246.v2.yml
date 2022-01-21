@@ -1,0 +1,5 @@
+type: fix
+fix:
+  description: HTTP clients should not require URIs
+  links:
+  - https://github.com/palantir/conjure-go-runtime/pull/246
