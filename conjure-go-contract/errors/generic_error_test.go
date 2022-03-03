@@ -78,3 +78,9 @@ func TestError_NewError_Then_MarshalJSON_Then_UnmarshalJSON_And_Unpack(t *testin
 	assert.Equal(t, e.InstanceID(), unmarshaledError.InstanceID())
 	assert.Equal(t, mergeParams(e), mergeParams(unmarshaledError))
 }
+
+func TestIsErrorOfType(t *testing.T) {
+	err := NewNotFound()
+	assert.True(t, isErrorOfType(err, DefaultNotFound))
+	assert.False(t, isErrorOfType(err, DefaultInvalidArgument))
+}
