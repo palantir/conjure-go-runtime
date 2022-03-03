@@ -101,7 +101,7 @@ func WrapWithNotFound(cause error, parameters ...wparams.ParamStorer) Error {
 }
 
 // IsNotFound returns true if an error is an instance of default unauthorized type.
-func IsNotFoundError(err error) bool {
+func IsNotFound(err error) bool {
 	return isErrorOfType(err, DefaultNotFound)
 }
 
