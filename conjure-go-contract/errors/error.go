@@ -70,7 +70,7 @@ func WrapWithPermissionDenied(cause error, parameters ...wparams.ParamStorer) Er
 	return newGenericError(cause, DefaultPermissionDenied, wparams.NewParamStorer(parameters...))
 }
 
-// IsPermissionDenied returns true if an error is an instance of default unauthorized type.
+// IsPermissionDenied returns true if an error is an instance of default permission denied type.
 func IsPermissionDenied(err error) bool {
 	return isErrorOfType(err, DefaultPermissionDenied)
 }
@@ -85,7 +85,7 @@ func WrapWithInvalidArgument(cause error, parameters ...wparams.ParamStorer) Err
 	return newGenericError(cause, DefaultInvalidArgument, wparams.NewParamStorer(parameters...))
 }
 
-// IsInvalidArgument returns true if an error is an instance of default unauthorized type.
+// IsInvalidArgument returns true if an error is an instance of default invalid argument type.
 func IsInvalidArgument(err error) bool {
 	return isErrorOfType(err, DefaultInvalidArgument)
 }
@@ -100,7 +100,7 @@ func WrapWithNotFound(cause error, parameters ...wparams.ParamStorer) Error {
 	return newGenericError(cause, DefaultNotFound, wparams.NewParamStorer(parameters...))
 }
 
-// IsNotFound returns true if an error is an instance of default unauthorized type.
+// IsNotFound returns true if an error is an instance of default not found type.
 func IsNotFound(err error) bool {
 	return isErrorOfType(err, DefaultNotFound)
 }
@@ -115,7 +115,7 @@ func WrapWithConflict(cause error, parameters ...wparams.ParamStorer) Error {
 	return newGenericError(cause, DefaultConflict, wparams.NewParamStorer(parameters...))
 }
 
-// IsConflict returns true if an error is an instance of default unauthorized type.
+// IsConflict returns true if an error is an instance of default conflict type.
 func IsConflict(err error) bool {
 	return isErrorOfType(err, DefaultConflict)
 }
@@ -130,7 +130,7 @@ func WrapWithRequestEntityTooLarge(cause error, parameters ...wparams.ParamStore
 	return newGenericError(cause, DefaultRequestEntityTooLarge, wparams.NewParamStorer(parameters...))
 }
 
-// IsRequestEntityTooLarge returns true if an error is an instance of default unauthorized type.
+// IsRequestEntityTooLarge returns true if an error is an instance of default request entity too large type.
 func IsRequestEntityTooLarge(err error) bool {
 	return isErrorOfType(err, DefaultRequestEntityTooLarge)
 }
@@ -145,7 +145,7 @@ func WrapWithFailedPrecondition(cause error, parameters ...wparams.ParamStorer) 
 	return newGenericError(cause, DefaultFailedPrecondition, wparams.NewParamStorer(parameters...))
 }
 
-// IsFailedPrecondition returns true if an error is an instance of default unauthorized type.
+// IsFailedPrecondition returns true if an error is an instance of default failed precondition type.
 func IsFailedPrecondition(err error) bool {
 	return isErrorOfType(err, DefaultFailedPrecondition)
 }
@@ -160,7 +160,7 @@ func WrapWithInternal(cause error, parameters ...wparams.ParamStorer) Error {
 	return newGenericError(cause, DefaultInternal, wparams.NewParamStorer(parameters...))
 }
 
-// IsInternal returns true if an error is an instance of default unauthorized type.
+// IsInternal returns true if an error is an instance of default internal type.
 func IsInternal(err error) bool {
 	return isErrorOfType(err, DefaultInternal)
 }
@@ -175,7 +175,7 @@ func WrapWithTimeout(cause error, parameters ...wparams.ParamStorer) Error {
 	return newGenericError(cause, DefaultTimeout, wparams.NewParamStorer(parameters...))
 }
 
-// IsTimeout returns true if an error is an instance of default unauthorized type.
+// IsTimeout returns true if an error is an instance of default timeout type.
 func IsTimeout(err error) bool {
 	return isErrorOfType(err, DefaultTimeout)
 }
