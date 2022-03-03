@@ -1,0 +1,5 @@
+type: improvement
+improvement:
+  description: Add IsErrorOfType support for generic errors
+  links:
+  - https://github.com/palantir/conjure-go-runtime/pull/262
