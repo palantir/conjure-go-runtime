@@ -58,7 +58,7 @@ func (r *rendezvousHashScorer) RoundTrip(req *http.Request, next http.RoundTripp
 	return next.RoundTrip(req)
 }
 
-// NewRendezvousHashScoringMiddleware returns a URI scorer that generates a deterministic ordering of the URIs
+// NewRendezvousHashURIScoringMiddleware returns a URI scorer that generates a deterministic ordering of the URIs
 // based on the value of a header. The scorer hashes the header value along with the URI and sorts the URIs based on
 // the value of the hash.
 //
@@ -71,7 +71,7 @@ func (r *rendezvousHashScorer) RoundTrip(req *http.Request, next http.RoundTripp
 // seeded by the nanoClock function.
 //
 // The middleware no-ops on each request.
-func NewRendezvousHashScoringMiddleware(uris []string, hashHeader string, nanoClock func() int64) URIScoringMiddleware {
+func NewRendezvousHashURIScoringMiddleware(uris []string, hashHeader string, nanoClock func() int64) URIScoringMiddleware {
 	return &rendezvousHashScorer{
 		uris:          uris,
 		hashHeaderKey: hashHeader,
