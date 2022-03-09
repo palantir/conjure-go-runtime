@@ -30,7 +30,7 @@ const (
 )
 
 type URIScoringMiddleware interface {
-	GetURIsInOrderOfIncreasingScore() []string
+	GetURIsInOrderOfIncreasingScore(header http.Header) []string
 	RoundTrip(req *http.Request, next http.RoundTripper) (*http.Response, error)
 }
 
@@ -60,7 +60,7 @@ func NewBalancedURIScoringMiddleware(uris []string, nanoClock func() int64) URIS
 	return &balancedScorer{uriInfos}
 }
 
-func (u *balancedScorer) GetURIsInOrderOfIncreasingScore() []string {
+func (u *balancedScorer) GetURIsInOrderOfIncreasingScore(header http.Header) []string {
 	uris := make([]string, 0, len(u.uriInfos))
 	scores := make(map[string]int32, len(u.uriInfos))
 	for uri, info := range u.uriInfos {
