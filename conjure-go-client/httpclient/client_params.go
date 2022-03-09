@@ -546,6 +546,18 @@ func WithBalancedURIScoring() ClientParam {
 	})
 }
 
+// WithRendezvousHashURIScoring adds middleware that deterministically routes to URIs based on a header.
+func WithRendezvousHashURIScoring(hashHeader string) ClientParam {
+	return clientParamFunc(func(b *clientBuilder) error {
+		b.URIScorerBuilder = func(uris []string) internal.URIScoringMiddleware {
+			return internal.NewRendezvousHashURIScoringMiddleware(uris, hashHeader, func() int64 {
+				return time.Now().UnixNano()
+			})
+		}
+		return nil
+	})
+}
+
 func setBasicAuth(h http.Header, username, password string) {
 	basicAuthBytes := []byte(username + ":" + password)
 	h.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString(basicAuthBytes))
