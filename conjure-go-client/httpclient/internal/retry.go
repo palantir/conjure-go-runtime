@@ -59,23 +59,31 @@ const (
 	StatusCodeUnavailable            = http.StatusServiceUnavailable
 )
 
-func isRetryOtherResponse(resp *http.Response, err error, errCode int) (bool, *url.URL) {
-	if errCode == StatusCodeRetryOther || errCode == StatusCodeRetryTemporaryRedirect {
+func isRetryOtherResponse1(resp *http.Response, err error, errCode int) (bool, *url.URL) {
+	if isRetryOtherStatusCode(errCode) {
 		locationStr, ok := LocationFromError(err)
 		if ok {
 			return true, parseLocationURL(locationStr)
 		}
 	}
 
-	if resp == nil {
-		return false, nil
-	}
-	if resp.StatusCode != StatusCodeRetryOther &&
-		resp.StatusCode != StatusCodeRetryTemporaryRedirect {
+	if resp == nil || !isRetryOtherStatusCode(resp.StatusCode) {
 		return false, nil
 	}
 	locationStr := resp.Header.Get("Location")
 	return true, parseLocationURL(locationStr)
+}
+
+func isRetryOtherResponse(resp *http.Response, err error) bool {
+	errCode, _ := StatusCodeFromError(err)
+	if isRetryOtherStatusCode(errCode) {
+		return true
+	}
+	return resp != nil && isRetryOtherStatusCode(resp.StatusCode)
+}
+
+func isRetryOtherStatusCode(statusCode int) bool {
+	return statusCode == StatusCodeRetryOther || statusCode == StatusCodeRetryTemporaryRedirect
 }
 
 func parseLocationURL(locationStr string) *url.URL {

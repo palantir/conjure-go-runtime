@@ -76,13 +76,13 @@ func (r *RequestRetrier) GetNextURI(resp *http.Response, respErr error) (uri str
 		// but ignore the returned value to ensure that the client can instrument the request even
 		// if the context is done.
 		r.retrier.Next()
-		return r.removeMeshSchemeIfPresent(r.currentURI), false
+		return removeMeshSchemeIfPresent(r.currentURI), false
 	}
 	if !r.attemptsRemaining() {
 		// Retries exhausted
 		return "", false
 	}
-	if r.isMeshURI(r.currentURI) {
+	if isMeshURI(r.currentURI) {
 		// Mesh uris don't get retried
 		return "", false
 	}
@@ -108,7 +108,7 @@ func (r *RequestRetrier) getRetryFn(resp *http.Response, respErr error) func() b
 	} else if isUnavailableResponse(resp, errCode) {
 		// 503: go to next node
 		return r.nextURIOrBackoff
-	} else if shouldTryOther, otherURI := isRetryOtherResponse(resp, respErr, errCode); shouldTryOther {
+	} else if shouldTryOther, otherURI := isRetryOtherResponse1(resp, respErr, errCode); shouldTryOther {
 		// 307 or 308: go to next node, or particular node if provided.
 		if otherURI != nil {
 			return func() bool {
@@ -166,14 +166,14 @@ func (r *RequestRetrier) markFailedAndMoveToNextURI() {
 	r.offset = nextURIOffset
 }
 
-func (r *RequestRetrier) removeMeshSchemeIfPresent(uri string) string {
-	if r.isMeshURI(uri) {
+func removeMeshSchemeIfPresent(uri string) string {
+	if isMeshURI(uri) {
 		return strings.Replace(uri, meshSchemePrefix, "", 1)
 	}
 	return uri
 }
 
-func (r *RequestRetrier) isMeshURI(uri string) bool {
+func isMeshURI(uri string) bool {
 	return strings.HasPrefix(uri, meshSchemePrefix)
 }
 
