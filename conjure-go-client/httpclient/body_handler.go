@@ -62,13 +62,12 @@ func (b *bodyMiddleware) setRequestBody(req *http.Request) (func(), error) {
 		return cleanup, nil
 	}
 
-	// Special case: if the requestInput is an io.ReadCloser and the requestEncoder is nil,
-	// use the provided input directly as the request body.
-	if bodyReadCloser, ok := b.requestInput.(io.ReadCloser); ok && b.requestEncoder == nil {
-		req.Body = bodyReadCloser
-		// Use the same heuristic as http.NewRequest to generate the "GetBody" function.
-		if newReq, err := http.NewRequest("", "", bodyReadCloser); err == nil {
-			req.GetBody = newReq.GetBody
+	// Special case: if the requestInput is a getBody function and the requestEncoder is nil,
+	// use the provided function to  directly as the request body.
+	if getBody, ok := b.requestInput.(func() io.ReadCloser); ok && b.requestEncoder == nil {
+		req.Body = getBody()
+		req.GetBody = func() (io.ReadCloser, error) {
+			return getBody(), nil
 		}
 		return cleanup, nil
 	}

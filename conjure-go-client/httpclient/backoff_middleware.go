@@ -1,10 +1,11 @@
 package httpclient
 
 import (
-	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient/internal"
-	"github.com/palantir/pkg/retry"
 	"net/http"
 	"net/url"
+
+	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient/internal"
+	"github.com/palantir/pkg/retry"
 )
 
 type backoffMiddleware struct {
@@ -25,7 +26,7 @@ func NewBackoffMiddleware(retrier retry.Retrier) Middleware {
 func (b *backoffMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (*http.Response, error) {
 	b.backoffRequest(req)
 	resp, err := next.RoundTrip(req)
-	b.handleResponse(resp)
+	b.handleResponse(err)
 	return resp, err
 }
 
@@ -50,14 +51,13 @@ func (b *backoffMiddleware) backoffRequest(req *http.Request) {
 	}
 }
 
-func (b *backoffMiddleware) handleResponse(resp *http.Response) {
-	if resp != nil {
-		switch resp.StatusCode {
-		case internal.StatusCodeRetryOther, internal.StatusCodeRetryTemporaryRedirect:
-			b.retrier.Reset()
-		case internal.StatusCodeThrottle:
-			b.backoffFunc = func() { b.retrier.Next() }
-		}
+func (b *backoffMiddleware) handleResponse(err error) {
+	errCode, _ := StatusCodeFromError(err)
+	switch errCode {
+	case internal.StatusCodeRetryOther, internal.StatusCodeRetryTemporaryRedirect:
+		b.retrier.Reset()
+	case internal.StatusCodeThrottle:
+		b.backoffFunc = func() { b.retrier.Next() }
 	}
 }
 

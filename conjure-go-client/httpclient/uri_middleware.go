@@ -1,6 +1,7 @@
 package httpclient
 
 import (
+	werror "github.com/palantir/witchcraft-go-error"
 	"net/http"
 	urlpkg "net/url"
 	"strings"
@@ -28,45 +29,50 @@ func NewURIMiddleware(uris []string, cancelFunc func()) Middleware {
 }
 
 func (u *uriMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (*http.Response, error) {
-	err := u.setRequestURLAndHost(req)
+	url, err := u.getURL(req)
 	if err != nil {
 		return nil, err
 	}
+	req.URL = url
+	req.Host = url.Host
 	resp, err := next.RoundTrip(req)
-	u.offset = (u.offset + 1) % len(u.uris)
-	if _, url := isRedirectResponse(resp); url != nil {
-		if !url.IsAbs() {
-			url = req.URL.ResolveReference(url)
+	if _, redirectURL := isRedirectError(err); redirectURL != nil {
+		if !redirectURL.IsAbs() {
+			redirectURL = req.URL.ResolveReference(redirectURL)
 		}
-		u.redirectURL = url
-	} else {
-		u.offset = (u.offset + 1) % len(u.uris)
+		u.redirectURL = redirectURL
+	}
+	if err != nil {
+		params := []werror.Param{
+			werror.SafeParam("requestMethod", req.Method),
+			werror.SafeParam("requestHost", url.Host),
+			werror.UnsafeParam("requestPath", url.Path),
+		}
+		return nil, werror.Wrap(err, "httpclient request failed", params...)
 	}
 	return resp, err
 }
 
-func (u *uriMiddleware) setRequestURLAndHost(req *http.Request) error {
-	var url *urlpkg.URL
+func (u *uriMiddleware) getURL(req *http.Request) (*urlpkg.URL, error) {
 	if u.redirectURL != nil {
-		url = u.redirectURL
-		u.redirectURL = nil
-	} else {
-		uri := u.uris[u.offset]
-		if isMeshURI(uri) {
-			// Mesh URIs should not be retried
-			u.cancelFunc()
-			uri = strings.Replace(uri, meshSchemePrefix, "", 1)
-		}
-		parsedUrl, err := urlpkg.Parse(uri)
-		if err != nil {
-			return err
-		}
-		removeEmptyPort(parsedUrl)
-		url = parsedUrl.ResolveReference(req.URL)
+		defer func() {
+			u.redirectURL = nil
+		}()
+		return u.redirectURL, nil
 	}
-	req.URL = url
-	req.Host = url.Host
-	return nil
+	uri := u.uris[u.offset]
+	u.offset = (u.offset + 1) % len(u.uris)
+	if isMeshURI(uri) {
+		// Mesh URIs should not be retried
+		u.cancelFunc()
+		uri = strings.Replace(uri, meshSchemePrefix, "", 1)
+	}
+	parsedUrl, err := urlpkg.Parse(uri)
+	if err != nil {
+		return nil, err
+	}
+	removeEmptyPort(parsedUrl)
+	return parsedUrl.ResolveReference(req.URL), nil
 }
 
 // removeEmptyPort() strips the empty port in ":port" to ""
@@ -81,16 +87,21 @@ func isMeshURI(uri string) bool {
 	return strings.HasPrefix(uri, meshSchemePrefix)
 }
 
-func isRedirectResponse(resp *http.Response) (bool, *urlpkg.URL) {
-	if resp == nil || !isRetryOtherStatusCode(resp.StatusCode) {
+func isRedirectError(err error) (bool, *urlpkg.URL) {
+	errCode, _ := StatusCodeFromError(err)
+	if !isRedirectStatusCode(errCode) {
 		return false, nil
 	}
-	locationStr := resp.Header.Get("Location")
+	_, unsafeParams := werror.ParamsFromError(err)
+	locationStr, ok := unsafeParams["location"].(string)
+	if !ok {
+		return true, nil
+	}
 	return true, parseLocationURL(locationStr)
 }
 
-func isRetryOtherStatusCode(statusCode int) bool {
-	return statusCode == 307 || statusCode == 308
+func isRedirectStatusCode(statusCode int) bool {
+	return statusCode == http.StatusTemporaryRedirect || statusCode == http.StatusPermanentRedirect
 }
 
 func parseLocationURL(locationStr string) *urlpkg.URL {

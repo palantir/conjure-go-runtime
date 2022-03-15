@@ -16,7 +16,6 @@ package httpclient
 
 import (
 	"context"
-	"github.com/palantir/pkg/retry"
 	"net/http"
 	"net/url"
 	"strings"
@@ -25,6 +24,7 @@ import (
 	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient/internal/refreshingclient"
 	"github.com/palantir/pkg/bytesbuffers"
 	"github.com/palantir/pkg/refreshable"
+	"github.com/palantir/pkg/retry"
 	werror "github.com/palantir/witchcraft-go-error"
 )
 
@@ -93,12 +93,13 @@ func (c *clientImpl) Do(ctx context.Context, params ...RequestParam) (*http.Resp
 			maxAttempts = *confMaxAttempts
 		}
 	}
-
 	b, err := applyRequestParams(c.bufferPool, params...)
 	if err != nil {
 		return nil, err
 	}
-
+	for _, c := range b.configureCtx {
+		ctx = c(ctx)
+	}
 	req, err := getRequest(ctx, b)
 	if err != nil {
 		return nil, err
@@ -106,19 +107,20 @@ func (c *clientImpl) Do(ctx context.Context, params ...RequestParam) (*http.Resp
 	cancelled := false
 	cancelFunc := func() { cancelled = true }
 	retrier := c.backoffOptions.CurrentRetryParams().Start(ctx)
-	clientCopy := c.getClientCopyWithMiddleware(b, uris, retrier, cancelFunc)
+	clientCopy := c.getClientCopyWithMiddleware(b.errorDecoderMiddleware, b.bodyMiddleware, uris, retrier, cancelFunc)
 	attempts := 0
 	var resp *http.Response
 	for !cancelled && (maxAttempts == 0 || attempts < maxAttempts) {
 		reqCopy := req.Clone(ctx)
 		resp, err = clientCopy.Do(reqCopy)
+		err = unwrapURLError(ctx, err)
 		// unless this is exactly the scenario where the caller has opted into being responsible for draining and closing
 		// the response body, be sure to do so here.
 		if !(err == nil && b.bodyMiddleware.rawOutput) {
 			internal.DrainBody(resp)
 		}
 		attempts++
-		if resp != nil && resp.StatusCode < 300 {
+		if resp != nil && isSuccessfulOrBadRequest(resp.StatusCode) {
 			break
 		}
 	}
@@ -145,6 +147,10 @@ func (c *clientImpl) Do(ctx context.Context, params ...RequestParam) (*http.Resp
 		return nil, err
 	}
 	return resp, nil*/
+}
+
+func isSuccessfulOrBadRequest(statusCode int) bool {
+	return statusCode < 300 || (statusCode >= http.StatusBadRequest && statusCode < http.StatusInternalServerError)
 }
 
 func applyRequestParams(bufferPool bytesbuffers.Pool, params ...RequestParam) (*requestBuilder, error) {
@@ -239,24 +245,24 @@ func getRequest(ctx context.Context, b *requestBuilder) (*http.Request, error) {
 }
 */
 
-func (c *clientImpl) getClientCopyWithMiddleware(b *requestBuilder, uris []string, backoffRetrier retry.Retrier, cancelFunc func()) http.Client {
+func (c *clientImpl) getClientCopyWithMiddleware(errorDecoderMiddleware Middleware, bodyMiddleware *bodyMiddleware, uris []string, backoffRetrier retry.Retrier, cancelFunc func()) http.Client {
 	// shallow copy so we can overwrite the Transport with a wrapped one.
 	clientCopy := *c.client.CurrentHTTPClient()
 	transport := clientCopy.Transport // start with the client's transport configured with default middleware
 
-	// must precede URI middleware to track attempted URIs
-	transport = wrapTransport(transport, NewBackoffMiddleware(backoffRetrier))
 	// must precede the error decoders to read the status code of the raw response.
-	transport = wrapTransport(transport, NewURIMiddleware(uris, cancelFunc))
 	transport = wrapTransport(transport, c.uriScorer.CurrentURIScoringMiddleware())
 	// request decoder must precede the client decoder
 	// must precede the body middleware to read the response body
-	transport = wrapTransport(transport, b.errorDecoderMiddleware, c.errorDecoderMiddleware)
+	transport = wrapTransport(transport, errorDecoderMiddleware, c.errorDecoderMiddleware)
 	// must precede the body middleware to read the request body
 	transport = wrapTransport(transport, c.middlewares...)
 	// must wrap inner middlewares to mutate the return values
-	transport = wrapTransport(transport, b.bodyMiddleware)
+	transport = wrapTransport(transport, bodyMiddleware)
+	// must precede URI middleware to track attempted URIs
+	transport = wrapTransport(transport, NewBackoffMiddleware(backoffRetrier))
 	// must wrap inner middlewares to update request with resolved URL
+	transport = wrapTransport(transport, NewURIMiddleware(uris, cancelFunc))
 	// must be the outermost middleware to recover panics in the rest of the request flow
 	// there is a second, inner recoveryMiddleware in the client's default middlewares so that panics
 	// inside the inner-most RoundTrip benefit from traceIDs and loggers set on the context.
@@ -280,7 +286,8 @@ func unwrapURLError(ctx context.Context, respErr error) error {
 		// We don't recognize this as a url.Error, just return the original.
 		return respErr
 	}
-	params := []werror.Param{werror.SafeParam("requestMethod", urlErr.Op)}
+	return urlErr.Err
+	/*params := []werror.Param{werror.SafeParam("requestMethod", urlErr.Op)}
 
 	if parsedURL, _ := url.Parse(urlErr.URL); parsedURL != nil {
 		params = append(params,
@@ -288,7 +295,7 @@ func unwrapURLError(ctx context.Context, respErr error) error {
 			werror.UnsafeParam("requestPath", parsedURL.Path))
 	}
 
-	return werror.WrapWithContextParams(ctx, urlErr.Err, "httpclient request failed", params...)
+	return werror.WrapWithContextParams(ctx, urlErr.Err, "httpclient request failed", params...)*/
 }
 
 func joinURIAndPath(baseURI, reqPath string) string {
