@@ -16,7 +16,7 @@ require (
 	github.com/palantir/witchcraft-go-logging v1.17.0
 	github.com/palantir/witchcraft-go-params v1.2.0
 	github.com/palantir/witchcraft-go-tracing v1.4.0
-	github.com/stretchr/testify v1.7.0
+	github.com/stretchr/testify v1.7.1
 	golang.org/x/net v0.0.0-20210614182718-04defd469f4e
 	gopkg.in/yaml.v2 v2.4.0
 )
