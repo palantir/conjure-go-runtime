@@ -130,7 +130,7 @@ func TestRetryResponseParsers(t *testing.T) {
 	} {
 		t.Run(test.Name, func(t *testing.T) {
 			errCode, _ := StatusCodeFromError(test.RespErr)
-			isRetryOther, retryOtherURL := isRetryOtherResponse1(test.Response, test.RespErr, errCode)
+			isRetryOther, retryOtherURL := isRetryOtherResponse(test.Response, test.RespErr, errCode)
 			if assert.Equal(t, test.IsRetryOther, isRetryOther) && test.RetryOtherURL != "" {
 				if assert.NotNil(t, retryOtherURL) {
 					assert.Equal(t, test.RetryOtherURL, retryOtherURL.String())

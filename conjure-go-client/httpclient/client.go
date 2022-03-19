@@ -18,7 +18,6 @@ import (
 	"context"
 	"net/http"
 	"net/url"
-	"strings"
 
 	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient/internal"
 	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient/internal/refreshingclient"
@@ -208,12 +207,4 @@ func unwrapURLError(ctx context.Context, respErr error) error {
 		return respErr
 	}
 	return urlErr.Err
-}
-
-func joinURIAndPath(baseURI, reqPath string) string {
-	fullURI := strings.TrimRight(baseURI, "/")
-	if reqPath != "" {
-		fullURI += "/" + strings.TrimLeft(reqPath, "/")
-	}
-	return fullURI
 }
