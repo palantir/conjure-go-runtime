@@ -16,7 +16,6 @@ package httpclient
 
 import (
 	"bytes"
-	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient/internal"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -105,9 +104,6 @@ func (b *bodyMiddleware) readResponse(resp *http.Response, respErr error) error 
 	if b.rawOutput && respErr == nil {
 		return nil
 	}
-	defer func() {
-		internal.DrainBody(resp)
-	}()
 
 	if respErr != nil {
 		return respErr
@@ -116,7 +112,6 @@ func (b *bodyMiddleware) readResponse(resp *http.Response, respErr error) error 
 	// Verify we have a body to unmarshal. If the request was unsuccessful, the errorMiddleware will
 	// set a non-nil error and return no response.
 	if b.responseOutput == nil || resp == nil || resp.Body == nil || resp.ContentLength == 0 {
-		internal.DrainBody(resp)
 		return nil
 	}
 
@@ -124,5 +119,6 @@ func (b *bodyMiddleware) readResponse(resp *http.Response, respErr error) error 
 	if decErr != nil {
 		return decErr
 	}
+
 	return nil
 }

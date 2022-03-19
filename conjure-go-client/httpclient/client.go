@@ -114,6 +114,11 @@ func (c *clientImpl) Do(ctx context.Context, params ...RequestParam) (*http.Resp
 		reqCopy := req.Clone(ctx)
 		resp, err = clientCopy.Do(reqCopy)
 		err = unwrapURLError(ctx, err)
+		// unless this is exactly the scenario where the caller has opted into being responsible for draining and closing
+		// the response body, be sure to do so here.
+		if !(err == nil && b.bodyMiddleware.rawOutput) {
+			internal.DrainBody(resp)
+		}
 		attempts++
 		if resp != nil && isSuccessfulOrBadRequest(resp.StatusCode) {
 			break
