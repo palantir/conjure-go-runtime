@@ -94,7 +94,7 @@ func TestErrorDecoderMiddlewares(t *testing.T) {
 				verify404(t, err)
 				assert.EqualError(t, err, "httpclient request failed: 404 Not Found")
 				safeParams, unsafeParams := werror.ParamsFromError(err)
-				assert.Equal(t, map[string]interface{}{"requestHost": u.Host, "requestMethod": "Get", "statusCode": 404}, safeParams)
+				assert.Equal(t, map[string]interface{}{"requestHost": u.Host, "requestMethod": "GET", "statusCode": 404}, safeParams)
 				assert.Equal(t, map[string]interface{}{"requestPath": "/path", "responseBody": "404 page not found\n"}, unsafeParams)
 			},
 		},
@@ -107,7 +107,7 @@ func TestErrorDecoderMiddlewares(t *testing.T) {
 				verify404(t, err)
 				assert.EqualError(t, err, "httpclient request failed: 404 Not Found")
 				safeParams, unsafeParams := werror.ParamsFromError(err)
-				assert.Equal(t, map[string]interface{}{"requestHost": u.Host, "requestMethod": "Get", "statusCode": 404}, safeParams)
+				assert.Equal(t, map[string]interface{}{"requestHost": u.Host, "requestMethod": "GET", "statusCode": 404}, safeParams)
 				assert.Equal(t, map[string]interface{}{"requestPath": "/path"}, unsafeParams)
 			},
 		},
@@ -122,7 +122,7 @@ func TestErrorDecoderMiddlewares(t *testing.T) {
 				verify404(t, err)
 				assert.EqualError(t, err, "httpclient request failed: 404 Not Found")
 				safeParams, unsafeParams := werror.ParamsFromError(err)
-				assert.Equal(t, map[string]interface{}{"requestHost": u.Host, "requestMethod": "Get", "statusCode": 404}, safeParams)
+				assert.Equal(t, map[string]interface{}{"requestHost": u.Host, "requestMethod": "GET", "statusCode": 404}, safeParams)
 				assert.Equal(t, map[string]interface{}{"requestPath": "/path", "responseBody": "route does not exist"}, unsafeParams)
 			},
 		},
@@ -137,7 +137,7 @@ func TestErrorDecoderMiddlewares(t *testing.T) {
 				verify404(t, err)
 				assert.EqualError(t, err, "httpclient request failed: failed to unmarshal body using registered type: errors: error name does not match regexp `^(([A-Z][a-z0-9]+)+):(([A-Z][a-z0-9]+)+)$`")
 				safeParams, unsafeParams := werror.ParamsFromError(err)
-				assert.Equal(t, map[string]interface{}{"requestHost": u.Host, "requestMethod": "Get", "statusCode": 404, "type": "errors.genericError"}, safeParams)
+				assert.Equal(t, map[string]interface{}{"requestHost": u.Host, "requestMethod": "GET", "statusCode": 404, "type": "errors.genericError"}, safeParams)
 				assert.Equal(t, map[string]interface{}{"requestPath": "/path", "responseBody": `{"foo":"bar"}`}, unsafeParams)
 			},
 		},
@@ -159,7 +159,7 @@ func TestErrorDecoderMiddlewares(t *testing.T) {
 				assert.Equal(t, errors.DefaultNotFound.Name(), conjureErr.Name())
 
 				safeParams, unsafeParams := werror.ParamsFromError(err)
-				assert.Equal(t, map[string]interface{}{"requestHost": u.Host, "requestMethod": "Get", "errorInstanceId": id, "errorName": "Default:NotFound", "statusCode": 404}, safeParams)
+				assert.Equal(t, map[string]interface{}{"requestHost": u.Host, "requestMethod": "GET", "errorInstanceId": id, "errorName": "Default:NotFound", "statusCode": 404}, safeParams)
 				assert.Equal(t, map[string]interface{}{"requestPath": "/path", "stringParam": "stringValue"}, unsafeParams)
 			},
 		},
@@ -170,7 +170,7 @@ func TestErrorDecoderMiddlewares(t *testing.T) {
 			verify: func(t *testing.T, u *url.URL, err error) {
 				assert.EqualError(t, err, "httpclient request failed: foo error")
 				safeParams, unsafeParams := werror.ParamsFromError(err)
-				assert.Equal(t, map[string]interface{}{"requestHost": u.Host, "requestMethod": "Get"}, safeParams)
+				assert.Equal(t, map[string]interface{}{"requestHost": u.Host, "requestMethod": "GET"}, safeParams)
 				assert.Equal(t, map[string]interface{}{"requestPath": "/path"}, unsafeParams)
 			},
 		},
@@ -181,7 +181,7 @@ func TestErrorDecoderMiddlewares(t *testing.T) {
 			verify: func(t *testing.T, u *url.URL, err error) {
 				assert.EqualError(t, err, "httpclient request failed: error from body: 404 page not found\n")
 				safeParams, unsafeParams := werror.ParamsFromError(err)
-				assert.Equal(t, map[string]interface{}{"requestHost": u.Host, "requestMethod": "Get"}, safeParams)
+				assert.Equal(t, map[string]interface{}{"requestHost": u.Host, "requestMethod": "GET"}, safeParams)
 				assert.Equal(t, map[string]interface{}{"requestPath": "/path"}, unsafeParams)
 			},
 		},

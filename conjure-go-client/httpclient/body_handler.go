@@ -29,9 +29,6 @@ type bodyMiddleware struct {
 	requestInput   interface{}
 	requestEncoder codecs.Encoder
 
-	// if rawOutput is true, the body of the response is not drained before returning -- it is the responsibility of the
-	// caller to read from and properly close the response body.
-	rawOutput       bool
 	responseOutput  interface{}
 	responseDecoder codecs.Decoder
 
@@ -62,13 +59,12 @@ func (b *bodyMiddleware) setRequestBody(req *http.Request) (func(), error) {
 		return cleanup, nil
 	}
 
-	// Special case: if the requestInput is an io.ReadCloser and the requestEncoder is nil,
-	// use the provided input directly as the request body.
-	if bodyReadCloser, ok := b.requestInput.(io.ReadCloser); ok && b.requestEncoder == nil {
-		req.Body = bodyReadCloser
-		// Use the same heuristic as http.NewRequest to generate the "GetBody" function.
-		if newReq, err := http.NewRequest("", "", bodyReadCloser); err == nil {
-			req.GetBody = newReq.GetBody
+	// Special case: if the requestInput is a getBody function and the requestEncoder is nil,
+	// use the provided function to  directly as the request body.
+	if getBody, ok := b.requestInput.(func() io.ReadCloser); ok && b.requestEncoder == nil {
+		req.Body = getBody()
+		req.GetBody = func() (io.ReadCloser, error) {
+			return getBody(), nil
 		}
 		return cleanup, nil
 	}
@@ -101,11 +97,6 @@ func (b *bodyMiddleware) setRequestBody(req *http.Request) (func(), error) {
 }
 
 func (b *bodyMiddleware) readResponse(resp *http.Response, respErr error) error {
-	// If rawOutput is true, return response directly without draining or closing body
-	if b.rawOutput && respErr == nil {
-		return nil
-	}
-
 	if respErr != nil {
 		return respErr
 	}

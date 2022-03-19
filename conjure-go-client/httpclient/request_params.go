@@ -125,7 +125,7 @@ func WithRawRequestBodyProvider(getBody func() io.ReadCloser) RequestParam {
 		if getBody == nil {
 			return werror.Error("getBody can not be nil")
 		}
-		b.bodyMiddleware.requestInput = getBody()
+		b.bodyMiddleware.requestInput = getBody
 		b.bodyMiddleware.requestEncoder = nil
 		b.headers.Set("Content-Type", "application/octet-stream")
 		return nil
@@ -169,7 +169,7 @@ func WithResponseBody(output interface{}, decoder codecs.Decoder) RequestParam {
 // In the case of an empty response, output will be unmodified (left nil).
 func WithRawResponseBody() RequestParam {
 	return requestParamFunc(func(b *requestBuilder) error {
-		b.bodyMiddleware.rawOutput = true
+		b.rawOutput = true
 		b.bodyMiddleware.responseOutput = nil
 		b.bodyMiddleware.responseDecoder = nil
 		b.headers.Set("Accept", "application/octet-stream")
