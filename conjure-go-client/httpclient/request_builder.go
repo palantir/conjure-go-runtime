@@ -30,6 +30,7 @@ type requestBuilder struct {
 	query          url.Values
 	bodyMiddleware *bodyMiddleware
 	bufferPool     bytesbuffers.Pool
+	rawOutput      bool
 
 	errorDecoderMiddleware Middleware
 	configureCtx           []func(context.Context) context.Context

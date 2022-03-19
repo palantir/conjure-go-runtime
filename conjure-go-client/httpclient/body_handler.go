@@ -29,9 +29,6 @@ type bodyMiddleware struct {
 	requestInput   interface{}
 	requestEncoder codecs.Encoder
 
-	// if rawOutput is true, the body of the response is not drained before returning -- it is the responsibility of the
-	// caller to read from and properly close the response body.
-	rawOutput       bool
 	responseOutput  interface{}
 	responseDecoder codecs.Decoder
 
@@ -100,11 +97,6 @@ func (b *bodyMiddleware) setRequestBody(req *http.Request) (func(), error) {
 }
 
 func (b *bodyMiddleware) readResponse(resp *http.Response, respErr error) error {
-	// If rawOutput is true, return response directly without draining or closing body
-	if b.rawOutput && respErr == nil {
-		return nil
-	}
-
 	if respErr != nil {
 		return respErr
 	}

@@ -169,7 +169,7 @@ func WithResponseBody(output interface{}, decoder codecs.Decoder) RequestParam {
 // In the case of an empty response, output will be unmodified (left nil).
 func WithRawResponseBody() RequestParam {
 	return requestParamFunc(func(b *requestBuilder) error {
-		b.bodyMiddleware.rawOutput = true
+		b.rawOutput = true
 		b.bodyMiddleware.responseOutput = nil
 		b.bodyMiddleware.responseDecoder = nil
 		b.headers.Set("Accept", "application/octet-stream")
