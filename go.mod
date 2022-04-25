@@ -13,7 +13,7 @@ require (
 	github.com/palantir/pkg/tlsconfig v1.1.0
 	github.com/palantir/pkg/uuid v1.0.1
 	github.com/palantir/witchcraft-go-error v1.7.0
-	github.com/palantir/witchcraft-go-logging v1.20.0
+	github.com/palantir/witchcraft-go-logging v1.21.0
 	github.com/palantir/witchcraft-go-params v1.4.0
 	github.com/palantir/witchcraft-go-tracing v1.6.0
 	github.com/stretchr/testify v1.7.1
