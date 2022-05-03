@@ -56,13 +56,13 @@ func ParseBearerTokenHeader(req *http.Request) (string, error) {
 // SecretStringEqual will compare two strings and return true if they are
 // equal. The time taken for the comparison does not depend on the string
 // contents.
-func SecretStringEqual(expected, actual string) bool {
+func SecretStringEqual(a, b string) bool {
 	// compute hash of inputs since ConstantTimeCompare will leak if the
 	// length of the expected and actual secrets do not match.
-	expectedHash := sha256.Sum256([]byte(expected))
-	actualHash := sha256.Sum256([]byte(actual))
+	aHash := sha256.Sum256([]byte(a))
+	bHash := sha256.Sum256([]byte(b))
 
-	if subtle.ConstantTimeCompare(expectedHash[:], actualHash[:]) == 1 {
+	if subtle.ConstantTimeCompare(aHash[:], bHash[:]) == 1 {
 		return true
 	}
 	return false
