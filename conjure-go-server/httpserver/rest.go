@@ -62,9 +62,5 @@ func SecretStringEqual(a, b string) bool {
 	aHash := sha256.Sum256([]byte(a))
 	bHash := sha256.Sum256([]byte(b))
 
-	if subtle.ConstantTimeCompare(aHash[:], bHash[:]) == 1 {
-		return true
-	}
-	return false
-
+	return subtle.ConstantTimeCompare(aHash[:], bHash[:]) == 1
 }
