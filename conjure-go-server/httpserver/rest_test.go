@@ -47,8 +47,8 @@ func TestValidateSecretStringEqual(t *testing.T) {
 		},
 		{
 			name:        "string does not match other string",
-			a:           "invalid",
-			b:           "secret",
+			a:           "secret",
+			b:           "invalid",
 			expectMatch: false,
 		},
 	} {
