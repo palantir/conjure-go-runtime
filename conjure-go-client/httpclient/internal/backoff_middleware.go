@@ -15,25 +15,24 @@
 package internal
 
 import (
-	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient"
 	"net/http"
 )
 
-type backoffMiddleware struct {
+type BackoffMiddleware struct {
 	backoff  func()
 	seenUris map[string]interface{}
 }
 
 // NewBackoffMiddleware returns a Middleware that implements backoff for URIs that have already been seen.
 // The backoff function is expected to block for the desired backoff duration.
-func NewBackoffMiddleware(backoff func()) httpclient.Middleware {
-	return &backoffMiddleware{
+func NewBackoffMiddleware(backoff func()) *BackoffMiddleware {
+	return &BackoffMiddleware{
 		backoff:  backoff,
 		seenUris: make(map[string]interface{}),
 	}
 }
 
-func (b *backoffMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+func (b *BackoffMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (*http.Response, error) {
 	baseURI := getBaseURI(req.URL)
 	_, seen := b.seenUris[baseURI]
 	if seen {

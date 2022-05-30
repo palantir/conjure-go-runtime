@@ -165,6 +165,7 @@ func (c *clientImpl) doOnce(
 
 	// must precede the error decoders to read the status code of the raw response.
 	transport = wrapTransport(transport, c.uriScorer.CurrentURIScoringMiddleware())
+	transport = wrapTransport(transport, c.getBackoffMiddleware(ctx))
 	// request decoder must precede the client decoder
 	// must precede the body middleware to read the response body
 	transport = wrapTransport(transport, b.errorDecoderMiddleware, c.errorDecoderMiddleware)
@@ -189,6 +190,13 @@ func (c *clientImpl) doOnce(
 	}
 
 	return resp, unwrapURLError(ctx, respErr)
+}
+
+func (c *clientImpl) getBackoffMiddleware(ctx context.Context) Middleware {
+	retrier := c.backoffOptions.CurrentRetryParams().Start(ctx)
+	return internal.NewBackoffMiddleware(func() {
+		retrier.Next()
+	})
 }
 
 // unwrapURLError converts a *url.Error to a werror. We need this because all
