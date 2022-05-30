@@ -18,8 +18,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-
-	"github.com/palantir/pkg/retry"
 )
 
 const (
@@ -32,7 +30,6 @@ const (
 // first call to GetNextURI
 type RequestRetrier struct {
 	currentURI    string
-	retrier       retry.Retrier
 	uris          []string
 	offset        int
 	relocatedURIs map[string]struct{}
@@ -43,11 +40,10 @@ type RequestRetrier struct {
 
 // NewRequestRetrier creates a new request retrier.
 // Regardless of maxAttempts, mesh URIs will never be retried.
-func NewRequestRetrier(uris []string, retrier retry.Retrier, maxAttempts int) *RequestRetrier {
+func NewRequestRetrier(uris []string, maxAttempts int) *RequestRetrier {
 	offset := 0
 	return &RequestRetrier{
 		currentURI:    uris[offset],
-		retrier:       retrier,
 		uris:          uris,
 		offset:        offset,
 		relocatedURIs: map[string]struct{}{},
@@ -72,10 +68,7 @@ func (r *RequestRetrier) GetNextURI(resp *http.Response, respErr error) (uri str
 		r.attemptCount++
 	}()
 	if r.attemptCount == 0 {
-		// First attempt is always successful. Trigger the first retry so later calls have backoff
-		// but ignore the returned value to ensure that the client can instrument the request even
-		// if the context is done.
-		r.retrier.Next()
+		// First attempt is always successful
 		return r.removeMeshSchemeIfPresent(r.currentURI), false
 	}
 	if !r.attemptsRemaining() {
@@ -104,7 +97,7 @@ func (r *RequestRetrier) getRetryFn(resp *http.Response, respErr error) func() b
 		// 429: throttle
 		// Immediately backoff and select the next URI.
 		// TODO(whickman): use the retry-after header once #81 is resolved
-		return r.nextURIAndBackoff
+		return r.nextURIOrBackoff
 	} else if isUnavailableResponse(resp, errCode) {
 		// 503: go to next node
 		return r.nextURIOrBackoff
@@ -136,26 +129,14 @@ func (r *RequestRetrier) setURIAndResetBackoff(otherURI *url.URL) {
 	}
 	nextURI := otherURI.String()
 	r.relocatedURIs[otherURI.String()] = struct{}{}
-	r.retrier.Reset()
 	r.currentURI = nextURI
 }
 
 // If lastURI was already marked failed, we perform a backoff as determined by the retrier before returning the next URI and its offset.
 // Otherwise, we add lastURI to failedURIs and return the next URI and its offset immediately.
 func (r *RequestRetrier) nextURIOrBackoff() bool {
-	_, performBackoff := r.failedURIs[r.currentURI]
 	r.markFailedAndMoveToNextURI()
-	// If the URI has failed before, perform a backoff
-	if performBackoff || len(r.uris) == 1 {
-		return r.retrier.Next()
-	}
 	return true
-}
-
-// Marks the current URI as failed, gets the next URI, and performs a backoff as determined by the retrier.
-func (r *RequestRetrier) nextURIAndBackoff() bool {
-	r.markFailedAndMoveToNextURI()
-	return r.retrier.Next()
 }
 
 func (r *RequestRetrier) markFailedAndMoveToNextURI() {

@@ -97,7 +97,7 @@ func (c *clientImpl) Do(ctx context.Context, params ...RequestParam) (*http.Resp
 	var err error
 	var resp *http.Response
 
-	retrier := internal.NewRequestRetrier(uris, c.backoffOptions.CurrentRetryParams().Start(ctx), attempts)
+	retrier := internal.NewRequestRetrier(uris, attempts)
 	for {
 		uri, isRelocated := retrier.GetNextURI(resp, err)
 		if uri == "" {
