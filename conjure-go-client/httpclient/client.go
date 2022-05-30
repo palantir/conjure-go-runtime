@@ -194,6 +194,8 @@ func (c *clientImpl) doOnce(
 
 func (c *clientImpl) getBackoffMiddleware(ctx context.Context) Middleware {
 	retrier := c.backoffOptions.CurrentRetryParams().Start(ctx)
+	// Call Next once so that the first repeated URI has backoff
+	retrier.Next()
 	return internal.NewBackoffMiddleware(func() {
 		retrier.Next()
 	})
