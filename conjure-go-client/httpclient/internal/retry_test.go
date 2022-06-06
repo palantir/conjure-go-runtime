@@ -103,11 +103,6 @@ func TestRetryResponseParsers(t *testing.T) {
 			IsThrottle: true,
 		},
 		{
-			Name:     "503 unavailable in error",
-			Response: nil,
-			RespErr:  werror.Error("error", werror.SafeParam("statusCode", 503)),
-		},
-		{
 			Name: "429 throttle with Retry-After seconds",
 			Response: &http.Response{
 				Header:     http.Header{"Retry-After": []string{"60"}},
