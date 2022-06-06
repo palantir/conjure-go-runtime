@@ -98,6 +98,7 @@ func (c *clientImpl) Do(ctx context.Context, params ...RequestParam) (*http.Resp
 	var resp *http.Response
 
 	retrier := internal.NewRequestRetrier(uris, attempts)
+	backoffMiddleware := c.getBackoffMiddleware(ctx)
 	for {
 		uri, isRelocated := retrier.GetNextURI(resp, err)
 		if uri == "" {
@@ -106,7 +107,7 @@ func (c *clientImpl) Do(ctx context.Context, params ...RequestParam) (*http.Resp
 		if err != nil {
 			svc1log.FromContext(ctx).Debug("Retrying request", svc1log.Stacktrace(err))
 		}
-		resp, err = c.doOnce(ctx, uri, isRelocated, params...)
+		resp, err = c.doOnce(ctx, uri, isRelocated, backoffMiddleware, params...)
 	}
 	if err != nil {
 		return nil, err
@@ -118,6 +119,7 @@ func (c *clientImpl) doOnce(
 	ctx context.Context,
 	baseURI string,
 	useBaseURIOnly bool,
+	backoffMiddleware Middleware,
 	params ...RequestParam,
 ) (*http.Response, error) {
 
@@ -165,7 +167,7 @@ func (c *clientImpl) doOnce(
 
 	// must precede the error decoders to read the status code of the raw response.
 	transport = wrapTransport(transport, c.uriScorer.CurrentURIScoringMiddleware())
-	transport = wrapTransport(transport, c.getBackoffMiddleware(ctx))
+	transport = wrapTransport(transport, backoffMiddleware)
 	// request decoder must precede the client decoder
 	// must precede the body middleware to read the response body
 	transport = wrapTransport(transport, b.errorDecoderMiddleware, c.errorDecoderMiddleware)
@@ -194,7 +196,7 @@ func (c *clientImpl) doOnce(
 
 func (c *clientImpl) getBackoffMiddleware(ctx context.Context) Middleware {
 	retrier := c.backoffOptions.CurrentRetryParams().Start(ctx)
-	// Call Next once so that the first repeated URI has backoff
+	// call Next once so that the first repeated URI has backoff
 	retrier.Next()
 	return internal.NewBackoffMiddleware(func() {
 		retrier.Next()

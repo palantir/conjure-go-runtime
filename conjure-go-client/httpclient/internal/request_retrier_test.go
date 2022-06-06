@@ -106,19 +106,11 @@ func TestRequestRetrier_GetNextURI(t *testing.T) {
 		shouldRetrySameURI bool
 	}{
 		{
-			name:               "returns error if response exists and doesn't appear retryable",
+			name:               "returns a URI if response is empty",
 			resp:               &http.Response{},
 			respErr:            nil,
 			uris:               []string{"a", "b"},
-			shouldRetry:        false,
-			shouldRetrySameURI: false,
-		},
-		{
-			name:               "returns error if error code not retryable",
-			resp:               &http.Response{},
-			respErr:            nil,
-			uris:               []string{"a", "b"},
-			shouldRetry:        false,
+			shouldRetry:        true,
 			shouldRetrySameURI: false,
 		},
 		{

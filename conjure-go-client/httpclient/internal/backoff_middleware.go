@@ -20,7 +20,7 @@ import (
 
 type BackoffMiddleware struct {
 	backoff  func()
-	seenUris map[string]interface{}
+	seenUris map[string]struct{}
 }
 
 // NewBackoffMiddleware returns a Middleware that implements backoff for URIs that have already been seen.
@@ -28,7 +28,7 @@ type BackoffMiddleware struct {
 func NewBackoffMiddleware(backoff func()) *BackoffMiddleware {
 	return &BackoffMiddleware{
 		backoff:  backoff,
-		seenUris: make(map[string]interface{}),
+		seenUris: make(map[string]struct{}),
 	}
 }
 
@@ -38,5 +38,6 @@ func (b *BackoffMiddleware) RoundTrip(req *http.Request, next http.RoundTripper)
 	if seen {
 		b.backoff()
 	}
+	b.seenUris[baseURI] = struct{}{}
 	return next.RoundTrip(req)
 }

@@ -32,7 +32,6 @@ func TestRetryResponseParsers(t *testing.T) {
 		RetryOtherURL    string
 		IsThrottle       bool
 		ThrottleDuration time.Duration
-		IsUnavailable    bool
 	}{
 		{
 			Name: "200 OK",
@@ -104,10 +103,9 @@ func TestRetryResponseParsers(t *testing.T) {
 			IsThrottle: true,
 		},
 		{
-			Name:          "503 unavailable in error",
-			Response:      nil,
-			RespErr:       werror.Error("error", werror.SafeParam("statusCode", 503)),
-			IsUnavailable: true,
+			Name:     "503 unavailable in error",
+			Response: nil,
+			RespErr:  werror.Error("error", werror.SafeParam("statusCode", 503)),
 		},
 		{
 			Name: "429 throttle with Retry-After seconds",
@@ -141,9 +139,6 @@ func TestRetryResponseParsers(t *testing.T) {
 			if assert.Equal(t, test.IsThrottle, isThrottle) {
 				assert.WithinDuration(t, time.Now().Add(test.ThrottleDuration), time.Now().Add(throttleDur), time.Second)
 			}
-
-			isUnavailable := isUnavailableResponse(test.Response, errCode)
-			assert.Equal(t, test.IsUnavailable, isUnavailable)
 		})
 	}
 }

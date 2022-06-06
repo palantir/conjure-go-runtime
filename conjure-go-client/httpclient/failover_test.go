@@ -55,7 +55,7 @@ func TestFailover429(t *testing.T) {
 	n := 0
 	handler := http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
 		n++
-		if n == 3 {
+		if n > 3 {
 			rw.WriteHeader(http.StatusOK)
 			_, err := rw.Write([]byte("body"))
 			require.NoError(t, err)
@@ -83,7 +83,7 @@ func TestFailover429(t *testing.T) {
 		t.Error("Timer was not complete, back-off did not appear to occur")
 	}
 	assert.Nil(t, err)
-	assert.Equal(t, 3, n)
+	assert.Equal(t, 4, n)
 }
 
 func TestFailover200(t *testing.T) {
