@@ -50,13 +50,16 @@ func (c codecSNAPPY) ContentType() string {
 }
 
 func (c codecSNAPPY) Encode(w io.Writer, v interface{}) (err error) {
-	snappyWriter := snappy.NewWriter(w)
+	snappyWriter := snappy.NewBufferedWriter(w)
 	defer func() {
 		if closeErr := snappyWriter.Close(); err == nil && closeErr != nil {
 			err = closeErr
 		}
 	}()
-	return c.contentCodec.Encode(snappyWriter, v)
+	if err := c.contentCodec.Encode(snappyWriter, v); err != nil {
+		return err
+	}
+	return snappyWriter.Flush()
 }
 
 func (c codecSNAPPY) Marshal(v interface{}) ([]byte, error) {
@@ -65,5 +68,5 @@ func (c codecSNAPPY) Marshal(v interface{}) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return bytes.TrimSuffix(buffer.Bytes(), []byte{'\n'}), nil
+	return buffer.Bytes(), nil
 }
