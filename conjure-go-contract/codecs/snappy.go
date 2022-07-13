@@ -26,10 +26,8 @@ import (
 var _ Codec = codecSNAPPY{}
 
 // Snappy wraps an existing Codec and uses snappy with no-framing for
-// compression and decompression using github.com/golang/snappy. The framing
-// format is optional for Snappy compressors and decompressor; it is not part
-// of the Snappy core specification.
-// Ref https://github.com/google/snappy/blob/main/framing_format.txt
+// compression and decompression using github.com/golang/snappy.
+// Ref: https://github.com/google/snappy/blob/main/format_description.txt
 func Snappy(codec Codec) Codec {
 	return &codecSNAPPY{contentCodec: codec}
 }
