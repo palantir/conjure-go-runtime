@@ -199,7 +199,7 @@ func WithSnappyCompressedRequest(input interface{}, codec codecs.Codec) RequestP
 	return requestParamFunc(func(b *requestBuilder) error {
 		b.headers.Set("Content-Encoding", "snappy")
 		b.bodyMiddleware.requestInput = input
-		b.bodyMiddleware.requestEncoder = codecs.SNAPPY(codec)
+		b.bodyMiddleware.requestEncoder = codecs.Snappy(codec)
 		b.headers.Set("Content-Type", codec.ContentType())
 		return nil
 	})

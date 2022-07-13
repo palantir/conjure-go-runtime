@@ -17,14 +17,20 @@ package codecs
 import (
 	"bytes"
 	"io"
+	"io/ioutil"
 
 	"github.com/golang/snappy"
+	werror "github.com/palantir/witchcraft-go-error"
 )
 
 var _ Codec = codecSNAPPY{}
 
-// SNAPPY wraps an existing Codec and uses snappy for compression and decompression.
-func SNAPPY(codec Codec) Codec {
+// Snappy wraps an existing Codec and uses snappy with no-framing for
+// compression and decompression. The framing format is optional for Snappy
+// compressors and decompressor; it is not part of the Snappy core
+// specification.
+// Ref https://github.com/google/snappy/blob/main/framing_format.txt
+func Snappy(codec Codec) Codec {
 	return &codecSNAPPY{contentCodec: codec}
 }
 
@@ -37,8 +43,16 @@ func (c codecSNAPPY) Accept() string {
 }
 
 func (c codecSNAPPY) Decode(r io.Reader, v interface{}) error {
-	snappyReader := snappy.NewReader(r)
-	return c.contentCodec.Decode(snappyReader, v)
+	data, err := ioutil.ReadAll(r)
+	if err != nil {
+		return err
+	}
+
+	decoded, err := snappy.Decode(nil, data)
+	if err != nil {
+		return err
+	}
+	return c.contentCodec.Decode(bytes.NewReader(decoded), v)
 }
 
 func (c codecSNAPPY) Unmarshal(data []byte, v interface{}) error {
@@ -49,24 +63,25 @@ func (c codecSNAPPY) ContentType() string {
 	return c.contentCodec.ContentType()
 }
 
-func (c codecSNAPPY) Encode(w io.Writer, v interface{}) (err error) {
-	snappyWriter := snappy.NewBufferedWriter(w)
-	defer func() {
-		if closeErr := snappyWriter.Close(); err == nil && closeErr != nil {
-			err = closeErr
-		}
-	}()
-	if err := c.contentCodec.Encode(snappyWriter, v); err != nil {
+func (c codecSNAPPY) Encode(w io.Writer, v interface{}) error {
+	data, err := c.contentCodec.Marshal(v)
+	if err != nil {
 		return err
 	}
-	return snappyWriter.Flush()
+
+	encoded, err := c.Marshal(data)
+	if err != nil {
+		return err
+	}
+	_, err = w.Write(encoded)
+	return err
 }
 
 func (c codecSNAPPY) Marshal(v interface{}) ([]byte, error) {
-	var buffer bytes.Buffer
-	err := c.Encode(&buffer, v)
-	if err != nil {
-		return nil, err
+	data, ok := v.([]byte)
+	if !ok {
+		return nil, werror.Error("failed to compress data from type which is not of type []byte")
 	}
-	return buffer.Bytes(), nil
+	d := snappy.Encode(nil, data)
+	return d, nil
 }
