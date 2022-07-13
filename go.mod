@@ -3,6 +3,7 @@ module github.com/palantir/conjure-go-runtime/v2
 go 1.18
 
 require (
+	github.com/golang/snappy v0.0.0-20180518054509-2e65f85255db
 	github.com/palantir/go-metrics v1.1.1
 	github.com/palantir/pkg/bytesbuffers v1.0.1
 	github.com/palantir/pkg/httpserver v1.0.1
