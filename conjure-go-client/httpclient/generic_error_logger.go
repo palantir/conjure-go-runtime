@@ -11,23 +11,25 @@ type ErrorRegistry interface {
 	LogError(ctx context.Context, err error)
 }
 
-func GetGenericErrorLoggerWithType[E error](genericErrorLogger GenericErrorLogger[E]) GenericErrorLoggerWithType[E] {
+func GetGenericErrorLoggerWithType[E error](genericErrorLogger GenericErrorLogger[E]) GenericErrorLoggerWithType {
 	var e E
-	return GenericErrorLoggerWithType[E]{
+	return GenericErrorLoggerWithType{
 		Type:        reflect.TypeOf(e),
-		ErrorLogger: genericErrorLogger,
+		ErrorLogger: asAnyErrorLogger(genericErrorLogger),
 	}
 }
 
-type GenericErrorLoggerWithType[E error] struct {
+type GenericErrorLoggerWithType struct {
 	Type        reflect.Type
-	ErrorLogger GenericErrorLogger[E]
+	ErrorLogger AnyErrorLogger
 }
+
+var _ = NewErrorRegistry(GetGenericErrorLoggerWithType[x509.UnknownAuthorityError](UnknownAuthorityErrorLogger()))
 
 func NewErrorRegistry(loggersWithTypes ...GenericErrorLoggerWithType) ErrorRegistry {
 	registry := make(errorRegistry)
 	for _, loggerWithType := range loggersWithTypes {
-		registry[loggerWithType.Type] = asAnyErrorLogger(loggerWithType.ErrorLogger)
+		registry[loggerWithType.Type] = loggerWithType.ErrorLogger
 	}
 	return registry
 }
@@ -35,7 +37,8 @@ func NewErrorRegistry(loggersWithTypes ...GenericErrorLoggerWithType) ErrorRegis
 type errorRegistry map[reflect.Type]AnyErrorLogger
 
 func (e errorRegistry) LogError(ctx context.Context, err error) {
-	handler, ok := e[reflect.TypeOf(err)]
+	typeOf := reflect.TypeOf(err)
+	handler, ok := e[typeOf]
 	if ok {
 		handler.LogError(ctx, err)
 	}
@@ -43,7 +46,7 @@ func (e errorRegistry) LogError(ctx context.Context, err error) {
 
 func asAnyErrorLogger[E error](errorLogger GenericErrorLogger[E]) AnyErrorLogger {
 	return genericErrorLoggerFn[error](func(ctx context.Context, err error) {
-		errorLogger(ctx, err.(E))
+		errorLogger.LogError(ctx, err.(E))
 	})
 }
 
