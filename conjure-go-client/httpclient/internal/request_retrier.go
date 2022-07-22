@@ -23,7 +23,7 @@ import (
 
 // RequestRetrier manages the lifecylce of a single request. It will tracks the
 // backoff timing between subsequent requests. The retrier should only suggest
-// a URI if the previous request returned a redirect or is a mesh URI. In the
+// a retry if the previous request returned a redirect or is a mesh URI. In the
 // case of a mesh URI being detected, the request retrier will only attempt the
 // request once.
 type RequestRetrier struct {
@@ -55,9 +55,9 @@ func (r *RequestRetrier) attemptsRemaining() bool {
 }
 
 // Next returns true if a subsequent request attempt should be attempted. If
-// uses the previous requestURI to determine if the request should be
-// attempted. If the returned value is true, the retrier will have waited the
-// desired backoff interval before returning.
+// uses the previous request/response (if provided) to determine if the request
+// should be attempted. If the returned value is true, the retrier will have
+// waited the desired backoff interval before returning.
 func (r *RequestRetrier) Next(prevReq *http.Request, prevResp *http.Response) bool {
 	defer func() { r.attemptCount++ }()
 	// check for bad requests
@@ -79,6 +79,8 @@ func (r *RequestRetrier) Next(prevReq *http.Request, prevResp *http.Response) bo
 			return false
 		}
 	}
+
+	// TODO (dtrejo): Handle redirects?
 
 	if !r.attemptsRemaining() {
 		// Retries exhausted
