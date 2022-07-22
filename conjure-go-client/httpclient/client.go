@@ -55,7 +55,8 @@ type clientImpl struct {
 	errorDecoderMiddleware Middleware
 	recoveryMiddleware     Middleware
 
-	uriScorer      internal.RefreshableURIScoringMiddleware
+	uriPool        internal.URIPool
+	uriSelector    internal.URISelector
 	maxAttempts    refreshable.IntPtr // 0 means no limit. If nil, uses 2*len(uris).
 	backoffOptions refreshingclient.RefreshableRetryParams
 	bufferPool     bytesbuffers.Pool
@@ -82,12 +83,8 @@ func (c *clientImpl) Delete(ctx context.Context, params ...RequestParam) (*http.
 }
 
 func (c *clientImpl) Do(ctx context.Context, params ...RequestParam) (*http.Response, error) {
-	uris := c.uriScorer.CurrentURIScoringMiddleware().GetURIsInOrderOfIncreasingScore()
-	if len(uris) == 0 {
-		return nil, werror.ErrorWithContextParams(ctx, "no base URIs are configured")
-	}
-
-	attempts := 2 * len(uris)
+	uriCount := c.uriPool.NumURIs()
+	attempts := 2 * uriCount
 	if c.maxAttempts != nil {
 		if confMaxAttempts := c.maxAttempts.CurrentIntPtr(); confMaxAttempts != nil {
 			attempts = *confMaxAttempts
@@ -95,18 +92,14 @@ func (c *clientImpl) Do(ctx context.Context, params ...RequestParam) (*http.Resp
 	}
 
 	var err error
+	retrier := internal.NewRequestRetrier(c.backoffOptions.CurrentRetryParams().Start(ctx), attempts)
+	var req *http.Request
 	var resp *http.Response
-
-	retrier := internal.NewRequestRetrier(uris, c.backoffOptions.CurrentRetryParams().Start(ctx), attempts)
-	for {
-		uri, isRelocated := retrier.GetNextURI(resp, err)
-		if uri == "" {
-			break
-		}
+	for retrier.Next(req, resp) {
+		req, resp, err = c.doOnce(ctx, params...)
 		if err != nil {
 			svc1log.FromContext(ctx).Debug("Retrying request", svc1log.Stacktrace(err))
 		}
-		resp, err = c.doOnce(ctx, uri, isRelocated, params...)
 	}
 	if err != nil {
 		return nil, err
@@ -114,13 +107,7 @@ func (c *clientImpl) Do(ctx context.Context, params ...RequestParam) (*http.Resp
 	return resp, nil
 }
 
-func (c *clientImpl) doOnce(
-	ctx context.Context,
-	baseURI string,
-	useBaseURIOnly bool,
-	params ...RequestParam,
-) (*http.Response, error) {
-
+func (c *clientImpl) doOnce(ctx context.Context, params ...RequestParam) (*http.Request, *http.Response, error) {
 	// 1. create the request
 	b := &requestBuilder{
 		headers:        make(http.Header),
@@ -133,11 +120,8 @@ func (c *clientImpl) doOnce(
 			continue
 		}
 		if err := p.apply(b); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-	}
-	if useBaseURIOnly {
-		b.path = ""
 	}
 
 	for _, c := range b.configureCtx {
@@ -145,14 +129,17 @@ func (c *clientImpl) doOnce(
 	}
 
 	if b.method == "" {
-		return nil, werror.ErrorWithContextParams(ctx, "httpclient: use WithRequestMethod() to specify HTTP method")
+		return nil, nil, werror.ErrorWithContextParams(ctx, "httpclient: use WithRequestMethod() to specify HTTP method")
 	}
-	reqURI := joinURIAndPath(baseURI, b.path)
-	req, err := http.NewRequest(b.method, reqURI, nil)
+	url, err := c.uriSelector.Select(c.uriPool.URIs(), b.headers)
 	if err != nil {
-		return nil, werror.WrapWithContextParams(ctx, err, "failed to build new HTTP request")
+		return nil, nil, werror.WrapWithContextParams(ctx, err, "failed to select uri")
 	}
-	req = req.WithContext(ctx)
+	req, err := http.NewRequestWithContext(ctx, b.method, url, nil)
+	if err != nil {
+		return nil, nil, werror.WrapWithContextParams(ctx, err, "failed to build request")
+	}
+
 	req.Header = b.headers
 	if q := b.query.Encode(); q != "" {
 		req.URL.RawQuery = q
@@ -164,7 +151,8 @@ func (c *clientImpl) doOnce(
 	transport := clientCopy.Transport // start with the client's transport configured with default middleware
 
 	// must precede the error decoders to read the status code of the raw response.
-	transport = wrapTransport(transport, c.uriScorer.CurrentURIScoringMiddleware())
+	transport = wrapTransport(transport, c.uriSelector)
+	transport = wrapTransport(transport, c.uriPool)
 	// request decoder must precede the client decoder
 	// must precede the body middleware to read the response body
 	transport = wrapTransport(transport, b.errorDecoderMiddleware, c.errorDecoderMiddleware)
@@ -188,7 +176,7 @@ func (c *clientImpl) doOnce(
 		internal.DrainBody(resp)
 	}
 
-	return resp, unwrapURLError(ctx, respErr)
+	return req, resp, unwrapURLError(ctx, respErr)
 }
 
 // unwrapURLError converts a *url.Error to a werror. We need this because all

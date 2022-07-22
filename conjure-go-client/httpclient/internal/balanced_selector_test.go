@@ -17,20 +17,21 @@ package internal
 import (
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 )
 
-func TestBalancedScorerRandomizesWithNoneInflight(t *testing.T) {
+func TestBalancedSelectorRandomizesWithNoneInflight(t *testing.T) {
 	uris := []string{"uri1", "uri2", "uri3", "uri4", "uri5"}
-	scorer := NewBalancedURIScoringMiddleware(uris, func() int64 { return 0 })
-	scoredUris := scorer.GetURIsInOrderOfIncreasingScore()
-	assert.ElementsMatch(t, scoredUris, uris)
-	assert.NotEqual(t, scoredUris, uris)
+	scorer := NewBalancedURISelector(func() int64 { return 0 })
+	scoredURI, err := scorer.Select(uris, nil)
+	assert.NoError(t, err)
+	assert.Contains(t, uris, scoredURI)
 }
 
-func TestBalancedScoring(t *testing.T) {
+func TestBalancedSelect(t *testing.T) {
 	server200 := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
 		rw.WriteHeader(http.StatusOK)
 	}))
@@ -44,15 +45,23 @@ func TestBalancedScoring(t *testing.T) {
 	}))
 	defer server503.Close()
 	uris := []string{server503.URL, server429.URL, server200.URL}
-	scorer := NewBalancedURIScoringMiddleware(uris, func() int64 { return 0 })
+	scorer := NewBalancedURISelector(func() int64 { return 0 })
 	for _, server := range []*httptest.Server{server200, server429, server503} {
 		for i := 0; i < 10; i++ {
-			req, err := http.NewRequest("GET", server.URL, nil)
+			uri, err := scorer.Select(uris, nil)
 			assert.NoError(t, err)
+			req, err := http.NewRequest("GET", uri, nil)
+			assert.NoError(t, err)
+
+			url, err := url.Parse(uri)
+			assert.NoError(t, err)
+			req.URL = url
 			_, err = scorer.RoundTrip(req, server.Client().Transport)
 			assert.NoError(t, err)
 		}
 	}
-	scoredUris := scorer.GetURIsInOrderOfIncreasingScore()
-	assert.Equal(t, []string{server200.URL, server429.URL, server503.URL}, scoredUris)
+
+	uri, err := scorer.Select(uris, nil)
+	assert.NoError(t, err)
+	assert.Equal(t, server200.URL, uri)
 }

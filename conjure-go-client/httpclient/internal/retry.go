@@ -90,6 +90,8 @@ func parseLocationURL(locationStr string) *url.URL {
 	return locationURL
 }
 
+// isThrottleResponse returns true if the response a throttle response type. It
+// also returns a duration after which the failed URI can be retried
 func isThrottleResponse(resp *http.Response, errCode int) (bool, time.Duration) {
 	if errCode == StatusCodeThrottle {
 		return true, 0

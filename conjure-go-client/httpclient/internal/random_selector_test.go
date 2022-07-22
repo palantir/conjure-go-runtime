@@ -21,11 +21,14 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestRandomScorerGetURIsRandomizes(t *testing.T) {
+func TestRandomSelectorGetRandomURIs(t *testing.T) {
 	uris := []string{"uri1", "uri2", "uri3", "uri4", "uri5"}
-	scorer := NewRandomURIScoringMiddleware(uris, func() int64 { return time.Now().UnixNano() })
-	scoredUris1 := scorer.GetURIsInOrderOfIncreasingScore()
-	scoredUris2 := scorer.GetURIsInOrderOfIncreasingScore()
-	assert.ElementsMatch(t, scoredUris1, scoredUris2)
-	assert.NotEqual(t, scoredUris1, scoredUris2)
+	scorer := NewRandomURISelector(func() int64 { return time.Now().UnixNano() })
+	uri, err := scorer.Select(uris, nil)
+	assert.NoError(t, err)
+	assert.Contains(t, uris, uri)
+
+	uri2, err := scorer.Select(uris, nil)
+	assert.NoError(t, err)
+	assert.Contains(t, uris, uri2)
 }
