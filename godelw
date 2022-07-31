@@ -3,11 +3,11 @@
 set -euo pipefail
 
 # Version and checksums for godel. Values are populated by the godel "dist" task.
-VERSION=2.46.0
-DARWIN_AMD64_CHECKSUM=58d3b421e7f0f16156b40b2dc2afc74512a97c040e03ff0a4fe261ea6ee33bce
-DARWIN_ARM64_CHECKSUM=285acb2605fafd0ae39d83c0f65c4f97c4d2ee29406fde9b953664db108de5e1
-LINUX_AMD64_CHECKSUM=29f4c1f9ecfa0d0a8fc9d6ea1c784dceca845eb897cdc2c81fc4cde0f7fcb798
-LINUX_ARM64_CHECKSUM=412fc540c1da725f401acb0fea3254ad0b879bd47e9cec0df3c8a14e187ecfd7
+VERSION=2.59.0
+DARWIN_AMD64_CHECKSUM=820eadb9dfa06c85fbc9c8cfc3bf66808c6d8788f802c05b85117194646530d4
+DARWIN_ARM64_CHECKSUM=d0c6b63867d174623d8fec64102bc5d8bf3930ea74560fa3d5068dc031e45655
+LINUX_AMD64_CHECKSUM=b383cac25cd7995a63c05a320333105447f035372772ec076184e0382238c898
+LINUX_ARM64_CHECKSUM=d0b353a9a6ead13d09feb47a3556492c74b3066bdadb7f8e3389d2804ef238ad
 
 # Downloads file at URL to destination path using wget or curl. Prints an error and exits if wget or curl is not present.
 function download {
@@ -91,7 +91,7 @@ function compute_sha256 {
     local file=$1
     if command -v openssl >/dev/null 2>&1; then
         # print SHA-256 hash using openssl
-        openssl dgst -sha256 "$file" | sed -E 's/SHA256\(.*\)= //'
+        openssl dgst -sha256 "$file" | sed -E 's/SHA(2-)?256\(.*\)= //'
     elif command -v shasum >/dev/null 2>&1; then
         # Darwin systems ship with "shasum" utility
         shasum -a 256 "$file" | sed -E 's/[[:space:]]+.+//'
