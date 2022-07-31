@@ -1,0 +1,8 @@
+type: fix
+fix:
+  description: |-
+    BalancedURIScoringMiddleware uses global math/rand for concurrent safety.
+
+    Individual instances of `math/rand.(*Rand)` are not safe for concurrent use, but the global random source is.
+  links:
+  - https://github.com/palantir/conjure-go-runtime/pull/219

@@ -21,6 +21,7 @@ import (
 	"testing"
 
 	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient"
+	"github.com/palantir/pkg/refreshable"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -54,4 +55,11 @@ func TestWrapTransport(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, resp)
 	assert.Equal(t, expected, tracker)
+}
+
+func TestNewHTTPClientWithoutURIs(t *testing.T) {
+	cfg := httpclient.ClientConfig{ServiceName: "test-service"}
+	c, err := httpclient.NewHTTPClientFromRefreshableConfig(context.Background(), httpclient.NewRefreshingClientConfig(refreshable.NewDefaultRefreshable(cfg)))
+	require.NoError(t, err)
+	require.NotNil(t, c.CurrentHTTPClient())
 }

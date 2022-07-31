@@ -1,0 +1,5 @@
+type: fix
+fix:
+  description: Don't propagate unhelpful json error in restErrorDecoder
+  links:
+  - https://github.com/palantir/conjure-go-runtime/pull/283

@@ -1,0 +1,6 @@
+type: improvement
+improvement:
+  description: |
+    Retry requests with 4xx responses only in the case of 429.
+  links:
+    - https://github.com/palantir/conjure-go-runtime/pull/223
