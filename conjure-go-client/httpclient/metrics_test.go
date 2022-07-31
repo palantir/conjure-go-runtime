@@ -120,7 +120,7 @@ func TestRoundTripperWithMetrics(t *testing.T) {
 
 		// create client
 		client, err := httpclient.NewClient(
-			httpclient.WithHTTPTimeout(time.Second),
+			httpclient.WithHTTPTimeout(5*time.Second),
 			httpclient.WithServiceName("my-service"),
 			httpclient.WithMetrics(tagsProviders...),
 			httpclient.WithBaseURLs([]string{serverURLstr}))
@@ -138,10 +138,10 @@ func TestRoundTripperWithMetrics(t *testing.T) {
 		// assert metrics exist in registry
 		var metricName string
 		var metricTags metrics.Tags
-		rootRegistry.Each(metrics.MetricVisitor(func(name string, tags metrics.Tags, _ metrics.MetricVal) {
+		rootRegistry.Each(func(name string, tags metrics.Tags, _ metrics.MetricVal) {
 			metricName = name
 			metricTags = tags
-		}))
+		})
 		assert.Equal(t, "client.response", metricName)
 		expectedTags := append(
 			customTags,
@@ -417,6 +417,7 @@ func TestMetricsMiddleware_InFlightRequests(t *testing.T) {
 	dialerMetric := rootRegistry.Counter(httpclient.MetricConnInflight, serviceNameTag)
 	assert.Equal(t, int64(1), dialerMetric.Count(), "%s should be nonzero immediately after a request", httpclient.MetricConnInflight)
 	srv.Close()
-	// N.B. (bmoylan): if this test ends up being flaky, it's because the client-side closes fast but asynchronously and we could add a small time.Sleep.
+	// Sleep to handle client-side closing fast but asynchronously
+	time.Sleep(time.Second)
 	assert.Equal(t, int64(0), dialerMetric.Count(), "%s should be zero after the server closes the connection", httpclient.MetricConnInflight)
 }

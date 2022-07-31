@@ -1,0 +1,7 @@
+type: improvement
+improvement:
+  description: |
+    Add WithBalancedURIScoring option to HTTP client params to enable the balanced URI scoring feature. HTTP client
+    defaults to randomizing priority of URIs for each request when this option is not used.
+  links:
+  - https://github.com/palantir/conjure-go-runtime/pull/210

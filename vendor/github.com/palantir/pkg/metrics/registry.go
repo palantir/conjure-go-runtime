@@ -5,7 +5,6 @@
 package metrics
 
 import (
-	"bytes"
 	"context"
 	"sort"
 	"strings"
@@ -332,7 +331,7 @@ func (r *rootRegistry) Timer(name string, tags ...Tag) metrics.Timer {
 }
 
 func (r *rootRegistry) Histogram(name string, tags ...Tag) metrics.Histogram {
-	return r.HistogramWithSample(name, DefaultSample(), tags...)
+	return getOrRegisterHistogram(r.registerMetric(name, tags), r.registry)
 }
 
 func (r *rootRegistry) HistogramWithSample(name string, sample metrics.Sample, tags ...Tag) metrics.Histogram {
@@ -345,6 +344,15 @@ func (r *rootRegistry) Registry() metrics.Registry {
 
 func DefaultSample() metrics.Sample {
 	return metrics.NewExpDecaySample(defaultReservoirSize, defaultAlpha)
+}
+
+// Uses lazy instantiation to avoid allocating a Sample when getting an existing Histogram.
+// Similar to metrics.GetOrRegisterHistogram
+func getOrRegisterHistogram(name string, r metrics.Registry) metrics.Histogram {
+	if nil == r {
+		r = metrics.DefaultRegistry
+	}
+	return r.GetOrRegister(name, func() metrics.Histogram { return metrics.NewHistogram(DefaultSample()) }).(metrics.Histogram)
 }
 
 func (r *rootRegistry) registerMetric(name string, tags Tags) string {
@@ -380,14 +388,14 @@ func toMetricTagsID(name string, tags Tags) metricTagsID {
 	for _, t := range tags {
 		bufSize += len(t.keyValue) + 1 // 1 for separator
 	}
-
-	buf := bytes.NewBuffer(make([]byte, 0, bufSize))
+	buf := strings.Builder{}
+	buf.Grow(bufSize)
 	_, _ = buf.WriteString(name)
 	for _, tag := range tags {
 		_, _ = buf.WriteRune('|')
 		_, _ = buf.WriteString(tag.keyValue)
 	}
-	return metricTagsID(buf.Bytes())
+	return metricTagsID(buf.String())
 }
 
 // newSortedTags copies the tag slice before sorting so that in-place mutation does not affect the input slice.

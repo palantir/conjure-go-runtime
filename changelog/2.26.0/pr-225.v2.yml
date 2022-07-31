@@ -1,0 +1,5 @@
+type: fix
+fix:
+  description: Default proxy-from-environment to true in refreshable config
+  links:
+  - https://github.com/palantir/conjure-go-runtime/pull/225

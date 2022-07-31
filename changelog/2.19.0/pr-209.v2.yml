@@ -1,0 +1,5 @@
+type: improvement
+improvement:
+  description: Expose httpclient.MergeClientConfigs()
+  links:
+  - https://github.com/palantir/conjure-go-runtime/pull/209

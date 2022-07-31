@@ -28,6 +28,7 @@ import (
 
 func TestErrorCode_String(t *testing.T) {
 	for ec, expectedString := range map[errors.ErrorCode]string{
+		errors.Unauthorized:          "UNAUTHORIZED",
 		errors.PermissionDenied:      "PERMISSION_DENIED",
 		errors.InvalidArgument:       "INVALID_ARGUMENT",
 		errors.NotFound:              "NOT_FOUND",
@@ -46,6 +47,7 @@ func TestErrorCode_String(t *testing.T) {
 }
 
 var validErrorCodes = []errors.ErrorCode{
+	errors.Unauthorized,
 	errors.PermissionDenied,
 	errors.InvalidArgument,
 	errors.NotFound,

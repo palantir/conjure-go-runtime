@@ -38,19 +38,21 @@ type ErrorDecoder interface {
 // errorDecoderMiddleware intercepts a round trip's response.
 // If the supplied ErrorDecoder handles the response, we return the error as decoded by ErrorDecoder.
 // In this case, the *http.Response returned will be nil.
-func errorDecoderMiddleware(errorDecoder ErrorDecoder) Middleware {
-	return MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
-		resp, err := next.RoundTrip(req)
-		// if error is already set, it is more severe than our HTTP error. Just return it.
-		if resp == nil || err != nil {
-			return nil, err
-		}
-		if errorDecoder.Handles(resp) {
-			defer internal.DrainBody(resp)
-			return nil, errorDecoder.DecodeError(resp)
-		}
-		return resp, nil
-	})
+type errorDecoderMiddleware struct {
+	errorDecoder ErrorDecoder
+}
+
+func (e errorDecoderMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+	resp, err := next.RoundTrip(req)
+	// if error is already set, it is more severe than our HTTP error. Just return it.
+	if resp == nil || err != nil {
+		return nil, err
+	}
+	if e.errorDecoder.Handles(resp) {
+		defer internal.DrainBody(resp)
+		return nil, e.errorDecoder.DecodeError(resp)
+	}
+	return resp, nil
 }
 
 // restErrorDecoder is our default error decoder.
@@ -97,9 +99,9 @@ func (d restErrorDecoder) DecodeError(resp *http.Response) error {
 	if isJSON := strings.Contains(resp.Header.Get("Content-Type"), codecs.JSON.ContentType()); !isJSON {
 		return werror.Error(resp.Status, wSafeParams, wUnsafeParams, werror.UnsafeParam("responseBody", string(body)))
 	}
-	conjureErr, err := errors.UnmarshalError(body)
-	if err != nil {
-		return werror.Wrap(err, "", wSafeParams, wUnsafeParams, werror.UnsafeParam("responseBody", string(body)))
+	conjureErr, jsonErr := errors.UnmarshalError(body)
+	if jsonErr != nil {
+		return werror.Error(resp.Status, wSafeParams, wUnsafeParams, werror.UnsafeParam("responseBody", string(body)))
 	}
 	return werror.Wrap(conjureErr, "", wSafeParams, wUnsafeParams)
 }
