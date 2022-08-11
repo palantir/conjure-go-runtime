@@ -52,7 +52,7 @@ type balancedSelector struct {
 	uriInfos  map[string]uriInfo
 }
 
-// Select implements estransport.Selector interface
+// Select implements Selector interface
 func (s *balancedSelector) Select(uris []string, _ http.Header) (string, error) {
 	s.Lock()
 	defer s.Unlock()

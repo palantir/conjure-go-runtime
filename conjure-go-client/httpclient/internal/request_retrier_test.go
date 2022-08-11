@@ -31,7 +31,7 @@ func TestRequestRetrier_HandleMeshURI(t *testing.T) {
 	r := NewRequestRetrier(retry.Start(context.Background()), 1)
 	req, err := http.NewRequest("GET", "mesh-http://example.com", nil)
 	require.NoError(t, err)
-	shouldRetry := r.Next(req, &http.Response{})
+	shouldRetry, _ := r.Next(&http.Response{Request: req}, nil)
 	require.False(t, shouldRetry)
 }
 
@@ -39,19 +39,19 @@ func TestRequestRetrier_AttemptCount(t *testing.T) {
 	maxAttempts := 3
 	r := NewRequestRetrier(retry.Start(context.Background()), maxAttempts)
 	// first request is not a retry, so it doesn't increment the overall count
-	shouldRetry := r.Next(nil, nil)
+	shouldRetry, _ := r.Next(nil, nil)
 	require.True(t, shouldRetry)
 
 	for i := 0; i < maxAttempts-1; i++ {
 		req, err := http.NewRequest("GET", "http://example.com", nil)
 		require.NoError(t, err)
-		shouldRetry = r.Next(req, &http.Response{})
+		shouldRetry, _ = r.Next(&http.Response{Request: req}, err)
 		require.True(t, shouldRetry)
 	}
 
 	req, err := http.NewRequest("GET", "http://example.com", nil)
 	require.NoError(t, err)
-	shouldRetry = r.Next(req, &http.Response{})
+	shouldRetry, _ = r.Next(&http.Response{Request: req}, err)
 	require.False(t, shouldRetry)
 }
 
@@ -62,28 +62,28 @@ func TestRequestRetrier_UnlimitedAttempts(t *testing.T) {
 	r := NewRequestRetrier(retry.Start(ctx, retry.WithInitialBackoff(50*time.Millisecond), retry.WithRandomizationFactor(0)), 0)
 
 	startTime := time.Now()
-	shouldRetry := r.Next(nil, nil)
+	shouldRetry, _ := r.Next(nil, nil)
 	require.True(t, shouldRetry)
 	require.Lessf(t, time.Since(startTime), 49*time.Millisecond, "first GetNextURI should not have any delay")
 
 	req, err := http.NewRequest("GET", "http://example.com", nil)
 	require.NoError(t, err)
-	resp := &http.Response{}
+	resp := &http.Response{Request: req}
 
 	startTime = time.Now()
-	shouldRetry = r.Next(req, resp)
+	shouldRetry, _ = r.Next(resp, err)
 	require.True(t, shouldRetry)
 	assert.Greater(t, time.Since(startTime), 50*time.Millisecond, "delay should be at least 1 backoff")
 	assert.Less(t, time.Since(startTime), 100*time.Millisecond, "delay should be less than 2 backoffs")
 
 	startTime = time.Now()
-	shouldRetry = r.Next(req, resp)
+	shouldRetry, _ = r.Next(resp, err)
 	require.True(t, shouldRetry)
 	assert.Greater(t, time.Since(startTime), 100*time.Millisecond, "delay should be at least 2 backoffs")
 	assert.Less(t, time.Since(startTime), 200*time.Millisecond, "delay should be less than 3 backoffs")
 
 	// Success should stop retries
-	shouldRetry = r.Next(req, &http.Response{StatusCode: http.StatusOK})
+	shouldRetry, _ = r.Next(&http.Response{Request: req, StatusCode: http.StatusOK}, nil)
 	require.False(t, shouldRetry)
 }
 
@@ -94,7 +94,7 @@ func TestRequestRetrier_ContextCanceled(t *testing.T) {
 	r := NewRequestRetrier(retry.Start(ctx), 0)
 
 	// No retries if context is candled
-	shouldRetry := r.Next(nil, nil)
+	shouldRetry, _ := r.Next(nil, nil)
 	require.False(t, shouldRetry)
 }
 

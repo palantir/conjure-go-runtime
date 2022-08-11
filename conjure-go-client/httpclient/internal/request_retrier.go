@@ -16,6 +16,7 @@ package internal
 
 import (
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/palantir/pkg/retry"
@@ -54,41 +55,64 @@ func (r *RequestRetrier) attemptsRemaining() bool {
 	return r.attemptCount < r.maxAttempts
 }
 
-// Next returns true if a subsequent request attempt should be attempted. If
-// uses the previous request/response (if provided) to determine if the request
-// should be attempted. If the returned value is true, the retrier will have
-// waited the desired backoff interval before returning.
-func (r *RequestRetrier) Next(prevReq *http.Request, prevResp *http.Response) bool {
+// Next returns true if a subsequent request attempt should be attempted. If uses the previous response/resp err (if
+// provided) to determine if the request should be attempted. If the returned value is true, the retrier will have
+// waited the desired backoff interval before returning when applicable. If the previous response was a redirect, the
+// retrier will also return the URL that should be used for the new next request.
+func (r *RequestRetrier) Next(resp *http.Response, err error) (bool, *url.URL) {
 	defer func() { r.attemptCount++ }()
-	// check for bad requests
-	if prevResp != nil {
-		prevCode := prevResp.StatusCode
-		// succesfull response
-		if prevCode == http.StatusOK {
-			return false
-		}
-		if prevCode >= http.StatusBadRequest && prevCode < http.StatusInternalServerError {
-			return false
-		}
+	if r.isSuccess(resp) {
+		return false, nil
+	}
+
+	if r.isNonRetryableClientError(resp, err) {
+		return false, nil
+	}
+
+	// handle redirects
+	if tryOther, otherURI := isRetryOtherResponse(resp, err); tryOther && otherURI != nil {
+		return true, otherURI
 	}
 
 	// don't retry mesh uris
-	if prevReq != nil {
-		prevURI := getBaseURI(prevReq.URL)
-		if r.isMeshURI(prevURI) {
-			return false
-		}
+	if r.isMeshURI(resp) {
+		return false, nil
 	}
-
-	// TODO (dtrejo): Handle redirects?
 
 	if !r.attemptsRemaining() {
 		// Retries exhausted
-		return false
+		return false, nil
 	}
-	return r.retrier.Next()
+	return r.retrier.Next(), nil
 }
 
-func (*RequestRetrier) isMeshURI(uri string) bool {
-	return strings.HasPrefix(uri, meshSchemePrefix)
+func (*RequestRetrier) isSuccess(resp *http.Response) bool {
+	if resp == nil {
+		return false
+	}
+	// Check for a 2XX status
+	return resp.StatusCode >= 200 && resp.StatusCode < 300
+}
+
+func (*RequestRetrier) isNonRetryableClientError(resp *http.Response, err error) bool {
+	errCode, _ := StatusCodeFromError(err)
+	// Check for a 4XX status parsed from the error or in the response
+	if isClientError(errCode) && errCode != StatusCodeThrottle {
+		return false
+	}
+	if resp != nil && isClientError(resp.StatusCode) {
+		// 429 is retryable
+		if isThrottle, _ := isThrottleResponse(resp, errCode); !isThrottle {
+			return false
+		}
+		return true
+	}
+	return false
+}
+
+func (*RequestRetrier) isMeshURI(resp *http.Response) bool {
+	if resp == nil {
+		return false
+	}
+	return strings.HasPrefix(getBaseURI(resp.Request.URL), meshSchemePrefix)
 }

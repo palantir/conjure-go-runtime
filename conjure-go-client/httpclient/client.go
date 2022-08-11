@@ -83,31 +83,34 @@ func (c *clientImpl) Delete(ctx context.Context, params ...RequestParam) (*http.
 }
 
 func (c *clientImpl) Do(ctx context.Context, params ...RequestParam) (*http.Response, error) {
-	uriCount := c.uriPool.NumURIs()
-	attempts := 2 * uriCount
+	attempts := 2 * c.uriPool.NumURIs()
 	if c.maxAttempts != nil {
 		if confMaxAttempts := c.maxAttempts.CurrentIntPtr(); confMaxAttempts != nil {
 			attempts = *confMaxAttempts
 		}
 	}
 
+	var resp *http.Response
 	var err error
 	retrier := internal.NewRequestRetrier(c.backoffOptions.CurrentRetryParams().Start(ctx), attempts)
-	var req *http.Request
-	var resp *http.Response
-	for retrier.Next(req, resp) {
-		req, resp, err = c.doOnce(ctx, params...)
+	for {
+		shouldRetry, retryURL := retrier.Next(resp, err)
+		if !shouldRetry {
+			break
+		}
+		resp, err = c.doOnce(ctx, retryURL, params...)
 		if err != nil {
 			svc1log.FromContext(ctx).Debug("Retrying request", svc1log.Stacktrace(err))
 		}
 	}
-	if err != nil {
-		return nil, err
-	}
-	return resp, nil
+	return resp, err
 }
 
-func (c *clientImpl) doOnce(ctx context.Context, params ...RequestParam) (*http.Request, *http.Response, error) {
+func (c *clientImpl) doOnce(
+	ctx context.Context,
+	retryURL *url.URL,
+	params ...RequestParam,
+) (*http.Response, error) {
 	// 1. create the request
 	b := &requestBuilder{
 		headers:        make(http.Header),
@@ -120,7 +123,7 @@ func (c *clientImpl) doOnce(ctx context.Context, params ...RequestParam) (*http.
 			continue
 		}
 		if err := p.apply(b); err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 	}
 
@@ -129,15 +132,23 @@ func (c *clientImpl) doOnce(ctx context.Context, params ...RequestParam) (*http.
 	}
 
 	if b.method == "" {
-		return nil, nil, werror.ErrorWithContextParams(ctx, "httpclient: use WithRequestMethod() to specify HTTP method")
+		return nil, werror.ErrorWithContextParams(ctx, "httpclient: use WithRequestMethod() to specify HTTP method")
 	}
-	url, err := c.uriSelector.Select(c.uriPool.URIs(), b.headers)
-	if err != nil {
-		return nil, nil, werror.WrapWithContextParams(ctx, err, "failed to select uri")
+	var uri string
+	if retryURL == nil {
+		var err error
+		uri, err = c.uriSelector.Select(c.uriPool.URIs(), b.headers)
+		if err != nil {
+			return nil, werror.WrapWithContextParams(ctx, err, "failed to select uri")
+		}
+		uri = joinURIAndPath(uri, b.path)
+	} else {
+		b.path = ""
+		uri = retryURL.String()
 	}
-	req, err := http.NewRequestWithContext(ctx, b.method, url, nil)
+	req, err := http.NewRequestWithContext(ctx, b.method, uri, nil)
 	if err != nil {
-		return nil, nil, werror.WrapWithContextParams(ctx, err, "failed to build request")
+		return nil, werror.WrapWithContextParams(ctx, err, "failed to build request")
 	}
 
 	req.Header = b.headers
@@ -176,7 +187,7 @@ func (c *clientImpl) doOnce(ctx context.Context, params ...RequestParam) (*http.
 		internal.DrainBody(resp)
 	}
 
-	return req, resp, unwrapURLError(ctx, respErr)
+	return resp, unwrapURLError(ctx, respErr)
 }
 
 // unwrapURLError converts a *url.Error to a werror. We need this because all

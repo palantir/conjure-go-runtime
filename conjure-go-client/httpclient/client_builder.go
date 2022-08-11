@@ -155,7 +155,7 @@ func newClient(ctx context.Context, b *clientBuilder, params ...ClientParam) (Cl
 	}
 	uriPool := internal.NewStatefulURIPool(b.URIs)
 	if b.URISelector == nil {
-		b.URISelector = internal.NewRandomURISelector(func() int64 { return time.Now().UnixNano() })
+		b.URISelector = internal.NewRoundRobinURISelector(func() int64 { return time.Now().UnixNano() })
 	}
 	return &clientImpl{
 		client:                 httpClient,
