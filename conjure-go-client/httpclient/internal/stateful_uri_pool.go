@@ -78,16 +78,18 @@ func (s *statefulURIPool) URIs() []string {
 // RoundTrip implements URIPool
 func (s *statefulURIPool) RoundTrip(req *http.Request, next http.RoundTripper) (*http.Response, error) {
 	resp, err := next.RoundTrip(req)
-	errCode, _ := StatusCodeFromError(err)
+	errCode, ok := StatusCodeFromError(err)
+	// fall back to the status code from the response
+	if !ok && resp != nil {
+		errCode = resp.StatusCode
+	}
 
 	if isThrottle, ressurectAfter := isThrottleResponse(resp, errCode); isThrottle {
 		s.markBackoffURI(req, ressurectAfter)
-	}
-	if isUnavailableResponse(resp, errCode) {
+	} else if isUnavailableResponse(resp, errCode) {
 		// 503: go to next node
 		s.markBackoffURI(req, defaultResurrectDuration)
-	}
-	if resp == nil {
+	} else if resp == nil {
 		// if we get a nil response, we can assume there is a problem with host and can move on to the next.
 		s.markBackoffURI(req, defaultResurrectDuration)
 	}

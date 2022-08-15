@@ -103,14 +103,15 @@ func (s *balancedSelector) RoundTrip(req *http.Request, next http.RoundTripper) 
 	defer s.updateInflight(baseURI, -1)
 
 	resp, err := next.RoundTrip(req)
-	if resp == nil || err != nil {
-		s.updateRecentFailures(baseURI, failureWeight)
-		return nil, err
+	errCode, ok := StatusCodeFromError(err)
+	// fall back to the status code from the response
+	if !ok && resp != nil {
+		errCode = resp.StatusCode
 	}
-	statusCode := resp.StatusCode
-	if isGlobalQosStatus(statusCode) || isServerErrorRange(statusCode) {
+
+	if isGlobalQosStatus(errCode) || isServerErrorRange(errCode) {
 		s.updateRecentFailures(baseURI, failureWeight)
-	} else if isClientError(statusCode) {
+	} else if isClientError(errCode) {
 		s.updateRecentFailures(baseURI, failureWeight/100)
 	}
 	return resp, err

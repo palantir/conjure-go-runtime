@@ -84,6 +84,14 @@ func (r *RequestRetrier) Next(resp *http.Response, err error) (bool, *url.URL) {
 		return false, nil
 	}
 
+	// should always try first request
+	if r.attemptCount == 0 {
+		// Trigger the first retry so later calls have backoff but ignore the returned value to ensure that the
+		// client can instrument the request even if the context is done.
+		r.retrier.Next()
+		return true, nil
+	}
+
 	// retry with backoff
 	return r.retrier.Next(), nil
 }
