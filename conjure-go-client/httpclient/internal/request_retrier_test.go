@@ -133,22 +133,6 @@ func TestRequestRetrier_Next(t *testing.T) {
 		shouldRetryReset   bool
 	}{
 		{
-			name:               "retries and backs off if response and error are nil",
-			resp:               nil,
-			respErr:            nil,
-			shouldRetry:        true,
-			shouldRetryBackoff: true,
-			shouldRetryReset:   false,
-		},
-		{
-			name:               "no retries if response exists and doesn't appear retryable",
-			resp:               &http.Response{},
-			respErr:            nil,
-			shouldRetry:        false,
-			shouldRetryBackoff: false,
-			shouldRetryReset:   false,
-		},
-		{
 			name:               "retries if unavailable",
 			resp:               nil,
 			respErr:            werror.ErrorWithContextParams(context.Background(), "503", werror.SafeParam("statusCode", 503)),

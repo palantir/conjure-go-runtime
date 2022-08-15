@@ -113,7 +113,7 @@ func (s *balancedSelector) RoundTrip(req *http.Request, next http.RoundTripper) 
 	} else if isClientError(statusCode) {
 		s.updateRecentFailures(baseURI, failureWeight/100)
 	}
-	return resp, nil
+	return resp, err
 }
 
 func (s *balancedSelector) updateInflight(uri string, score int32) {

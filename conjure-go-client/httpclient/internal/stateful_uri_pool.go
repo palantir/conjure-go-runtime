@@ -77,8 +77,8 @@ func (s *statefulURIPool) URIs() []string {
 
 // RoundTrip implements URIPool
 func (s *statefulURIPool) RoundTrip(req *http.Request, next http.RoundTripper) (*http.Response, error) {
-	resp, respErr := next.RoundTrip(req)
-	errCode, _ := StatusCodeFromError(respErr)
+	resp, err := next.RoundTrip(req)
+	errCode, _ := StatusCodeFromError(err)
 
 	if isThrottle, ressurectAfter := isThrottleResponse(resp, errCode); isThrottle {
 		s.markBackoffURI(req, ressurectAfter)
@@ -92,7 +92,7 @@ func (s *statefulURIPool) RoundTrip(req *http.Request, next http.RoundTripper) (
 		s.markBackoffURI(req, defaultResurrectDuration)
 	}
 
-	return resp, respErr
+	return resp, err
 }
 
 func (s *statefulURIPool) updateURIs(uris []string) {

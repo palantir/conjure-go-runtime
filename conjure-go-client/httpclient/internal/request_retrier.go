@@ -79,16 +79,12 @@ func (r *RequestRetrier) Next(resp *http.Response, err error) (bool, *url.URL) {
 		return false, nil
 	}
 
-	// don't retry if we have a response, this isn't our first attempt and the err returned from the previous
-	// request is nil
-	if r.attemptCount != 0 && resp != nil && err == nil {
-		return false, nil
-	}
-
 	if !r.attemptsRemaining() {
 		// Retries exhausted
 		return false, nil
 	}
+
+	// retry with backoff
 	return r.retrier.Next(), nil
 }
 
@@ -109,9 +105,8 @@ func (*RequestRetrier) isNonRetryableClientError(resp *http.Response, err error)
 	if resp != nil && isClientError(resp.StatusCode) {
 		// 429 is retryable
 		if isThrottle, _ := isThrottleResponse(resp, errCode); !isThrottle {
-			return false
+			return true
 		}
-		return true
 	}
 	return false
 }
