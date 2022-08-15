@@ -102,10 +102,11 @@ func (c *clientImpl) Do(ctx context.Context, params ...RequestParam) (*http.Resp
 			break
 		}
 		resp, err = c.doOnce(ctx, retryURL, params...)
-		if err == nil {
-			break
+		if err != nil {
+			svc1log.FromContext(ctx).Debug("Retrying request", svc1log.Stacktrace(err))
+			continue
 		}
-		svc1log.FromContext(ctx).Debug("Retrying request", svc1log.Stacktrace(err))
+		break
 	}
 	if err != nil {
 		return nil, err
@@ -168,8 +169,6 @@ func (c *clientImpl) doOnce(
 	transport := clientCopy.Transport // start with the client's transport configured with default middleware
 
 	// must precede the error decoders to read the status code of the raw response.
-	transport = wrapTransport(transport, c.uriSelector)
-	transport = wrapTransport(transport, c.uriPool)
 	// request decoder must precede the client decoder
 	// must precede the body middleware to read the response body
 	transport = wrapTransport(transport, b.errorDecoderMiddleware, c.errorDecoderMiddleware)

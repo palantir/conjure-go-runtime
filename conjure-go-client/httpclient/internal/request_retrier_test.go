@@ -30,28 +30,25 @@ import (
 
 func TestRequestRetrier_HandleMeshURI(t *testing.T) {
 	r := NewRequestRetrier(retry.Start(context.Background()), 1)
-	shouldRetry, _ := r.Next(&http.Response{}, nil)
+	shouldRetry, _ := r.Next(nil, nil)
 	require.True(t, shouldRetry)
 
 	respErr := werror.ErrorWithContextParams(context.Background(), "error", werror.SafeParam("statusCode", 429))
-	shouldRetry, _ = r.Next(&http.Response{}, respErr)
+	shouldRetry, _ = r.Next(nil, respErr)
 	require.False(t, shouldRetry)
 }
 
 func TestRequestRetrier_AttemptCount(t *testing.T) {
 	maxAttempts := 3
-	err := errors.New("error")
-
 	r := NewRequestRetrier(retry.Start(context.Background()), maxAttempts)
-	// first request is not a retry, so it doesn't increment the overall count
-	shouldRetry, _ := r.Next(nil, err)
+	// first request is not a retry
+	shouldRetry, _ := r.Next(nil, nil)
 	require.True(t, shouldRetry)
 
 	for i := 0; i < maxAttempts-1; i++ {
-		shouldRetry, _ = r.Next(nil, err)
+		shouldRetry, _ = r.Next(nil, errors.New("error"))
 		require.True(t, shouldRetry)
 	}
-
 	shouldRetry, _ = r.Next(nil, nil)
 	require.False(t, shouldRetry)
 }
@@ -60,7 +57,6 @@ func TestRequestRetrier_UnlimitedAttempts(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
-	err := errors.New("error")
 	r := NewRequestRetrier(retry.Start(ctx, retry.WithInitialBackoff(50*time.Millisecond), retry.WithRandomizationFactor(0)), 0)
 
 	startTime := time.Now()
@@ -69,13 +65,13 @@ func TestRequestRetrier_UnlimitedAttempts(t *testing.T) {
 	require.Lessf(t, time.Since(startTime), 49*time.Millisecond, "first GetNextURI should not have any delay")
 
 	startTime = time.Now()
-	shouldRetry, _ = r.Next(nil, err)
+	shouldRetry, _ = r.Next(nil, errors.New("error"))
 	require.True(t, shouldRetry)
 	assert.Greater(t, time.Since(startTime), 50*time.Millisecond, "delay should be at least 1 backoff")
 	assert.Less(t, time.Since(startTime), 100*time.Millisecond, "delay should be less than 2 backoffs")
 
 	startTime = time.Now()
-	shouldRetry, _ = r.Next(nil, err)
+	shouldRetry, _ = r.Next(nil, errors.New("error"))
 	require.True(t, shouldRetry)
 	assert.Greater(t, time.Since(startTime), 100*time.Millisecond, "delay should be at least 2 backoffs")
 	assert.Less(t, time.Since(startTime), 200*time.Millisecond, "delay should be less than 3 backoffs")
@@ -120,13 +116,14 @@ func TestRequestRetrier_UsesLocationHeader(t *testing.T) {
 func TestRequestRetrier_UsesLocationFromErr(t *testing.T) {
 	r := NewRequestRetrier(retry.Start(context.Background()), 2)
 
-	shouldRetry, uri := r.Next(nil, nil)
-	require.True(t, shouldRetry)
-	require.Nil(t, uri)
-
 	respErr := werror.ErrorWithContextParams(context.Background(), "307",
 		werror.SafeParam("statusCode", 307),
 		werror.SafeParam("location", "http://example-2.com"))
+
+	// first request is not a retry
+	shouldRetry, uri := r.Next(nil, nil)
+	require.True(t, shouldRetry)
+	require.Nil(t, uri)
 
 	shouldRetry, uri = r.Next(nil, respErr)
 	require.NotNil(t, uri)

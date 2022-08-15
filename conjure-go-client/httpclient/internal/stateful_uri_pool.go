@@ -116,9 +116,9 @@ func (s *statefulURIPool) updateURIs(uris []string) {
 }
 
 func (s *statefulURIPool) markBackoffURI(req *http.Request, dur time.Duration) {
-	// if duration is equal to zero, then don't mark the URI as failed
+	// if duration is equal to zero, then use defaultResurrectDuration
 	if dur == 0 {
-		return
+		dur = defaultResurrectDuration
 	}
 	reqURL := getBaseURI(req.URL)
 	s.Lock()
