@@ -70,12 +70,18 @@ func (r *RequestRetrier) Next(resp *http.Response, err error) (bool, *url.URL) {
 	}
 
 	// handle redirects
-	if tryOther, otherURI := isRetryOtherResponse(resp, err); tryOther && otherURI != nil {
+	if tryOther, otherURI := isRetryOtherResponse(resp, err); tryOther {
 		return true, otherURI
 	}
 
 	// don't retry mesh uris
 	if r.isMeshURI(resp) {
+		return false, nil
+	}
+
+	// don't retry if we have a response, this isn't our first attempt and the err returned from the previous
+	// request is nil
+	if r.attemptCount != 0 && resp != nil && err == nil {
 		return false, nil
 	}
 
@@ -95,10 +101,10 @@ func (*RequestRetrier) isSuccess(resp *http.Response) bool {
 }
 
 func (*RequestRetrier) isNonRetryableClientError(resp *http.Response, err error) bool {
-	errCode, _ := StatusCodeFromError(err)
+	errCode, ok := StatusCodeFromError(err)
 	// Check for a 4XX status parsed from the error or in the response
-	if isClientError(errCode) && errCode != StatusCodeThrottle {
-		return false
+	if ok && isClientError(errCode) && errCode != StatusCodeThrottle {
+		return true
 	}
 	if resp != nil && isClientError(resp.StatusCode) {
 		// 429 is retryable

@@ -16,6 +16,7 @@ package internal
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/url"
 	"testing"
@@ -37,21 +38,19 @@ func TestRequestRetrier_HandleMeshURI(t *testing.T) {
 
 func TestRequestRetrier_AttemptCount(t *testing.T) {
 	maxAttempts := 3
+	err := errors.New("error")
+
 	r := NewRequestRetrier(retry.Start(context.Background()), maxAttempts)
 	// first request is not a retry, so it doesn't increment the overall count
-	shouldRetry, _ := r.Next(nil, nil)
+	shouldRetry, _ := r.Next(nil, err)
 	require.True(t, shouldRetry)
 
 	for i := 0; i < maxAttempts-1; i++ {
-		req, err := http.NewRequest("GET", "http://example.com", nil)
-		require.NoError(t, err)
-		shouldRetry, _ = r.Next(&http.Response{Request: req}, err)
+		shouldRetry, _ = r.Next(nil, err)
 		require.True(t, shouldRetry)
 	}
 
-	req, err := http.NewRequest("GET", "http://example.com", nil)
-	require.NoError(t, err)
-	shouldRetry, _ = r.Next(&http.Response{Request: req}, err)
+	shouldRetry, _ = r.Next(nil, nil)
 	require.False(t, shouldRetry)
 }
 
@@ -59,6 +58,7 @@ func TestRequestRetrier_UnlimitedAttempts(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
+	err := errors.New("error")
 	r := NewRequestRetrier(retry.Start(ctx, retry.WithInitialBackoff(50*time.Millisecond), retry.WithRandomizationFactor(0)), 0)
 
 	startTime := time.Now()
@@ -66,24 +66,20 @@ func TestRequestRetrier_UnlimitedAttempts(t *testing.T) {
 	require.True(t, shouldRetry)
 	require.Lessf(t, time.Since(startTime), 49*time.Millisecond, "first GetNextURI should not have any delay")
 
-	req, err := http.NewRequest("GET", "http://example.com", nil)
-	require.NoError(t, err)
-	resp := &http.Response{Request: req}
-
 	startTime = time.Now()
-	shouldRetry, _ = r.Next(resp, err)
+	shouldRetry, _ = r.Next(nil, err)
 	require.True(t, shouldRetry)
 	assert.Greater(t, time.Since(startTime), 50*time.Millisecond, "delay should be at least 1 backoff")
 	assert.Less(t, time.Since(startTime), 100*time.Millisecond, "delay should be less than 2 backoffs")
 
 	startTime = time.Now()
-	shouldRetry, _ = r.Next(resp, err)
+	shouldRetry, _ = r.Next(nil, err)
 	require.True(t, shouldRetry)
 	assert.Greater(t, time.Since(startTime), 100*time.Millisecond, "delay should be at least 2 backoffs")
 	assert.Less(t, time.Since(startTime), 200*time.Millisecond, "delay should be less than 3 backoffs")
 
 	// Success should stop retries
-	shouldRetry, _ = r.Next(&http.Response{Request: req, StatusCode: http.StatusOK}, nil)
+	shouldRetry, _ = r.Next(&http.Response{StatusCode: http.StatusOK}, nil)
 	require.False(t, shouldRetry)
 }
 
@@ -137,27 +133,19 @@ func TestRequestRetrier_Next(t *testing.T) {
 		shouldRetryReset   bool
 	}{
 		{
-			name:               "returns error if response exists and doesn't appear retryable",
-			resp:               &http.Response{},
-			respErr:            nil,
-			shouldRetry:        false,
-			shouldRetryBackoff: false,
-			shouldRetryReset:   false,
-		},
-		{
-			name:               "returns error if error code not retryable",
-			resp:               &http.Response{},
-			respErr:            nil,
-			shouldRetry:        false,
-			shouldRetryBackoff: false,
-			shouldRetryReset:   false,
-		},
-		{
 			name:               "retries and backs off if response and error are nil",
 			resp:               nil,
 			respErr:            nil,
 			shouldRetry:        true,
 			shouldRetryBackoff: true,
+			shouldRetryReset:   false,
+		},
+		{
+			name:               "no retries if response exists and doesn't appear retryable",
+			resp:               &http.Response{},
+			respErr:            nil,
+			shouldRetry:        false,
+			shouldRetryBackoff: false,
 			shouldRetryReset:   false,
 		},
 		{
