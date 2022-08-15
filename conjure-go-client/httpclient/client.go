@@ -107,7 +107,10 @@ func (c *clientImpl) Do(ctx context.Context, params ...RequestParam) (*http.Resp
 		}
 		svc1log.FromContext(ctx).Debug("Retrying request", svc1log.Stacktrace(err))
 	}
-	return resp, err
+	if err != nil {
+		return nil, err
+	}
+	return resp, nil
 }
 
 func (c *clientImpl) doOnce(

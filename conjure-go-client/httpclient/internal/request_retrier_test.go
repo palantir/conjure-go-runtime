@@ -30,9 +30,11 @@ import (
 
 func TestRequestRetrier_HandleMeshURI(t *testing.T) {
 	r := NewRequestRetrier(retry.Start(context.Background()), 1)
-	req, err := http.NewRequest("GET", "mesh-http://example.com", nil)
-	require.NoError(t, err)
-	shouldRetry, _ := r.Next(&http.Response{Request: req}, nil)
+	shouldRetry, _ := r.Next(&http.Response{}, nil)
+	require.True(t, shouldRetry)
+
+	respErr := werror.ErrorWithContextParams(context.Background(), "error", werror.SafeParam("statusCode", 429))
+	shouldRetry, _ = r.Next(&http.Response{}, respErr)
 	require.False(t, shouldRetry)
 }
 
@@ -89,8 +91,13 @@ func TestRequestRetrier_ContextCanceled(t *testing.T) {
 
 	r := NewRequestRetrier(retry.Start(ctx), 0)
 
-	// No retries if context is cancelled
+	// First attempt should return a URI to ensure that the client can instrument the request even
+	// if the context is done
 	shouldRetry, _ := r.Next(nil, nil)
+	require.True(t, shouldRetry)
+
+	// Subsequent attempt should stop retries
+	shouldRetry, _ = r.Next(nil, nil)
 	require.False(t, shouldRetry)
 }
 
@@ -112,11 +119,16 @@ func TestRequestRetrier_UsesLocationHeader(t *testing.T) {
 
 func TestRequestRetrier_UsesLocationFromErr(t *testing.T) {
 	r := NewRequestRetrier(retry.Start(context.Background()), 2)
+
+	shouldRetry, uri := r.Next(nil, nil)
+	require.True(t, shouldRetry)
+	require.Nil(t, uri)
+
 	respErr := werror.ErrorWithContextParams(context.Background(), "307",
 		werror.SafeParam("statusCode", 307),
 		werror.SafeParam("location", "http://example-2.com"))
 
-	shouldRetry, uri := r.Next(nil, respErr)
+	shouldRetry, uri = r.Next(nil, respErr)
 	require.NotNil(t, uri)
 	require.Equal(t, uri.String(), "http://example-2.com")
 	require.True(t, shouldRetry)

@@ -61,6 +61,19 @@ func (r *RequestRetrier) attemptsRemaining() bool {
 // retrier will also return the URL that should be used for the new next request.
 func (r *RequestRetrier) Next(resp *http.Response, err error) (bool, *url.URL) {
 	defer func() { r.attemptCount++ }()
+	// should always try first request
+	if r.attemptCount == 0 {
+		// Trigger the first retry so later calls have backoff but ignore the returned value to ensure that the
+		// client can instrument the request even if the context is done.
+		r.retrier.Next()
+		return true, nil
+	}
+
+	if !r.attemptsRemaining() {
+		// Retries exhausted
+		return false, nil
+	}
+
 	if r.isSuccess(resp) {
 		return false, nil
 	}
@@ -76,11 +89,6 @@ func (r *RequestRetrier) Next(resp *http.Response, err error) (bool, *url.URL) {
 
 	// don't retry mesh uris
 	if r.isMeshURI(resp) {
-		return false, nil
-	}
-
-	if !r.attemptsRemaining() {
-		// Retries exhausted
 		return false, nil
 	}
 
