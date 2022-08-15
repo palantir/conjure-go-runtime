@@ -84,14 +84,17 @@ func (c *clientImpl) Delete(ctx context.Context, params ...RequestParam) (*http.
 
 func (c *clientImpl) Do(ctx context.Context, params ...RequestParam) (*http.Response, error) {
 	attempts := 2 * c.uriPool.NumURIs()
+	if attempts == 0 {
+		return nil, werror.ErrorWithContextParams(ctx, "no base URIs are configured")
+	}
 	if c.maxAttempts != nil {
 		if confMaxAttempts := c.maxAttempts.CurrentIntPtr(); confMaxAttempts != nil {
 			attempts = *confMaxAttempts
 		}
 	}
 
-	var resp *http.Response
 	var err error
+	var resp *http.Response
 	retrier := internal.NewRequestRetrier(c.backoffOptions.CurrentRetryParams().Start(ctx), attempts)
 	for {
 		shouldRetry, retryURL := retrier.Next(resp, err)
@@ -99,9 +102,10 @@ func (c *clientImpl) Do(ctx context.Context, params ...RequestParam) (*http.Resp
 			break
 		}
 		resp, err = c.doOnce(ctx, retryURL, params...)
-		if err != nil {
-			svc1log.FromContext(ctx).Debug("Retrying request", svc1log.Stacktrace(err))
+		if err == nil {
+			break
 		}
+		svc1log.FromContext(ctx).Debug("Retrying request", svc1log.Stacktrace(err))
 	}
 	return resp, err
 }
@@ -143,12 +147,11 @@ func (c *clientImpl) doOnce(
 		}
 		uri = joinURIAndPath(uri, b.path)
 	} else {
-		b.path = ""
 		uri = retryURL.String()
 	}
 	req, err := http.NewRequestWithContext(ctx, b.method, uri, nil)
 	if err != nil {
-		return nil, werror.WrapWithContextParams(ctx, err, "failed to build request")
+		return nil, werror.WrapWithContextParams(ctx, err, "failed to build new HTTP request")
 	}
 
 	req.Header = b.headers

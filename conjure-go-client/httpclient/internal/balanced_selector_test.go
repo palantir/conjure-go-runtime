@@ -17,7 +17,6 @@ package internal
 import (
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -53,9 +52,6 @@ func TestBalancedSelect(t *testing.T) {
 			req, err := http.NewRequest("GET", uri, nil)
 			assert.NoError(t, err)
 
-			url, err := url.Parse(uri)
-			assert.NoError(t, err)
-			req.URL = url
 			_, err = scorer.RoundTrip(req, server.Client().Transport)
 			assert.NoError(t, err)
 		}

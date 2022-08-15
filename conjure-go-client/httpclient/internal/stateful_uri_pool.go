@@ -87,13 +87,6 @@ func (s *statefulURIPool) RoundTrip(req *http.Request, next http.RoundTripper) (
 		// 503: go to next node
 		s.markBackoffURI(req, defaultResurrectDuration)
 	}
-	// TODO(dtrejo): Do we need to handle redirects or does the underlying http.Client do that for us?
-	//if isTryOther, isPermenant, otherURI := isRetryOtherResponse(resp, respErr, errCode); isTryOther {
-	//	s.markBackoffURI(req, defaultResurrectDuration)
-	//}
-	if errCode >= http.StatusBadRequest && errCode < http.StatusInternalServerError {
-		// nothing to do
-	}
 	if resp == nil {
 		// if we get a nil response, we can assume there is a problem with host and can move on to the next.
 		s.markBackoffURI(req, defaultResurrectDuration)

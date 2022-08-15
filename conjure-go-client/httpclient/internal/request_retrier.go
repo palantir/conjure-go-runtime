@@ -111,7 +111,7 @@ func (*RequestRetrier) isNonRetryableClientError(resp *http.Response, err error)
 }
 
 func (*RequestRetrier) isMeshURI(resp *http.Response) bool {
-	if resp == nil {
+	if resp == nil || resp.Request == nil {
 		return false
 	}
 	return strings.HasPrefix(getBaseURI(resp.Request.URL), meshSchemePrefix)
