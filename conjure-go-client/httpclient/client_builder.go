@@ -157,6 +157,8 @@ func newClient(ctx context.Context, b *clientBuilder, params ...ClientParam) (Cl
 	if b.URISelector == nil {
 		b.URISelector = internal.NewRoundRobinURISelector(func() int64 { return time.Now().UnixNano() })
 	}
+	// append uriSelector and uriPool middlewares
+	middleware = append(middleware, uriPool, b.URISelector)
 	return &clientImpl{
 		client:                 httpClient,
 		uriPool:                uriPool,
