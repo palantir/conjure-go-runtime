@@ -65,7 +65,7 @@ func TestErrorDecoderMiddlewares(t *testing.T) {
 				assert.True(t, ok)
 				assert.Equal(t, 307, code)
 				location, ok := httpclient.LocationFromError(err)
-				assert.True(t, ok)
+				assert.False(t, ok)
 				assert.Equal(t, "", location)
 			},
 		},

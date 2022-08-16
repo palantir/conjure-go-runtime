@@ -59,12 +59,15 @@ const (
 	StatusCodeUnavailable            = http.StatusServiceUnavailable
 )
 
-func isRetryOtherResponse(resp *http.Response, err error, errCode int) (bool, *url.URL) {
+func isRetryOtherResponse(resp *http.Response, err error) (bool, *url.URL) {
+	errCode, _ := StatusCodeFromError(err)
+	// prioritize redirect from werror first
 	if errCode == StatusCodeRetryOther || errCode == StatusCodeRetryTemporaryRedirect {
 		locationStr, ok := LocationFromError(err)
-		if ok {
-			return true, parseLocationURL(locationStr)
+		if !ok {
+			return true, nil
 		}
+		return true, parseLocationURL(locationStr)
 	}
 
 	if resp == nil {
@@ -74,8 +77,11 @@ func isRetryOtherResponse(resp *http.Response, err error, errCode int) (bool, *u
 		resp.StatusCode != StatusCodeRetryTemporaryRedirect {
 		return false, nil
 	}
-	locationStr := resp.Header.Get("Location")
-	return true, parseLocationURL(locationStr)
+	location, err := resp.Location()
+	if err != nil {
+		return true, nil
+	}
+	return true, location
 }
 
 func parseLocationURL(locationStr string) *url.URL {
@@ -90,6 +96,8 @@ func parseLocationURL(locationStr string) *url.URL {
 	return locationURL
 }
 
+// isThrottleResponse returns true if the response a throttle response type. It
+// also returns a duration after which the failed URI can be retried
 func isThrottleResponse(resp *http.Response, errCode int) (bool, time.Duration) {
 	if errCode == StatusCodeThrottle {
 		return true, 0

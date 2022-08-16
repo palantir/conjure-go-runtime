@@ -55,7 +55,8 @@ type clientImpl struct {
 	errorDecoderMiddleware Middleware
 	recoveryMiddleware     Middleware
 
-	uriScorer      internal.RefreshableURIScoringMiddleware
+	uriPool        internal.URIPool
+	uriSelector    internal.URISelector
 	maxAttempts    refreshable.IntPtr // 0 means no limit. If nil, uses 2*len(uris).
 	backoffOptions refreshingclient.RefreshableRetryParams
 	bufferPool     bytesbuffers.Pool
@@ -82,12 +83,10 @@ func (c *clientImpl) Delete(ctx context.Context, params ...RequestParam) (*http.
 }
 
 func (c *clientImpl) Do(ctx context.Context, params ...RequestParam) (*http.Response, error) {
-	uris := c.uriScorer.CurrentURIScoringMiddleware().GetURIsInOrderOfIncreasingScore()
-	if len(uris) == 0 {
+	attempts := 2 * c.uriPool.NumURIs()
+	if attempts == 0 {
 		return nil, werror.ErrorWithContextParams(ctx, "no base URIs are configured")
 	}
-
-	attempts := 2 * len(uris)
 	if c.maxAttempts != nil {
 		if confMaxAttempts := c.maxAttempts.CurrentIntPtr(); confMaxAttempts != nil {
 			attempts = *confMaxAttempts
@@ -96,17 +95,18 @@ func (c *clientImpl) Do(ctx context.Context, params ...RequestParam) (*http.Resp
 
 	var err error
 	var resp *http.Response
-
-	retrier := internal.NewRequestRetrier(uris, c.backoffOptions.CurrentRetryParams().Start(ctx), attempts)
+	retrier := internal.NewRequestRetrier(c.backoffOptions.CurrentRetryParams().Start(ctx), attempts)
 	for {
-		uri, isRelocated := retrier.GetNextURI(resp, err)
-		if uri == "" {
+		shouldRetry, retryURL := retrier.Next(resp, err)
+		if !shouldRetry {
 			break
 		}
+		resp, err = c.doOnce(ctx, retryURL, params...)
 		if err != nil {
 			svc1log.FromContext(ctx).Debug("Retrying request", svc1log.Stacktrace(err))
+			continue
 		}
-		resp, err = c.doOnce(ctx, uri, isRelocated, params...)
+		break
 	}
 	if err != nil {
 		return nil, err
@@ -116,11 +116,9 @@ func (c *clientImpl) Do(ctx context.Context, params ...RequestParam) (*http.Resp
 
 func (c *clientImpl) doOnce(
 	ctx context.Context,
-	baseURI string,
-	useBaseURIOnly bool,
+	retryURL *url.URL,
 	params ...RequestParam,
 ) (*http.Response, error) {
-
 	// 1. create the request
 	b := &requestBuilder{
 		headers:        make(http.Header),
@@ -136,9 +134,6 @@ func (c *clientImpl) doOnce(
 			return nil, err
 		}
 	}
-	if useBaseURIOnly {
-		b.path = ""
-	}
 
 	for _, c := range b.configureCtx {
 		ctx = c(ctx)
@@ -147,12 +142,22 @@ func (c *clientImpl) doOnce(
 	if b.method == "" {
 		return nil, werror.ErrorWithContextParams(ctx, "httpclient: use WithRequestMethod() to specify HTTP method")
 	}
-	reqURI := joinURIAndPath(baseURI, b.path)
-	req, err := http.NewRequest(b.method, reqURI, nil)
+	var uri string
+	if retryURL == nil {
+		var err error
+		uri, err = c.uriSelector.Select(c.uriPool.URIs(), b.headers)
+		if err != nil {
+			return nil, werror.WrapWithContextParams(ctx, err, "failed to select uri")
+		}
+		uri = joinURIAndPath(uri, b.path)
+	} else {
+		uri = retryURL.String()
+	}
+	req, err := http.NewRequestWithContext(ctx, b.method, uri, nil)
 	if err != nil {
 		return nil, werror.WrapWithContextParams(ctx, err, "failed to build new HTTP request")
 	}
-	req = req.WithContext(ctx)
+
 	req.Header = b.headers
 	if q := b.query.Encode(); q != "" {
 		req.URL.RawQuery = q
@@ -164,7 +169,6 @@ func (c *clientImpl) doOnce(
 	transport := clientCopy.Transport // start with the client's transport configured with default middleware
 
 	// must precede the error decoders to read the status code of the raw response.
-	transport = wrapTransport(transport, c.uriScorer.CurrentURIScoringMiddleware())
 	// request decoder must precede the client decoder
 	// must precede the body middleware to read the response body
 	transport = wrapTransport(transport, b.errorDecoderMiddleware, c.errorDecoderMiddleware)

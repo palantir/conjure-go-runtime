@@ -537,11 +537,7 @@ func WithBasicAuth(username, password string) ClientParam {
 // and least recent errors.
 func WithBalancedURIScoring() ClientParam {
 	return clientParamFunc(func(b *clientBuilder) error {
-		b.URIScorerBuilder = func(uris []string) internal.URIScoringMiddleware {
-			return internal.NewBalancedURIScoringMiddleware(uris, func() int64 {
-				return time.Now().UnixNano()
-			})
-		}
+		b.URISelector = internal.NewBalancedURISelector(func() int64 { return time.Now().UnixNano() })
 		return nil
 	})
 }

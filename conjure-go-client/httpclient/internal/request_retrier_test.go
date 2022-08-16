@@ -16,7 +16,9 @@ package internal
 
 import (
 	"context"
+	"errors"
 	"net/http"
+	"net/url"
 	"testing"
 	"time"
 
@@ -26,75 +28,73 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-var _ retry.Retrier = &mockRetrier{}
-
 func TestRequestRetrier_HandleMeshURI(t *testing.T) {
-	r := NewRequestRetrier([]string{"mesh-http://example.com"}, retry.Start(context.Background()), 1)
-	uri, _ := r.GetNextURI(nil, nil)
-	require.Equal(t, uri, "http://example.com")
+	r := NewRequestRetrier(retry.Start(context.Background()), 1)
+	shouldRetry, _ := r.Next(nil, nil)
+	require.True(t, shouldRetry)
 
 	respErr := werror.ErrorWithContextParams(context.Background(), "error", werror.SafeParam("statusCode", 429))
-	uri, _ = r.GetNextURI(nil, respErr)
-	require.Empty(t, uri)
+	shouldRetry, _ = r.Next(nil, respErr)
+	require.False(t, shouldRetry)
 }
 
 func TestRequestRetrier_AttemptCount(t *testing.T) {
 	maxAttempts := 3
-	r := NewRequestRetrier([]string{"https://example.com"}, retry.Start(context.Background()), maxAttempts)
+	r := NewRequestRetrier(retry.Start(context.Background()), maxAttempts)
 	// first request is not a retry
-	uri, _ := r.GetNextURI(nil, nil)
-	require.Equal(t, uri, "https://example.com")
+	shouldRetry, _ := r.Next(nil, nil)
+	require.True(t, shouldRetry)
 
 	for i := 0; i < maxAttempts-1; i++ {
-		uri, _ = r.GetNextURI(nil, nil)
-		require.Equal(t, uri, "https://example.com")
+		shouldRetry, _ = r.Next(nil, errors.New("error"))
+		require.True(t, shouldRetry)
 	}
-	uri, _ = r.GetNextURI(nil, nil)
-	require.Empty(t, uri)
+	shouldRetry, _ = r.Next(nil, nil)
+	require.False(t, shouldRetry)
 }
 
 func TestRequestRetrier_UnlimitedAttempts(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
-	r := NewRequestRetrier([]string{"https://example.com"}, retry.Start(ctx, retry.WithInitialBackoff(50*time.Millisecond), retry.WithRandomizationFactor(0)), 0)
+	r := NewRequestRetrier(retry.Start(ctx, retry.WithInitialBackoff(50*time.Millisecond), retry.WithRandomizationFactor(0)), 0)
 
 	startTime := time.Now()
-	uri, _ := r.GetNextURI(nil, nil)
-	require.Equal(t, uri, "https://example.com")
+	shouldRetry, _ := r.Next(nil, nil)
+	require.True(t, shouldRetry)
 	require.Lessf(t, time.Since(startTime), 49*time.Millisecond, "first GetNextURI should not have any delay")
 
 	startTime = time.Now()
-	uri, _ = r.GetNextURI(nil, nil)
-	require.Equal(t, uri, "https://example.com")
+	shouldRetry, _ = r.Next(nil, errors.New("error"))
+	require.True(t, shouldRetry)
 	assert.Greater(t, time.Since(startTime), 50*time.Millisecond, "delay should be at least 1 backoff")
 	assert.Less(t, time.Since(startTime), 100*time.Millisecond, "delay should be less than 2 backoffs")
 
 	startTime = time.Now()
-	uri, _ = r.GetNextURI(nil, nil)
-	require.Equal(t, uri, "https://example.com")
+	shouldRetry, _ = r.Next(nil, errors.New("error"))
+	require.True(t, shouldRetry)
 	assert.Greater(t, time.Since(startTime), 100*time.Millisecond, "delay should be at least 2 backoffs")
 	assert.Less(t, time.Since(startTime), 200*time.Millisecond, "delay should be less than 3 backoffs")
 
 	// Success should stop retries
-	uri, _ = r.GetNextURI(&http.Response{StatusCode: 200}, nil)
-	require.Empty(t, uri)
+	shouldRetry, _ = r.Next(&http.Response{StatusCode: http.StatusOK}, nil)
+	require.False(t, shouldRetry)
 }
 
 func TestRequestRetrier_ContextCanceled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	r := NewRequestRetrier([]string{"https://example.com"}, retry.Start(ctx), 0)
+	r := NewRequestRetrier(retry.Start(ctx), 0)
 
 	// First attempt should return a URI to ensure that the client can instrument the request even
 	// if the context is done
-	uri, _ := r.GetNextURI(nil, nil)
-	require.Equal(t, uri, "https://example.com")
+	shouldRetry, _ := r.Next(nil, nil)
+	require.True(t, shouldRetry)
 
 	// Subsequent attempt should stop retries
-	uri, _ = r.GetNextURI(nil, nil)
-	require.Empty(t, uri)
+	shouldRetry, _ = r.Next(nil, nil)
+	require.False(t, shouldRetry)
 }
 
 func TestRequestRetrier_UsesLocationHeader(t *testing.T) {
@@ -103,177 +103,105 @@ func TestRequestRetrier_UsesLocationHeader(t *testing.T) {
 		Header:     http.Header{"Location": []string{"http://example.com"}},
 	}
 
-	r := NewRequestRetrier([]string{"a"}, retry.Start(context.Background()), 2)
-	uri, isRelocated := r.GetNextURI(nil, nil)
-	require.Equal(t, uri, "a")
-	require.False(t, isRelocated)
+	r := NewRequestRetrier(retry.Start(context.Background()), 2)
+	shouldRetry, uri := r.Next(nil, nil)
+	require.True(t, shouldRetry)
+	require.Nil(t, uri)
 
-	uri, isRelocated = r.GetNextURI(respWithLocationHeader, nil)
-	require.Equal(t, uri, "http://example.com")
-	require.True(t, isRelocated)
+	shouldRetry, uri = r.Next(respWithLocationHeader, nil)
+	require.Equal(t, uri.String(), "http://example.com")
+	require.True(t, shouldRetry)
 }
 
 func TestRequestRetrier_UsesLocationFromErr(t *testing.T) {
-	r := NewRequestRetrier([]string{"http://example-1.com"}, retry.Start(context.Background()), 2)
+	r := NewRequestRetrier(retry.Start(context.Background()), 2)
+
 	respErr := werror.ErrorWithContextParams(context.Background(), "307",
 		werror.SafeParam("statusCode", 307),
 		werror.SafeParam("location", "http://example-2.com"))
 
-	uri, isRelocated := r.GetNextURI(nil, nil)
-	require.Equal(t, uri, "http://example-1.com")
-	require.False(t, isRelocated)
+	// first request is not a retry
+	shouldRetry, uri := r.Next(nil, nil)
+	require.True(t, shouldRetry)
+	require.Nil(t, uri)
 
-	uri, isRelocated = r.GetNextURI(nil, respErr)
-	require.Equal(t, uri, "http://example-2.com")
-	require.True(t, isRelocated)
+	shouldRetry, uri = r.Next(nil, respErr)
+	require.NotNil(t, uri)
+	require.Equal(t, uri.String(), "http://example-2.com")
+	require.True(t, shouldRetry)
 }
 
-func TestRequestRetrier_GetNextURI(t *testing.T) {
+func TestRequestRetrier_Next(t *testing.T) {
 	for _, tc := range []struct {
 		name               string
 		resp               *http.Response
 		respErr            error
-		uris               []string
+		retryURI           *url.URL
 		shouldRetry        bool
-		shouldRetrySameURI bool
 		shouldRetryBackoff bool
 		shouldRetryReset   bool
 	}{
 		{
-			name:               "returns error if response exists and doesn't appear retryable",
-			resp:               &http.Response{},
-			respErr:            nil,
-			uris:               []string{"a", "b"},
-			shouldRetry:        false,
-			shouldRetrySameURI: false,
-			shouldRetryBackoff: false,
-			shouldRetryReset:   false,
-		},
-		{
-			name:               "returns error if error code not retryable",
-			resp:               &http.Response{},
-			respErr:            nil,
-			uris:               []string{"a", "b"},
-			shouldRetry:        false,
-			shouldRetrySameURI: false,
-			shouldRetryBackoff: false,
-			shouldRetryReset:   false,
-		},
-		{
-			name:               "returns a URI if response and error are nil",
-			resp:               nil,
-			respErr:            nil,
-			uris:               []string{"a", "b"},
-			shouldRetry:        true,
-			shouldRetrySameURI: false,
-			shouldRetryBackoff: false,
-			shouldRetryReset:   false,
-		},
-		{
-			name:               "returns a URI if response and error are nil",
-			resp:               nil,
-			respErr:            nil,
-			uris:               []string{"a", "b"},
-			shouldRetry:        true,
-			shouldRetrySameURI: false,
-			shouldRetryBackoff: false,
-			shouldRetryReset:   false,
-		},
-		{
-			name:               "retries and backs off the single URI if response and error are nil",
-			resp:               nil,
-			respErr:            nil,
-			uris:               []string{"a"},
-			shouldRetry:        true,
-			shouldRetrySameURI: true,
-			shouldRetryBackoff: true,
-			shouldRetryReset:   false,
-		},
-		{
-			name:               "returns a new URI if unavailable",
+			name:               "retries if unavailable",
 			resp:               nil,
 			respErr:            werror.ErrorWithContextParams(context.Background(), "503", werror.SafeParam("statusCode", 503)),
-			uris:               []string{"a", "b"},
 			shouldRetry:        true,
-			shouldRetrySameURI: false,
 			shouldRetryBackoff: false,
 			shouldRetryReset:   false,
 		},
 		{
-			name:               "retries and backs off the single URI if unavailable",
-			resp:               nil,
-			respErr:            werror.ErrorWithContextParams(context.Background(), "503", werror.SafeParam("statusCode", 503)),
-			uris:               []string{"a"},
-			shouldRetry:        true,
-			shouldRetrySameURI: true,
-			shouldRetryBackoff: true,
-			shouldRetryReset:   false,
-		},
-		{
-			name:               "returns a new URI and backs off if throttled",
+			name:               "retries and backs off if throttled",
 			resp:               nil,
 			respErr:            werror.ErrorWithContextParams(context.Background(), "429", werror.SafeParam("statusCode", 429)),
-			uris:               []string{"a", "b"},
 			shouldRetry:        true,
-			shouldRetrySameURI: false,
 			shouldRetryBackoff: true,
 			shouldRetryReset:   false,
 		},
 		{
-			name:               "retries single URI and backs off if throttled",
-			resp:               nil,
-			respErr:            werror.ErrorWithContextParams(context.Background(), "429", werror.SafeParam("statusCode", 429)),
-			uris:               []string{"a"},
-			shouldRetry:        true,
-			shouldRetrySameURI: true,
-			shouldRetryBackoff: true,
-			shouldRetryReset:   false,
-		},
-		{
-			name: "retries another URI if gets retry other response without location",
+			name: "retries with no backoff if gets retry other response without location",
 			resp: &http.Response{
 				StatusCode: StatusCodeRetryOther,
 			},
 			respErr:            nil,
-			uris:               []string{"a", "b"},
 			shouldRetry:        true,
-			shouldRetrySameURI: false,
 			shouldRetryBackoff: false,
 			shouldRetryReset:   false,
 		},
 		{
-			name: "retries single URI and backs off if gets retry other response without location",
+			name: "retries with no backoff if gets retry temporary redirect response without location",
 			resp: &http.Response{
-				StatusCode: StatusCodeRetryOther,
+				StatusCode: StatusCodeRetryTemporaryRedirect,
 			},
 			respErr:            nil,
-			uris:               []string{"a"},
 			shouldRetry:        true,
-			shouldRetrySameURI: true,
+			shouldRetryBackoff: false,
+			shouldRetryReset:   false,
+		},
+		{
+			name: "retries with no backoff if gets retry temporary redirect response with a location",
+			resp: &http.Response{
+				StatusCode: StatusCodeRetryTemporaryRedirect,
+			},
+			respErr: werror.ErrorWithContextParams(context.Background(),
+				"307",
+				werror.SafeParam("statusCode", 307),
+				werror.SafeParam("location", "http://example-2.com")),
+			retryURI:           mustNewURL("http://example-2.com"),
+			shouldRetry:        true,
 			shouldRetryBackoff: true,
 			shouldRetryReset:   false,
 		},
 		{
-			name: "retries another URI if gets retry temporary redirect response without location",
+			name: "retries with no backoff if gets retry other redirect response with a location",
 			resp: &http.Response{
-				StatusCode: StatusCodeRetryTemporaryRedirect,
+				StatusCode: StatusCodeRetryOther,
 			},
-			respErr:            nil,
-			uris:               []string{"a", "b"},
+			respErr: werror.ErrorWithContextParams(context.Background(),
+				"308",
+				werror.SafeParam("statusCode", 308),
+				werror.SafeParam("location", "http://example-2.com")),
+			retryURI:           mustNewURL("http://example-2.com"),
 			shouldRetry:        true,
-			shouldRetrySameURI: false,
-			shouldRetryBackoff: false,
-			shouldRetryReset:   false,
-		},
-		{
-			name: "retries single URI and backs off if gets retry temporary redirect response without location",
-			resp: &http.Response{
-				StatusCode: StatusCodeRetryTemporaryRedirect,
-			},
-			respErr:            nil,
-			uris:               []string{"a"},
-			shouldRetry:        true,
-			shouldRetrySameURI: true,
 			shouldRetryBackoff: true,
 			shouldRetryReset:   false,
 		},
@@ -282,9 +210,7 @@ func TestRequestRetrier_GetNextURI(t *testing.T) {
 			resp: &http.Response{
 				StatusCode: 400,
 			},
-			uris:               []string{"a", "b"},
 			shouldRetry:        false,
-			shouldRetrySameURI: false,
 			shouldRetryBackoff: false,
 			shouldRetryReset:   false,
 		},
@@ -293,45 +219,37 @@ func TestRequestRetrier_GetNextURI(t *testing.T) {
 			resp: &http.Response{
 				StatusCode: 404,
 			},
-			uris:               []string{"a", "b"},
 			shouldRetry:        false,
-			shouldRetrySameURI: false,
 			shouldRetryBackoff: false,
 			shouldRetryReset:   false,
 		},
 		{
 			name:               "does not retry 400 errors",
 			respErr:            werror.ErrorWithContextParams(context.Background(), "400", werror.SafeParam("statusCode", 400)),
-			uris:               []string{"a", "b"},
 			shouldRetry:        false,
-			shouldRetrySameURI: false,
 			shouldRetryBackoff: false,
 			shouldRetryReset:   false,
 		},
 		{
 			name:               "does not retry 404s",
 			respErr:            werror.ErrorWithContextParams(context.Background(), "404", werror.SafeParam("statusCode", 404)),
-			uris:               []string{"a", "b"},
 			shouldRetry:        false,
-			shouldRetrySameURI: false,
 			shouldRetryBackoff: false,
 			shouldRetryReset:   false,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			retrier := newMockRetrier()
-			r := NewRequestRetrier(tc.uris, retrier, 2)
+			r := NewRequestRetrier(retrier, 2)
 			// first URI isn't a retry
-			firstURI, _ := r.GetNextURI(nil, nil)
-			require.NotEmpty(t, firstURI)
+			shouldRetry, _ := r.Next(nil, nil)
+			require.True(t, shouldRetry)
 
-			retryURI, _ := r.GetNextURI(tc.resp, tc.respErr)
+			shouldRetry, retryURI := r.Next(tc.resp, tc.respErr)
+			assert.Equal(t, tc.shouldRetry, shouldRetry)
 			if tc.shouldRetry {
-				require.Contains(t, tc.uris, retryURI)
-				if tc.shouldRetrySameURI {
-					require.Equal(t, retryURI, firstURI)
-				} else {
-					require.NotEqual(t, retryURI, firstURI)
+				if tc.retryURI != nil {
+					require.Equal(t, tc.retryURI.String(), retryURI.String())
 				}
 				if tc.shouldRetryReset {
 					require.True(t, retrier.DidReset)
@@ -340,7 +258,7 @@ func TestRequestRetrier_GetNextURI(t *testing.T) {
 					require.True(t, retrier.DidGetNext)
 				}
 			} else {
-				require.Empty(t, retryURI)
+				require.Nil(t, retryURI)
 			}
 		})
 	}
@@ -369,4 +287,12 @@ func (m *mockRetrier) Next() bool {
 
 func (m *mockRetrier) CurrentAttempt() int {
 	return 0
+}
+
+func mustNewURL(s string) *url.URL {
+	u, err := url.Parse(s)
+	if err != nil {
+		panic(err)
+	}
+	return u
 }

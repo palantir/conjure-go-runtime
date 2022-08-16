@@ -49,8 +49,8 @@ const (
 type clientBuilder struct {
 	HTTP *httpClientBuilder
 
-	URIs             refreshable.StringSlice
-	URIScorerBuilder func([]string) internal.URIScoringMiddleware
+	URIs        refreshable.StringSlice
+	URISelector internal.URISelector
 
 	ErrorDecoder ErrorDecoder
 
@@ -153,15 +153,16 @@ func newClient(ctx context.Context, b *clientBuilder, params ...ClientParam) (Cl
 	if !b.HTTP.DisableRecovery {
 		recovery = recoveryMiddleware{}
 	}
-	uriScorer := internal.NewRefreshableURIScoringMiddleware(b.URIs, func(uris []string) internal.URIScoringMiddleware {
-		if b.URIScorerBuilder == nil {
-			return internal.NewRandomURIScoringMiddleware(uris, func() int64 { return time.Now().UnixNano() })
-		}
-		return b.URIScorerBuilder(uris)
-	})
+	uriPool := internal.NewStatefulURIPool(b.URIs)
+	if b.URISelector == nil {
+		b.URISelector = internal.NewRoundRobinURISelector(func() int64 { return time.Now().UnixNano() })
+	}
+	// append uriSelector and uriPool middlewares
+	middleware = append(middleware, uriPool, b.URISelector)
 	return &clientImpl{
 		client:                 httpClient,
-		uriScorer:              uriScorer,
+		uriPool:                uriPool,
+		uriSelector:            b.URISelector,
 		maxAttempts:            b.MaxAttempts,
 		backoffOptions:         b.RetryParams,
 		middlewares:            middleware,
