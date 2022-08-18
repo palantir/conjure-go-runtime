@@ -18,8 +18,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-
-	"github.com/palantir/pkg/retry"
 )
 
 const (
@@ -32,26 +30,22 @@ const (
 // first call to GetNextURI
 type RequestRetrier struct {
 	currentURI    string
-	retrier       retry.Retrier
 	uris          []string
 	offset        int
 	relocatedURIs map[string]struct{}
-	failedURIs    map[string]struct{}
 	maxAttempts   int
 	attemptCount  int
 }
 
 // NewRequestRetrier creates a new request retrier.
 // Regardless of maxAttempts, mesh URIs will never be retried.
-func NewRequestRetrier(uris []string, retrier retry.Retrier, maxAttempts int) *RequestRetrier {
+func NewRequestRetrier(uris []string, maxAttempts int) *RequestRetrier {
 	offset := 0
 	return &RequestRetrier{
 		currentURI:    uris[offset],
-		retrier:       retrier,
 		uris:          uris,
 		offset:        offset,
 		relocatedURIs: map[string]struct{}{},
-		failedURIs:    map[string]struct{}{},
 		maxAttempts:   maxAttempts,
 		attemptCount:  0,
 	}
@@ -72,10 +66,7 @@ func (r *RequestRetrier) GetNextURI(resp *http.Response, respErr error) (uri str
 		r.attemptCount++
 	}()
 	if r.attemptCount == 0 {
-		// First attempt is always successful. Trigger the first retry so later calls have backoff
-		// but ignore the returned value to ensure that the client can instrument the request even
-		// if the context is done.
-		r.retrier.Next()
+		// First attempt is always successful
 		return r.removeMeshSchemeIfPresent(r.currentURI), false
 	}
 	if !r.attemptsRemaining() {
@@ -86,80 +77,58 @@ func (r *RequestRetrier) GetNextURI(resp *http.Response, respErr error) (uri str
 		// Mesh uris don't get retried
 		return "", false
 	}
-	retryFn := r.getRetryFn(resp, respErr)
-	if retryFn == nil {
+	nextURI := r.getNextURI(resp, respErr)
+	if nextURI == "" {
 		// The previous response was not retryable
 		return "", false
 	}
-	// Updates currentURI
-	if !retryFn() {
-		return "", false
-	}
-	return r.currentURI, r.isRelocatedURI(r.currentURI)
+	return nextURI, r.isRelocatedURI(nextURI)
 }
 
-func (r *RequestRetrier) getRetryFn(resp *http.Response, respErr error) func() bool {
+func (r *RequestRetrier) getNextURI(resp *http.Response, respErr error) string {
 	errCode, _ := StatusCodeFromError(respErr)
-	if retryOther, _ := isThrottleResponse(resp, errCode); retryOther {
-		// 429: throttle
-		// Immediately backoff and select the next URI.
-		// TODO(whickman): use the retry-after header once #81 is resolved
-		return r.nextURIAndBackoff
-	} else if isUnavailableResponse(resp, errCode) {
-		// 503: go to next node
-		return r.nextURIOrBackoff
-	} else if shouldTryOther, otherURI := isRetryOtherResponse(resp, respErr, errCode); shouldTryOther {
-		// 307 or 308: go to next node, or particular node if provided.
-		if otherURI != nil {
-			return func() bool {
-				r.setURIAndResetBackoff(otherURI)
-				return true
-			}
-		}
-		return r.nextURIOrBackoff
-	} else if errCode >= http.StatusBadRequest && errCode < http.StatusInternalServerError {
-		return nil
-	} else if resp == nil {
-		// if we get a nil response, we can assume there is a problem with host and can move on to the next.
-		return r.nextURIOrBackoff
+	// 2XX and 4XX responses (except 429) are not retryable
+	if isSuccess(resp) || isNonRetryableClientError(resp, errCode) {
+		return ""
 	}
-	return nil
+	// 307 or 308: go to particular node if provided
+	if shouldTryOther, otherURI := isRetryOtherResponse(resp, respErr, errCode); shouldTryOther && otherURI != nil {
+		r.setRelocatedURI(otherURI)
+	} else {
+		r.nextURI()
+	}
+	return r.currentURI
 }
 
-func (r *RequestRetrier) setURIAndResetBackoff(otherURI *url.URL) {
-	// If the URI returned by relocation header is a relative path
-	// We will resolve it with the current URI
-	if !otherURI.IsAbs() {
-		if currentURI := parseLocationURL(r.currentURI); currentURI != nil {
-			otherURI = currentURI.ResolveReference(otherURI)
+func isSuccess(resp *http.Response) bool {
+	// Check for a 2XX status
+	return resp != nil && resp.StatusCode >= 200 && resp.StatusCode < 300
+}
+
+func isNonRetryableClientError(resp *http.Response, errCode int) bool {
+	// Check for a 4XX status parsed from the error or in the response
+	if isClientError(errCode) || (resp != nil && isClientError(resp.StatusCode)) {
+		// 429 is retryable
+		if isThrottle, _ := isThrottleResponse(resp, errCode); !isThrottle {
+			return true
 		}
 	}
-	nextURI := otherURI.String()
-	r.relocatedURIs[otherURI.String()] = struct{}{}
-	r.retrier.Reset()
+	return false
+}
+
+func (r *RequestRetrier) setRelocatedURI(uri *url.URL) {
+	// If the URI returned by relocation header is a relative path we will resolve it with the current URI
+	if !uri.IsAbs() {
+		if currentURI := parseLocationURL(r.currentURI); currentURI != nil {
+			uri = currentURI.ResolveReference(uri)
+		}
+	}
+	nextURI := uri.String()
+	r.relocatedURIs[uri.String()] = struct{}{}
 	r.currentURI = nextURI
 }
 
-// If lastURI was already marked failed, we perform a backoff as determined by the retrier before returning the next URI and its offset.
-// Otherwise, we add lastURI to failedURIs and return the next URI and its offset immediately.
-func (r *RequestRetrier) nextURIOrBackoff() bool {
-	_, performBackoff := r.failedURIs[r.currentURI]
-	r.markFailedAndMoveToNextURI()
-	// If the URI has failed before, perform a backoff
-	if performBackoff || len(r.uris) == 1 {
-		return r.retrier.Next()
-	}
-	return true
-}
-
-// Marks the current URI as failed, gets the next URI, and performs a backoff as determined by the retrier.
-func (r *RequestRetrier) nextURIAndBackoff() bool {
-	r.markFailedAndMoveToNextURI()
-	return r.retrier.Next()
-}
-
-func (r *RequestRetrier) markFailedAndMoveToNextURI() {
-	r.failedURIs[r.currentURI] = struct{}{}
+func (r *RequestRetrier) nextURI() {
 	nextURIOffset := (r.offset + 1) % len(r.uris)
 	nextURI := r.uris[nextURIOffset]
 	r.currentURI = nextURI

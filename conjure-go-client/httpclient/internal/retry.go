@@ -112,13 +112,3 @@ func isThrottleResponse(resp *http.Response, errCode int) (bool, time.Duration) 
 	}
 	return true, time.Until(retryAfterDate)
 }
-
-func isUnavailableResponse(resp *http.Response, errCode int) bool {
-	if errCode == StatusCodeUnavailable {
-		return true
-	}
-	if resp == nil || resp.StatusCode != StatusCodeUnavailable {
-		return false
-	}
-	return true
-}

@@ -1,0 +1,5 @@
+type: improvement
+improvement:
+  description: Move retry backoff behavior into separate middleware
+  links:
+  - https://github.com/palantir/conjure-go-runtime/pull/313
