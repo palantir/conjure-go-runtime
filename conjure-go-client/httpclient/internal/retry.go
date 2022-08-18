@@ -59,9 +59,7 @@ const (
 	StatusCodeUnavailable            = http.StatusServiceUnavailable
 )
 
-func isRetryOtherResponse(resp *http.Response, err error) (bool, *url.URL) {
-	errCode, _ := StatusCodeFromError(err)
-	// prioritize redirect from werror first
+func isRetryOtherResponse(resp *http.Response, err error, errCode int) (bool, *url.URL) {
 	if errCode == StatusCodeRetryOther || errCode == StatusCodeRetryTemporaryRedirect {
 		locationStr, ok := LocationFromError(err)
 		if !ok {

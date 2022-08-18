@@ -108,7 +108,7 @@ func (r *RequestRetrier) getRetryFn(resp *http.Response, respErr error) func() b
 	} else if isUnavailableResponse(resp, errCode) {
 		// 503: go to next node
 		return r.nextURIOrBackoff
-	} else if shouldTryOther, otherURI := isRetryOtherResponse(resp, respErr); shouldTryOther {
+	} else if shouldTryOther, otherURI := isRetryOtherResponse(resp, respErr, errCode); shouldTryOther {
 		// 307 or 308: go to next node, or particular node if provided.
 		if otherURI != nil {
 			return func() bool {
