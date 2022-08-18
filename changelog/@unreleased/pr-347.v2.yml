@@ -1,0 +1,7 @@
+type: improvement
+improvement:
+  description: |-
+    Default to using balanced scoring instead of randomizing request URIs.
+    To keep the previous default behavior of randomizing URIs, use the WithRandomURIScoring ClientParam.
+  links:
+  - https://github.com/palantir/conjure-go-runtime/pull/347
