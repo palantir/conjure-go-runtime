@@ -15,22 +15,25 @@
 package internal
 
 import (
+	"math/rand"
 	"net/http"
 	"sync"
 )
 
 type roundRobinSelector struct {
 	sync.Mutex
-	nanoClock func() int64
+	source rand.Source
 
-	offset int
+	prevURIs []string
+	offset   int
 }
 
 // NewRoundRobinURISelector returns a URI scorer that uses a round robin algorithm for selecting URIs when scoring
 // using a rand.Rand seeded by the nanoClock function. The middleware no-ops on each request.
 func NewRoundRobinURISelector(nanoClock func() int64) URISelector {
 	return &roundRobinSelector{
-		nanoClock: nanoClock,
+		source:   rand.NewSource(nanoClock()),
+		prevURIs: []string{},
 	}
 }
 
@@ -39,9 +42,30 @@ func (s *roundRobinSelector) Select(uris []string, _ http.Header) ([]string, err
 	s.Lock()
 	defer s.Unlock()
 
+	s.updateURIs(uris)
 	s.offset = (s.offset + 1) % len(uris)
-
 	return []string{uris[s.offset]}, nil
+}
+
+// updateURIs determines whether we need to update the stored prevURIs because the current set of URIs differ from the
+// last observed URIs. When the URIs we randomize to get a new offest.
+func (s *roundRobinSelector) updateURIs(uris []string) {
+	reset := false
+	if len(s.prevURIs) == 0 {
+		reset = true
+	}
+	for i, uri := range s.prevURIs {
+		if uri != uris[i] {
+			reset = true
+			break
+		}
+	}
+
+	if reset {
+		s.prevURIs = uris
+		// randomize offset on reinit
+		s.offset = rand.New(s.source).Intn(len(uris))
+	}
 }
 
 func (s *roundRobinSelector) RoundTrip(req *http.Request, next http.RoundTripper) (*http.Response, error) {
