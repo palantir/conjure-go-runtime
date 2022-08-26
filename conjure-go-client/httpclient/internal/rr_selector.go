@@ -18,6 +18,8 @@ import (
 	"math/rand"
 	"net/http"
 	"sync"
+
+	werror "github.com/palantir/witchcraft-go-error"
 )
 
 type roundRobinSelector struct {
@@ -42,6 +44,9 @@ func NewRoundRobinURISelector(nanoClock func() int64) URISelector {
 func (s *roundRobinSelector) Select(uris []string, _ http.Header) ([]string, error) {
 	s.Lock()
 	defer s.Unlock()
+	if len(uris) == 0 {
+		return nil, werror.Error("no valid uris provided to round robin uri-selector")
+	}
 
 	s.updateURIs(uris)
 	s.offset = (s.offset + 1) % len(uris)
