@@ -15,18 +15,10 @@
 package internal
 
 import (
-	"math"
 	"math/rand"
 	"net/http"
-	"net/url"
 	"sort"
 	"sync/atomic"
-	"time"
-)
-
-const (
-	failureWeight = 10.0
-	failureMemory = 30 * time.Second
 )
 
 type URIScoringMiddleware interface {
@@ -38,11 +30,6 @@ type balancedScorer struct {
 	uriInfos map[string]uriInfo
 }
 
-type uriInfo struct {
-	inflight       int32
-	recentFailures CourseExponentialDecayReservoir
-}
-
 // NewBalancedURIScoringMiddleware returns URI scoring middleware that tracks in-flight requests and recent failures
 // for each URI configured on an HTTP client. URIs are scored based on fewest in-flight requests and recent errors,
 // where client errors are weighted the same as 1/10 of an in-flight request, server errors are weighted as 10
@@ -50,6 +37,8 @@ type uriInfo struct {
 //
 // This implementation is based on Dialogue's BalancedScoreTracker:
 // https://github.com/palantir/dialogue/blob/develop/dialogue-core/src/main/java/com/palantir/dialogue/core/BalancedScoreTracker.java
+//
+// Deprecated: Use NewBalancedURISelector
 func NewBalancedURIScoringMiddleware(uris []string, nanoClock func() int64) URIScoringMiddleware {
 	uriInfos := make(map[string]uriInfo, len(uris))
 	for _, uri := range uris {
@@ -100,30 +89,4 @@ func (u *balancedScorer) RoundTrip(req *http.Request, next http.RoundTripper) (*
 		}
 	}
 	return resp, nil
-}
-
-func (i *uriInfo) computeScore() int32 {
-	return atomic.LoadInt32(&i.inflight) + int32(math.Round(i.recentFailures.Get()))
-}
-
-func getBaseURI(u *url.URL) string {
-	uCopy := url.URL{
-		Scheme: u.Scheme,
-		Opaque: u.Opaque,
-		User:   u.User,
-		Host:   u.Host,
-	}
-	return uCopy.String()
-}
-
-func isGlobalQosStatus(statusCode int) bool {
-	return statusCode == StatusCodeRetryOther || statusCode == StatusCodeUnavailable
-}
-
-func isServerErrorRange(statusCode int) bool {
-	return statusCode/100 == 5
-}
-
-func isClientError(statusCode int) bool {
-	return statusCode/100 == 4
 }
