@@ -29,7 +29,8 @@ type roundRobinSelector struct {
 }
 
 // NewRoundRobinURISelector returns a URI scorer that uses a round robin algorithm for selecting URIs when scoring
-// using a rand.Rand seeded by the nanoClock function. The middleware no-ops on each request.
+// using a rand.Rand seeded by the nanoClock function. The middleware no-ops on each request. This selector will always
+// return one URI.
 func NewRoundRobinURISelector(nanoClock func() int64) URISelector {
 	return &roundRobinSelector{
 		source:   rand.NewSource(nanoClock()),
