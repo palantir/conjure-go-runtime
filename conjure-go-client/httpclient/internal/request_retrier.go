@@ -22,10 +22,6 @@ import (
 	"github.com/palantir/pkg/retry"
 )
 
-const (
-	meshSchemePrefix = "mesh-"
-)
-
 // RequestRetrier manages URIs for an HTTP client, providing an API which determines whether requests should be retries
 // and supplying the correct URL for the client to retry.
 // In the case of servers in a service-mesh, requests will never be retried and the mesh URI will only be returned on the
