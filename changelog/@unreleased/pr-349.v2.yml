@@ -1,0 +1,5 @@
+type: improvement
+improvement:
+  description: Refactor req retrier/URI selection into new URISelector interface.
+  links:
+  - https://github.com/palantir/conjure-go-runtime/pull/349
