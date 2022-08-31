@@ -1,0 +1,5 @@
+type: improvement
+improvement:
+  description: Codecs.JSON recognizes objects implementing Marshaler and Unmarshaler
+  links:
+  - https://github.com/palantir/conjure-go-runtime/pull/353
