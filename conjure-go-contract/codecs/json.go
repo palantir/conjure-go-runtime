@@ -15,10 +15,12 @@
 package codecs
 
 import (
-	"fmt"
+	"bytes"
+	"encoding/json"
 	"io"
 
 	"github.com/palantir/pkg/safejson"
+	werror "github.com/palantir/witchcraft-go-error"
 )
 
 const (
@@ -37,14 +39,37 @@ func (codecJSON) Accept() string {
 }
 
 func (codecJSON) Decode(r io.Reader, v interface{}) error {
+	if decoder, ok := v.(jsonDecoder); ok {
+		err := decoder.DecodeJSON(r)
+		return werror.Wrap(err, "DecodeJSON")
+	}
+	if unmarshaler, ok := v.(json.Unmarshaler); ok {
+		data, err := io.ReadAll(r)
+		if err != nil {
+			return werror.Wrap(err, "read failed")
+		}
+		err = unmarshaler.UnmarshalJSON(data)
+		return werror.Wrap(err, "UnmarshalJSON")
+	}
 	if err := safejson.Decoder(r).Decode(v); err != nil {
-		return fmt.Errorf("failed to decode JSON-encoded value: %s", err.Error())
+		return werror.Wrap(err, "json.Decode")
 	}
 	return nil
 }
 
 func (c codecJSON) Unmarshal(data []byte, v interface{}) error {
-	return safejson.Unmarshal(data, v)
+	if unmarshaler, ok := v.(json.Unmarshaler); ok {
+		err := unmarshaler.UnmarshalJSON(data)
+		return werror.Wrap(err, "UnmarshalJSON")
+	}
+	if decoder, ok := v.(jsonDecoder); ok {
+		err := decoder.DecodeJSON(bytes.NewReader(data))
+		return werror.Wrap(err, "DecodeJSON")
+	}
+	if err := safejson.Unmarshal(data, v); err != nil {
+		return werror.Wrap(err, "json.Unmarshal")
+	}
+	return nil
 }
 
 func (codecJSON) ContentType() string {
@@ -52,12 +77,32 @@ func (codecJSON) ContentType() string {
 }
 
 func (codecJSON) Encode(w io.Writer, v interface{}) error {
-	if err := safejson.Encoder(w).Encode(v); err != nil {
-		return fmt.Errorf("failed to JSON-encode value: %s", err.Error())
+	if encoder, ok := v.(jsonEncoder); ok {
+		err := encoder.EncodeJSON(w)
+		return werror.Wrap(err, "EncodeJSON")
 	}
-	return nil
+	if marshaler, ok := v.(json.Marshaler); ok {
+		out, err := marshaler.MarshalJSON()
+		if err != nil {
+			return werror.Wrap(err, "MarshalJSON")
+		}
+		_, err = w.Write(out)
+		return werror.Wrap(err, "write failed")
+	}
+	err := safejson.Encoder(w).Encode(v)
+	return werror.Wrap(err, "json.Encode")
 }
 
 func (c codecJSON) Marshal(v interface{}) ([]byte, error) {
-	return safejson.Marshal(v)
+	if marshaler, ok := v.(json.Marshaler); ok {
+		out, err := marshaler.MarshalJSON()
+		return out, werror.Wrap(err, "MarshalJSON")
+	}
+	if encoder, ok := v.(jsonEncoder); ok {
+		data := bytes.NewBuffer(nil)
+		err := encoder.EncodeJSON(data)
+		return data.Bytes(), werror.Wrap(err, "EncodeJSON")
+	}
+	out, err := safejson.Marshal(v)
+	return out, werror.Wrap(err, "json.Marshal")
 }
