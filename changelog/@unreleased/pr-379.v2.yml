@@ -1,0 +1,5 @@
+type: deprecation
+deprecation:
+  description: Remove connection.in_flight metric.
+  links:
+  - https://github.com/palantir/conjure-go-runtime/pull/379
