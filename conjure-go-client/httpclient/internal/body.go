@@ -32,13 +32,13 @@ func DrainBody(ctx context.Context, resp *http.Response) {
 			svc1log.FromContext(ctx).Warn("Failed to drain entire response body",
 				svc1log.SafeParam("bytes", bytes),
 				svc1log.Stacktrace(err))
-		} else {
+		} else if bytes > 0 {
 			svc1log.FromContext(ctx).Info("Drained remaining response body",
 				svc1log.SafeParam("bytes", bytes))
 		}
 
 		if err := resp.Body.Close(); err != nil {
-			svc1log.FromContext(ctx).Warn("Failed to close reponse body",
+			svc1log.FromContext(ctx).Warn("Failed to close response body",
 				svc1log.Stacktrace(err))
 		}
 	}
