@@ -1,0 +1,5 @@
+type: fix
+fix:
+  description: Exclude *url.URL from refreshable generation
+  links:
+  - https://github.com/palantir/conjure-go-runtime/pull/382
