@@ -31,6 +31,14 @@ type traceMiddleware struct {
 	InjectHeaders     bool
 }
 
+func newTraceMiddleware(serviceName string, createRequestSpan bool, injectHeaders bool) Middleware {
+	return traceMiddleware{
+		ServiceName:       serviceName,
+		CreateRequestSpan: createRequestSpan,
+		InjectHeaders:     injectHeaders,
+	}
+}
+
 func (t traceMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (*http.Response, error) {
 	ctx := req.Context()
 	span := wtracing.SpanFromContext(ctx)

@@ -24,7 +24,7 @@ import (
 	"time"
 
 	"github.com/palantir/pkg/metrics"
-	"github.com/palantir/pkg/refreshable"
+	"github.com/palantir/pkg/refreshable/v2"
 	werror "github.com/palantir/witchcraft-go-error"
 )
 
@@ -79,11 +79,11 @@ func (s StaticTagsProvider) Tags(_ *http.Request, _ *http.Response, _ error) met
 }
 
 type refreshableMetricsTagsProvider struct {
-	refreshable.Refreshable // contains metrics.Tags
+	refreshable.Refreshable[metrics.Tags]
 }
 
 func (r refreshableMetricsTagsProvider) Tags(_ *http.Request, _ *http.Response, _ error) metrics.Tags {
-	return r.Current().(metrics.Tags)
+	return r.Current()
 }
 
 // MetricsMiddleware updates the "client.response" timer metric on every request.
@@ -98,22 +98,23 @@ func MetricsMiddleware(serviceName string, tagProviders ...TagsProvider) (Middle
 	return newMetricsMiddleware(serviceNameTag, tagProviders, nil), nil
 }
 
-func newMetricsMiddleware(serviceNameTag metrics.Tag, tagProviders []TagsProvider, disabled refreshable.Bool) Middleware {
-	return &metricsMiddleware{
-		Disabled:       disabled,
-		ServiceNameTag: serviceNameTag,
-		Tags: append(
-			tagProviders,
-			TagsProviderFunc(tagStatusFamily),
-			TagsProviderFunc(tagRequestMethod),
-			TagsProviderFunc(tagRequestMethodName),
-			StaticTagsProvider(metrics.Tags{serviceNameTag}),
-		),
+func newMetricsMiddleware(serviceNameTag metrics.Tag, tagProviders []TagsProvider, disabled func() bool) Middleware {
+	return &conditionalMiddleware{
+		Disabled: disabled,
+		Delegate: &metricsMiddleware{
+			ServiceNameTag: serviceNameTag,
+			Tags: append(
+				tagProviders,
+				TagsProviderFunc(tagStatusFamily),
+				TagsProviderFunc(tagRequestMethod),
+				TagsProviderFunc(tagRequestMethodName),
+				StaticTagsProvider(metrics.Tags{serviceNameTag}),
+			),
+		},
 	}
 }
 
 type metricsMiddleware struct {
-	Disabled       refreshable.Bool
 	ServiceNameTag metrics.Tag
 	Tags           []TagsProvider
 }
@@ -121,11 +122,6 @@ type metricsMiddleware struct {
 // RoundTrip will emit counter and timer metrics with the name 'mariner.k8sClient.request'
 // and k8s for API group, API version, namespace, resource kind, request method, and response status code.
 func (h *metricsMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (*http.Response, error) {
-	if h.Disabled != nil && h.Disabled.CurrentBool() {
-		// If we have a Disabled refreshable and it is true, no-op.
-		return next.RoundTrip(req)
-	}
-
 	metrics.FromContext(req.Context()).Counter(MetricRequestInFlight, h.ServiceNameTag).Inc(1)
 	start := time.Now()
 	tlsMetricsContext := h.tlsTraceContext(req.Context())
@@ -235,7 +231,8 @@ func isTimeoutError(respErr error) bool {
 		return false
 	}
 
-	if nerr, ok := rootErr.(net.Error); ok && nerr.Timeout() {
+	var nErr net.Error
+	if errors.As(rootErr, &nErr) && nErr.Timeout() {
 		return true
 	}
 	if errors.Is(rootErr, context.Canceled) || errors.Is(rootErr, context.DeadlineExceeded) {

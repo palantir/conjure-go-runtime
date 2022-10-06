@@ -18,18 +18,13 @@ import (
 	"context"
 	"crypto/tls"
 	"net/http"
-	"net/url"
 	"time"
 
 	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient/internal"
-	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient/internal/refreshingclient"
 	"github.com/palantir/pkg/bytesbuffers"
-	"github.com/palantir/pkg/metrics"
-	"github.com/palantir/pkg/refreshable"
-	werror "github.com/palantir/witchcraft-go-error"
+	"github.com/palantir/pkg/refreshable/v2"
 )
 
-// ClientParam is a param that can be used to build
 type ClientParam interface {
 	apply(builder *clientBuilder) error
 }
@@ -38,82 +33,64 @@ type HTTPClientParam interface {
 	applyHTTPClient(builder *httpClientBuilder) error
 }
 
-// ClientOrHTTPClientParam is a param that can be used to build a Client or an http.Client
+type ConfigOverrideParam interface {
+	applyConfig(cfg *ClientConfig) error
+}
+
+// ClientOrHTTPClientParam is a param that can be used to build a Client or http.Client
 type ClientOrHTTPClientParam interface {
 	ClientParam
 	HTTPClientParam
 }
 
 // clientParamFunc is a convenience type that helps build a ClientParam. Use when you want a param that can be used to
-// build a Client and *not* an http.Client
+// build a Client and *not* a http.Client
 type clientParamFunc func(builder *clientBuilder) error
 
-func (f clientParamFunc) apply(b *clientBuilder) error {
-	return f(b)
-}
+func (f clientParamFunc) apply(b *clientBuilder) error { return f(b) }
 
 // httpClientParamFunc is a convenience type that helps build a HTTPClientParam. Use when you want a param that can be used to
-// build an http.Client and *not* a Client
+// build a http.Client and *not* a Client
 type httpClientParamFunc func(builder *httpClientBuilder) error
 
-func (f httpClientParamFunc) applyHTTPClient(b *httpClientBuilder) error {
-	return f(b)
-}
+func (f httpClientParamFunc) applyHTTPClient(b *httpClientBuilder) error { return f(b) }
 
 // clientOrHTTPClientParamFunc is a convenience type that helps build a ClientOrHTTPClientParam. Use when you want a param that can be used to
-// either as an Client or a http.Client
+// either as a Client or a http.Client
 type clientOrHTTPClientParamFunc func(builder *httpClientBuilder) error
 
-func (f clientOrHTTPClientParamFunc) apply(b *clientBuilder) error {
-	return f(b.HTTP)
-}
+func (f clientOrHTTPClientParamFunc) apply(b *clientBuilder) error               { return f(b.HTTP) }
+func (f clientOrHTTPClientParamFunc) applyHTTPClient(b *httpClientBuilder) error { return f(b) }
 
-func (f clientOrHTTPClientParamFunc) applyHTTPClient(b *httpClientBuilder) error {
-	return f(b)
+// configParamFunc
+type configParamFunc func(cfg *ClientConfig)
+
+func (f configParamFunc) apply(b *clientBuilder) error { return f.applyHTTPClient(b.HTTP) }
+func (f configParamFunc) applyHTTPClient(b *httpClientBuilder) error {
+	b.Config, _ = refreshable.Map(b.Config, func(cfg ClientConfig) ClientConfig {
+		f(&cfg)
+		return cfg
+	})
+	return nil
 }
 
 func WithConfig(c ClientConfig) ClientParam {
-	return clientParamFunc(func(b *clientBuilder) error {
-		params, err := configToParams(c)
-		if err != nil {
-			return err
-		}
-		for _, p := range params {
-			if err := p.apply(b); err != nil {
-				return err
-			}
-		}
-		return nil
+	return configParamFunc(func(cfg *ClientConfig) {
+		merged := MergeClientConfig(c, *cfg)
+		*cfg = merged
 	})
 }
 
 func WithConfigForHTTPClient(c ClientConfig) HTTPClientParam {
-	return httpClientParamFunc(func(b *httpClientBuilder) error {
-		params, err := configToParams(c)
-		if err != nil {
-			return err
-		}
-		for _, p := range params {
-			httpClientParam, ok := p.(HTTPClientParam)
-			if !ok {
-				return werror.Error("param from config was not a http client builder param")
-			}
-			if err := httpClientParam.applyHTTPClient(b); err != nil {
-				return err
-			}
-		}
-		return nil
+	return configParamFunc(func(cfg *ClientConfig) {
+		merged := MergeClientConfig(c, *cfg)
+		*cfg = merged
 	})
 }
 
 func WithServiceName(serviceName string) ClientOrHTTPClientParam {
-	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
-		tag, err := metrics.NewTag(MetricTagServiceName, serviceName)
-		if err != nil {
-			return err
-		}
-		b.ServiceNameTag = tag
-		return nil
+	return configParamFunc(func(cfg *ClientConfig) {
+		cfg.ServiceName = serviceName
 	})
 }
 
@@ -170,7 +147,7 @@ func WithOverrideRequestHost(host string) ClientOrHTTPClientParam {
 // The serviceName will appear as the "service-name" tag.
 func WithMetrics(tagProviders ...TagsProvider) ClientOrHTTPClientParam {
 	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
-		b.DisableMetrics = refreshable.NewBool(refreshable.NewDefaultRefreshable(false))
+		b.DisableMetrics = refreshable.New(false)
 		b.MetricsTagProviders = append(b.MetricsTagProviders, tagProviders...)
 		return nil
 	})
@@ -202,7 +179,7 @@ func WithDisablePanicRecovery() ClientOrHTTPClientParam {
 // be instrumented to read zipkin-style headers
 //
 // If a trace is already attached to a request context, then the trace is continued. Otherwise, no
-// trace information is propagate. This will not create a span if one does not exist.
+// trace information is propagated. This will not create a span if one does not exist.
 func WithDisableTracing() ClientOrHTTPClientParam {
 	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
 		b.CreateRequestSpan = false
@@ -223,21 +200,18 @@ func WithDisableTraceHeaderPropagation() ClientOrHTTPClientParam {
 // WithHTTPTimeout sets the timeout on the http client.
 // If unset, the client defaults to 1 minute.
 func WithHTTPTimeout(timeout time.Duration) ClientOrHTTPClientParam {
-	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
-		b.Timeout = refreshable.NewDuration(refreshable.NewDefaultRefreshable(timeout))
-		return nil
+	return configParamFunc(func(cfg *ClientConfig) {
+		cfg.ReadTimeout = &timeout
+		cfg.WriteTimeout = &timeout
 	})
 }
 
 // WithDisableHTTP2 skips the default behavior of configuring
 // the transport with http2.ConfigureTransport.
 func WithDisableHTTP2() ClientOrHTTPClientParam {
-	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
-		b.TransportParams = refreshingclient.ConfigureTransport(b.TransportParams, func(p refreshingclient.TransportParams) refreshingclient.TransportParams {
-			p.DisableHTTP2 = true
-			return p
-		})
-		return nil
+	return configParamFunc(func(cfg *ClientConfig) {
+		disable := true
+		cfg.DisableHTTP2 = &disable
 	})
 }
 
@@ -250,12 +224,8 @@ func WithDisableHTTP2() ClientOrHTTPClientParam {
 // The amount of time to wait for the ping response can be configured by the WithHTTP2PingTimeout param.
 // If unset, the client defaults to 30 seconds, if HTTP2 is enabled.
 func WithHTTP2ReadIdleTimeout(timeout time.Duration) ClientOrHTTPClientParam {
-	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
-		b.TransportParams = refreshingclient.ConfigureTransport(b.TransportParams, func(p refreshingclient.TransportParams) refreshingclient.TransportParams {
-			p.HTTP2ReadIdleTimeout = timeout
-			return p
-		})
-		return nil
+	return configParamFunc(func(cfg *ClientConfig) {
+		cfg.HTTP2ReadIdleTimeout = &timeout
 	})
 }
 
@@ -264,36 +234,24 @@ func WithHTTP2ReadIdleTimeout(timeout time.Duration) ClientOrHTTPClientParam {
 // the ReadIdleTimeout is > 0 otherwise pings (health checks) are not enabled.
 // If unset, the client defaults to 15 seconds, if HTTP/2 is enabled and the ReadIdleTimeout is > 0.
 func WithHTTP2PingTimeout(timeout time.Duration) ClientOrHTTPClientParam {
-	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
-		b.TransportParams = refreshingclient.ConfigureTransport(b.TransportParams, func(p refreshingclient.TransportParams) refreshingclient.TransportParams {
-			p.HTTP2PingTimeout = timeout
-			return p
-		})
-		return nil
+	return configParamFunc(func(cfg *ClientConfig) {
+		cfg.HTTP2PingTimeout = &timeout
 	})
 }
 
 // WithMaxIdleConns sets the number of reusable TCP connections the client
 // will maintain. If unset, the client defaults to 200.
 func WithMaxIdleConns(conns int) ClientOrHTTPClientParam {
-	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
-		b.TransportParams = refreshingclient.ConfigureTransport(b.TransportParams, func(p refreshingclient.TransportParams) refreshingclient.TransportParams {
-			p.MaxIdleConns = conns
-			return p
-		})
-		return nil
+	return configParamFunc(func(cfg *ClientConfig) {
+		cfg.MaxIdleConns = &conns
 	})
 }
 
 // WithMaxIdleConnsPerHost sets the number of reusable TCP connections the client
 // will maintain per destination. If unset, the client defaults to 100.
 func WithMaxIdleConnsPerHost(conns int) ClientOrHTTPClientParam {
-	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
-		b.TransportParams = refreshingclient.ConfigureTransport(b.TransportParams, func(p refreshingclient.TransportParams) refreshingclient.TransportParams {
-			p.MaxIdleConnsPerHost = conns
-			return p
-		})
-		return nil
+	return configParamFunc(func(cfg *ClientConfig) {
+		cfg.MaxIdleConnsPerHost = &conns
 	})
 }
 
@@ -301,54 +259,26 @@ func WithMaxIdleConnsPerHost(conns int) ClientOrHTTPClientParam {
 // ignoring any proxy set in the process's environment.
 // If unset, the default is http.ProxyFromEnvironment.
 func WithNoProxy() ClientOrHTTPClientParam {
-	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
-		b.DialerParams = refreshingclient.ConfigureDialer(b.DialerParams, func(p refreshingclient.DialerParams) refreshingclient.DialerParams {
-			p.SocksProxyURL = nil
-			return p
-		})
-		b.TransportParams = refreshingclient.ConfigureTransport(b.TransportParams, func(p refreshingclient.TransportParams) refreshingclient.TransportParams {
-			p.HTTPProxyURL = nil
-			p.ProxyFromEnvironment = false
-			return p
-		})
-		return nil
+	return configParamFunc(func(cfg *ClientConfig) {
+		proxy := false
+		cfg.ProxyFromEnvironment = &proxy
+		cfg.ProxyURL = nil
 	})
 }
 
 // WithProxyFromEnvironment can be used to set the HTTP(s) proxy to use
 // the Go standard library's http.ProxyFromEnvironment.
 func WithProxyFromEnvironment() ClientOrHTTPClientParam {
-	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
-		b.TransportParams = refreshingclient.ConfigureTransport(b.TransportParams, func(p refreshingclient.TransportParams) refreshingclient.TransportParams {
-			p.ProxyFromEnvironment = true
-			return p
-		})
-		return nil
+	return configParamFunc(func(cfg *ClientConfig) {
+		proxy := true
+		cfg.ProxyFromEnvironment = &proxy
 	})
 }
 
 // WithProxyURL can be used to set a socks5 or HTTP(s) proxy.
 func WithProxyURL(proxyURLString string) ClientOrHTTPClientParam {
-	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
-		proxyURL, err := url.Parse(proxyURLString)
-		if err != nil {
-			return werror.Wrap(err, "failed to parse proxy url")
-		}
-		switch proxyURL.Scheme {
-		case "http", "https":
-			b.TransportParams = refreshingclient.ConfigureTransport(b.TransportParams, func(p refreshingclient.TransportParams) refreshingclient.TransportParams {
-				p.HTTPProxyURL = proxyURL
-				return p
-			})
-		case "socks5", "socks5h":
-			b.DialerParams = refreshingclient.ConfigureDialer(b.DialerParams, func(p refreshingclient.DialerParams) refreshingclient.DialerParams {
-				p.SocksProxyURL = proxyURL
-				return p
-			})
-		default:
-			return werror.Error("unrecognized proxy scheme", werror.SafeParam("scheme", proxyURL.Scheme))
-		}
-		return nil
+	return configParamFunc(func(cfg *ClientConfig) {
+		cfg.ProxyURL = &proxyURLString
 	})
 }
 
@@ -379,36 +309,24 @@ func WithTLSInsecureSkipVerify() ClientOrHTTPClientParam {
 // WithDialTimeout sets the timeout on the Dialer.
 // If unset, the client defaults to 90 seconds.
 func WithDialTimeout(timeout time.Duration) ClientOrHTTPClientParam {
-	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
-		b.DialerParams = refreshingclient.ConfigureDialer(b.DialerParams, func(p refreshingclient.DialerParams) refreshingclient.DialerParams {
-			p.DialTimeout = timeout
-			return p
-		})
-		return nil
+	return configParamFunc(func(cfg *ClientConfig) {
+		cfg.ConnectTimeout = &timeout
 	})
 }
 
 // WithIdleConnTimeout sets the timeout for idle connections.
 // If unset, the client defaults to 90 seconds.
 func WithIdleConnTimeout(timeout time.Duration) ClientOrHTTPClientParam {
-	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
-		b.TransportParams = refreshingclient.ConfigureTransport(b.TransportParams, func(p refreshingclient.TransportParams) refreshingclient.TransportParams {
-			p.IdleConnTimeout = timeout
-			return p
-		})
-		return nil
+	return configParamFunc(func(cfg *ClientConfig) {
+		cfg.IdleConnTimeout = &timeout
 	})
 }
 
 // WithTLSHandshakeTimeout sets the timeout for TLS handshakes.
 // If unset, the client defaults to 10 seconds.
 func WithTLSHandshakeTimeout(timeout time.Duration) ClientOrHTTPClientParam {
-	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
-		b.TransportParams = refreshingclient.ConfigureTransport(b.TransportParams, func(p refreshingclient.TransportParams) refreshingclient.TransportParams {
-			p.TLSHandshakeTimeout = timeout
-			return p
-		})
-		return nil
+	return configParamFunc(func(cfg *ClientConfig) {
+		cfg.TLSHandshakeTimeout = &timeout
 	})
 }
 
@@ -416,12 +334,8 @@ func WithTLSHandshakeTimeout(timeout time.Duration) ClientOrHTTPClientParam {
 // fully writing the request headers if the request has an "Expect: 100-continue" header.
 // If unset, the client defaults to 1 second.
 func WithExpectContinueTimeout(timeout time.Duration) ClientOrHTTPClientParam {
-	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
-		b.TransportParams = refreshingclient.ConfigureTransport(b.TransportParams, func(p refreshingclient.TransportParams) refreshingclient.TransportParams {
-			p.ExpectContinueTimeout = timeout
-			return p
-		})
-		return nil
+	return configParamFunc(func(cfg *ClientConfig) {
+		cfg.ExpectContinueTimeout = &timeout
 	})
 }
 
@@ -429,55 +343,38 @@ func WithExpectContinueTimeout(timeout time.Duration) ClientOrHTTPClientParam {
 // the request (including its body, if any). This time does not include the time to read the response body. If unset,
 // the client defaults to having no response header timeout.
 func WithResponseHeaderTimeout(timeout time.Duration) ClientOrHTTPClientParam {
-	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
-		b.TransportParams = refreshingclient.ConfigureTransport(b.TransportParams, func(p refreshingclient.TransportParams) refreshingclient.TransportParams {
-			p.ResponseHeaderTimeout = timeout
-			return p
-		})
-		return nil
+	return configParamFunc(func(cfg *ClientConfig) {
+		cfg.ResponseHeaderTimeout = &timeout
 	})
 }
 
 // WithKeepAlive sets the keep alive frequency on the Dialer.
 // If unset, the client defaults to 30 seconds.
 func WithKeepAlive(keepAlive time.Duration) ClientOrHTTPClientParam {
-	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
-		b.DialerParams = refreshingclient.ConfigureDialer(b.DialerParams, func(p refreshingclient.DialerParams) refreshingclient.DialerParams {
-			p.KeepAlive = keepAlive
-			return p
-		})
-		return nil
+	return configParamFunc(func(cfg *ClientConfig) {
+		cfg.KeepAliveInterval = &keepAlive
 	})
 }
 
 // WithBaseURLs sets the base URLs for every request. This is meant to be used in conjunction with WithPath.
 func WithBaseURLs(urls []string) ClientParam {
-	return clientParamFunc(func(b *clientBuilder) error {
-		b.URIs = refreshable.NewStringSlice(refreshable.NewDefaultRefreshable(urls))
-		return nil
+	return configParamFunc(func(cfg *ClientConfig) {
+		cfg.URIs = urls
 	})
 }
 
 // WithMaxBackoff sets the maximum backoff between retried calls to the same URI.
 // Defaults to 2 seconds. <= 0 indicates no limit.
 func WithMaxBackoff(maxBackoff time.Duration) ClientParam {
-	return clientParamFunc(func(b *clientBuilder) error {
-		b.RetryParams = refreshingclient.ConfigureRetry(b.RetryParams, func(p refreshingclient.RetryParams) refreshingclient.RetryParams {
-			p.MaxBackoff = maxBackoff
-			return p
-		})
-		return nil
+	return configParamFunc(func(cfg *ClientConfig) {
+		cfg.MaxBackoff = &maxBackoff
 	})
 }
 
 // WithInitialBackoff sets the initial backoff between retried calls to the same URI. Defaults to 250ms.
 func WithInitialBackoff(initialBackoff time.Duration) ClientParam {
-	return clientParamFunc(func(b *clientBuilder) error {
-		b.RetryParams = refreshingclient.ConfigureRetry(b.RetryParams, func(p refreshingclient.RetryParams) refreshingclient.RetryParams {
-			p.InitialBackoff = initialBackoff
-			return p
-		})
-		return nil
+	return configParamFunc(func(cfg *ClientConfig) {
+		cfg.InitialBackoff = &initialBackoff
 	})
 }
 
@@ -486,21 +383,19 @@ func WithInitialBackoff(initialBackoff time.Duration) ClientParam {
 // If unset, the client defaults to 2 * size of URIs
 // TODO (#151): Rename to WithMaxAttempts and set maxAttempts directly using the argument provided to the function.
 func WithMaxRetries(maxTransportRetries int) ClientParam {
-	return clientParamFunc(func(b *clientBuilder) error {
+	return configParamFunc(func(cfg *ClientConfig) {
 		attempts := maxTransportRetries + 1
-		b.MaxAttempts = refreshable.NewIntPtr(refreshable.NewDefaultRefreshable(&attempts))
-		return nil
+		cfg.MaxNumRetries = &attempts
 	})
 }
 
 // WithUnlimitedRetries sets an unlimited number of retries on transport errors for every request.
 // If set, this supersedes any retry limits set with WithMaxRetries.
 func WithUnlimitedRetries() ClientParam {
-	return clientParamFunc(func(b *clientBuilder) error {
+	return configParamFunc(func(cfg *ClientConfig) {
 		// max attempts of 0 indicates no limit
 		attempts := 0
-		b.MaxAttempts = refreshable.NewIntPtr(refreshable.NewDefaultRefreshable(&attempts))
-		return nil
+		cfg.MaxNumRetries = &attempts
 	})
 }
 
@@ -515,12 +410,9 @@ func WithDisableRestErrors() ClientParam {
 
 // WithDisableKeepAlives disables keep alives on the http transport
 func WithDisableKeepAlives() ClientOrHTTPClientParam {
-	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
-		b.TransportParams = refreshingclient.ConfigureTransport(b.TransportParams, func(p refreshingclient.TransportParams) refreshingclient.TransportParams {
-			p.DisableKeepAlives = true
-			return p
-		})
-		return nil
+	return configParamFunc(func(cfg *ClientConfig) {
+		duration := time.Duration(0)
+		cfg.KeepAliveInterval = &duration
 	})
 }
 

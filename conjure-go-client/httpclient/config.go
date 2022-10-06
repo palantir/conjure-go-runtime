@@ -18,13 +18,15 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
-	"io/ioutil"
 	"net/url"
+	"os"
+	"reflect"
 	"sort"
 	"time"
 
 	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient/internal/refreshingclient"
 	"github.com/palantir/pkg/metrics"
+	"github.com/palantir/pkg/refreshable/v2"
 	"github.com/palantir/pkg/tlsconfig"
 	werror "github.com/palantir/witchcraft-go-error"
 	"github.com/palantir/witchcraft-go-logging/wlog/svclog/svc1log"
@@ -85,10 +87,13 @@ type ClientConfig struct {
 	IdleConnTimeout *time.Duration `json:"idle-conn-timeout,omitempty" yaml:"idle-conn-timeout,omitempty"`
 	// TLSHandshakeTimeout sets the timeout for TLS handshakes
 	TLSHandshakeTimeout *time.Duration `json:"tls-handshake-timeout,omitempty" yaml:"tls-handshake-timeout,omitempty"`
-	// IdleConnTimeout sets the timeout to receive the server's first response headers after
+	// ExpectContinueTimeout sets the timeout to receive the server's first response headers after
 	// fully writing the request headers if the request has an "Expect: 100-continue" header.
 	ExpectContinueTimeout *time.Duration `json:"expect-continue-timeout,omitempty" yaml:"expect-continue-timeout,omitempty"`
-
+	// ResponseHeaderTimeout sets the amount of time to wait for a server's response headers after fully writing
+	// the request (including its body, if any). This time does not include the time to read the response body. If unset,
+	// the client defaults to having no response header timeout.
+	ResponseHeaderTimeout *time.Duration `json:"response-header-timeout,omitempty" yaml:"response-header-timeout,omitempty"`
 	// HTTP2ReadIdleTimeout sets the maximum time to wait before sending periodic health checks (pings) for an HTTP/2 connection.
 	// If unset, the client defaults to 30s for HTTP/2 clients.
 	HTTP2ReadIdleTimeout *time.Duration `json:"http2-read-idle-timeout,omitempty" yaml:"http2-read-idle-timeout,omitempty"`
@@ -96,7 +101,9 @@ type ClientConfig struct {
 	// when health checking is enabled which is done by setting the HTTP2ReadIdleTimeout > 0.
 	// If unset, the client defaults to 15s if the HTTP2ReadIdleTimeout is > 0.
 	HTTP2PingTimeout *time.Duration `json:"http2-ping-timeout,omitempty" yaml:"http2-ping-timeout,omitempty"`
-
+	// KeepAliveInterval controls the duration between keep-alive packets.
+	// If unset, the client defaults to 30 seconds.  If set to <=0, keep-alives are disabled.
+	KeepAliveInterval *time.Duration `json:"keep-alive-interval,omitempty" yaml:"keep-alive-interval,omitempty"`
 	// MaxIdleConns sets the number of reusable TCP connections the client will maintain.
 	// If unset, the client defaults to 200.
 	MaxIdleConns *int `json:"max-idle-conns,omitempty" yaml:"max-idle-conns,omitempty"`
@@ -188,11 +195,17 @@ func MergeClientConfig(conf, defaults ClientConfig) ClientConfig {
 	if conf.ExpectContinueTimeout == nil {
 		conf.ExpectContinueTimeout = defaults.ExpectContinueTimeout
 	}
+	if conf.ResponseHeaderTimeout == nil {
+		conf.ResponseHeaderTimeout = defaults.ResponseHeaderTimeout
+	}
 	if conf.HTTP2ReadIdleTimeout == nil {
 		conf.HTTP2ReadIdleTimeout = defaults.HTTP2ReadIdleTimeout
 	}
 	if conf.HTTP2PingTimeout == nil {
 		conf.HTTP2PingTimeout = defaults.HTTP2PingTimeout
+	}
+	if conf.KeepAliveInterval == nil {
+		conf.KeepAliveInterval = defaults.KeepAliveInterval
 	}
 	if conf.MaxIdleConns == nil {
 		conf.MaxIdleConns = defaults.MaxIdleConns
@@ -257,7 +270,7 @@ func configToParams(c ClientConfig) ([]ClientParam, error) {
 	if c.APIToken != nil && *c.APIToken != "" {
 		params = append(params, WithAuthToken(*c.APIToken))
 	} else if c.APITokenFile != nil && *c.APITokenFile != "" {
-		token, err := ioutil.ReadFile(*c.APITokenFile)
+		token, err := os.ReadFile(*c.APITokenFile)
 		if err != nil {
 			return nil, werror.Wrap(err, "failed to read api-token-file", werror.SafeParam("file", *c.APITokenFile))
 		}
@@ -320,6 +333,9 @@ func configToParams(c ClientConfig) ([]ClientParam, error) {
 	if c.ExpectContinueTimeout != nil && *c.ExpectContinueTimeout != 0 {
 		params = append(params, WithExpectContinueTimeout(*c.ExpectContinueTimeout))
 	}
+	if c.ResponseHeaderTimeout != nil && *c.ResponseHeaderTimeout != 0 {
+		params = append(params, WithResponseHeaderTimeout(*c.ResponseHeaderTimeout))
+	}
 	if c.HTTP2ReadIdleTimeout != nil && *c.HTTP2ReadIdleTimeout >= 0 {
 		params = append(params, WithHTTP2ReadIdleTimeout(*c.HTTP2ReadIdleTimeout))
 	}
@@ -338,7 +354,7 @@ func configToParams(c ClientConfig) ([]ClientParam, error) {
 
 	// N.B. we only have one timeout field (not based on method) so just take the max of read and write for now.
 	var timeout time.Duration
-	if orZero(c.WriteTimeout) > orZero(c.ReadTimeout) {
+	if deref(c.WriteTimeout, 0) > deref(c.ReadTimeout, 0) {
 		timeout = *c.WriteTimeout
 	} else if c.ReadTimeout != nil {
 		timeout = *c.ReadTimeout
@@ -358,28 +374,31 @@ func configToParams(c ClientConfig) ([]ClientParam, error) {
 	return params, nil
 }
 
-func RefreshableClientConfigFromServiceConfig(servicesConfig RefreshableServicesConfig, serviceName string) RefreshableClientConfig {
-	return NewRefreshingClientConfig(servicesConfig.MapServicesConfig(func(servicesConfig ServicesConfig) interface{} {
+func RefreshableClientConfigFromServiceConfig(servicesConfig refreshable.Refreshable[ServicesConfig], serviceName string) refreshable.Refreshable[ClientConfig] {
+	out, _ := refreshable.Map(servicesConfig, func(servicesConfig ServicesConfig) ClientConfig {
 		return servicesConfig.ClientConfig(serviceName)
-	}))
+	})
+	return out
 }
 
 func newValidatedClientParamsFromConfig(ctx context.Context, config ClientConfig, isHTTPClient bool) (refreshingclient.ValidatedClientParams, error) {
 	dialer := refreshingclient.DialerParams{
-		DialTimeout: derefDurationPtr(config.ConnectTimeout, defaultDialTimeout),
-		KeepAlive:   defaultKeepAlive,
+		DialTimeout: deref(config.ConnectTimeout, defaultDialTimeout),
+		KeepAlive:   deref(config.KeepAliveInterval, defaultKeepAlive),
 	}
 
 	transport := refreshingclient.TransportParams{
-		MaxIdleConns:          derefIntPtr(config.MaxIdleConns, defaultMaxIdleConns),
-		MaxIdleConnsPerHost:   derefIntPtr(config.MaxIdleConnsPerHost, defaultMaxIdleConnsPerHost),
-		DisableHTTP2:          derefBoolPtr(config.DisableHTTP2, false),
-		IdleConnTimeout:       derefDurationPtr(config.IdleConnTimeout, defaultIdleConnTimeout),
-		ExpectContinueTimeout: derefDurationPtr(config.ExpectContinueTimeout, defaultExpectContinueTimeout),
-		HTTP2PingTimeout:      derefDurationPtr(config.HTTP2PingTimeout, defaultHTTP2PingTimeout),
-		HTTP2ReadIdleTimeout:  derefDurationPtr(config.HTTP2ReadIdleTimeout, defaultHTTP2ReadIdleTimeout),
-		ProxyFromEnvironment:  derefBoolPtr(config.ProxyFromEnvironment, true),
-		TLSHandshakeTimeout:   derefDurationPtr(config.TLSHandshakeTimeout, defaultTLSHandshakeTimeout),
+		MaxIdleConns:          deref(config.MaxIdleConns, defaultMaxIdleConns),
+		MaxIdleConnsPerHost:   deref(config.MaxIdleConnsPerHost, defaultMaxIdleConnsPerHost),
+		DisableHTTP2:          deref(config.DisableHTTP2, false),
+		IdleConnTimeout:       deref(config.IdleConnTimeout, defaultIdleConnTimeout),
+		ExpectContinueTimeout: deref(config.ExpectContinueTimeout, defaultExpectContinueTimeout),
+		ResponseHeaderTimeout: deref(config.ResponseHeaderTimeout, 0),
+		HTTP2PingTimeout:      deref(config.HTTP2PingTimeout, defaultHTTP2PingTimeout),
+		HTTP2ReadIdleTimeout:  deref(config.HTTP2ReadIdleTimeout, defaultHTTP2ReadIdleTimeout),
+		DisableKeepAlives:     dialer.KeepAlive <= 0,
+		ProxyFromEnvironment:  deref(config.ProxyFromEnvironment, true),
+		TLSHandshakeTimeout:   deref(config.TLSHandshakeTimeout, defaultTLSHandshakeTimeout),
 	}
 
 	if config.ProxyURL != nil {
@@ -403,7 +422,7 @@ func newValidatedClientParamsFromConfig(ctx context.Context, config ClientConfig
 		apiToken = config.APIToken
 	} else if config.APITokenFile != nil {
 		file := *config.APITokenFile
-		token, err := ioutil.ReadFile(file)
+		token, err := os.ReadFile(file)
 		if err != nil {
 			return refreshingclient.ValidatedClientParams{}, werror.WrapWithContextParams(ctx, err, "failed to read api-token-file", werror.SafeParam("file", file))
 		}
@@ -423,20 +442,21 @@ func newValidatedClientParamsFromConfig(ctx context.Context, config ClientConfig
 		return refreshingclient.ValidatedClientParams{}, err
 	}
 
-	retryParams := refreshingclient.RetryParams{
-		InitialBackoff: derefDurationPtr(config.InitialBackoff, defaultInitialBackoff),
-		MaxBackoff:     derefDurationPtr(config.MaxBackoff, defaultMaxBackoff),
-	}
 	var maxAttempts *int
 	if config.MaxNumRetries != nil {
 		attempts := *config.MaxNumRetries + 1
 		maxAttempts = &attempts
 	}
+	retryParams := refreshingclient.RetryParams{
+		MaxAttempts:    maxAttempts,
+		InitialBackoff: deref(config.InitialBackoff, defaultInitialBackoff),
+		MaxBackoff:     deref(config.MaxBackoff, defaultMaxBackoff),
+	}
 
 	timeout := defaultHTTPTimeout
 	if config.ReadTimeout != nil || config.WriteTimeout != nil {
-		rt := derefDurationPtr(config.ReadTimeout, 0)
-		wt := derefDurationPtr(config.WriteTimeout, 0)
+		rt := deref(config.ReadTimeout, 0)
+		wt := deref(config.WriteTimeout, 0)
 		// return max of read and write
 		if rt > wt {
 			timeout = rt
@@ -466,7 +486,6 @@ func newValidatedClientParamsFromConfig(ctx context.Context, config ClientConfig
 		BasicAuth:      basicAuth,
 		Dialer:         dialer,
 		DisableMetrics: disableMetrics,
-		MaxAttempts:    maxAttempts,
 		MetricsTags:    metricsTags,
 		Retry:          retryParams,
 		Timeout:        timeout,
@@ -475,27 +494,28 @@ func newValidatedClientParamsFromConfig(ctx context.Context, config ClientConfig
 	}, nil
 }
 
-func subscribeTLSConfigUpdateWarning(ctx context.Context, security RefreshableSecurityConfig) (*tls.Config, error) {
+func subscribeTLSConfigUpdateWarning(ctx context.Context, cfg refreshable.Refreshable[ClientConfig]) (*tls.Config, error) {
 	//TODO: Implement refreshable TLS configuration.
 	// It is hard to represent all of the configuration (e.g. a dynamic function for GetCertificate) in primitive values friendly to reflect.DeepEqual.
-	currentSecurity := security.CurrentSecurityConfig()
-
-	security.CAFiles().SubscribeToStringSlice(func(caFiles []string) {
-		svc1log.FromContext(ctx).Warn("conjure-go-runtime: CAFiles configuration changed but can not be live-reloaded.",
-			svc1log.SafeParam("existingCAFiles", currentSecurity.CAFiles),
-			svc1log.SafeParam("ignoredCAFiles", caFiles))
+	currentSecurity := cfg.Current().Security
+	cfg.Subscribe(func(cfg ClientConfig) {
+		security := cfg.Security
+		if !reflect.DeepEqual(security.CAFiles, currentSecurity.CAFiles) {
+			svc1log.FromContext(ctx).Warn("conjure-go-runtime: CAFiles configuration changed but can not be live-reloaded.",
+				svc1log.SafeParam("existingCAFiles", currentSecurity.CAFiles),
+				svc1log.SafeParam("ignoredCAFiles", security.CAFiles))
+		}
+		if security.CertFile != currentSecurity.CertFile {
+			svc1log.FromContext(ctx).Warn("conjure-go-runtime: CertFile configuration changed but can not be live-reloaded.",
+				svc1log.SafeParam("existingCertFile", currentSecurity.CertFile),
+				svc1log.SafeParam("ignoredCertFile", security.CertFile))
+		}
+		if security.KeyFile != currentSecurity.KeyFile {
+			svc1log.FromContext(ctx).Warn("conjure-go-runtime: KeyFile configuration changed but can not be live-reloaded.",
+				svc1log.SafeParam("existingKeyFile", currentSecurity.KeyFile),
+				svc1log.SafeParam("ignoredKeyFile", security.KeyFile))
+		}
 	})
-	security.CertFile().SubscribeToString(func(certFile string) {
-		svc1log.FromContext(ctx).Warn("conjure-go-runtime: CertFile configuration changed but can not be live-reloaded.",
-			svc1log.SafeParam("existingCertFile", currentSecurity.CertFile),
-			svc1log.SafeParam("ignoredCertFile", certFile))
-	})
-	security.KeyFile().SubscribeToString(func(keyFile string) {
-		svc1log.FromContext(ctx).Warn("conjure-go-runtime: KeyFile configuration changed but can not be live-reloaded.",
-			svc1log.SafeParam("existingKeyFile", currentSecurity.KeyFile),
-			svc1log.SafeParam("ignoredKeyFile", keyFile))
-	})
-
 	return newTLSConfig(currentSecurity)
 }
 
@@ -517,27 +537,9 @@ func newTLSConfig(security SecurityConfig) (*tls.Config, error) {
 	return nil, nil
 }
 
-func derefDurationPtr(durPtr *time.Duration, defaultVal time.Duration) time.Duration {
-	if durPtr == nil {
+func deref[T any](ptr *T, defaultVal T) T {
+	if ptr == nil {
 		return defaultVal
 	}
-	return *durPtr
-}
-
-func derefIntPtr(intPtr *int, defaultVal int) int {
-	if intPtr == nil {
-		return defaultVal
-	}
-	return *intPtr
-}
-
-func derefBoolPtr(boolPtr *bool, defaultVal bool) bool {
-	if boolPtr == nil {
-		return defaultVal
-	}
-	return *boolPtr
-}
-
-func orZero(d *time.Duration) time.Duration {
-	return derefDurationPtr(d, 0)
+	return *ptr
 }

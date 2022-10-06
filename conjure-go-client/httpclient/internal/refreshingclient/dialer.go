@@ -20,7 +20,7 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/palantir/pkg/refreshable"
+	"github.com/palantir/pkg/refreshable/v2"
 	"github.com/palantir/witchcraft-go-logging/wlog/svclog/svc1log"
 	"golang.org/x/net/proxy"
 )
@@ -36,40 +36,31 @@ type ContextDialer interface {
 	DialContext(ctx context.Context, network, address string) (net.Conn, error)
 }
 
-func NewRefreshableDialer(ctx context.Context, p RefreshableDialerParams) ContextDialer {
-	return &RefreshableDialer{
-		Refreshable: p.MapDialerParams(func(p DialerParams) interface{} {
-			svc1log.FromContext(ctx).Debug("Reconstructing HTTP Dialer")
-			dialer := &net.Dialer{
-				Timeout:   p.DialTimeout,
-				KeepAlive: p.KeepAlive,
-			}
-			if p.SocksProxyURL == nil {
-				return dialer
-			}
-			proxyDialer, err := proxy.FromURL(p.SocksProxyURL, dialer)
-			if err != nil {
-				// should never happen; checked in the validating refreshable
-				svc1log.FromContext(ctx).Error("Failed to construct socks5 dialer. Please report this as a bug in conjure-go-runtime.", svc1log.Stacktrace(err))
-				return dialer
-			}
-			return proxyDialer
-		}),
-	}
-}
-
-// ConfigureDialer accepts a mapping function which will be applied to the params value as it is evaluated.
-// This can be used to layer/overwrite configuration before building the RefreshableDialer.
-func ConfigureDialer(r RefreshableDialerParams, mapFn func(p DialerParams) DialerParams) RefreshableDialerParams {
-	return NewRefreshingDialerParams(r.MapDialerParams(func(params DialerParams) interface{} {
-		return mapFn(params)
-	}))
+func NewRefreshableDialer(ctx context.Context, p refreshable.Refreshable[DialerParams]) ContextDialer {
+	out, _ := refreshable.Map(p, func(p DialerParams) ContextDialer {
+		svc1log.FromContext(ctx).Debug("Reconstructing HTTP Dialer")
+		dialer := &net.Dialer{
+			Timeout:   p.DialTimeout,
+			KeepAlive: p.KeepAlive,
+		}
+		if p.SocksProxyURL == nil {
+			return dialer
+		}
+		proxyDialer, err := proxy.FromURL(p.SocksProxyURL, dialer)
+		if err != nil {
+			// should never happen; checked in the validating refreshable
+			svc1log.FromContext(ctx).Error("Failed to construct socks5 dialer. Please report this as a bug in conjure-go-runtime.", svc1log.Stacktrace(err))
+			return dialer
+		}
+		return proxyDialer.(ContextDialer)
+	})
+	return &RefreshableDialer{r: out}
 }
 
 type RefreshableDialer struct {
-	refreshable.Refreshable // contains ContextDialer
+	r refreshable.Refreshable[ContextDialer]
 }
 
 func (r *RefreshableDialer) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
-	return r.Current().(ContextDialer).DialContext(ctx, network, address)
+	return r.r.Current().DialContext(ctx, network, address)
 }

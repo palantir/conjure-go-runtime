@@ -15,9 +15,11 @@
 package refreshingclient
 
 import (
+	"context"
 	"time"
 
 	"github.com/palantir/pkg/metrics"
+	"github.com/palantir/pkg/refreshable/v2"
 )
 
 // ValidatedClientParams represents a set of fields derived from a snapshot of ClientConfig.
@@ -29,7 +31,6 @@ type ValidatedClientParams struct {
 	BasicAuth      *BasicAuth
 	Dialer         DialerParams
 	DisableMetrics bool
-	MaxAttempts    *int
 	MetricsTags    metrics.Tags
 	Retry          RetryParams
 	Timeout        time.Duration
@@ -41,4 +42,21 @@ type ValidatedClientParams struct {
 type BasicAuth struct {
 	User     string
 	Password string
+}
+
+func (p ValidatedClientParams) GetAPIToken() *string          { return p.APIToken }
+func (p ValidatedClientParams) GetDialerParams() DialerParams { return p.Dialer }
+func (p ValidatedClientParams) GetDisableMetrics() bool       { return p.DisableMetrics }
+func (p ValidatedClientParams) GetMetricsTags() metrics.Tags  { return p.MetricsTags }
+func (p ValidatedClientParams) GetRetry() RetryParams         { return p.Retry }
+func (p ValidatedClientParams) GetTimeout() time.Duration     { return p.Timeout }
+func (p ValidatedClientParams) GetTransport() TransportParams { return p.Transport }
+func (p ValidatedClientParams) GetURIs() []string             { return p.URIs }
+
+func MapValidClientParams[T any](
+	ctx context.Context,
+	r refreshable.Refreshable[ValidatedClientParams],
+	mapFn func(val ValidatedClientParams) T,
+) refreshable.Refreshable[T] {
+	return refreshable.MapContext[ValidatedClientParams, T](ctx, r, mapFn)
 }
