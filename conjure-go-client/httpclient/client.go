@@ -18,6 +18,7 @@ import (
 	"context"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient/internal"
@@ -26,6 +27,7 @@ import (
 	"github.com/palantir/pkg/refreshable"
 	werror "github.com/palantir/witchcraft-go-error"
 	"github.com/palantir/witchcraft-go-logging/wlog/svclog/svc1log"
+	wparams "github.com/palantir/witchcraft-go-params"
 )
 
 // A Client executes requests to a configured service.
@@ -82,6 +84,10 @@ func (c *clientImpl) Delete(ctx context.Context, params ...RequestParam) (*http.
 }
 
 func (c *clientImpl) Do(ctx context.Context, params ...RequestParam) (*http.Response, error) {
+	if methodName := getRPCMethodName(ctx); methodName != "" {
+		ctx = wparams.ContextWithSafeParam(ctx, "rpcMethodName", methodName)
+	}
+
 	uris := c.uriScorer.CurrentURIScoringMiddleware().GetURIsInOrderOfIncreasingScore()
 	if len(uris) == 0 {
 		return nil, werror.ErrorWithContextParams(ctx, "no base URIs are configured")
@@ -94,17 +100,28 @@ func (c *clientImpl) Do(ctx context.Context, params ...RequestParam) (*http.Resp
 		}
 	}
 
+	// Used for logging maxAttempts
+	maxAttemptsLogParam := strconv.Itoa(attempts)
+	if attempts == 0 {
+		maxAttemptsLogParam = "unlimited"
+	}
+
 	var err error
 	var resp *http.Response
 
 	retrier := internal.NewRequestRetrier(uris, c.backoffOptions.CurrentRetryParams().Start(ctx), attempts)
+	failureCount := 0
 	for {
 		uri, isRelocated := retrier.GetNextURI(resp, err)
 		if uri == "" {
 			break
 		}
 		if err != nil {
-			svc1log.FromContext(ctx).Debug("Retrying request", svc1log.Stacktrace(err))
+			failureCount++
+			svc1log.FromContext(ctx).Info("Retrying request",
+				svc1log.Stacktrace(err),
+				svc1log.SafeParam("failures", failureCount),
+				svc1log.SafeParam("maxAttempts", maxAttemptsLogParam))
 		}
 		resp, err = c.doOnce(ctx, uri, isRelocated, params...)
 	}
