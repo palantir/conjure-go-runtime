@@ -169,7 +169,6 @@ type RefreshableURLPtr interface {
 	Host() refreshable.String
 	Path() refreshable.String
 	RawPath() refreshable.String
-	OmitHost() refreshable.Bool
 	ForceQuery() refreshable.Bool
 	RawQuery() refreshable.String
 	Fragment() refreshable.String
@@ -236,12 +235,6 @@ func (r RefreshingURLPtr) RawPath() refreshable.String {
 	}))
 }
 
-func (r RefreshingURLPtr) OmitHost() refreshable.Bool {
-	return refreshable.NewBool(r.MapURLPtr(func(i *url.URL) interface{} {
-		return i.OmitHost
-	}))
-}
-
 func (r RefreshingURLPtr) ForceQuery() refreshable.Bool {
 	return refreshable.NewBool(r.MapURLPtr(func(i *url.URL) interface{} {
 		return i.ForceQuery
@@ -278,7 +271,6 @@ type RefreshableURL interface {
 	Host() refreshable.String
 	Path() refreshable.String
 	RawPath() refreshable.String
-	OmitHost() refreshable.Bool
 	ForceQuery() refreshable.Bool
 	RawQuery() refreshable.String
 	Fragment() refreshable.String
@@ -342,12 +334,6 @@ func (r RefreshingURL) Path() refreshable.String {
 func (r RefreshingURL) RawPath() refreshable.String {
 	return refreshable.NewString(r.MapURL(func(i url.URL) interface{} {
 		return i.RawPath
-	}))
-}
-
-func (r RefreshingURL) OmitHost() refreshable.Bool {
-	return refreshable.NewBool(r.MapURL(func(i url.URL) interface{} {
-		return i.OmitHost
 	}))
 }
 
