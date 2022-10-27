@@ -169,6 +169,14 @@ func WithMetrics(tagProviders ...TagsProvider) ClientOrHTTPClientParam {
 	})
 }
 
+// WithDisableConnectionMetrics disables detailed metrics about the TLS connection(s) created by the client.
+func WithDisableConnectionMetrics() ClientOrHTTPClientParam {
+	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
+		b.DisableConnMetrics = true
+		return nil
+	})
+}
+
 // WithBytesBufferPool stores a bytes buffer pool on the client for use in encoding request bodies.
 // This prevents allocating a new byte buffer for every request.
 func WithBytesBufferPool(pool bytesbuffers.Pool) ClientParam {

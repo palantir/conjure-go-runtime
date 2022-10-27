@@ -68,6 +68,7 @@ type httpClientBuilder struct {
 	Middlewares     []Middleware
 
 	DisableMetrics      refreshable.Bool
+	DisableConnMetrics  bool
 	MetricsTagProviders []TagsProvider
 
 	// These middleware options are not refreshed anywhere because they are not in ClientConfig,
@@ -92,7 +93,7 @@ func (b *httpClientBuilder) Build(ctx context.Context, params ...HTTPClientParam
 		Dialer:         refreshingclient.NewRefreshableDialer(ctx, b.DialerParams),
 	}
 	transport := refreshingclient.NewRefreshableTransport(ctx, b.TransportParams, b.TLSConfig, dialer)
-	transport = wrapTransport(transport, newMetricsMiddleware(b.ServiceNameTag, b.MetricsTagProviders, b.DisableMetrics))
+	transport = wrapTransport(transport, newMetricsMiddleware(b.ServiceNameTag, b.MetricsTagProviders, b.DisableMetrics, b.DisableConnMetrics))
 	transport = wrapTransport(transport, traceMiddleware{
 		ServiceName:       b.ServiceNameTag.Value(),
 		CreateRequestSpan: b.CreateRequestSpan,
