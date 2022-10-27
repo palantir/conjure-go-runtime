@@ -4,7 +4,7 @@ go 1.19
 
 require (
 	github.com/palantir/go-metrics v1.1.1
-	github.com/palantir/pkg/bytesbuffers v1.1.0
+	github.com/palantir/pkg/bytesbuffers v1.2.0
 	github.com/palantir/pkg/httpserver v1.1.0
 	github.com/palantir/pkg/metrics v1.4.0
 	github.com/palantir/pkg/refreshable v1.4.0
