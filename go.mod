@@ -3,7 +3,6 @@ module github.com/palantir/conjure-go-runtime/v2
 go 1.19
 
 require (
-	github.com/palantir/go-metrics v1.1.1
 	github.com/palantir/pkg/bytesbuffers v1.2.0
 	github.com/palantir/pkg/httpserver v1.1.0
 	github.com/palantir/pkg/metrics v1.4.0
@@ -25,6 +24,7 @@ require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/kr/pretty v0.1.0 // indirect
 	github.com/openzipkin/zipkin-go v0.2.2 // indirect
+	github.com/palantir/go-metrics v1.1.1 // indirect
 	github.com/palantir/pkg v1.1.0 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
