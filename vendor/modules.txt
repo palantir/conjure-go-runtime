@@ -16,7 +16,7 @@ github.com/palantir/go-metrics
 # github.com/palantir/pkg v1.1.0
 ## explicit; go 1.19
 github.com/palantir/pkg
-# github.com/palantir/pkg/bytesbuffers v1.1.0
+# github.com/palantir/pkg/bytesbuffers v1.2.0
 ## explicit; go 1.19
 github.com/palantir/pkg/bytesbuffers
 # github.com/palantir/pkg/httpserver v1.1.0
@@ -37,7 +37,7 @@ github.com/palantir/pkg/safejson
 # github.com/palantir/pkg/tlsconfig v1.2.0
 ## explicit; go 1.19
 github.com/palantir/pkg/tlsconfig
-# github.com/palantir/pkg/uuid v1.1.0
+# github.com/palantir/pkg/uuid v1.2.0
 ## explicit; go 1.19
 github.com/palantir/pkg/uuid
 github.com/palantir/pkg/uuid/internal/uuid
@@ -45,7 +45,7 @@ github.com/palantir/pkg/uuid/internal/uuid
 ## explicit; go 1.19
 github.com/palantir/witchcraft-go-error
 github.com/palantir/witchcraft-go-error/internal/errors
-# github.com/palantir/witchcraft-go-logging v1.29.0
+# github.com/palantir/witchcraft-go-logging v1.31.0
 ## explicit; go 1.19
 github.com/palantir/witchcraft-go-logging/internal/gopath
 github.com/palantir/witchcraft-go-logging/wlog
@@ -65,7 +65,7 @@ github.com/pkg/errors
 # github.com/pmezard/go-difflib v1.0.0
 ## explicit
 github.com/pmezard/go-difflib/difflib
-# github.com/stretchr/testify v1.8.0
+# github.com/stretchr/testify v1.8.1
 ## explicit; go 1.13
 github.com/stretchr/testify/assert
 github.com/stretchr/testify/require
@@ -77,8 +77,8 @@ golang.org/x/net/http2/hpack
 golang.org/x/net/idna
 golang.org/x/net/internal/socks
 golang.org/x/net/proxy
-# golang.org/x/text v0.3.6
-## explicit; go 1.11
+# golang.org/x/text v0.4.0
+## explicit; go 1.17
 golang.org/x/text/secure/bidirule
 golang.org/x/text/transform
 golang.org/x/text/unicode/bidi

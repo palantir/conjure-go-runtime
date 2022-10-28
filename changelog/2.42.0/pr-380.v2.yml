@@ -1,0 +1,5 @@
+type: improvement
+improvement:
+  description: Improve observability when draining and closing response body
+  links:
+  - https://github.com/palantir/conjure-go-runtime/pull/380
