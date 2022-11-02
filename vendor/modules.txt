@@ -41,7 +41,7 @@ github.com/palantir/pkg/tlsconfig
 ## explicit; go 1.19
 github.com/palantir/pkg/uuid
 github.com/palantir/pkg/uuid/internal/uuid
-# github.com/palantir/witchcraft-go-error v1.17.0
+# github.com/palantir/witchcraft-go-error v1.18.0
 ## explicit; go 1.19
 github.com/palantir/witchcraft-go-error
 github.com/palantir/witchcraft-go-error/internal/errors
@@ -51,10 +51,10 @@ github.com/palantir/witchcraft-go-logging/internal/gopath
 github.com/palantir/witchcraft-go-logging/wlog
 github.com/palantir/witchcraft-go-logging/wlog/internal
 github.com/palantir/witchcraft-go-logging/wlog/svclog/svc1log
-# github.com/palantir/witchcraft-go-params v1.14.0
+# github.com/palantir/witchcraft-go-params v1.15.0
 ## explicit; go 1.19
 github.com/palantir/witchcraft-go-params
-# github.com/palantir/witchcraft-go-tracing v1.16.0
+# github.com/palantir/witchcraft-go-tracing v1.17.0
 ## explicit; go 1.19
 github.com/palantir/witchcraft-go-tracing/wtracing
 github.com/palantir/witchcraft-go-tracing/wtracing/propagation/b3
@@ -69,7 +69,7 @@ github.com/pmezard/go-difflib/difflib
 ## explicit; go 1.13
 github.com/stretchr/testify/assert
 github.com/stretchr/testify/require
-# golang.org/x/net v0.0.0-20210805182204-aaa1db679c0d
+# golang.org/x/net v0.1.0
 ## explicit; go 1.17
 golang.org/x/net/http/httpguts
 golang.org/x/net/http2
