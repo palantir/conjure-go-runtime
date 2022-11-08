@@ -147,8 +147,6 @@ func tagStatusFamily(_ *http.Request, resp *http.Response, respErr error) metric
 	switch {
 	case isTimeoutError(respErr):
 		return metrics.Tags{metricTagFamilyTimeout}
-	case resp.StatusCode == 429:
-		return metrics.Tags{metricTagFamilyTooManyRequests}
 	case resp == nil, resp.StatusCode < 100, resp.StatusCode > 599:
 		return metrics.Tags{metricTagFamilyOther}
 	case resp.StatusCode < 200:
@@ -157,6 +155,8 @@ func tagStatusFamily(_ *http.Request, resp *http.Response, respErr error) metric
 		return metrics.Tags{metricTagFamily2xx}
 	case resp.StatusCode < 400:
 		return metrics.Tags{metricTagFamily3xx}
+	case resp.StatusCode == 429:
+		return metrics.Tags{metricTagFamilyTooManyRequests}
 	case resp.StatusCode < 500:
 		return metrics.Tags{metricTagFamily4xx}
 	case resp.StatusCode < 600:
