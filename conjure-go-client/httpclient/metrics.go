@@ -50,13 +50,14 @@ var (
 	MetricTagConnectionNew    = metrics.MustNewTag("reused", "false")
 	MetricTagConnectionReused = metrics.MustNewTag("reused", "true")
 
-	metricTagFamily1xx     = metrics.MustNewTag(metricTagFamily, "1xx")
-	metricTagFamily2xx     = metrics.MustNewTag(metricTagFamily, "2xx")
-	metricTagFamily3xx     = metrics.MustNewTag(metricTagFamily, "3xx")
-	metricTagFamily4xx     = metrics.MustNewTag(metricTagFamily, "4xx")
-	metricTagFamily5xx     = metrics.MustNewTag(metricTagFamily, "5xx")
-	metricTagFamilyOther   = metrics.MustNewTag(metricTagFamily, "other")
-	metricTagFamilyTimeout = metrics.MustNewTag(metricTagFamily, "timeout")
+	metricTagFamily1xx             = metrics.MustNewTag(metricTagFamily, "1xx")
+	metricTagFamily2xx             = metrics.MustNewTag(metricTagFamily, "2xx")
+	metricTagFamily3xx             = metrics.MustNewTag(metricTagFamily, "3xx")
+	metricTagFamily4xx             = metrics.MustNewTag(metricTagFamily, "4xx")
+	metricTagFamily5xx             = metrics.MustNewTag(metricTagFamily, "5xx")
+	metricTagFamilyOther           = metrics.MustNewTag(metricTagFamily, "other")
+	metricTagFamilyTimeout         = metrics.MustNewTag(metricTagFamily, "timeout")
+	metricTagFamilyTooManyRequests = metrics.MustNewTag(metricTagFamily, "too-many-requests")
 )
 
 // A TagsProvider returns metrics tags based on an http round trip.
@@ -146,6 +147,8 @@ func tagStatusFamily(_ *http.Request, resp *http.Response, respErr error) metric
 	switch {
 	case isTimeoutError(respErr):
 		return metrics.Tags{metricTagFamilyTimeout}
+	case resp.StatusCode == 429:
+		return metrics.Tags{metricTagFamilyTooManyRequests}
 	case resp == nil, resp.StatusCode < 100, resp.StatusCode > 599:
 		return metrics.Tags{metricTagFamilyOther}
 	case resp.StatusCode < 200:
