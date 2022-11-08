@@ -1,0 +1,5 @@
+type: improvement
+improvement:
+  description: Add metric tag family for too many requests http errors
+  links:
+  - https://github.com/palantir/conjure-go-runtime/pull/402
