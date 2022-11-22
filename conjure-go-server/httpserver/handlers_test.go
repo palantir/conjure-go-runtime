@@ -40,6 +40,7 @@ func TestHandler_ServeHTTP(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
 		handler    func(http.ResponseWriter, *http.Request) error
+		rwCreator  func(w http.ResponseWriter) http.ResponseWriter
 		verifyResp func(*testing.T, *http.Response)
 		verifyLog  func(*testing.T, []byte)
 	}{
@@ -217,6 +218,38 @@ func TestHandler_ServeHTTP(t *testing.T) {
 				assert.Equal(t, map[string]interface{}{"unsafeParam": "unsafeValue"}, logLine["unsafeParams"])
 			},
 		},
+		{
+			name: "Error after writing to response",
+			rwCreator: func(w http.ResponseWriter) http.ResponseWriter {
+				return &testResponseWriter{ResponseWriter: w}
+			},
+			handler: func(rw http.ResponseWriter, req *http.Request) error {
+				_, err := rw.Write([]byte("ok"))
+				if err != nil {
+					return err
+				}
+				return fmt.Errorf("an error after writing")
+			},
+			verifyResp: func(t *testing.T, resp *http.Response) {
+				assert.Equal(t, http.StatusOK, resp.StatusCode)
+				body, err := ioutil.ReadAll(resp.Body)
+				assert.NoError(t, err)
+				assert.Equal(t, "ok", string(body))
+			},
+			verifyLog: func(t *testing.T, i []byte) {
+				logs := bytes.Split(bytes.TrimSpace(i), []byte("\n"))
+				require.Len(t, logs, 2)
+				logLine1 := map[string]interface{}{}
+				err := codecs.JSON.Unmarshal(logs[0], &logLine1)
+				require.NoError(t, err)
+				assert.Equal(t, "Error handling request", logLine1["message"])
+
+				logLine2 := map[string]interface{}{}
+				err = codecs.JSON.Unmarshal(logs[1], &logLine2)
+				require.NoError(t, err)
+				assert.Equal(t, "Error encountered after HTTP response was written. Can not encode error to response.", logLine2["message"])
+			},
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var logBuf bytes.Buffer
@@ -229,7 +262,11 @@ func TestHandler_ServeHTTP(t *testing.T) {
 
 			recorder := httptest.NewRecorder()
 			handler := NewJSONHandler(tc.handler, StatusCodeMapper, ErrHandler)
-			handler.ServeHTTP(recorder, req)
+			rw := http.ResponseWriter(recorder)
+			if tc.rwCreator != nil {
+				rw = tc.rwCreator(rw)
+			}
+			handler.ServeHTTP(rw, req)
 			tc.verifyResp(t, recorder.Result())
 			tc.verifyLog(t, logBuf.Bytes())
 		})
@@ -301,4 +338,29 @@ func (e testJSONErrorMarshalFails) Error() string {
 
 func (e testJSONErrorMarshalFails) MarshalJSON() ([]byte, error) {
 	return nil, werror.Error("failed to marshal json")
+}
+
+// testResponseWriter is a mock implementation matching the behavior of the WGS negroni writer.
+// See https://github.com/palantir/witchcraft-go-server/blob/be686c58a771e6d67b71d7910ea57dcee56c56c5/witchcraft/internal/negroni/response_writer.go#L43
+type testResponseWriter struct {
+	http.ResponseWriter
+	status int
+}
+
+func (rw *testResponseWriter) WriteHeader(s int) {
+	rw.status = s
+	rw.ResponseWriter.WriteHeader(s)
+}
+
+func (rw *testResponseWriter) Write(b []byte) (int, error) {
+	if !rw.Written() {
+		// The status will be StatusOK if WriteHeader has not been called yet
+		rw.WriteHeader(http.StatusOK)
+	}
+	size, err := rw.ResponseWriter.Write(b)
+	return size, err
+}
+
+func (rw *testResponseWriter) Written() bool {
+	return rw.status != 0
 }

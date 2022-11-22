@@ -384,8 +384,6 @@ func TestMetricsMiddleware_InFlightRequests(t *testing.T) {
 	serviceNameTag := metrics.MustNewTag("service-name", "test-service")
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		dialerMetric := rootRegistry.Counter(httpclient.MetricConnInflight, serviceNameTag).Count()
-		assert.Equal(t, int64(1), dialerMetric, "%s should be nonzero during a request", httpclient.MetricConnInflight)
 		clientMetric := rootRegistry.Counter(httpclient.MetricRequestInFlight, serviceNameTag).Count()
 		assert.Equal(t, int64(1), clientMetric, "%s should be nonzero during a request", httpclient.MetricRequestInFlight)
 		w.WriteHeader(200)
@@ -413,11 +411,4 @@ func TestMetricsMiddleware_InFlightRequests(t *testing.T) {
 
 	clientMetric := rootRegistry.Counter(httpclient.MetricRequestInFlight, serviceNameTag)
 	assert.Equal(t, int64(0), clientMetric.Count(), "%s should be zero after a request", httpclient.MetricRequestInFlight)
-
-	dialerMetric := rootRegistry.Counter(httpclient.MetricConnInflight, serviceNameTag)
-	assert.Equal(t, int64(1), dialerMetric.Count(), "%s should be nonzero immediately after a request", httpclient.MetricConnInflight)
-	srv.Close()
-	// Sleep to handle client-side closing fast but asynchronously
-	time.Sleep(time.Second)
-	assert.Equal(t, int64(0), dialerMetric.Count(), "%s should be zero after the server closes the connection", httpclient.MetricConnInflight)
 }
