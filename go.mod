@@ -3,7 +3,6 @@ module github.com/palantir/conjure-go-runtime/v2
 go 1.18
 
 require (
-	github.com/gogo/protobuf v1.2.0
 	github.com/palantir/go-metrics v1.1.1
 	github.com/palantir/pkg/bytesbuffers v1.0.1
 	github.com/palantir/pkg/httpserver v1.0.1
@@ -19,6 +18,7 @@ require (
 	github.com/palantir/witchcraft-go-tracing v1.8.0
 	github.com/stretchr/testify v1.8.0
 	golang.org/x/net v0.0.0-20210805182204-aaa1db679c0d
+	google.golang.org/protobuf v1.28.2-0.20221116083127-f0e23c7a8f8d
 	gopkg.in/yaml.v2 v2.4.0
 )
 

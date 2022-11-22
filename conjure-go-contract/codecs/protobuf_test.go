@@ -15,24 +15,37 @@
 package codecs_test
 
 import (
+	"bytes"
 	"testing"
 
-	"github.com/gogo/protobuf/proto"
-	"github.com/gogo/protobuf/test"
 	"github.com/palantir/conjure-go-runtime/v2/conjure-go-contract/codecs"
+	"github.com/palantir/conjure-go-runtime/v2/conjure-go-contract/codecs/internal/gopb"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestCodecProtobuf_Serde(t *testing.T) {
-	msg := &test.NinOptNative{
-		Field15: []byte(`1234567890`),
+	msg := &gopb.TestMessage{
+		Key:   "key",
+		Value: "value",
 	}
 
-	out, err := codecs.Protobuf.Marshal(msg)
-	require.NoError(t, err)
+	t.Run("Marshal/Unmarshal", func(t *testing.T) {
+		out, err := codecs.Protobuf.Marshal(msg)
+		require.NoError(t, err)
 
-	actual := &test.NinOptNative{}
-	err = codecs.Protobuf.Unmarshal(out, actual)
-	require.NoError(t, err)
-	require.True(t, proto.Equal(msg, actual))
+		actual := &gopb.TestMessage{}
+		err = codecs.Protobuf.Unmarshal(out, actual)
+		require.NoError(t, err)
+		require.True(t, proto.Equal(msg, actual))
+	})
+
+	t.Run("Encode/Decode", func(t *testing.T) {
+		var buf bytes.Buffer
+		err := codecs.Protobuf.Encode(&buf, msg)
+		require.NoError(t, err)
+		actual := &gopb.TestMessage{}
+		err = codecs.Protobuf.Decode(bytes.NewReader(buf.Bytes()), actual)
+		require.NoError(t, err)
+	})
 }

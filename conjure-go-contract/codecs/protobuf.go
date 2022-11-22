@@ -15,12 +15,12 @@
 package codecs
 
 import (
+	"bufio"
 	"io"
-	"io/ioutil"
 
-	protoio "github.com/gogo/protobuf/io"
-	"github.com/gogo/protobuf/proto"
 	werror "github.com/palantir/witchcraft-go-error"
+	"google.golang.org/protobuf/encoding/protodelim"
+	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -38,11 +38,11 @@ func (codecProtobuf) Accept() string {
 }
 
 func (codecProtobuf) Decode(r io.Reader, v interface{}) error {
-	data, err := ioutil.ReadAll(r)
-	if err != nil {
-		return err
+	msg, ok := v.(proto.Message)
+	if !ok {
+		return werror.Error("failed to decode protobuf data from type which does not implement proto.Message")
 	}
-	return Protobuf.Unmarshal(data, v)
+	return protodelim.UnmarshalFrom(bufio.NewReader(r), msg)
 }
 
 func (c codecProtobuf) Unmarshal(data []byte, v interface{}) error {
@@ -50,8 +50,7 @@ func (c codecProtobuf) Unmarshal(data []byte, v interface{}) error {
 	if !ok {
 		return werror.Error("failed to decode protobuf data from type which does not implement proto.Message")
 	}
-	buf := proto.NewBuffer(data)
-	return buf.Unmarshal(msg)
+	return proto.Unmarshal(data, msg)
 }
 
 func (codecProtobuf) ContentType() string {
@@ -63,8 +62,8 @@ func (codecProtobuf) Encode(w io.Writer, v interface{}) error {
 	if !ok {
 		return werror.Error("failed to encode protobuf data from type which does not implement proto.Message")
 	}
-	protoWriter := protoio.NewFullWriter(w)
-	return protoWriter.WriteMsg(msg)
+	_, err := protodelim.MarshalTo(w, msg)
+	return err
 }
 
 func (c codecProtobuf) Marshal(v interface{}) ([]byte, error) {
@@ -72,9 +71,5 @@ func (c codecProtobuf) Marshal(v interface{}) ([]byte, error) {
 	if !ok {
 		return nil, werror.Error("failed to encode protobuf data from type which does not implement proto.Message")
 	}
-	var buf proto.Buffer
-	if err := buf.Marshal(msg); err != nil {
-		return nil, err
-	}
-	return buf.Bytes(), nil
+	return proto.Marshal(msg)
 }
