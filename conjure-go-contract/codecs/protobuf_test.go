@@ -47,5 +47,6 @@ func TestCodecProtobuf_Serde(t *testing.T) {
 		actual := &gopb.TestMessage{}
 		err = codecs.Protobuf.Decode(bytes.NewReader(buf.Bytes()), actual)
 		require.NoError(t, err)
+		require.True(t, proto.Equal(msg, actual))
 	})
 }
