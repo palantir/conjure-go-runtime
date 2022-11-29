@@ -19,20 +19,47 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestSnappyCompression(t *testing.T) {
-	input := "hello world"
+	// create a compressible string
+	input := strings.Join([]string{
+		strings.Repeat("a", 10),
+		strings.Repeat("b", 10),
+		strings.Repeat("a", 10),
+		strings.Repeat("c", 10),
+		strings.Repeat("a", 10),
+	}, "")
 	snappyEncoder := Snappy(Plain)
 
-	var buf bytes.Buffer
-	err := snappyEncoder.Encode(&buf, input)
-	require.NoError(t, err)
+	t.Run("Encode/Decode", func(t *testing.T) {
+		var buf bytes.Buffer
+		err := snappyEncoder.Encode(&buf, input)
+		require.NoError(t, err)
 
-	var actual string
-	err = snappyEncoder.Decode(strings.NewReader(buf.String()), &actual)
-	require.NoError(t, err)
+		// assert encoded message compressed
+		encoded := buf.String()
+		assert.Less(t, len(encoded), len(input))
 
-	require.Equal(t, input, actual)
+		var actual string
+		err = snappyEncoder.Decode(strings.NewReader(encoded), &actual)
+		require.NoError(t, err)
+
+		require.Equal(t, input, actual)
+	})
+	t.Run("Marshal/Unmarshal", func(t *testing.T) {
+		encoded, err := snappyEncoder.Marshal([]byte(input))
+		require.NoError(t, err)
+
+		// assert encoded message compressed
+		assert.Less(t, len(encoded), len(input))
+
+		var actual string
+		err = snappyEncoder.Unmarshal(encoded, &actual)
+		require.NoError(t, err)
+
+		require.Equal(t, input, actual)
+	})
 }

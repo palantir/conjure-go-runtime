@@ -17,7 +17,6 @@ package codecs
 import (
 	"bytes"
 	"io"
-	"io/ioutil"
 
 	"github.com/golang/snappy"
 	werror "github.com/palantir/witchcraft-go-error"
@@ -41,7 +40,7 @@ func (c codecSNAPPY) Accept() string {
 }
 
 func (c codecSNAPPY) Decode(r io.Reader, v interface{}) error {
-	data, err := ioutil.ReadAll(r)
+	data, err := io.ReadAll(r)
 	if err != nil {
 		return err
 	}
@@ -54,7 +53,11 @@ func (c codecSNAPPY) Decode(r io.Reader, v interface{}) error {
 }
 
 func (c codecSNAPPY) Unmarshal(data []byte, v interface{}) error {
-	return c.Decode(bytes.NewBuffer(data), v)
+	decoded, err := snappy.Decode(nil, data)
+	if err != nil {
+		return err
+	}
+	return c.contentCodec.Unmarshal(decoded, v)
 }
 
 func (c codecSNAPPY) ContentType() string {
