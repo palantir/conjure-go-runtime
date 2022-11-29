@@ -86,12 +86,10 @@ func (b *httpClientBuilder) Build(ctx context.Context, params ...HTTPClientParam
 			return nil, err
 		}
 	}
-	dialer := &metricsWrappedDialer{
-		Disabled:       b.DisableMetrics,
-		ServiceNameTag: b.ServiceNameTag,
-		Dialer:         refreshingclient.NewRefreshableDialer(ctx, b.DialerParams),
-	}
-	transport := refreshingclient.NewRefreshableTransport(ctx, b.TransportParams, b.TLSConfig, dialer)
+	transport := refreshingclient.NewRefreshableTransport(ctx,
+		b.TransportParams,
+		b.TLSConfig,
+		refreshingclient.NewRefreshableDialer(ctx, b.DialerParams))
 	transport = wrapTransport(transport, newMetricsMiddleware(b.ServiceNameTag, b.MetricsTagProviders, b.DisableMetrics))
 	transport = wrapTransport(transport, traceMiddleware{
 		ServiceName:       b.ServiceNameTag.Value(),
@@ -155,7 +153,7 @@ func newClient(ctx context.Context, b *clientBuilder, params ...ClientParam) (Cl
 	}
 	uriScorer := internal.NewRefreshableURIScoringMiddleware(b.URIs, func(uris []string) internal.URIScoringMiddleware {
 		if b.URIScorerBuilder == nil {
-			return internal.NewRandomURIScoringMiddleware(uris, func() int64 { return time.Now().UnixNano() })
+			return internal.NewBalancedURIScoringMiddleware(uris, func() int64 { return time.Now().UnixNano() })
 		}
 		return b.URIScorerBuilder(uris)
 	})

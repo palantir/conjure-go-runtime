@@ -148,11 +148,11 @@ func (c *clientImpl) doOnce(
 		return nil, werror.ErrorWithContextParams(ctx, "httpclient: use WithRequestMethod() to specify HTTP method")
 	}
 	reqURI := joinURIAndPath(baseURI, b.path)
-	req, err := http.NewRequest(b.method, reqURI, nil)
+	req, err := http.NewRequestWithContext(ctx, b.method, reqURI, nil)
 	if err != nil {
 		return nil, werror.WrapWithContextParams(ctx, err, "failed to build new HTTP request")
 	}
-	req = req.WithContext(ctx)
+
 	req.Header = b.headers
 	if q := b.query.Encode(); q != "" {
 		req.URL.RawQuery = q
@@ -185,7 +185,7 @@ func (c *clientImpl) doOnce(
 	// unless this is exactly the scenario where the caller has opted into being responsible for draining and closing
 	// the response body, be sure to do so here.
 	if !(respErr == nil && b.bodyMiddleware.rawOutput) {
-		internal.DrainBody(resp)
+		internal.DrainBody(ctx, resp)
 	}
 
 	return resp, unwrapURLError(ctx, respErr)
