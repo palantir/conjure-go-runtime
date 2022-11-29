@@ -3,7 +3,7 @@ module github.com/palantir/conjure-go-runtime/v2
 go 1.19
 
 require (
-	github.com/golang/snappy v0.0.0-20180518054509-2e65f85255db
+	github.com/golang/snappy v0.0.4
 	github.com/palantir/pkg/bytesbuffers v1.2.0
 	github.com/palantir/pkg/httpserver v1.1.0
 	github.com/palantir/pkg/metrics v1.4.0
