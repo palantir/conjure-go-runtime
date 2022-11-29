@@ -528,7 +528,6 @@ const (
 	FieldOptions_Packed_field_name              protoreflect.Name = "packed"
 	FieldOptions_Jstype_field_name              protoreflect.Name = "jstype"
 	FieldOptions_Lazy_field_name                protoreflect.Name = "lazy"
-	FieldOptions_UnverifiedLazy_field_name      protoreflect.Name = "unverified_lazy"
 	FieldOptions_Deprecated_field_name          protoreflect.Name = "deprecated"
 	FieldOptions_Weak_field_name                protoreflect.Name = "weak"
 	FieldOptions_UninterpretedOption_field_name protoreflect.Name = "uninterpreted_option"
@@ -537,7 +536,6 @@ const (
 	FieldOptions_Packed_field_fullname              protoreflect.FullName = "google.protobuf.FieldOptions.packed"
 	FieldOptions_Jstype_field_fullname              protoreflect.FullName = "google.protobuf.FieldOptions.jstype"
 	FieldOptions_Lazy_field_fullname                protoreflect.FullName = "google.protobuf.FieldOptions.lazy"
-	FieldOptions_UnverifiedLazy_field_fullname      protoreflect.FullName = "google.protobuf.FieldOptions.unverified_lazy"
 	FieldOptions_Deprecated_field_fullname          protoreflect.FullName = "google.protobuf.FieldOptions.deprecated"
 	FieldOptions_Weak_field_fullname                protoreflect.FullName = "google.protobuf.FieldOptions.weak"
 	FieldOptions_UninterpretedOption_field_fullname protoreflect.FullName = "google.protobuf.FieldOptions.uninterpreted_option"
@@ -549,7 +547,6 @@ const (
 	FieldOptions_Packed_field_number              protoreflect.FieldNumber = 2
 	FieldOptions_Jstype_field_number              protoreflect.FieldNumber = 6
 	FieldOptions_Lazy_field_number                protoreflect.FieldNumber = 5
-	FieldOptions_UnverifiedLazy_field_number      protoreflect.FieldNumber = 15
 	FieldOptions_Deprecated_field_number          protoreflect.FieldNumber = 3
 	FieldOptions_Weak_field_number                protoreflect.FieldNumber = 10
 	FieldOptions_UninterpretedOption_field_number protoreflect.FieldNumber = 999

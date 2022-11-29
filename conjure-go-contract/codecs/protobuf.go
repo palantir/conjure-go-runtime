@@ -15,11 +15,9 @@
 package codecs
 
 import (
-	"bufio"
 	"io"
 
 	werror "github.com/palantir/witchcraft-go-error"
-	"google.golang.org/protobuf/encoding/protodelim"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -42,7 +40,12 @@ func (codecProtobuf) Decode(r io.Reader, v interface{}) error {
 	if !ok {
 		return werror.Error("failed to decode protobuf data from type which does not implement proto.Message")
 	}
-	return protodelim.UnmarshalFrom(bufio.NewReader(r), msg)
+
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return err
+	}
+	return proto.Unmarshal(data, msg)
 }
 
 func (c codecProtobuf) Unmarshal(data []byte, v interface{}) error {
@@ -57,12 +60,13 @@ func (codecProtobuf) ContentType() string {
 	return contentTypeProtobuf
 }
 
-func (codecProtobuf) Encode(w io.Writer, v interface{}) error {
-	msg, ok := v.(proto.Message)
-	if !ok {
-		return werror.Error("failed to encode protobuf data from type which does not implement proto.Message")
+func (c codecProtobuf) Encode(w io.Writer, v interface{}) error {
+	buf, err := c.Marshal(v)
+	if err != nil {
+		return err
 	}
-	_, err := protodelim.MarshalTo(w, msg)
+
+	_, err = w.Write(buf)
 	return err
 }
 
