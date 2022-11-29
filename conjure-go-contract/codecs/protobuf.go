@@ -28,7 +28,7 @@ const (
 )
 
 // Protobuf codec encodes and decodes protobuf requests and responses using
-// github.com/golang/protobuf/proto.
+// google.golang.org/protobuf.
 var Protobuf Codec = codecProtobuf{}
 
 type codecProtobuf struct{}
