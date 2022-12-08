@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient/internal/refreshingclient"
 	"github.com/palantir/pkg/refreshable"
 )
 
@@ -57,5 +58,27 @@ func newAuthTokenMiddlewareFromRefreshable(token refreshable.StringPtr) Middlewa
 			}
 			return "", nil
 		}},
+	}
+}
+
+// basicAuthMiddleware wraps a refreshing BasicAuth pointer and injects basic auth credentials if the pointer is not nil
+type basicAuthMiddleware struct {
+	basicAuth refreshingclient.RefreshableBasicAuthPtr
+}
+
+func (b *basicAuthMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+	if auth := b.basicAuth.CurrentBasicAuthPtr(); auth != nil {
+		setBasicAuth(req.Header, auth.User, auth.Password)
+	}
+
+	return next.RoundTrip(req)
+}
+
+func newBasicAuthMiddlewareFromRefreshable(auth refreshingclient.RefreshableBasicAuthPtr) Middleware {
+	return &conditionalMiddleware{
+		Disabled: refreshable.NewBool(auth.MapBasicAuthPtr(func(auth *refreshingclient.BasicAuth) interface{} {
+			return auth == nil
+		})),
+		Delegate: &basicAuthMiddleware{basicAuth: auth},
 	}
 }
