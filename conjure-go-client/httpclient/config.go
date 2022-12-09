@@ -55,7 +55,7 @@ type ClientConfig struct {
 	// is not, the content of the file will be used as the APIToken.
 	APITokenFile *string `json:"api-token-file,omitempty" yaml:"api-token-file,omitempty"`
 	// BasicAuth is a user/password combination which, if provided, will be used as the credentials in the
-	// Authorization header
+	// Authorization header. APIToken and APITokenFile will take precedent over BasicAuth if specified
 	BasicAuth *BasicAuth `json:"basic-auth,omitempty" yaml:"basic-auth,omitempty"`
 	// DisableHTTP2, if true, will prevent the client from modifying the *tls.Config object to support H2 connections.
 	DisableHTTP2 *bool `json:"disable-http2,omitempty" yaml:"disable-http2,omitempty"`
