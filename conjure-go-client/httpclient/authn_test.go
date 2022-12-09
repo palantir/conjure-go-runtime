@@ -50,3 +50,33 @@ func TestRoundTripperWithToken(t *testing.T) {
 	require.NotNil(t, resp)
 	assert.True(t, wrappedRTInvoked)
 }
+
+func TestRoundTripperWithBasicAuth(t *testing.T) {
+	var wrappedRTInvoked bool
+	expected := httpclient.BasicAuth{
+		User:     "user",
+		Password: "password",
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		wrappedRTInvoked = true
+		user, pass, ok := req.BasicAuth()
+		assert.True(t, ok)
+		assert.Equal(t, expected.User, user)
+		assert.Equal(t, expected.Password, pass)
+		rw.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	client, err := httpclient.NewClient(
+		httpclient.WithHTTPTimeout(time.Minute),
+		httpclient.WithBasicAuth(expected.User, expected.Password),
+		httpclient.WithBaseURLs([]string{server.URL}))
+	require.NoError(t, err)
+
+	resp, err := client.Do(context.Background(), httpclient.WithRequestMethod(http.MethodGet))
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	assert.True(t, wrappedRTInvoked)
+
+}
