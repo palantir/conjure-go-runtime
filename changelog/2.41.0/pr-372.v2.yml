@@ -1,0 +1,6 @@
+type: fix
+fix:
+  description: Do not write error response to server after status has been written
+    by handler
+  links:
+  - https://github.com/palantir/conjure-go-runtime/pull/372

@@ -1,0 +1,5 @@
+type: improvement
+improvement:
+  description: Add support for live-reloadable basic auth from config.
+  links:
+  - https://github.com/palantir/conjure-go-runtime/pull/418

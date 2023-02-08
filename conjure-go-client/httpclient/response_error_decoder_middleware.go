@@ -49,7 +49,7 @@ func (e errorDecoderMiddleware) RoundTrip(req *http.Request, next http.RoundTrip
 		return nil, err
 	}
 	if e.errorDecoder.Handles(resp) {
-		defer internal.DrainBody(resp)
+		defer internal.DrainBody(req.Context(), resp)
 		return nil, e.errorDecoder.DecodeError(resp)
 	}
 	return resp, nil
@@ -81,7 +81,10 @@ func (d restErrorDecoder) DecodeError(resp *http.Response) error {
 	unsafeParams := map[string]interface{}{}
 	if resp.StatusCode >= http.StatusTemporaryRedirect &&
 		resp.StatusCode < http.StatusBadRequest {
-		unsafeParams["location"] = resp.Header.Get("Location")
+		location, err := resp.Location()
+		if err == nil {
+			unsafeParams["location"] = location.String()
+		}
 	}
 	wSafeParams := werror.SafeParams(safeParams)
 	wUnsafeParams := werror.UnsafeParams(unsafeParams)
