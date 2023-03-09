@@ -20,6 +20,7 @@ import (
 )
 
 var registry = map[string]reflect.Type{}
+var registryByModule = map[string]map[string]reflect.Type{}
 
 var errorInterfaceType = reflect.TypeOf((*Error)(nil)).Elem()
 
@@ -34,4 +35,20 @@ func RegisterErrorType(name string, typ reflect.Type) {
 		panic(fmt.Sprintf("Error type %v does not implement errors.Error interface", ptr))
 	}
 	registry[name] = typ
+}
+
+func RegisterErrorTypeForModule(module string, name string, typ reflect.Type) {
+	registryForModule, ok := registryByModule[module]
+	if !ok {
+		registryForModule = map[string]reflect.Type{}
+		registryByModule[module] = registryForModule
+	}
+
+	if existing, exists := registryForModule[name]; exists {
+		panic(fmt.Sprintf("ErrorName %v already registered as %v", name, existing))
+	}
+	if ptr := reflect.PtrTo(typ); !ptr.Implements(errorInterfaceType) {
+		panic(fmt.Sprintf("Error type %v does not implement errors.Error interface", ptr))
+	}
+	registryForModule[name] = typ
 }
