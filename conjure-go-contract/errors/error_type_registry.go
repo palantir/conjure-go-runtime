@@ -15,6 +15,7 @@
 package errors
 
 import (
+	"context"
 	"fmt"
 	"reflect"
 )
@@ -51,4 +52,26 @@ func RegisterErrorTypeForModule(module string, name string, typ reflect.Type) {
 		panic(fmt.Sprintf("Error type %v does not implement errors.Error interface", ptr))
 	}
 	registryForModule[name] = typ
+}
+
+type errorRegistryModuleNameKeyType string
+
+const (
+	errorRegistryModuleNameKey errorRegistryModuleNameKeyType = "conjure-go-runtime:error-registry-module"
+)
+
+func ErrorRegistryModuleNameFromContext(ctx context.Context) string {
+	got := ctx.Value(errorRegistryModuleNameKey)
+	if got == nil {
+		return ""
+	}
+	str, ok := got.(string)
+	if !ok {
+		return ""
+	}
+	return str
+}
+
+func ContextWithErrorRegistryModuleName(ctx context.Context, module string) context.Context {
+	return context.WithValue(ctx, errorRegistryModuleNameKey, module)
 }
