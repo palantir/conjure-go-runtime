@@ -15,34 +15,23 @@
 package errors
 
 import (
+	"context"
 	"reflect"
-
-	"github.com/palantir/conjure-go-runtime/v2/conjure-go-contract/codecs"
-	werror "github.com/palantir/witchcraft-go-error"
 )
+
+var globalRegistry = NewRegistry()
+
+// RegisterErrorType registers an error name and its go type in a global registry.
+// The type should be a struct type whose pointer implements Error.
+// Panics if name is already registered or *type does not implement Error.
+func RegisterErrorType(name string, typ reflect.Type) {
+	MustRegisterErrorType(globalRegistry, name, typ)
+}
 
 // UnmarshalError attempts to deserialize the message to a known implementation of Error.
 // Custom error types should be registered using RegisterErrorType.
 // If the ErrorName is not recognized, a genericError is returned with all params marked unsafe.
 // If we fail to unmarshal to a generic SerializableError or to the type specified by ErrorName, an error is returned.
 func UnmarshalError(body []byte) (Error, error) {
-	var name struct {
-		Name string `json:"errorName"`
-	}
-	if err := codecs.JSON.Unmarshal(body, &name); err != nil {
-		return nil, werror.Wrap(err, "failed to unmarshal body as conjure error")
-	}
-	typ, ok := registry[name.Name]
-	if !ok {
-		// Unrecognized error name, fall back to genericError
-		typ = reflect.TypeOf(genericError{})
-	}
-
-	instance := reflect.New(typ).Interface()
-	if err := codecs.JSON.Unmarshal(body, &instance); err != nil {
-		return nil, werror.Wrap(err, "failed to unmarshal body using registered type", werror.SafeParam("type", typ.String()))
-	}
-
-	// Cast should never panic, as we've verified in RegisterErrorType
-	return instance.(Error), nil
+	return globalRegistry.UnmarshalJSONError(context.TODO(), body)
 }

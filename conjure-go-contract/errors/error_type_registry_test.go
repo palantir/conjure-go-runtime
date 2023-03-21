@@ -12,40 +12,32 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package errors
+package errors_test
 
 import (
 	"reflect"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/palantir/conjure-go-runtime/v2/conjure-go-contract/errors"
+	"github.com/stretchr/testify/require"
 )
 
 func TestRegisterErrorType_types(t *testing.T) {
-	t.Run("error type should not panic", func(t *testing.T) {
-		assert.NotPanics(t, func() {
-			RegisterErrorType("name1", reflect.TypeOf(genericError{}))
-		})
+	reg := errors.NewRegistry()
+	t.Run("error type should not error", func(t *testing.T) {
+		err := reg.RegisterErrorType("name1", reflect.TypeOf(testErrorType{}))
+		require.NoError(t, err)
 	})
-	t.Run("reused error name should panic", func(t *testing.T) {
-		assert.PanicsWithValue(t,
-			"ErrorName name1 already registered as errors.genericError",
-			func() {
-				RegisterErrorType("name1", reflect.TypeOf(genericError{}))
-			})
+	t.Run("reused error name should error", func(t *testing.T) {
+		err := reg.RegisterErrorType("name1", reflect.TypeOf(testErrorType{}))
+		require.EqualError(t, err, "ErrorName name1 already registered as errors_test.testErrorType")
 	})
-	t.Run("pointer type should panic", func(t *testing.T) {
-		assert.PanicsWithValue(t,
-			"Error type **errors.genericError does not implement errors.Error interface",
-			func() {
-				RegisterErrorType("name2", reflect.TypeOf(&genericError{}))
-			})
+	t.Run("pointer type should error", func(t *testing.T) {
+		err := reg.RegisterErrorType("name2", reflect.TypeOf(&testErrorType{}))
+		require.EqualError(t, err, "Error type **errors_test.testErrorType does not implement errors.Error interface")
 	})
-	t.Run("non-error type should panic", func(t *testing.T) {
-		assert.PanicsWithValue(t,
-			"Error type *string does not implement errors.Error interface",
-			func() {
-				RegisterErrorType("name3", reflect.TypeOf("string"))
-			})
+	t.Run("non-error type should error", func(t *testing.T) {
+		err := reg.RegisterErrorType("name3", reflect.TypeOf("string"))
+		require.EqualError(t, err, "Error type *string does not implement errors.Error interface")
 	})
 }

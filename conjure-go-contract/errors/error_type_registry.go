@@ -15,23 +15,81 @@
 package errors
 
 import (
+	"context"
 	"fmt"
 	"reflect"
-)
 
-var registry = map[string]reflect.Type{}
+	"github.com/palantir/conjure-go-runtime/v2/conjure-go-contract/codecs"
+	werror "github.com/palantir/witchcraft-go-error"
+)
 
 var errorInterfaceType = reflect.TypeOf((*Error)(nil)).Elem()
 
-// RegisterErrorType registers an error name and its go type in a global registry.
-// The type should be a struct type whose pointer implements Error.
-// Panics if name is already registered or *type does not implement Error.
-func RegisterErrorType(name string, typ reflect.Type) {
-	if existing, exists := registry[name]; exists {
-		panic(fmt.Sprintf("ErrorName %v already registered as %v", name, existing))
+type Registry struct {
+	types map[string]reflect.Type
+}
+
+func NewRegistry() *Registry {
+	return new(Registry)
+}
+
+func (r *Registry) CopyFrom(other *Registry) error {
+	for k, v := range other.types {
+		if err := r.RegisterErrorType(k, v); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *Registry) RegisterErrorType(name string, typ reflect.Type) error {
+	if r.types == nil {
+		r.types = map[string]reflect.Type{}
+	}
+	if existing, exists := r.types[name]; exists {
+		return fmt.Errorf("ErrorName %v already registered as %v", name, existing)
 	}
 	if ptr := reflect.PtrTo(typ); !ptr.Implements(errorInterfaceType) {
-		panic(fmt.Sprintf("Error type %v does not implement errors.Error interface", ptr))
+		return fmt.Errorf("Error type %v does not implement errors.Error interface", ptr)
 	}
-	registry[name] = typ
+	r.types[name] = typ
+	return nil
+}
+
+func (r *Registry) UnmarshalJSONError(ctx context.Context, body []byte) (Error, error) {
+	var name struct {
+		Name string `json:"errorName"`
+	}
+	if err := codecs.JSON.Unmarshal(body, &name); err != nil {
+		return nil, werror.WrapWithContextParams(ctx, err, "failed to unmarshal body as conjure error")
+	}
+	typ := r.getErrorByName(name.Name)
+	instance, ok := reflect.New(r.getErrorByName(name.Name)).Interface().(Error)
+	if !ok {
+		// Cast should never fail, as we've verified in RegisterErrorType
+		return nil, werror.ErrorWithContextParams(ctx, "registered type does not implement Error interface", werror.SafeParam("type", typ.String()))
+	}
+	if err := codecs.JSON.Unmarshal(body, &instance); err != nil {
+		return nil, werror.WrapWithContextParams(ctx, err, "failed to unmarshal error using registered type", werror.SafeParam("type", typ.String()))
+	}
+	return instance, nil
+}
+
+func (r *Registry) getErrorByName(name string) reflect.Type {
+	if r.types == nil {
+		// No types registered, fall back to genericError
+		return reflect.TypeOf(genericError{})
+	}
+	typ, ok := r.types[name]
+	if !ok {
+		// Unrecognized error name, fall back to genericError
+		return reflect.TypeOf(genericError{})
+	}
+	return typ
+}
+
+func MustRegisterErrorType(registry *Registry, name string, typ reflect.Type) {
+	if err := registry.RegisterErrorType(name, typ); err != nil {
+		panic(err)
+	}
 }
