@@ -209,6 +209,7 @@ type RefreshableDialerParams interface {
 
 	DialTimeout() refreshable.Duration
 	KeepAlive() refreshable.Duration
+	AddressMapping() RefreshableStringToString
 }
 
 type RefreshingDialerParams struct {
@@ -245,6 +246,43 @@ func (r RefreshingDialerParams) KeepAlive() refreshable.Duration {
 	return refreshable.NewDuration(r.MapDialerParams(func(i DialerParams) interface{} {
 		return i.KeepAlive
 	}))
+}
+
+func (r RefreshingDialerParams) AddressMapping() RefreshableStringToString {
+	return NewRefreshingStringToString(r.MapDialerParams(func(i DialerParams) interface{} {
+		return i.AddressMapping
+	}))
+}
+
+type RefreshableStringToString interface {
+	refreshable.Refreshable
+	CurrentStringToString() map[string]string
+	MapStringToString(func(map[string]string) interface{}) refreshable.Refreshable
+	SubscribeToStringToString(func(map[string]string)) (unsubscribe func())
+}
+
+type RefreshingStringToString struct {
+	refreshable.Refreshable
+}
+
+func NewRefreshingStringToString(in refreshable.Refreshable) RefreshingStringToString {
+	return RefreshingStringToString{Refreshable: in}
+}
+
+func (r RefreshingStringToString) CurrentStringToString() map[string]string {
+	return r.Current().(map[string]string)
+}
+
+func (r RefreshingStringToString) MapStringToString(mapFn func(map[string]string) interface{}) refreshable.Refreshable {
+	return r.Map(func(i interface{}) interface{} {
+		return mapFn(i.(map[string]string))
+	})
+}
+
+func (r RefreshingStringToString) SubscribeToStringToString(consumer func(map[string]string)) (unsubscribe func()) {
+	return r.Subscribe(func(i interface{}) {
+		consumer(i.(map[string]string))
+	})
 }
 
 type RefreshableTags interface {
