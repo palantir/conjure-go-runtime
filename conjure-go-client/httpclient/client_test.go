@@ -21,10 +21,12 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 
 	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient"
 	"github.com/palantir/conjure-go-runtime/v2/conjure-go-contract/codecs"
+	"github.com/palantir/conjure-go-runtime/v2/conjure-go-contract/errors"
 	"github.com/palantir/pkg/bytesbuffers"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -312,4 +314,30 @@ func BenchmarkUnavailableURIs(b *testing.B) {
 		require.NoError(b, err)
 		runBench(b, client)
 	})
+}
+
+func TestWithDialerAddressReplacement(t *testing.T) {
+	ctx := context.Background()
+	server := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		switch req.URL.Path {
+		case "/ok":
+			rw.WriteHeader(http.StatusOK)
+		default:
+			errors.WriteErrorResponse(rw, errors.NewNotFound())
+		}
+	}))
+	serverURL, err := url.Parse(server.URL)
+	require.NoError(t, err)
+	client, err := httpclient.NewClient(
+		httpclient.WithServiceName("test"),
+		httpclient.WithBaseURLs([]string{"http://127.0.0.1:443"}), // TLS server is signed for 127.0.0.1; use a different name.
+		httpclient.WithDialerAddressReplacement("127.0.0.1:443", serverURL.Host),
+	)
+	require.NoError(t, err)
+	resp, err := client.Get(ctx, httpclient.WithPath("/ok"))
+	require.NoError(t, err)
+	require.Equal(t, 200, resp.StatusCode)
+	resp, err = client.Get(ctx, httpclient.WithPath("/not-ok"))
+	require.Error(t, err)
+	require.True(t, errors.IsNotFound(err), "expected %q to be a not found error", err)
 }

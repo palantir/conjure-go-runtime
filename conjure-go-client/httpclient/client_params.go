@@ -344,6 +344,21 @@ func WithProxyURL(proxyURLString string) ClientOrHTTPClientParam {
 	})
 }
 
+// WithDialerAddressReplacement configures the underlying dialer to connect to the connectHost when a connection
+// to requestHost is requested. This can be useful in cases where custom IP resolution is required.
+func WithDialerAddressReplacement(requestHost string, connectHost string) ClientOrHTTPClientParam {
+	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
+		b.DialerParams = refreshingclient.ConfigureDialer(b.DialerParams, func(p refreshingclient.DialerParams) refreshingclient.DialerParams {
+			if p.AddressMapping == nil {
+				p.AddressMapping = map[string]string{}
+			}
+			p.AddressMapping[requestHost] = connectHost
+			return p
+		})
+		return nil
+	})
+}
+
 // WithTLSConfig sets the SSL/TLS configuration for the HTTP client's Transport using a copy of the provided config.
 // The palantir/pkg/tlsconfig package is recommended to build a tls.Config from sane defaults.
 func WithTLSConfig(conf *tls.Config) ClientOrHTTPClientParam {

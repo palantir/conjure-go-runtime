@@ -26,9 +26,10 @@ import (
 )
 
 type DialerParams struct {
-	DialTimeout   time.Duration
-	KeepAlive     time.Duration
-	SocksProxyURL *url.URL `refreshables:",exclude"`
+	DialTimeout    time.Duration
+	KeepAlive      time.Duration
+	SocksProxyURL  *url.URL `refreshables:",exclude"`
+	AddressMapping map[string]string
 }
 
 // ContextDialer is the interface implemented by net.Dialer, proxy.Dialer, and others
@@ -40,20 +41,29 @@ func NewRefreshableDialer(ctx context.Context, p RefreshableDialerParams) Contex
 	return &RefreshableDialer{
 		Refreshable: p.MapDialerParams(func(p DialerParams) interface{} {
 			svc1log.FromContext(ctx).Debug("Reconstructing HTTP Dialer")
-			dialer := &net.Dialer{
+			var dialer ContextDialer = &net.Dialer{
 				Timeout:   p.DialTimeout,
 				KeepAlive: p.KeepAlive,
 			}
-			if p.SocksProxyURL == nil {
-				return dialer
+
+			if p.SocksProxyURL != nil {
+				proxyDialer, err := proxy.FromURL(p.SocksProxyURL, dialer.(*net.Dialer))
+				if err != nil {
+					// should never happen; checked in the validating refreshable
+					svc1log.FromContext(ctx).Error("Failed to construct socks5 dialer. Please report this as a bug in conjure-go-runtime.", svc1log.Stacktrace(err))
+				} else {
+					dialer = proxyDialer.(ContextDialer)
+				}
 			}
-			proxyDialer, err := proxy.FromURL(p.SocksProxyURL, dialer)
-			if err != nil {
-				// should never happen; checked in the validating refreshable
-				svc1log.FromContext(ctx).Error("Failed to construct socks5 dialer. Please report this as a bug in conjure-go-runtime.", svc1log.Stacktrace(err))
-				return dialer
+
+			if len(p.AddressMapping) > 0 {
+				dialer = addressMappingDialer{
+					forward: dialer,
+					mapping: p.AddressMapping,
+				}
 			}
-			return proxyDialer
+
+			return dialer
 		}),
 	}
 }
@@ -72,4 +82,22 @@ type RefreshableDialer struct {
 
 func (r *RefreshableDialer) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
 	return r.Current().(ContextDialer).DialContext(ctx, network, address)
+}
+
+type addressMappingDialer struct {
+	forward ContextDialer
+	mapping map[string]string // requestHost->connectHost
+}
+
+func (r addressMappingDialer) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
+	if r.mapping != nil {
+		if overwrite, ok := r.mapping[address]; ok {
+			address = overwrite
+		}
+	}
+	return r.forward.DialContext(ctx, network, address)
+}
+
+func (r addressMappingDialer) Dial(network, address string) (net.Conn, error) {
+	return r.DialContext(context.TODO(), network, address)
 }
