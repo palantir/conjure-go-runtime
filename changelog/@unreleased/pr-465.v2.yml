@@ -1,0 +1,5 @@
+type: feature
+feature:
+  description: Add WithDialerAddressReplacement() for customizing hostname resolution
+  links:
+  - https://github.com/palantir/conjure-go-runtime/pull/465
