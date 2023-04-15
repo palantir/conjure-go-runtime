@@ -39,37 +39,29 @@ func (codecJSON) Accept() string {
 }
 
 func (codecJSON) Decode(r io.Reader, v interface{}) error {
-	if decoder, ok := v.(jsonDecoder); ok {
-		err := decoder.DecodeJSON(r)
-		return werror.Wrap(err, "DecodeJSON")
-	}
-	if unmarshaler, ok := v.(json.Unmarshaler); ok {
+	switch vv := v.(type) {
+	case jsonDecoder:
+		return werror.Convert(vv.DecodeJSON(r))
+	case json.Unmarshaler:
 		data, err := io.ReadAll(r)
 		if err != nil {
-			return werror.Wrap(err, "read failed")
+			return werror.Convert(err)
 		}
-		err = unmarshaler.UnmarshalJSON(data)
-		return werror.Wrap(err, "UnmarshalJSON")
+		return werror.Convert(vv.UnmarshalJSON(data))
+	default:
+		return werror.Convert(safejson.Decoder(r).Decode(v))
 	}
-	if err := safejson.Decoder(r).Decode(v); err != nil {
-		return werror.Wrap(err, "json.Decode")
-	}
-	return nil
 }
 
 func (c codecJSON) Unmarshal(data []byte, v interface{}) error {
-	if unmarshaler, ok := v.(json.Unmarshaler); ok {
-		err := unmarshaler.UnmarshalJSON(data)
-		return werror.Wrap(err, "UnmarshalJSON")
+	switch vv := v.(type) {
+	case json.Unmarshaler:
+		return werror.Convert(vv.UnmarshalJSON(data))
+	case jsonDecoder:
+		return werror.Convert(vv.DecodeJSON(bytes.NewReader(data)))
+	default:
+		return werror.Convert(safejson.Unmarshal(data, v))
 	}
-	if decoder, ok := v.(jsonDecoder); ok {
-		err := decoder.DecodeJSON(bytes.NewReader(data))
-		return werror.Wrap(err, "DecodeJSON")
-	}
-	if err := safejson.Unmarshal(data, v); err != nil {
-		return werror.Wrap(err, "json.Unmarshal")
-	}
-	return nil
 }
 
 func (codecJSON) ContentType() string {
@@ -77,32 +69,32 @@ func (codecJSON) ContentType() string {
 }
 
 func (codecJSON) Encode(w io.Writer, v interface{}) error {
-	if encoder, ok := v.(jsonEncoder); ok {
-		err := encoder.EncodeJSON(w)
-		return werror.Wrap(err, "EncodeJSON")
-	}
-	if marshaler, ok := v.(json.Marshaler); ok {
-		out, err := marshaler.MarshalJSON()
+	switch vv := v.(type) {
+	case jsonEncoder:
+		return werror.Convert(vv.EncodeJSON(w))
+	case json.Marshaler:
+		out, err := vv.MarshalJSON()
 		if err != nil {
-			return werror.Wrap(err, "MarshalJSON")
+			return werror.Convert(err)
 		}
 		_, err = w.Write(out)
-		return werror.Wrap(err, "write failed")
+		return werror.Convert(err)
+	default:
+		return werror.Convert(safejson.Encoder(w).Encode(v))
 	}
-	err := safejson.Encoder(w).Encode(v)
-	return werror.Wrap(err, "json.Encode")
 }
 
 func (c codecJSON) Marshal(v interface{}) ([]byte, error) {
-	if marshaler, ok := v.(json.Marshaler); ok {
-		out, err := marshaler.MarshalJSON()
-		return out, werror.Wrap(err, "MarshalJSON")
+	switch vv := v.(type) {
+	case json.Marshaler:
+		out, err := vv.MarshalJSON()
+		return out, werror.Convert(err)
+	case jsonEncoder:
+		data := bytes.NewBuffer(nil) // TODO: Use bytesbuffer pool
+		err := vv.EncodeJSON(data)
+		return data.Bytes(), werror.Convert(err)
+	default:
+		out, err := safejson.Marshal(v)
+		return out, werror.Convert(err)
 	}
-	if encoder, ok := v.(jsonEncoder); ok {
-		data := bytes.NewBuffer(nil)
-		err := encoder.EncodeJSON(data)
-		return data.Bytes(), werror.Wrap(err, "EncodeJSON")
-	}
-	out, err := safejson.Marshal(v)
-	return out, werror.Wrap(err, "json.Marshal")
 }
