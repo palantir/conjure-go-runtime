@@ -121,6 +121,27 @@ clients:
 				},
 			},
 		},
+		{
+			Name: "basic-auth configuration",
+			ServicesConfigYAML: `
+clients:
+  services:
+    my-service:
+      basic-auth:
+        user: user
+        password: password
+`,
+			ExpectedConfig: ServicesConfig{
+				Services: map[string]ClientConfig{
+					"my-service": {
+						BasicAuth: &BasicAuth{
+							User:     "user",
+							Password: "password",
+						},
+					},
+				},
+			},
+		},
 	} {
 		t.Run(test.Name, func(t *testing.T) {
 			var actual struct {

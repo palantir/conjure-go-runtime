@@ -86,12 +86,10 @@ func (b *httpClientBuilder) Build(ctx context.Context, params ...HTTPClientParam
 			return nil, err
 		}
 	}
-	dialer := &metricsWrappedDialer{
-		Disabled:       b.DisableMetrics,
-		ServiceNameTag: b.ServiceNameTag,
-		Dialer:         refreshingclient.NewRefreshableDialer(ctx, b.DialerParams),
-	}
-	transport := refreshingclient.NewRefreshableTransport(ctx, b.TransportParams, b.TLSConfig, dialer)
+	transport := refreshingclient.NewRefreshableTransport(ctx,
+		b.TransportParams,
+		b.TLSConfig,
+		refreshingclient.NewRefreshableDialer(ctx, b.DialerParams))
 	transport = wrapTransport(transport, newMetricsMiddleware(b.ServiceNameTag, b.MetricsTagProviders, b.DisableMetrics))
 	transport = wrapTransport(transport, traceMiddleware{
 		ServiceName:       b.ServiceNameTag.Value(),
@@ -274,7 +272,10 @@ func newClientBuilderFromRefreshableConfig(ctx context.Context, config Refreshab
 	b.HTTP.Timeout = validParams.Timeout()
 	b.HTTP.DisableMetrics = validParams.DisableMetrics()
 	b.HTTP.MetricsTagProviders = append(b.HTTP.MetricsTagProviders, refreshableMetricsTagsProvider{validParams.MetricsTags()})
-	b.HTTP.Middlewares = append(b.HTTP.Middlewares, newAuthTokenMiddlewareFromRefreshable(validParams.APIToken()))
+	b.HTTP.Middlewares = append(b.HTTP.Middlewares,
+		newAuthTokenMiddlewareFromRefreshable(validParams.APIToken()),
+		newBasicAuthMiddlewareFromRefreshable(validParams.BasicAuth()))
+
 	b.URIs = validParams.URIs()
 	b.MaxAttempts = validParams.MaxAttempts()
 	b.RetryParams = validParams.Retry()

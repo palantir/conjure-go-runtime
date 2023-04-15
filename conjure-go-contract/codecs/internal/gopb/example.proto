@@ -1,0 +1,9 @@
+syntax = "proto3";
+package gopb;
+
+option go_package = "conjure-go-contract/codecs/internal/gopb";
+
+message TestMessage {
+    string key = 1;
+    string value = 2;
+}
