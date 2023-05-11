@@ -369,7 +369,7 @@ func WithTLSInsecureSkipVerify() ClientOrHTTPClientParam {
 }
 
 // WithDialTimeout sets the timeout on the Dialer.
-// If unset, the client defaults to 9 seconds.
+// If unset, the client defaults to 90 seconds.
 func WithDialTimeout(timeout time.Duration) ClientOrHTTPClientParam {
 	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
 		b.DialerParams = refreshingclient.ConfigureDialer(b.DialerParams, func(p refreshingclient.DialerParams) refreshingclient.DialerParams {
