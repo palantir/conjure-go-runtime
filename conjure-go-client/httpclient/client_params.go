@@ -549,7 +549,7 @@ func WithBalancedURIScoring() ClientParam {
 func WithRandomURIScoring() ClientParam {
 	return clientParamFunc(func(b *clientBuilder) error {
 		b.URIScorerBuilder = func(uris []string) internal.URIScoringMiddleware {
-			return internal.NewBalancedURIScoringMiddleware(uris, func() int64 {
+			return internal.NewRandomURIScoringMiddleware(uris, func() int64 {
 				return time.Now().UnixNano()
 			})
 		}
