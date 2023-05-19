@@ -1,0 +1,5 @@
+type: fix
+fix:
+  description: Properly configure a random scoring client with param.
+  links:
+  - https://github.com/palantir/conjure-go-runtime/pull/480
