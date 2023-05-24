@@ -1,0 +1,5 @@
+type: fix
+fix:
+  description: Docstrings with correct httpclient default param values.
+  links:
+  - https://github.com/palantir/conjure-go-runtime/pull/473
