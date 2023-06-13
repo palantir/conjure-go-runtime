@@ -17,7 +17,7 @@ require (
 	github.com/palantir/witchcraft-go-params v1.22.0
 	github.com/palantir/witchcraft-go-tracing v1.24.0
 	github.com/stretchr/testify v1.8.4
-	golang.org/x/net v0.10.0
+	golang.org/x/net v0.11.0
 	google.golang.org/protobuf v1.28.1
 	gopkg.in/yaml.v2 v2.4.0
 )
