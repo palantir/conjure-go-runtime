@@ -13,9 +13,9 @@ require (
 	github.com/palantir/pkg/tlsconfig v1.2.0
 	github.com/palantir/pkg/uuid v1.2.0
 	github.com/palantir/witchcraft-go-error v1.25.0
-	github.com/palantir/witchcraft-go-logging v1.41.0
-	github.com/palantir/witchcraft-go-params v1.22.0
-	github.com/palantir/witchcraft-go-tracing v1.24.0
+	github.com/palantir/witchcraft-go-logging v1.42.0
+	github.com/palantir/witchcraft-go-params v1.23.0
+	github.com/palantir/witchcraft-go-tracing v1.25.0
 	github.com/stretchr/testify v1.8.4
 	golang.org/x/net v0.11.0
 	google.golang.org/protobuf v1.28.1
