@@ -3,15 +3,15 @@ plugins:
     - https://github.com/{{index GroupParts 1}}/{{index GroupParts 2}}/releases/download/v{{Version}}/{{Product}}-{{Version}}-{{OS}}-{{Arch}}.tgz
   plugins:
     - locator:
-        id: com.palantir.godel-mod-plugin:mod-plugin:1.29.0
+        id: com.palantir.godel-mod-plugin:mod-plugin:1.30.0
         checksums:
-          darwin-amd64: 8b46fc97da2263cdd41ebb8c57cd4f93a128e82a2cd33a978b6d15e0c1fc9bc0
-          linux-amd64: 73810513e3c539c03dd6b56fc8c584dbe0af92caab47766e9d29ab52dea97140
+          darwin-amd64: c8e00d750c5bf5f9ab375875c6176ee1876bffa19204e106156d91c56d0e8865
+          linux-amd64: f8d21b0af44f3dc7d27fd2459c198d55b128a356cb2c3d1b6cb4be2523eb4503
     - locator:
-        id: com.palantir.godel-refreshables-plugin:refreshables-plugin:0.152.0
+        id: com.palantir.godel-refreshables-plugin:refreshables-plugin:0.153.0
         checksums:
-          darwin-amd64: 58ae3330314c4bed64033acf9dfb67e00576eb6d92bcdae0de90a7389c0a0df5
-          linux-amd64: 812317a3e1e359f03370afcd4c1a2db11e4acff5a4cf2de70bab7af8be9064bd
+          darwin-amd64: 5cbe20e97fd9f5fe8f12c6815613901cc7416c9a7bbe86161ba99235656a4c9c
+          linux-amd64: 5ae2c1d0a4b6f248cefd3d7a81c806f28c29880da7735e141d75cb560c31950f
 environment:
   GO111MODULE: "on"
   GOFLAGS: "-mod=vendor"
