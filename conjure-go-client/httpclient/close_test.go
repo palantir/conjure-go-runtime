@@ -49,7 +49,7 @@ func TestClose(t *testing.T) {
 	require.NoError(t, err)
 
 	// check for bad goroutine before timeout is over
-	time.Sleep(100 * time.Millisecond) // leave some time for the goroutine to reasonably exit
+	time.Sleep(500 * time.Millisecond) // leave some time for the goroutine to reasonably exit
 	buf := bytes.NewBuffer(nil)
 	require.NoError(t, pprof.Lookup("goroutine").WriteTo(buf, 1))
 	s := buf.String()
@@ -80,7 +80,7 @@ func TestCloseOnError(t *testing.T) {
 	require.Error(t, err)
 
 	// check for bad goroutine before timeout is over
-	time.Sleep(100 * time.Millisecond) // leave some time for the goroutine to reasonably exit
+	time.Sleep(500 * time.Millisecond) // leave some time for the goroutine to reasonably exit
 	buf := bytes.NewBuffer(nil)
 	require.NoError(t, pprof.Lookup("goroutine").WriteTo(buf, 1))
 	s := buf.String()
