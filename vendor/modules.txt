@@ -44,20 +44,20 @@ github.com/palantir/pkg/tlsconfig
 ## explicit; go 1.19
 github.com/palantir/pkg/uuid
 github.com/palantir/pkg/uuid/internal/uuid
-# github.com/palantir/witchcraft-go-error v1.26.0
+# github.com/palantir/witchcraft-go-error v1.27.0
 ## explicit; go 1.20
 github.com/palantir/witchcraft-go-error
 github.com/palantir/witchcraft-go-error/internal/errors
-# github.com/palantir/witchcraft-go-logging v1.43.0
+# github.com/palantir/witchcraft-go-logging v1.44.0
 ## explicit; go 1.20
 github.com/palantir/witchcraft-go-logging/internal/gopath
 github.com/palantir/witchcraft-go-logging/wlog
 github.com/palantir/witchcraft-go-logging/wlog/internal
 github.com/palantir/witchcraft-go-logging/wlog/svclog/svc1log
-# github.com/palantir/witchcraft-go-params v1.24.0
+# github.com/palantir/witchcraft-go-params v1.25.0
 ## explicit; go 1.20
 github.com/palantir/witchcraft-go-params
-# github.com/palantir/witchcraft-go-tracing v1.26.0
+# github.com/palantir/witchcraft-go-tracing v1.27.0
 ## explicit; go 1.20
 github.com/palantir/witchcraft-go-tracing/wtracing
 github.com/palantir/witchcraft-go-tracing/wtracing/propagation/b3
