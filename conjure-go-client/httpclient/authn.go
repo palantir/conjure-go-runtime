@@ -61,38 +61,20 @@ func newAuthTokenMiddlewareFromRefreshable(token refreshable.Refreshable[*string
 	}
 }
 
-// BasicAuthProvider accepts a context and returns either:
-//
-// (1) a nonempty BasicAuth and a nil error, or
-//
-// (2) an empty BasicAuth and a non-nil error.
-type BasicAuthProvider func(context.Context) (BasicAuth, error)
-
 // basicAuthMiddleware wraps a refreshing BasicAuth pointer and injects basic auth credentials if the pointer is not nil
 type basicAuthMiddleware struct {
-	provider BasicAuthProvider
+	refreshable.Refreshable[*refreshingclient.BasicAuth]
 }
 
 func (b *basicAuthMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (*http.Response, error) {
-	basicAuth, err := b.provider(req.Context())
-	if err != nil {
-		return nil, err
+	if basicAuth := b.Current(); basicAuth != nil {
+		setBasicAuth(req.Header, basicAuth.User, basicAuth.Password)
 	}
-	setBasicAuth(req.Header, basicAuth.User, basicAuth.Password)
 	return next.RoundTrip(req)
 }
 
 func newBasicAuthMiddlewareFromRefreshable(auth refreshable.Refreshable[*refreshingclient.BasicAuth]) Middleware {
-	disabled, _ := refreshable.Map(auth, func(a *refreshingclient.BasicAuth) bool { return a == nil })
-	return &conditionalMiddleware{
-		Disabled: disabled,
-		Delegate: &basicAuthMiddleware{provider: func(ctx context.Context) (BasicAuth, error) {
-			if b := auth.Current(); b != nil {
-				return BasicAuth{User: b.User, Password: b.Password}, nil
-			}
-			return BasicAuth{}, nil
-		}},
-	}
+	return &basicAuthMiddleware{Refreshable: auth}
 }
 
 func setBasicAuth(h http.Header, username, password string) {
