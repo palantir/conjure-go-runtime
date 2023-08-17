@@ -21,7 +21,7 @@ import (
 	"net/http"
 
 	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient/internal/refreshingclient"
-	"github.com/palantir/pkg/refreshable"
+	"github.com/palantir/pkg/refreshable/v2"
 )
 
 // TokenProvider accepts a context and returns either:
@@ -48,13 +48,12 @@ func (h *authTokenMiddleware) RoundTrip(req *http.Request, next http.RoundTrippe
 	return next.RoundTrip(req)
 }
 
-func newAuthTokenMiddlewareFromRefreshable(token refreshable.StringPtr) Middleware {
+func newAuthTokenMiddlewareFromRefreshable(token refreshable.Refreshable[*string]) Middleware {
+	disabled, _ := refreshable.Map(token, func(s *string) bool { return s == nil })
 	return &conditionalMiddleware{
-		Disabled: refreshable.NewBool(token.MapStringPtr(func(s *string) interface{} {
-			return s == nil
-		})),
+		Disabled: disabled,
 		Delegate: &authTokenMiddleware{provideToken: func(ctx context.Context) (string, error) {
-			if s := token.CurrentStringPtr(); s != nil {
+			if s := token.Current(); s != nil {
 				return *s, nil
 			}
 			return "", nil
@@ -83,13 +82,12 @@ func (b *basicAuthMiddleware) RoundTrip(req *http.Request, next http.RoundTrippe
 	return next.RoundTrip(req)
 }
 
-func newBasicAuthMiddlewareFromRefreshable(auth refreshingclient.RefreshableBasicAuthPtr) Middleware {
+func newBasicAuthMiddlewareFromRefreshable(auth refreshable.Refreshable[*refreshingclient.BasicAuth]) Middleware {
+	disabled, _ := refreshable.Map(auth, func(a *refreshingclient.BasicAuth) bool { return a == nil })
 	return &conditionalMiddleware{
-		Disabled: refreshable.NewBool(auth.MapBasicAuthPtr(func(auth *refreshingclient.BasicAuth) interface{} {
-			return auth == nil
-		})),
+		Disabled: disabled,
 		Delegate: &basicAuthMiddleware{provider: func(ctx context.Context) (BasicAuth, error) {
-			if b := auth.CurrentBasicAuthPtr(); b != nil {
+			if b := auth.Current(); b != nil {
 				return BasicAuth{User: b.User, Password: b.Password}, nil
 			}
 			return BasicAuth{}, nil

@@ -69,7 +69,7 @@ func TestWithConfigParam(t *testing.T) {
 	}
 	client, err := NewClient(WithConfig(conf.ClientConfig("my-service")))
 	require.NoError(t, err)
-	assert.Equal(t, 3*time.Second, client.(*clientImpl).client.CurrentHTTPClient().Timeout)
+	assert.Equal(t, 3*time.Second, client.(*clientImpl).client.Current().Timeout)
 }
 
 func TestWithConfigForHTTPClientParam(t *testing.T) {
