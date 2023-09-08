@@ -238,11 +238,11 @@ func deepCombine(tags [][]metrics.Tag) []metrics.Tag {
 	for _, tagList := range tags {
 		size += len(tagList)
 	}
-	result := make([]metrics.Tag, 0, size)
+	combinedTags := make([]metrics.Tag, 0, size)
 	for _, tagList := range tags {
-		result = append(result, tagList...)
+		combinedTags = append(combinedTags, tagList...)
 	}
-	return result
+	return combinedTags
 }
 
 func isTimeoutError(respErr error) bool {
