@@ -1,0 +1,5 @@
+type: fix
+fix:
+  description: Fix memory leak with ever increasing slice of tls tags
+  links:
+  - https://github.com/palantir/conjure-go-runtime/pull/535
