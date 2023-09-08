@@ -6,7 +6,7 @@ require (
 	github.com/golang/snappy v0.0.4
 	github.com/palantir/pkg/bytesbuffers v1.2.0
 	github.com/palantir/pkg/httpserver v1.1.0
-	github.com/palantir/pkg/metrics v1.5.0
+	github.com/palantir/pkg/metrics v1.6.0
 	github.com/palantir/pkg/refreshable v1.4.0
 	github.com/palantir/pkg/retry v1.2.0
 	github.com/palantir/pkg/safejson v1.1.0
