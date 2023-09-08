@@ -183,30 +183,36 @@ func (h *metricsMiddleware) tlsTraceContext(ctx context.Context) context.Context
 	tags := []metrics.Tag{h.ServiceNameTag}
 	return httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{
 		GotConn: func(info httptrace.GotConnInfo) {
+			var extraTags []metrics.Tag
 			if info.Reused {
-				metrics.FromContext(ctx).Counter(MetricConnCreate, append(tags, MetricTagConnectionReused)...).Inc(1)
+				extraTags = []metrics.Tag{MetricTagConnectionReused}
 			} else {
-				metrics.FromContext(ctx).Counter(MetricConnCreate, append(tags, MetricTagConnectionNew)...).Inc(1)
+				extraTags = []metrics.Tag{MetricTagConnectionNew}
 			}
+			curTags := deepCombine([][]metrics.Tag{tags, extraTags})
+			metrics.FromContext(ctx).Counter(MetricConnCreate, curTags...).Inc(1)
 		},
 		TLSHandshakeStart: func() {
 			metrics.FromContext(ctx).Meter(MetricTLSHandshakeAttempt, tags...).Mark(1)
 		},
 		TLSHandshakeDone: func(state tls.ConnectionState, err error) {
 			cipherSuite := tls.CipherSuiteName(state.CipherSuite)
+			var extraTags []metrics.Tag
 			if cipherSuite != "" {
-				tags = append(tags, metrics.MustNewTag(CipherTagKey, cipherSuite))
+				extraTags = append(extraTags, metrics.MustNewTag(CipherTagKey, cipherSuite))
 			}
 			if state.NegotiatedProtocol != "" {
-				tags = append(tags, metrics.MustNewTag(NextProtocolTagKey, state.NegotiatedProtocol))
+				extraTags = append(extraTags, metrics.MustNewTag(NextProtocolTagKey, state.NegotiatedProtocol))
 			}
 			if tlsVersion := tlsVersionString(state.Version); tlsVersion != "" {
-				tags = append(tags, metrics.MustNewTag(TLSVersionTagKey, tlsVersion))
+				extraTags = append(extraTags, metrics.MustNewTag(TLSVersionTagKey, tlsVersion))
 			}
+			// We can't simply append to tags otherwise we'll accumulate the same tags over and over.
+			curTags := deepCombine([][]metrics.Tag{tags, extraTags})
 			if err != nil {
-				metrics.FromContext(ctx).Meter(MetricTLSHandshakeFailure, tags...).Mark(1)
+				metrics.FromContext(ctx).Meter(MetricTLSHandshakeFailure, curTags...).Mark(1)
 			} else {
-				metrics.FromContext(ctx).Meter(MetricTLSHandshake, tags...).Mark(1)
+				metrics.FromContext(ctx).Meter(MetricTLSHandshake, curTags...).Mark(1)
 			}
 		},
 	})
@@ -224,6 +230,19 @@ func tlsVersionString(version uint16) string {
 		return "TLS13"
 	}
 	return ""
+}
+
+// deepCombine merges all the tags in the lists into a new deep copied list.
+func deepCombine(tags [][]metrics.Tag) []metrics.Tag {
+	size := 0
+	for _, tagList := range tags {
+		size += len(tagList)
+	}
+	result := make([]metrics.Tag, 0, size)
+	for _, tagList := range tags {
+		result = append(result, tagList...)
+	}
+	return result
 }
 
 func isTimeoutError(respErr error) bool {
