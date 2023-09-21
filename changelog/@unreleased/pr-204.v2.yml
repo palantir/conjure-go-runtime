@@ -1,0 +1,14 @@
+type: improvement
+improvement:
+  description: |-
+    Add params for more control over request/response bodies
+
+    Previously, request and response bodies could be handled via a `Codec` or the raw ReadCloser (used for streaming). This introduces additional overhead when the marshal/unmarshal logic can be provided directly.
+
+    This PR adds four new request parameters which allow specifying this behavior directly:
+    * WithRequestMarshalFunc
+    * WithRequestAppendFunc
+    * WithRequestZLibCompression
+    * WithResponseUnmarshalFunc
+  links:
+  - https://github.com/palantir/conjure-go-runtime/pull/204

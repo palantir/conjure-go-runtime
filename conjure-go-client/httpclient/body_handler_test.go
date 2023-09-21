@@ -17,6 +17,7 @@ package httpclient_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -171,4 +172,85 @@ func TestRedirectWithBodyAndBytesBuffer(t *testing.T) {
 	assert.NotNil(t, resp)
 	assert.Equal(t, resp.StatusCode, 200)
 	assert.Equal(t, respVar, actualRespVar)
+}
+
+func TestBodyMiddleware_BodyFuncs(t *testing.T) {
+	reqVar := map[string]string{"1": "2"}
+	respVar := map[string]string{"3": "4"}
+
+	server := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		assert.Equal(t, "TestNewRequest", req.Header.Get("User-Agent"))
+		var actualReqVar map[string]string
+		err := codecs.JSON.Decode(req.Body, &actualReqVar)
+		assert.NoError(t, err)
+		assert.Equal(t, reqVar, actualReqVar)
+
+		err = codecs.JSON.Encode(rw, respVar)
+		assert.NoError(t, err)
+	}))
+	defer server.Close()
+
+	client, err := httpclient.NewClient(
+		httpclient.WithUserAgent("TestNewRequest"),
+		httpclient.WithBaseURLs([]string{server.URL}),
+	)
+	require.NoError(t, err)
+
+	var actualRespVar map[string]string
+	resp, err := client.Do(context.Background(),
+		httpclient.WithRequestMethod(http.MethodPost),
+		httpclient.WithRequestAppendFunc(codecs.JSON.ContentType(), func(buf []byte) ([]byte, error) {
+			data, err := json.Marshal(reqVar)
+			if err != nil {
+				return nil, err
+			}
+			return append(buf, data...), nil
+		}),
+		httpclient.WithResponseUnmarshalFunc(codecs.JSON.Accept(), func(data []byte) error {
+			return json.Unmarshal(data, &actualRespVar)
+		}),
+	)
+
+	assert.NoError(t, err)
+	assert.NotNil(t, resp)
+	assert.Equal(t, respVar, actualRespVar)
+}
+
+func TestBodyMiddleware_204_Response(t *testing.T) {
+	reqVar := map[string]string{"1": "2"}
+
+	server := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		assert.Equal(t, "TestNewRequest", req.Header.Get("User-Agent"))
+		var actualReqVar map[string]string
+		err := codecs.JSON.Decode(req.Body, &actualReqVar)
+		assert.NoError(t, err)
+		assert.Equal(t, reqVar, actualReqVar)
+		rw.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	client, err := httpclient.NewClient(
+		httpclient.WithUserAgent("TestNewRequest"),
+		httpclient.WithBaseURLs([]string{server.URL}),
+	)
+	require.NoError(t, err)
+
+	var actualRespVar map[string]string
+	resp, err := client.Do(context.Background(),
+		httpclient.WithRequestMethod(http.MethodPost),
+		httpclient.WithRequestAppendFunc(codecs.JSON.ContentType(), func(buf []byte) ([]byte, error) {
+			data, err := json.Marshal(reqVar)
+			if err != nil {
+				return nil, err
+			}
+			return append(buf, data...), nil
+		}),
+		httpclient.WithResponseUnmarshalFunc(codecs.JSON.Accept(), func(data []byte) error {
+			return json.Unmarshal(data, &actualRespVar)
+		}),
+	)
+
+	assert.NoError(t, err)
+	assert.NotNil(t, resp)
+	assert.Nil(t, actualRespVar)
 }
