@@ -179,6 +179,11 @@ func (c *clientImpl) doOnce(
 
 	clientCopy.Transport = transport
 
+	// use request-specific timeout if set
+	if b.timeoutOverride != nil {
+		clientCopy.Timeout = *b.timeoutOverride
+	}
+
 	// 3. execute the request using the client to get and handle the response
 	resp, respErr := clientCopy.Do(req)
 
