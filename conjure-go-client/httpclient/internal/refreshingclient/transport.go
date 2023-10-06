@@ -40,10 +40,14 @@ type TransportParams struct {
 	HTTP2PingTimeout      time.Duration
 }
 
-func NewRefreshableTransport(ctx context.Context, p RefreshableTransportParams, tlsConfig *tls.Config, dialer ContextDialer) http.RoundTripper {
+func NewRefreshableTransport(ctx context.Context, p RefreshableTransportParams, tlsConfig refreshable.Refreshable, dialer ContextDialer) http.RoundTripper {
 	return &RefreshableTransport{
 		Refreshable: p.MapTransportParams(func(p TransportParams) interface{} {
-			return newTransport(ctx, p, tlsConfig, dialer)
+			var curTLSConfig *tls.Config = nil
+			if tlsConfig != nil {
+				curTLSConfig = tlsConfig.Current().(*tls.Config)
+			}
+			return newTransport(ctx, p, curTLSConfig, dialer)
 		}),
 	}
 }
