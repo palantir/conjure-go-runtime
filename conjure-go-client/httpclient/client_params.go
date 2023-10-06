@@ -352,7 +352,7 @@ func WithProxyURL(proxyURLString string) ClientOrHTTPClientParam {
 	})
 }
 
-// WithTLSConfig is the same as .
+// WithTLSConfig is the same as WithRefreshableTLSConfig, but provides a static config.
 func WithTLSConfig(conf *tls.Config) ClientOrHTTPClientParam {
 	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
 		if conf == nil {
