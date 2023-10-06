@@ -1,0 +1,5 @@
+type: improvement
+improvement:
+  description: Make TLSConfig refreshable
+  links:
+  - https://github.com/palantir/conjure-go-runtime/pull/545
