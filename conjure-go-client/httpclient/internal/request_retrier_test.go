@@ -16,7 +16,9 @@ package internal
 
 import (
 	"context"
+	"net"
 	"net/http"
+	"syscall"
 	"testing"
 	"time"
 
@@ -31,11 +33,22 @@ var _ retry.Retrier = &mockRetrier{}
 func TestRequestRetrier_HandleMeshURI(t *testing.T) {
 	r := NewRequestRetrier([]string{"mesh-http://example.com"}, retry.Start(context.Background()), 1)
 	uri, _ := r.GetNextURI(nil, nil)
-	require.Equal(t, uri, "http://example.com")
+	require.Equal(t, "http://example.com", uri)
 
 	respErr := werror.ErrorWithContextParams(context.Background(), "error", werror.SafeParam("statusCode", 429))
 	uri, _ = r.GetNextURI(nil, respErr)
 	require.Empty(t, uri)
+}
+
+func TestRequestRetrier_HandleMeshURI_ConnectionRefused(t *testing.T) {
+	r := NewRequestRetrier([]string{"mesh-http://example.com"}, retry.Start(context.Background()), 0)
+
+	uri, _ := r.GetNextURI(nil, nil)
+	require.Equal(t, "http://example.com", uri)
+
+	connErr := werror.Wrap(&net.OpError{Err: syscall.ECONNREFUSED}, "message")
+	uri, _ = r.GetNextURI(nil, connErr)
+	require.Equal(t, "http://example.com", uri)
 }
 
 func TestRequestRetrier_AttemptCount(t *testing.T) {

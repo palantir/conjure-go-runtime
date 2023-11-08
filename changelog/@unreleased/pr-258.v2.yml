@@ -1,0 +1,5 @@
+type: fix
+fix:
+  description: Retry mesh URIs when err is Connection Refused
+  links:
+  - https://github.com/palantir/conjure-go-runtime/pull/258
