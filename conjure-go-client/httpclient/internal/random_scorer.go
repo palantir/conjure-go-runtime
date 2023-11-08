@@ -24,13 +24,17 @@ type randomScorer struct {
 	nanoClock func() int64
 }
 
-func (n *randomScorer) GetURIsInOrderOfIncreasingScore() []string {
-	uris := make([]string, len(n.uris))
-	copy(uris, n.uris)
-	rand.New(rand.NewSource(n.nanoClock())).Shuffle(len(uris), func(i, j int) {
-		uris[i], uris[j] = uris[j], uris[i]
+func (n *randomScorer) GetURIsInOrderOfIncreasingScore(header http.Header) []string {
+	return getURIsInRandomOrder(n.uris, n.nanoClock())
+}
+
+func getURIsInRandomOrder(uris []string, seed int64) []string {
+	randomizedUris := make([]string, len(uris))
+	copy(randomizedUris, uris)
+	rand.New(rand.NewSource(seed)).Shuffle(len(randomizedUris), func(i, j int) {
+		randomizedUris[i], randomizedUris[j] = randomizedUris[j], randomizedUris[i]
 	})
-	return uris
+	return randomizedUris
 }
 
 func (n *randomScorer) RoundTrip(req *http.Request, next http.RoundTripper) (*http.Response, error) {

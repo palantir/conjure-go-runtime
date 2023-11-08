@@ -82,7 +82,11 @@ func (c *clientImpl) Delete(ctx context.Context, params ...RequestParam) (*http.
 }
 
 func (c *clientImpl) Do(ctx context.Context, params ...RequestParam) (*http.Response, error) {
-	uris := c.uriScorer.CurrentURIScoringMiddleware().GetURIsInOrderOfIncreasingScore()
+	headers, err := getHeadersFromRequestParams(params...)
+	if err != nil {
+		return nil, err
+	}
+	uris := c.uriScorer.CurrentURIScoringMiddleware().GetURIsInOrderOfIncreasingScore(headers)
 	if len(uris) == 0 {
 		return nil, werror.ErrorWithContextParams(ctx, "no base URIs are configured")
 	}
@@ -94,7 +98,6 @@ func (c *clientImpl) Do(ctx context.Context, params ...RequestParam) (*http.Resp
 		}
 	}
 
-	var err error
 	var resp *http.Response
 
 	retrier := internal.NewRequestRetrier(uris, c.backoffOptions.CurrentRetryParams().Start(ctx), attempts)
@@ -112,6 +115,24 @@ func (c *clientImpl) Do(ctx context.Context, params ...RequestParam) (*http.Resp
 		return nil, err
 	}
 	return resp, nil
+}
+
+func getHeadersFromRequestParams(params ...RequestParam) (http.Header, error) {
+	b := &requestBuilder{
+		headers:        make(http.Header),
+		query:          make(url.Values),
+		bodyMiddleware: &bodyMiddleware{},
+	}
+
+	for _, p := range params {
+		if p == nil {
+			continue
+		}
+		if err := p.apply(b); err != nil {
+			return nil, err
+		}
+	}
+	return b.headers, nil
 }
 
 func (c *clientImpl) doOnce(
