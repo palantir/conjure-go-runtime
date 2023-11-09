@@ -46,3 +46,25 @@ func UnmarshalError(body []byte) (Error, error) {
 	// Cast should never panic, as we've verified in RegisterErrorType
 	return instance.(Error), nil
 }
+
+func UnmarshalErrorForModule(moduleName string, body []byte) (Error, error) {
+	var name struct {
+		Name string `json:"errorName"`
+	}
+	if err := codecs.JSON.Unmarshal(body, &name); err != nil {
+		return nil, werror.Wrap(err, "failed to unmarshal body as conjure error")
+	}
+	typ, ok := registryByModule[moduleName][name.Name]
+	if !ok {
+		// Unrecognized error name, fall back to genericError
+		typ = reflect.TypeOf(genericError{})
+	}
+
+	instance := reflect.New(typ).Interface()
+	if err := codecs.JSON.Unmarshal(body, &instance); err != nil {
+		return nil, werror.Wrap(err, "failed to unmarshal body using registered type", werror.SafeParam("type", typ.String()))
+	}
+
+	// Cast should never panic, as we've verified in RegisterErrorType
+	return instance.(Error), nil
+}
