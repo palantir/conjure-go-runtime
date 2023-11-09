@@ -28,9 +28,12 @@ github.com/palantir/pkg/httpserver
 # github.com/palantir/pkg/metrics v1.7.0
 ## explicit; go 1.21
 github.com/palantir/pkg/metrics
-# github.com/palantir/pkg/refreshable v1.4.0
-## explicit; go 1.19
+# github.com/palantir/pkg/refreshable v1.5.0
+## explicit; go 1.20
 github.com/palantir/pkg/refreshable
+# github.com/palantir/pkg/refreshable/v2 v2.0.0
+## explicit; go 1.20
+github.com/palantir/pkg/refreshable/v2
 # github.com/palantir/pkg/retry v1.2.0
 ## explicit; go 1.19
 github.com/palantir/pkg/retry
@@ -44,20 +47,20 @@ github.com/palantir/pkg/tlsconfig
 ## explicit; go 1.19
 github.com/palantir/pkg/uuid
 github.com/palantir/pkg/uuid/internal/uuid
-# github.com/palantir/witchcraft-go-error v1.28.0
+# github.com/palantir/witchcraft-go-error v1.29.0
 ## explicit; go 1.21
 github.com/palantir/witchcraft-go-error
 github.com/palantir/witchcraft-go-error/internal/errors
-# github.com/palantir/witchcraft-go-logging v1.45.0
+# github.com/palantir/witchcraft-go-logging v1.46.0
 ## explicit; go 1.21
 github.com/palantir/witchcraft-go-logging/internal/gopath
 github.com/palantir/witchcraft-go-logging/wlog
 github.com/palantir/witchcraft-go-logging/wlog/internal
 github.com/palantir/witchcraft-go-logging/wlog/svclog/svc1log
-# github.com/palantir/witchcraft-go-params v1.26.0
+# github.com/palantir/witchcraft-go-params v1.27.0
 ## explicit; go 1.21
 github.com/palantir/witchcraft-go-params
-# github.com/palantir/witchcraft-go-tracing v1.28.0
+# github.com/palantir/witchcraft-go-tracing v1.29.0
 ## explicit; go 1.21
 github.com/palantir/witchcraft-go-tracing/wtracing
 github.com/palantir/witchcraft-go-tracing/wtracing/propagation/b3
@@ -72,16 +75,16 @@ github.com/pmezard/go-difflib/difflib
 ## explicit; go 1.20
 github.com/stretchr/testify/assert
 github.com/stretchr/testify/require
-# golang.org/x/net v0.15.0
-## explicit; go 1.17
+# golang.org/x/net v0.18.0
+## explicit; go 1.18
 golang.org/x/net/http/httpguts
 golang.org/x/net/http2
 golang.org/x/net/http2/hpack
 golang.org/x/net/idna
 golang.org/x/net/internal/socks
 golang.org/x/net/proxy
-# golang.org/x/text v0.13.0
-## explicit; go 1.17
+# golang.org/x/text v0.14.0
+## explicit; go 1.18
 golang.org/x/text/secure/bidirule
 golang.org/x/text/transform
 golang.org/x/text/unicode/bidi
