@@ -16,12 +16,15 @@ package httpclient_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient"
 	"github.com/palantir/conjure-go-runtime/v2/conjure-go-contract/codecs"
@@ -184,6 +187,91 @@ func TestMiddlewareCanReadBody(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, resp)
 	})
+}
+
+func TestTimeouts(t *testing.T) {
+	// General timeout to avoid hanging/slowness asserted at the end of the test.
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+
+	timeoutServer := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		timeout, err := time.ParseDuration(req.URL.Query().Get("timeout"))
+		if err != nil {
+			rw.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		t.Logf("sleeping for %v", timeout)
+		select {
+		case <-time.After(timeout):
+			t.Logf("request completed")
+			rw.WriteHeader(http.StatusOK)
+		case <-req.Context().Done():
+			t.Logf("request canceled: %v", req.Context().Err())
+			rw.WriteHeader(http.StatusRequestTimeout)
+		case <-ctx.Done():
+			t.Logf("test canceled: %v", ctx.Err())
+			rw.WriteHeader(http.StatusInternalServerError)
+		}
+	}))
+	defer timeoutServer.Close()
+
+	for _, tt := range []struct {
+		Name           string
+		ServerTimeout  time.Duration
+		ClientTimeout  time.Duration
+		RequestTimeout time.Duration
+		ExpectTimeout  bool
+		ExpectStatus   int
+	}{
+		{
+			"short request less than client timeout",
+			time.Millisecond, time.Second, 0, false, http.StatusOK,
+		},
+		{
+			"short request less than request timeout",
+			time.Millisecond, 0, time.Second, false, http.StatusOK,
+		},
+		{
+			"slow request longer than client timeout",
+			time.Second, time.Millisecond, 0, true, 0,
+		},
+		{
+			"slow request longer than request timeout",
+			time.Second, 0, time.Millisecond, true, 0,
+		},
+	} {
+		t.Run(tt.Name, func(t *testing.T) {
+			clientParams := []httpclient.ClientParam{
+				httpclient.WithBaseURLs([]string{timeoutServer.URL}),
+				httpclient.WithMaxRetries(0),
+			}
+			if tt.ClientTimeout > 0 {
+				clientParams = append(clientParams, httpclient.WithHTTPTimeout(tt.ClientTimeout))
+			}
+			client, err := httpclient.NewClient(clientParams...)
+			require.NoError(t, err)
+			requestParams := []httpclient.RequestParam{
+				httpclient.WithQueryValues(map[string][]string{"timeout": {tt.ServerTimeout.String()}}),
+			}
+			if tt.RequestTimeout > 0 {
+				requestParams = append(requestParams, httpclient.WithRequestTimeout(tt.RequestTimeout))
+			}
+			resp, err := client.Get(ctx, requestParams...)
+			if tt.ExpectTimeout {
+				require.Error(t, err)
+				require.Nil(t, resp)
+				var netErr net.Error
+				assert.True(t, errors.As(err, &netErr), "error should be a net.Error: %v", err)
+				assert.True(t, netErr.Timeout(), "error should be a timeout: %v", err)
+			} else {
+				require.NoError(t, err)
+				require.NotNil(t, resp)
+				require.Equal(t, tt.ExpectStatus, resp.StatusCode)
+			}
+		})
+	}
+
+	require.NoError(t, ctx.Err(), "context should not be canceled: test did not complete in expected time")
 }
 
 func BenchmarkAllocWithBytesBufferPool(b *testing.B) {

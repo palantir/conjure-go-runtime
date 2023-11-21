@@ -226,7 +226,7 @@ func WithRequestBasicAuth(username, password string) RequestParam {
 // WithRequestTimeout uses the provided value instead of the client's configured timeout.
 func WithRequestTimeout(timeout time.Duration) RequestParam {
 	return requestParamFunc(func(b *requestBuilder) error {
-		b.timeoutOverride = &timeout
+		b.requestTimeout = &timeout
 		return nil
 	})
 }

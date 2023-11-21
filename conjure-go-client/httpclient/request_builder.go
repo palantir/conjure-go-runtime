@@ -34,7 +34,7 @@ type requestBuilder struct {
 
 	errorDecoderMiddleware Middleware
 	configureCtx           []func(context.Context) context.Context
-	timeoutOverride        *time.Duration
+	requestTimeout         *time.Duration
 }
 
 const traceIDHeaderKey = "X-B3-TraceId"
