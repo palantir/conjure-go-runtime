@@ -1,0 +1,7 @@
+type: improvement
+improvement:
+  description: >
+    codecs.JSON recognizes objects implementing Marshaler and Unmarshaler.
+    Added utility types for anonymous functions implementing JSON encoding.
+  links:
+  - https://github.com/palantir/conjure-go-runtime/pull/353
