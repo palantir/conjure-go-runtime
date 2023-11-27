@@ -21,7 +21,7 @@ import (
 	"net/http"
 
 	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient/internal/refreshingclient"
-	"github.com/palantir/pkg/refreshable"
+	"github.com/palantir/pkg/refreshable/v2"
 )
 
 // TokenProvider accepts a context and returns either:
@@ -48,13 +48,12 @@ func (h *authTokenMiddleware) RoundTrip(req *http.Request, next http.RoundTrippe
 	return next.RoundTrip(req)
 }
 
-func newAuthTokenMiddlewareFromRefreshable(token refreshable.StringPtr) Middleware {
+func newAuthTokenMiddlewareFromRefreshable(token refreshable.Refreshable[*string]) Middleware {
+	disabled, _ := refreshable.Map(token, func(s *string) bool { return s == nil })
 	return &conditionalMiddleware{
-		Disabled: refreshable.NewBool(token.MapStringPtr(func(s *string) interface{} {
-			return s == nil
-		})),
+		Disabled: disabled,
 		Delegate: &authTokenMiddleware{provideToken: func(ctx context.Context) (string, error) {
-			if s := token.CurrentStringPtr(); s != nil {
+			if s := token.Current(); s != nil {
 				return *s, nil
 			}
 			return "", nil
@@ -62,39 +61,20 @@ func newAuthTokenMiddlewareFromRefreshable(token refreshable.StringPtr) Middlewa
 	}
 }
 
-// BasicAuthProvider accepts a context and returns either:
-//
-// (1) a nonempty BasicAuth and a nil error, or
-//
-// (2) an empty BasicAuth and a non-nil error.
-type BasicAuthProvider func(context.Context) (BasicAuth, error)
-
 // basicAuthMiddleware wraps a refreshing BasicAuth pointer and injects basic auth credentials if the pointer is not nil
 type basicAuthMiddleware struct {
-	provider BasicAuthProvider
+	refreshable.Refreshable[*refreshingclient.BasicAuth]
 }
 
 func (b *basicAuthMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (*http.Response, error) {
-	basicAuth, err := b.provider(req.Context())
-	if err != nil {
-		return nil, err
+	if basicAuth := b.Current(); basicAuth != nil {
+		setBasicAuth(req.Header, basicAuth.User, basicAuth.Password)
 	}
-	setBasicAuth(req.Header, basicAuth.User, basicAuth.Password)
 	return next.RoundTrip(req)
 }
 
-func newBasicAuthMiddlewareFromRefreshable(auth refreshingclient.RefreshableBasicAuthPtr) Middleware {
-	return &conditionalMiddleware{
-		Disabled: refreshable.NewBool(auth.MapBasicAuthPtr(func(auth *refreshingclient.BasicAuth) interface{} {
-			return auth == nil
-		})),
-		Delegate: &basicAuthMiddleware{provider: func(ctx context.Context) (BasicAuth, error) {
-			if b := auth.CurrentBasicAuthPtr(); b != nil {
-				return BasicAuth{User: b.User, Password: b.Password}, nil
-			}
-			return BasicAuth{}, nil
-		}},
-	}
+func newBasicAuthMiddlewareFromRefreshable(auth refreshable.Refreshable[*refreshingclient.BasicAuth]) Middleware {
+	return &basicAuthMiddleware{Refreshable: auth}
 }
 
 func setBasicAuth(h http.Header, username, password string) {

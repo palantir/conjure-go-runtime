@@ -24,7 +24,7 @@ import (
 	"time"
 
 	"github.com/palantir/pkg/metrics"
-	"github.com/palantir/pkg/refreshable"
+	"github.com/palantir/pkg/refreshable/v2"
 	werror "github.com/palantir/witchcraft-go-error"
 )
 
@@ -79,11 +79,11 @@ func (s StaticTagsProvider) Tags(_ *http.Request, _ *http.Response, _ error) met
 }
 
 type refreshableMetricsTagsProvider struct {
-	refreshable.Refreshable // contains metrics.Tags
+	refreshable.Refreshable[metrics.Tags]
 }
 
 func (r refreshableMetricsTagsProvider) Tags(_ *http.Request, _ *http.Response, _ error) metrics.Tags {
-	return r.Current().(metrics.Tags)
+	return r.Current()
 }
 
 // MetricsMiddleware updates the "client.response" timer metric on every request.
@@ -98,7 +98,7 @@ func MetricsMiddleware(serviceName string, tagProviders ...TagsProvider) (Middle
 	return newMetricsMiddleware(serviceNameTag, tagProviders, nil), nil
 }
 
-func newMetricsMiddleware(serviceNameTag metrics.Tag, tagProviders []TagsProvider, disabled refreshable.Bool) Middleware {
+func newMetricsMiddleware(serviceNameTag metrics.Tag, tagProviders []TagsProvider, disabled refreshable.Refreshable[bool]) Middleware {
 	return &metricsMiddleware{
 		Disabled:       disabled,
 		ServiceNameTag: serviceNameTag,
@@ -113,7 +113,7 @@ func newMetricsMiddleware(serviceNameTag metrics.Tag, tagProviders []TagsProvide
 }
 
 type metricsMiddleware struct {
-	Disabled       refreshable.Bool
+	Disabled       refreshable.Refreshable[bool]
 	ServiceNameTag metrics.Tag
 	Tags           []TagsProvider
 }
@@ -121,7 +121,7 @@ type metricsMiddleware struct {
 // RoundTrip will emit counter and timer metrics with the name 'mariner.k8sClient.request'
 // and k8s for API group, API version, namespace, resource kind, request method, and response status code.
 func (h *metricsMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (*http.Response, error) {
-	if h.Disabled != nil && h.Disabled.CurrentBool() {
+	if h.Disabled != nil && h.Disabled.Current() {
 		// If we have a Disabled refreshable and it is true, no-op.
 		return next.RoundTrip(req)
 	}

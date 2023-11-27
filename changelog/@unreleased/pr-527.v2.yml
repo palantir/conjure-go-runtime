@@ -1,0 +1,5 @@
+type: break
+break:
+  description: Use refreshable/v2
+  links:
+  - https://github.com/palantir/conjure-go-runtime/pull/527
