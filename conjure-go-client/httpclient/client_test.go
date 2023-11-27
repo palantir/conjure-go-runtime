@@ -224,20 +224,36 @@ func TestTimeouts(t *testing.T) {
 		ExpectStatus   int
 	}{
 		{
-			"short request less than client timeout",
-			time.Millisecond, time.Second, 0, false, http.StatusOK,
+			Name:           "short request less than client timeout",
+			ServerTimeout:  time.Millisecond,
+			ClientTimeout:  time.Second,
+			RequestTimeout: 0,
+			ExpectTimeout:  false,
+			ExpectStatus:   http.StatusOK,
 		},
 		{
-			"short request less than request timeout",
-			time.Millisecond, 0, time.Second, false, http.StatusOK,
+			Name:           "short request less than request timeout",
+			ServerTimeout:  time.Millisecond,
+			ClientTimeout:  0,
+			RequestTimeout: time.Second,
+			ExpectTimeout:  false,
+			ExpectStatus:   http.StatusOK,
 		},
 		{
-			"slow request longer than client timeout",
-			time.Second, time.Millisecond, 0, true, 0,
+			Name:           "slow request longer than client timeout",
+			ServerTimeout:  time.Second,
+			ClientTimeout:  time.Millisecond,
+			RequestTimeout: 0,
+			ExpectTimeout:  true,
+			ExpectStatus:   0,
 		},
 		{
-			"slow request longer than request timeout",
-			time.Second, 0, time.Millisecond, true, 0,
+			Name:           "slow request longer than request timeout",
+			ServerTimeout:  time.Second,
+			ClientTimeout:  0,
+			RequestTimeout: time.Millisecond,
+			ExpectTimeout:  true,
+			ExpectStatus:   0,
 		},
 	} {
 		t.Run(tt.Name, func(t *testing.T) {
