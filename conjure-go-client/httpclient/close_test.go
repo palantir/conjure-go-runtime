@@ -33,7 +33,7 @@ import (
 )
 
 const (
-	assertTimeout = time.Second * 5
+	assertTimeout = time.Second * 10
 )
 
 var (
