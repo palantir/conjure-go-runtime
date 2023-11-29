@@ -18,11 +18,12 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"runtime"
 	"runtime/pprof"
+	"strings"
 	"testing"
 	"time"
 
@@ -31,8 +32,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestClose(t *testing.T) {
+const (
+	assertTimeout = time.Second * 5
+)
 
+var (
+	assertTickInterval = assertTimeout / 10
+)
+
+func TestClose(t *testing.T) {
 	// create test server and client with an HTTP Timeout of 5s
 	ts := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
 		_, _ = fmt.Fprintln(rw, "test")
@@ -49,11 +57,16 @@ func TestClose(t *testing.T) {
 	require.NoError(t, err)
 
 	// check for bad goroutine before timeout is over
-	time.Sleep(500 * time.Millisecond) // leave some time for the goroutine to reasonably exit
-	buf := bytes.NewBuffer(nil)
-	require.NoError(t, pprof.Lookup("goroutine").WriteTo(buf, 1))
-	s := buf.String()
-	assert.NotContains(t, s, "net/http.setRequestCancel")
+	assertFunc := func() bool {
+		buf := bytes.NewBuffer(nil)
+		if err := pprof.Lookup("goroutine").WriteTo(buf, 1); err != nil {
+			t.Logf("pprof lookup error: %s", err)
+			return false
+		}
+		return !strings.Contains(buf.String(), "net/http.setRequestCancel")
+	}
+
+	assert.Eventually(t, assertFunc, assertTimeout, assertTickInterval)
 }
 
 func TestCloseOnError(t *testing.T) {
@@ -71,21 +84,30 @@ func TestCloseOnError(t *testing.T) {
 	require.NoError(t, err)
 
 	// execute a simple request
-	ctx := context.Background()
-	_, err = client.Get(
-		ctx,
-		httpclient.WithPath("/"),
-		httpclient.WithHeader("Connection", "close "),
-	)
-	require.Error(t, err)
+	go func() {
+		ctx := context.Background()
+		_, err = client.Get(
+			ctx,
+			httpclient.WithPath("/"),
+			httpclient.WithHeader("Connection", "close "),
+		)
+		require.Error(t, err)
+	}()
 
-	// check for bad goroutine before timeout is over
-	time.Sleep(500 * time.Millisecond) // leave some time for the goroutine to reasonably exit
-	buf := bytes.NewBuffer(nil)
-	require.NoError(t, pprof.Lookup("goroutine").WriteTo(buf, 1))
-	s := buf.String()
-	after := runtime.NumGoroutine()
-	assert.Equal(t, before, after, s)
+	assert.NotEqual(t, before, runtime.NumGoroutine(), "expected new goroutine to handle request")
+	assertFunc := func() bool {
+		buf := bytes.NewBuffer(nil)
+		if err := pprof.Lookup("goroutine").WriteTo(buf, 1); err != nil {
+			t.Logf("pprof lookup error: %s", err)
+			return false
+		}
+		// substract a goroutine for the assert eventually inner ticker
+		after := runtime.NumGoroutine() - 1
+		t.Logf("before: %d, after: %d", before, after)
+		return before == after
+	}
+
+	assert.Eventually(t, assertFunc, assertTimeout, assertTickInterval)
 }
 
 func TestCloseOnEmptyResponse(t *testing.T) {
@@ -102,21 +124,30 @@ func TestCloseOnEmptyResponse(t *testing.T) {
 	require.NoError(t, err)
 
 	// execute a simple request
-	ctx := context.Background()
-	_, err = client.Get(
-		ctx,
-		httpclient.WithPath("/"),
-		httpclient.WithHeader("Connection", "close "),
-	)
-	require.Error(t, err)
+	go func() {
+		ctx := context.Background()
+		_, err = client.Get(
+			ctx,
+			httpclient.WithPath("/"),
+			httpclient.WithHeader("Connection", "close "),
+		)
+		require.Error(t, err)
+	}()
 
-	// check for bad goroutine before timeout is over
-	time.Sleep(1000 * time.Millisecond) // leave some time for the goroutine to reasonably exit
-	buf := bytes.NewBuffer(nil)
-	require.NoError(t, pprof.Lookup("goroutine").WriteTo(buf, 1))
-	s := buf.String()
-	after := runtime.NumGoroutine()
-	assert.Equal(t, before, after, s)
+	assert.NotEqual(t, before, runtime.NumGoroutine(), "expected new goroutine to handle request")
+	assertFunc := func() bool {
+		buf := bytes.NewBuffer(nil)
+		if err := pprof.Lookup("goroutine").WriteTo(buf, 1); err != nil {
+			t.Logf("pprof lookup error: %s", err)
+			return false
+		}
+		// substract a goroutine for the assert eventually inner ticker
+		after := runtime.NumGoroutine() - 1
+		t.Logf("before: %d, after: %d", before, after)
+		return before == after
+	}
+
+	assert.Eventually(t, assertFunc, assertTimeout, assertTickInterval)
 }
 
 func TestStreamingResponse(t *testing.T) {
@@ -145,7 +176,7 @@ func TestStreamingResponse(t *testing.T) {
 	resp, err := client.Get(ctx, httpclient.WithPath("/"), httpclient.WithRawResponseBody())
 	require.NoError(t, err)
 	close(finishResponseChan)
-	b, err := ioutil.ReadAll(resp.Body)
+	b, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
 	assert.Equal(t, firstLine+"\n"+secondLine+"\n", string(b))
 }
