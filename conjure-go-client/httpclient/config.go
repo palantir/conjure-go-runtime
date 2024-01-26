@@ -25,6 +25,7 @@ import (
 
 	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient/internal/refreshingclient"
 	"github.com/palantir/pkg/metrics"
+	"github.com/palantir/pkg/refreshable"
 	"github.com/palantir/pkg/tlsconfig"
 	werror "github.com/palantir/witchcraft-go-error"
 	"github.com/palantir/witchcraft-go-logging/wlog/svclog/svc1log"
@@ -475,28 +476,32 @@ func newValidatedClientParamsFromConfig(ctx context.Context, config ClientConfig
 	}, nil
 }
 
-func subscribeTLSConfigUpdateWarning(ctx context.Context, security RefreshableSecurityConfig) (*tls.Config, error) {
-	//TODO: Implement refreshable TLS configuration.
-	// It is hard to represent all of the configuration (e.g. a dynamic function for GetCertificate) in primitive values friendly to reflect.DeepEqual.
+func newRefreshableTLSConfig(ctx context.Context, security RefreshableSecurityConfig) (refreshable.Refreshable, error) {
 	currentSecurity := security.CurrentSecurityConfig()
 
-	security.CAFiles().SubscribeToStringSlice(func(caFiles []string) {
-		svc1log.FromContext(ctx).Warn("conjure-go-runtime: CAFiles configuration changed but can not be live-reloaded.",
-			svc1log.SafeParam("existingCAFiles", currentSecurity.CAFiles),
-			svc1log.SafeParam("ignoredCAFiles", caFiles))
-	})
-	security.CertFile().SubscribeToString(func(certFile string) {
-		svc1log.FromContext(ctx).Warn("conjure-go-runtime: CertFile configuration changed but can not be live-reloaded.",
-			svc1log.SafeParam("existingCertFile", currentSecurity.CertFile),
-			svc1log.SafeParam("ignoredCertFile", certFile))
-	})
-	security.KeyFile().SubscribeToString(func(keyFile string) {
-		svc1log.FromContext(ctx).Warn("conjure-go-runtime: KeyFile configuration changed but can not be live-reloaded.",
-			svc1log.SafeParam("existingKeyFile", currentSecurity.KeyFile),
-			svc1log.SafeParam("ignoredKeyFile", keyFile))
-	})
+	currentTLSConfig, err := newTLSConfig(currentSecurity)
+	if err != nil {
+		return nil, err
+	}
+	tlsConfig := refreshable.NewDefaultRefreshable(currentTLSConfig)
 
-	return newTLSConfig(currentSecurity)
+	security.SubscribeToSecurityConfig(func(currentSecurity SecurityConfig) {
+		currentTLSConfig, err := newTLSConfig(currentSecurity)
+		if err != nil {
+			svc1log.FromContext(ctx).Warn("conjure-go-runtime: Current security config is not valid; tls config not reloaded.",
+				svc1log.SafeParam("existingCertFile", currentSecurity.CertFile),
+				svc1log.SafeParam("existingKeyFile", currentSecurity.KeyFile),
+				svc1log.SafeParam("existingCAFiles", currentSecurity.CAFiles),
+				svc1log.Stacktrace(err))
+			return
+		}
+		if err := tlsConfig.Update(currentTLSConfig); err != nil {
+			svc1log.FromContext(ctx).Warn("conjure-go-runtime: Internal error updating tls config.",
+				svc1log.Stacktrace(err))
+			return
+		}
+	})
+	return tlsConfig, nil
 }
 
 func newTLSConfig(security SecurityConfig) (*tls.Config, error) {
@@ -507,14 +512,11 @@ func newTLSConfig(security SecurityConfig) (*tls.Config, error) {
 	if security.CertFile != "" && security.KeyFile != "" {
 		tlsParams = append(tlsParams, tlsconfig.ClientKeyPairFiles(security.CertFile, security.KeyFile))
 	}
-	if len(tlsParams) != 0 {
-		tlsConfig, err := tlsconfig.NewClientConfig(tlsParams...)
-		if err != nil {
-			return nil, werror.Wrap(err, "failed to build tlsConfig")
-		}
-		return tlsConfig, nil
+	tlsConfig, err := tlsconfig.NewClientConfig(tlsParams...)
+	if err != nil {
+		return nil, werror.Wrap(err, "failed to build tlsConfig")
 	}
-	return nil, nil
+	return tlsConfig, nil
 }
 
 func derefDurationPtr(durPtr *time.Duration, defaultVal time.Duration) time.Duration {

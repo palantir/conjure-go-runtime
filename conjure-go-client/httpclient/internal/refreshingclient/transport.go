@@ -40,11 +40,33 @@ type TransportParams struct {
 	HTTP2PingTimeout      time.Duration
 }
 
-func NewRefreshableTransport(ctx context.Context, p RefreshableTransportParams, tlsConfig *tls.Config, dialer ContextDialer) http.RoundTripper {
+func NewRefreshableTransport(ctx context.Context, p RefreshableTransportParams, tlsConfig refreshable.Refreshable, dialer ContextDialer) http.RoundTripper {
+	curTLSConfig := func() *tls.Config {
+		if tlsConfig == nil {
+			return nil
+		}
+		return tlsConfig.Current().(*tls.Config)
+	}
+
+	transport := refreshable.NewDefaultRefreshable(newTransport(ctx, p.CurrentTransportParams(), curTLSConfig(), dialer))
+
+	p.SubscribeToTransportParams(func(params TransportParams) {
+		if err := transport.Update(newTransport(ctx, params, curTLSConfig(), dialer)); err != nil {
+			svc1log.FromContext(ctx).Error("Failed to update HTTP transport with transport params", svc1log.Stacktrace(err))
+		}
+	})
+
+	if tlsConfig != nil {
+		tlsConfig.Subscribe(func(tlsConfI interface{}) {
+			tlsConf := tlsConfI.(*tls.Config)
+			if err := transport.Update(newTransport(ctx, p.CurrentTransportParams(), tlsConf, dialer)); err != nil {
+				svc1log.FromContext(ctx).Error("Failed to update HTTP transport with tls config", svc1log.Stacktrace(err))
+			}
+		})
+	}
+
 	return &RefreshableTransport{
-		Refreshable: p.MapTransportParams(func(p TransportParams) interface{} {
-			return newTransport(ctx, p, tlsConfig, dialer)
-		}),
+		Refreshable: transport,
 	}
 }
 

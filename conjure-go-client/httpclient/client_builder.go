@@ -17,7 +17,6 @@ package httpclient
 
 import (
 	"context"
-	"crypto/tls"
 	"net/http"
 	"time"
 
@@ -63,7 +62,7 @@ type httpClientBuilder struct {
 	ServiceNameTag  metrics.Tag // Service name is not refreshable.
 	Timeout         refreshable.Duration
 	DialerParams    refreshingclient.RefreshableDialerParams
-	TLSConfig       *tls.Config // TODO: Make this refreshing and wire into transport
+	TLSConfig       refreshable.Refreshable
 	TransportParams refreshingclient.RefreshableTransportParams
 	Middlewares     []Middleware
 
@@ -204,7 +203,7 @@ func newClientBuilder() *clientBuilder {
 				KeepAlive:     defaultKeepAlive,
 				SocksProxyURL: nil,
 			})),
-			TLSConfig: defaultTLSConfig,
+			TLSConfig: refreshable.NewDefaultRefreshable(defaultTLSConfig),
 			TransportParams: refreshingclient.NewRefreshingTransportParams(refreshable.NewDefaultRefreshable(refreshingclient.TransportParams{
 				MaxIdleConns:          defaultMaxIdleConns,
 				MaxIdleConnsPerHost:   defaultMaxIdleConnsPerHost,
@@ -249,11 +248,11 @@ func newClientBuilderFromRefreshableConfig(ctx context.Context, config Refreshab
 			svc1log.SafeParam("updatedServiceName", s))
 	})
 
-	if tlsConfig, err := subscribeTLSConfigUpdateWarning(ctx, config.Security()); err != nil {
+	tlsConfig, err := newRefreshableTLSConfig(ctx, config.Security())
+	if err != nil {
 		return err
-	} else if tlsConfig != nil {
-		b.HTTP.TLSConfig = tlsConfig
 	}
+	b.HTTP.TLSConfig = tlsConfig
 
 	refreshingParams, err := refreshable.NewMapValidatingRefreshable(config, func(i interface{}) (interface{}, error) {
 		p, err := newValidatedClientParamsFromConfig(ctx, i.(ClientConfig), isHTTPClient)
