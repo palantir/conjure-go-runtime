@@ -39,6 +39,7 @@ func TestErrorCode_String(t *testing.T) {
 		errors.Timeout:               "TIMEOUT",
 		errors.CustomClient:          "CUSTOM_CLIENT",
 		errors.CustomServer:          "CUSTOM_SERVER",
+		errors.ServiceUnavailable:    "SERVICE_UNAVAILABLE",
 		errors.ErrorCode(0):          "<invalid error code: 0>",
 		errors.ErrorCode(200):        "<invalid error code: 200>",
 	} {
@@ -58,6 +59,7 @@ var validErrorCodes = []errors.ErrorCode{
 	errors.Timeout,
 	errors.CustomClient,
 	errors.CustomServer,
+	errors.ServiceUnavailable,
 }
 
 func TestErrorCode_MarshalJSON(t *testing.T) {
