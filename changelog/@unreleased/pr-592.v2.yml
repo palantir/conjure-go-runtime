@@ -1,0 +1,5 @@
+type: fix
+fix:
+  description: WithBasicAuth implements ClientOrHTTPClientParam
+  links:
+  - https://github.com/palantir/conjure-go-runtime/pull/592
