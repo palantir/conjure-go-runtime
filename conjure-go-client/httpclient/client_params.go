@@ -541,7 +541,7 @@ func WithErrorDecoder(errorDecoder ErrorDecoder) ClientParam {
 
 // WithBasicAuth sets the request's Authorization header to use HTTP Basic Authentication with the provided username and
 // password.
-func WithBasicAuth(user, password string) ClientParam {
+func WithBasicAuth(user, password string) ClientOrHTTPClientParam {
 	return WithMiddleware(&basicAuthMiddleware{provider: func(ctx context.Context) (BasicAuth, error) {
 		return BasicAuth{User: user, Password: password}, nil
 	}})
