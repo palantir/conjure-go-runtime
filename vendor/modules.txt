@@ -51,7 +51,7 @@ github.com/palantir/pkg/uuid/internal/uuid
 ## explicit; go 1.21
 github.com/palantir/witchcraft-go-error
 github.com/palantir/witchcraft-go-error/internal/errors
-# github.com/palantir/witchcraft-go-logging v1.50.0
+# github.com/palantir/witchcraft-go-logging v1.51.0
 ## explicit; go 1.21
 github.com/palantir/witchcraft-go-logging/internal/gopath
 github.com/palantir/witchcraft-go-logging/wlog
