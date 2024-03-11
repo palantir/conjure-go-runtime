@@ -40,8 +40,8 @@ github.com/palantir/pkg/retry
 # github.com/palantir/pkg/safejson v1.1.0
 ## explicit; go 1.19
 github.com/palantir/pkg/safejson
-# github.com/palantir/pkg/tlsconfig v1.2.0
-## explicit; go 1.19
+# github.com/palantir/pkg/tlsconfig v1.3.0
+## explicit; go 1.21
 github.com/palantir/pkg/tlsconfig
 # github.com/palantir/pkg/uuid v1.2.0
 ## explicit; go 1.19
