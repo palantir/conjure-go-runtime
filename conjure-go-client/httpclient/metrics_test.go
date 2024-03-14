@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package httpclient_test
+package httpclient
 
 import (
 	"context"
@@ -22,7 +22,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient"
 	"github.com/palantir/pkg/metrics"
 	"github.com/palantir/pkg/tlsconfig"
 	"github.com/stretchr/testify/assert"
@@ -50,12 +49,12 @@ func TestRoundTripperWithMetrics(t *testing.T) {
 
 	testProviders := []struct {
 		name          string
-		tagsProviders []httpclient.TagsProvider
+		tagsProviders []TagsProvider
 		expectedTags  metrics.Tags
 	}{
 		{
 			name: "with custom tag",
-			tagsProviders: []httpclient.TagsProvider{
+			tagsProviders: []TagsProvider{
 				fakeTagsProviderFunc{
 					key: "foo",
 					val: "bar",
@@ -67,7 +66,7 @@ func TestRoundTripperWithMetrics(t *testing.T) {
 		},
 		{
 			name: "with many custom tags",
-			tagsProviders: []httpclient.TagsProvider{
+			tagsProviders: []TagsProvider{
 				fakeTagsProviderFunc{
 					key: "foo",
 					val: "bar",
@@ -94,6 +93,11 @@ func TestRoundTripperWithMetrics(t *testing.T) {
 		500: "5xx",
 		0:   "other",
 	}
+	expectedMetricValue := map[int]int64{
+		200: 1_000,
+		500: 1_000,
+		0:   0,
+	}
 
 	rpcNamesAndExpectedTags := map[string]string{
 		"MethodName": "MethodName",
@@ -102,14 +106,16 @@ func TestRoundTripperWithMetrics(t *testing.T) {
 		"fdsafdasfdsafdsafdsafdfasfdsafdasfdsafdsafdsafdfasfdsafdasfdsafdsafdsafdfasfdsafdasfdsafdsafdsafdfasfdsafdasfdsafdsafdsafdfasfdsafdasfdsafdsafdsafdfasfdsafdasfdsafdsafdsafdfasfdsafdasfdsafdsafdsafdfasfdsafdasfdsafdsafdsafdfasfdsafdasfdsafdsafdsafdfas": "RPCMethodNameInvalid",
 	}
 
-	test := func(t *testing.T, method string, tagsProviders []httpclient.TagsProvider, statusCode int, statusFamily string, customTags metrics.Tags, getRpcNameAndExpectedTag func() (string, string)) {
+	test := func(t *testing.T, method string, tagsProviders []TagsProvider, statusCode int, statusFamily string, customTags metrics.Tags, expectedValue int64, getRpcNameAndExpectedTag func() (string, string)) {
 		rootRegistry := metrics.NewRootMetricsRegistry()
 		ctx := metrics.WithRegistry(context.Background(), rootRegistry)
 
 		// create server
 		var serverURLstr string
+		now = func() time.Time { return time.UnixMilli(0) }
 		if statusCode > 0 {
 			server := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+				now = func() time.Time { return time.UnixMilli(1) }
 				rw.WriteHeader(statusCode)
 			}))
 			defer server.Close()
@@ -119,16 +125,16 @@ func TestRoundTripperWithMetrics(t *testing.T) {
 		}
 
 		// create client
-		client, err := httpclient.NewClient(
-			httpclient.WithHTTPTimeout(5*time.Second),
-			httpclient.WithServiceName("my-service"),
-			httpclient.WithMetrics(tagsProviders...),
-			httpclient.WithBaseURLs([]string{serverURLstr}))
+		client, err := NewClient(
+			WithHTTPTimeout(5*time.Second),
+			WithServiceName("my-service"),
+			WithMetrics(tagsProviders...),
+			WithBaseURLs([]string{serverURLstr}))
 		require.NoError(t, err)
 
 		rpcMethodName, expectedMethodNameTag := getRpcNameAndExpectedTag()
 		// do request
-		_, err = client.Do(ctx, httpclient.WithRequestMethod(method), httpclient.WithRPCMethodName(rpcMethodName))
+		_, err = client.Do(ctx, WithRequestMethod(method), WithRPCMethodName(rpcMethodName))
 		if statusCode < 200 || statusCode > 299 {
 			assert.Error(t, err)
 		} else {
@@ -138,9 +144,14 @@ func TestRoundTripperWithMetrics(t *testing.T) {
 		// assert metrics exist in registry
 		var metricName string
 		var metricTags metrics.Tags
-		rootRegistry.Each(func(name string, tags metrics.Tags, _ metrics.MetricVal) {
+		var metricValue int64
+		rootRegistry.Each(func(name string, tags metrics.Tags, value metrics.MetricVal) {
 			metricName = name
 			metricTags = tags
+			v, ok := value.Values()["max"]
+			if ok {
+				metricValue = v.(int64)
+			}
 		})
 		assert.Equal(t, "client.response", metricName)
 		expectedTags := append(
@@ -150,6 +161,7 @@ func TestRoundTripperWithMetrics(t *testing.T) {
 			metrics.MustNewTag("service-name", "my-service"),
 			metrics.MustNewTag("method-name", expectedMethodNameTag))
 		assert.Equal(t, expectedTags.ToMap(), metricTags.ToMap())
+		assert.Equal(t, expectedValue, metricValue)
 	}
 	for _, testMethod := range testMethods {
 		t.Run(testMethod, func(t *testing.T) {
@@ -165,6 +177,7 @@ func TestRoundTripperWithMetrics(t *testing.T) {
 										testStatusCode,
 										testStatusFamily,
 										testProvider.expectedTags,
+										expectedMetricValue[testStatusCode],
 										func() (string, string) { return rpcName, expectedTagValue },
 									)
 								})
@@ -184,12 +197,12 @@ func TestMetricsMiddleware_HTTPClient(t *testing.T) {
 	rootRegistry := metrics.NewRootMetricsRegistry()
 	ctx := metrics.WithRegistry(context.Background(), rootRegistry)
 
-	client, err := httpclient.NewHTTPClient(httpclient.WithServiceName("test-service"), httpclient.WithMetrics())
+	client, err := NewHTTPClient(WithServiceName("test-service"), WithMetrics())
 	require.NoError(t, err)
 
 	req, err := http.NewRequest(http.MethodGet, srv.URL, nil)
 	require.NoError(t, err)
-	req = req.WithContext(httpclient.ContextWithRPCMethodName(ctx, "test-endpoint"))
+	req = req.WithContext(ContextWithRPCMethodName(ctx, "test-endpoint"))
 
 	_, err = client.Do(req)
 	require.NoError(t, err)
@@ -221,15 +234,15 @@ func TestMetricsMiddleware_ClientTimeout(t *testing.T) {
 	rootRegistry := metrics.NewRootMetricsRegistry()
 	ctx := metrics.WithRegistry(context.Background(), rootRegistry)
 
-	client, err := httpclient.NewClient(
-		httpclient.WithBaseURLs([]string{srv.URL}),
-		httpclient.WithTLSInsecureSkipVerify(),
-		httpclient.WithServiceName("test-service"),
-		httpclient.WithHTTPTimeout(time.Millisecond),
-		httpclient.WithMetrics())
+	client, err := NewClient(
+		WithBaseURLs([]string{srv.URL}),
+		WithTLSInsecureSkipVerify(),
+		WithServiceName("test-service"),
+		WithHTTPTimeout(time.Millisecond),
+		WithMetrics())
 	require.NoError(t, err)
 
-	_, err = client.Get(ctx, httpclient.WithRPCMethodName("test-endpoint"))
+	_, err = client.Get(ctx, WithRPCMethodName("test-endpoint"))
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "Client.Timeout exceeded while awaiting headers")
 
@@ -261,14 +274,14 @@ func TestMetricsMiddleware_ContextCanceled(t *testing.T) {
 	ctx, cancel := context.WithCancel(ctx)
 	cancel()
 
-	client, err := httpclient.NewClient(
-		httpclient.WithBaseURLs([]string{srv.URL}),
-		httpclient.WithTLSInsecureSkipVerify(),
-		httpclient.WithServiceName("test-service"),
-		httpclient.WithMetrics())
+	client, err := NewClient(
+		WithBaseURLs([]string{srv.URL}),
+		WithTLSInsecureSkipVerify(),
+		WithServiceName("test-service"),
+		WithMetrics())
 	require.NoError(t, err)
 
-	_, err = client.Get(ctx, httpclient.WithRPCMethodName("test-endpoint"))
+	_, err = client.Get(ctx, WithRPCMethodName("test-endpoint"))
 	require.EqualError(t, err, "httpclient request failed: context canceled")
 
 	found := false
@@ -296,12 +309,12 @@ func TestMetricsMiddleware_SuccessfulTLSHandshake(t *testing.T) {
 	ctx := metrics.WithRegistry(context.Background(), rootRegistry)
 	tlsConf, err := tlsconfig.NewClientConfig(tlsconfig.ClientRootCAs(tlsconfig.CertPoolFromCerts(srv.Certificate())))
 	require.NoError(t, err)
-	client, err := httpclient.NewHTTPClient(httpclient.WithServiceName("test-service"), httpclient.WithMetrics(), httpclient.WithTLSConfig(tlsConf))
+	client, err := NewHTTPClient(WithServiceName("test-service"), WithMetrics(), WithTLSConfig(tlsConf))
 	require.NoError(t, err)
 
 	req, err := http.NewRequest(http.MethodGet, srv.URL, nil)
 	require.NoError(t, err)
-	req = req.WithContext(httpclient.ContextWithRPCMethodName(ctx, "test-endpoint"))
+	req = req.WithContext(ContextWithRPCMethodName(ctx, "test-endpoint"))
 
 	_, err = client.Do(req)
 	require.NoError(t, err)
@@ -312,23 +325,23 @@ func TestMetricsMiddleware_SuccessfulTLSHandshake(t *testing.T) {
 	rootRegistry.Each(func(name string, tags metrics.Tags, value metrics.MetricVal) {
 		tagMap := tags.ToMap()
 		switch name {
-		case httpclient.MetricTLSHandshakeAttempt:
+		case MetricTLSHandshakeAttempt:
 			attempt = true
-			svcName, ok := tagMap[httpclient.MetricTagServiceName]
+			svcName, ok := tagMap[MetricTagServiceName]
 			assert.True(t, ok)
 			assert.Equal(t, svcName, "test-service")
-		case httpclient.MetricTLSHandshakeFailure:
+		case MetricTLSHandshakeFailure:
 			failure = true
-		case httpclient.MetricTLSHandshake:
+		case MetricTLSHandshake:
 			success = true
-			svcName, ok := tagMap[httpclient.MetricTagServiceName]
+			svcName, ok := tagMap[MetricTagServiceName]
 			assert.True(t, ok)
 			assert.Equal(t, svcName, "test-service")
-			_, ok = tagMap[httpclient.CipherTagKey]
+			_, ok = tagMap[CipherTagKey]
 			assert.True(t, ok)
-			_, ok = tagMap[httpclient.TLSVersionTagKey]
+			_, ok = tagMap[TLSVersionTagKey]
 			assert.True(t, ok)
-			_, ok = tagMap[httpclient.NextProtocolTagKey]
+			_, ok = tagMap[NextProtocolTagKey]
 			assert.True(t, ok)
 		}
 	})
@@ -343,12 +356,12 @@ func TestMetricsMiddleware_FailedTLSHandshake(t *testing.T) {
 
 	rootRegistry := metrics.NewRootMetricsRegistry()
 	ctx := metrics.WithRegistry(context.Background(), rootRegistry)
-	client, err := httpclient.NewHTTPClient(httpclient.WithServiceName("test-service"), httpclient.WithMetrics())
+	client, err := NewHTTPClient(WithServiceName("test-service"), WithMetrics())
 	require.NoError(t, err)
 
 	req, err := http.NewRequest(http.MethodGet, srv.URL, nil)
 	require.NoError(t, err)
-	req = req.WithContext(httpclient.ContextWithRPCMethodName(ctx, "test-endpoint"))
+	req = req.WithContext(ContextWithRPCMethodName(ctx, "test-endpoint"))
 
 	_, err = client.Do(req)
 	require.Error(t, err)
@@ -359,17 +372,17 @@ func TestMetricsMiddleware_FailedTLSHandshake(t *testing.T) {
 	rootRegistry.Each(func(name string, tags metrics.Tags, value metrics.MetricVal) {
 		tagMap := tags.ToMap()
 		switch name {
-		case httpclient.MetricTLSHandshakeAttempt:
+		case MetricTLSHandshakeAttempt:
 			attempt = true
-			svcName, ok := tagMap[httpclient.MetricTagServiceName]
+			svcName, ok := tagMap[MetricTagServiceName]
 			assert.True(t, ok)
 			assert.Equal(t, svcName, "test-service")
-		case httpclient.MetricTLSHandshakeFailure:
+		case MetricTLSHandshakeFailure:
 			failure = true
-			svcName, ok := tagMap[httpclient.MetricTagServiceName]
+			svcName, ok := tagMap[MetricTagServiceName]
 			assert.True(t, ok)
 			assert.Equal(t, svcName, "test-service")
-		case httpclient.MetricTLSHandshake:
+		case MetricTLSHandshake:
 			success = true
 		}
 	})
@@ -384,31 +397,31 @@ func TestMetricsMiddleware_InFlightRequests(t *testing.T) {
 	serviceNameTag := metrics.MustNewTag("service-name", "test-service")
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		clientMetric := rootRegistry.Counter(httpclient.MetricRequestInFlight, serviceNameTag).Count()
-		assert.Equal(t, int64(1), clientMetric, "%s should be nonzero during a request", httpclient.MetricRequestInFlight)
+		clientMetric := rootRegistry.Counter(MetricRequestInFlight, serviceNameTag).Count()
+		assert.Equal(t, int64(1), clientMetric, "%s should be nonzero during a request", MetricRequestInFlight)
 		w.WriteHeader(200)
 	}))
 	defer srv.Close()
 
-	client, err := httpclient.NewClient(
-		httpclient.WithBaseURLs([]string{srv.URL}),
-		httpclient.WithServiceName("test-service"),
-		httpclient.WithMetrics())
+	client, err := NewClient(
+		WithBaseURLs([]string{srv.URL}),
+		WithServiceName("test-service"),
+		WithMetrics())
 	require.NoError(t, err)
 
 	_, err = client.Get(ctx)
 	require.NoError(t, err)
-	newConnsMetric := rootRegistry.Counter(httpclient.MetricConnCreate, httpclient.MetricTagConnectionNew, serviceNameTag)
-	reusedConnsMetric := rootRegistry.Counter(httpclient.MetricConnCreate, httpclient.MetricTagConnectionReused, serviceNameTag)
-	assert.Equal(t, int64(1), newConnsMetric.Count(), "%s|reused:false should be 1 after a request", httpclient.MetricConnCreate)
-	assert.Equal(t, int64(0), reusedConnsMetric.Count(), "%s|reused:true should be 0 after the first request", httpclient.MetricConnCreate)
+	newConnsMetric := rootRegistry.Counter(MetricConnCreate, MetricTagConnectionNew, serviceNameTag)
+	reusedConnsMetric := rootRegistry.Counter(MetricConnCreate, MetricTagConnectionReused, serviceNameTag)
+	assert.Equal(t, int64(1), newConnsMetric.Count(), "%s|reused:false should be 1 after a request", MetricConnCreate)
+	assert.Equal(t, int64(0), reusedConnsMetric.Count(), "%s|reused:true should be 0 after the first request", MetricConnCreate)
 
 	// do the request a second time to assert the connection is reused
 	_, err = client.Get(ctx)
 	require.NoError(t, err)
-	assert.Equal(t, int64(1), newConnsMetric.Count(), "%s|reused:false should be 1 after a second request due to reuse", httpclient.MetricConnCreate)
-	assert.Equal(t, int64(1), reusedConnsMetric.Count(), "%s|reused:true should be 1 after a request", httpclient.MetricConnCreate)
+	assert.Equal(t, int64(1), newConnsMetric.Count(), "%s|reused:false should be 1 after a second request due to reuse", MetricConnCreate)
+	assert.Equal(t, int64(1), reusedConnsMetric.Count(), "%s|reused:true should be 1 after a request", MetricConnCreate)
 
-	clientMetric := rootRegistry.Counter(httpclient.MetricRequestInFlight, serviceNameTag)
-	assert.Equal(t, int64(0), clientMetric.Count(), "%s should be zero after a request", httpclient.MetricRequestInFlight)
+	clientMetric := rootRegistry.Counter(MetricRequestInFlight, serviceNameTag)
+	assert.Equal(t, int64(0), clientMetric.Count(), "%s should be zero after a request", MetricRequestInFlight)
 }
