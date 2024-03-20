@@ -113,7 +113,7 @@ func TestBuilder(t *testing.T) {
 			},
 		},
 		{
-			Name:  "TLSConfig",
+			Name:  "tlsConfig",
 			Param: WithTLSConfig(&tls.Config{InsecureSkipVerify: true}),
 			Test: func(t *testing.T, client *clientImpl) {
 				transport, _ := unwrapTransport(client.client.CurrentHTTPClient().Transport)
@@ -121,7 +121,7 @@ func TestBuilder(t *testing.T) {
 			},
 		},
 		{
-			Name:  "Nil TLSConfig",
+			Name:  "Nil tlsConfig",
 			Param: WithTLSConfig(nil),
 			Test: func(t *testing.T, client *clientImpl) {
 				// No-op: passing nil should not cause panic

@@ -1,0 +1,5 @@
+type: improvement
+improvement:
+  description: Unexport field of unexported and non-serialized structs
+  links:
+  - https://github.com/palantir/conjure-go-runtime/pull/547

@@ -26,21 +26,21 @@ import (
 // Only if the RPC method name is set does the middleware create a new span (with that name) for the
 // duration of the request.
 type traceMiddleware struct {
-	ServiceName       string
-	CreateRequestSpan bool
-	InjectHeaders     bool
+	serviceName       string
+	createRequestSpan bool
+	injectHeaders     bool
 }
 
 func (t traceMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (*http.Response, error) {
 	ctx := req.Context()
 	span := wtracing.SpanFromContext(ctx)
 
-	if t.CreateRequestSpan {
+	if t.createRequestSpan {
 		// Create a child span if a method name is set. Otherwise, fall through and just inject the parent span's headers.
 		if method := getRPCMethodName(req.Context()); method != "" {
 			span, ctx = wtracing.StartSpanFromContext(ctx, wtracing.TracerFromContext(ctx), method,
 				wtracing.WithKind(wtracing.Client),
-				wtracing.WithRemoteEndpoint(&wtracing.Endpoint{ServiceName: t.ServiceName}))
+				wtracing.WithRemoteEndpoint(&wtracing.Endpoint{ServiceName: t.serviceName}))
 			if span != nil {
 				defer span.Finish()
 			}
@@ -48,7 +48,7 @@ func (t traceMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (*
 		}
 	}
 
-	if t.InjectHeaders {
+	if t.injectHeaders {
 		if span != nil {
 			b3.SpanInjector(req)(span.Context())
 		} else {
