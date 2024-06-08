@@ -12,7 +12,7 @@ require (
 	github.com/palantir/pkg/safejson v1.1.0
 	github.com/palantir/pkg/tlsconfig v1.3.0
 	github.com/palantir/pkg/uuid v1.2.0
-	github.com/palantir/witchcraft-go-error v1.36.0
+	github.com/palantir/witchcraft-go-error v1.37.0
 	github.com/palantir/witchcraft-go-logging v1.55.0
 	github.com/palantir/witchcraft-go-params v1.34.0
 	github.com/palantir/witchcraft-go-tracing v1.36.0
