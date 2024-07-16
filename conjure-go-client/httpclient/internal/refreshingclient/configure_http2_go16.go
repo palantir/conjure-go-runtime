@@ -25,13 +25,22 @@ import (
 	"golang.org/x/net/http2"
 )
 
+// Transport is a wrapper type around the http2.Transport type, which preserves the reference to the underlying http
+// transport in an exported field. This is primarily for testing and accessing configuration fields only available on
+// that transport.
+type Transport struct {
+	*http2.Transport
+
+	HTTP1 *http.Transport
+}
+
 // configureHTTP2 will attempt to configure net/http HTTP/1 Transport to use HTTP/2.
 // The provided readIdleTimeout will set the underlying HTTP/2 transport ReadIdleTimeout.
 // It returns an error if t1 has already been HTTP/2-enabled.
-func configureHTTP2(t1 *http.Transport, readIdleTimeout, pingTimeout time.Duration) error {
+func configureHTTP2(t1 *http.Transport, readIdleTimeout, pingTimeout time.Duration) (http.RoundTripper, error) {
 	http2Transport, err := http2.ConfigureTransports(t1)
 	if err != nil {
-		return werror.Wrap(err, "failed to configure transport for http2")
+		return nil, werror.Wrap(err, "failed to configure transport for http2")
 	}
 	// ReadIdleTimeout is the amount of time to wait before running periodic health checks (pings)
 	// after not receiving a frame from the HTTP/2 connection.
@@ -46,5 +55,13 @@ func configureHTTP2(t1 *http.Transport, readIdleTimeout, pingTimeout time.Durati
 	// the above ReadIdleTimeout is > 0.
 	http2Transport.PingTimeout = pingTimeout
 
-	return nil
+	// TODO(abradshaw): should figure out if we should disable this... currently breaks tests + probably breaks some
+	// clients using this for localhost things...
+	// This is added for backwards compatibility
+	http2Transport.AllowHTTP = true
+
+	return Transport{
+		Transport: http2Transport,
+		HTTP1:     t1,
+	}, nil
 }

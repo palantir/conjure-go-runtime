@@ -43,7 +43,7 @@ type TransportParams struct {
 func NewRefreshableTransport(ctx context.Context, p RefreshableTransportParams, tlsConfig *tls.Config, dialer ContextDialer) http.RoundTripper {
 	return &RefreshableTransport{
 		Refreshable: p.MapTransportParams(func(p TransportParams) interface{} {
-			return newTransport(ctx, p, tlsConfig, dialer)
+			return newRoundTripper(ctx, p, tlsConfig, dialer)
 		}),
 	}
 }
@@ -63,10 +63,10 @@ type RefreshableTransport struct {
 }
 
 func (r RefreshableTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	return r.Current().(*http.Transport).RoundTrip(req)
+	return r.Current().(http.RoundTripper).RoundTrip(req)
 }
 
-func newTransport(ctx context.Context, p TransportParams, tlsConfig *tls.Config, dialer ContextDialer) *http.Transport {
+func newRoundTripper(ctx context.Context, p TransportParams, tlsConfig *tls.Config, dialer ContextDialer) http.RoundTripper {
 	svc1log.FromContext(ctx).Debug("Reconstructing HTTP Transport")
 	transport := &http.Transport{
 		DialContext:           dialer.DialContext,
@@ -87,12 +87,14 @@ func newTransport(ctx context.Context, p TransportParams, tlsConfig *tls.Config,
 	}
 
 	if !p.DisableHTTP2 {
-		if err := configureHTTP2(transport, p.HTTP2ReadIdleTimeout, p.HTTP2PingTimeout); err != nil {
-			// ConfigureTransport's only error as of this writing is the idempotent "protocol https already registered."
-			// It should never happen in our usage because this is immediately after creation.
-			// In case of something unexpected, log it and move on.
-			svc1log.FromContext(ctx).Error("failed to configure transport for http2", svc1log.Stacktrace(err))
+		rt, err := configureHTTP2(transport, p.HTTP2ReadIdleTimeout, p.HTTP2PingTimeout)
+		if err == nil {
+			return rt
 		}
+		// ConfigureTransport's only error as of this writing is the idempotent "protocol https already registered."
+		// It should never happen in our usage because this is immediately after creation.
+		// In case of something unexpected, log it and move on.
+		svc1log.FromContext(ctx).Error("failed to configure transport for http2", svc1log.Stacktrace(err))
 	}
 	return transport
 }

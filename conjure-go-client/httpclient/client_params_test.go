@@ -163,6 +163,8 @@ func unwrapTransport(rt http.RoundTripper) (*http.Transport, []Middleware) {
 		case *wrappedClient:
 			unwrapped = v.baseTransport
 			middlewares = append(middlewares, v.middleware)
+		case refreshingclient.Transport:
+			return v.HTTP1, middlewares
 		case *http.Transport:
 			return v, middlewares
 		default:
