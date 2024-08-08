@@ -36,7 +36,7 @@ func (c codecZLIB) Accept() string {
 	return c.contentCodec.Accept()
 }
 
-func (c codecZLIB) Decode(r io.Reader, v interface{}) error {
+func (c codecZLIB) Decode(r io.Reader, v interface{}) (err error) {
 	zlibReader, err := zlib.NewReader(r)
 	defer func() {
 		if closeErr := zlibReader.Close(); err == nil && closeErr != nil {

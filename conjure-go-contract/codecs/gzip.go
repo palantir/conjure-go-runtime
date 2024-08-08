@@ -60,9 +60,6 @@ func (c codecGZIP) ContentType() string {
 func (c codecGZIP) Encode(w io.Writer, v interface{}) (err error) {
 	gzipWriter := gzip.NewWriter(w)
 	defer func() {
-		_ = gzipWriter.Close()
-	}()
-	defer func() {
 		if closeErr := gzipWriter.Close(); err == nil && closeErr != nil {
 			err = closeErr
 		}
