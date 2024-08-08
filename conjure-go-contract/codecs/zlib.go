@@ -38,6 +38,11 @@ func (c codecZLIB) Accept() string {
 
 func (c codecZLIB) Decode(r io.Reader, v interface{}) error {
 	zlibReader, err := zlib.NewReader(r)
+	defer func() {
+		if closeErr := zlibReader.Close(); err == nil && closeErr != nil {
+			err = closeErr
+		}
+	}()
 	if err != nil {
 		return fmt.Errorf("failed to create zlib reader: %s", err.Error())
 	}
