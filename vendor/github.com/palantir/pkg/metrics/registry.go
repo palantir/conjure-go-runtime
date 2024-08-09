@@ -6,7 +6,6 @@ package metrics
 
 import (
 	"context"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -252,7 +251,7 @@ func (r *rootRegistry) Subregistry(prefix string, tags ...Tag) Registry {
 	}
 	return &childRegistry{
 		prefix: prefix,
-		tags:   Tags(tags),
+		tags:   tags,
 		root:   r,
 	}
 }
@@ -269,7 +268,7 @@ func (r *rootRegistry) Each(f MetricVisitor) {
 		sortedMetricIDs = append(sortedMetricIDs, name)
 		allMetrics[name] = metric
 	})
-	sort.Strings(sortedMetricIDs)
+	sortStrings(sortedMetricIDs)
 
 	for _, id := range sortedMetricIDs {
 		r.idToMetricMutex.RLock()
@@ -386,14 +385,16 @@ func toMetricTagsID(name string, tags Tags) metricTagsID {
 	// calculate how large to make our byte buffer below
 	bufSize := len(name)
 	for _, t := range tags {
-		bufSize += len(t.keyValue) + 1 // 1 for separator
+		bufSize += len(t.key) + len(t.value) + 2 // 2 for separators
 	}
 	buf := strings.Builder{}
 	buf.Grow(bufSize)
 	_, _ = buf.WriteString(name)
 	for _, tag := range tags {
 		_, _ = buf.WriteRune('|')
-		_, _ = buf.WriteString(tag.keyValue)
+		_, _ = buf.WriteString(tag.key)
+		_, _ = buf.WriteRune(':')
+		_, _ = buf.WriteString(tag.value)
 	}
 	return metricTagsID(buf.String())
 }
@@ -401,6 +402,6 @@ func toMetricTagsID(name string, tags Tags) metricTagsID {
 // newSortedTags copies the tag slice before sorting so that in-place mutation does not affect the input slice.
 func newSortedTags(tags Tags) Tags {
 	tagsCopy := append(tags[:0:0], tags...)
-	sort.Sort(tagsCopy)
+	sortTags(tagsCopy)
 	return tagsCopy
 }

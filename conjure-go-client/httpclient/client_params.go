@@ -158,6 +158,14 @@ func WithUserAgent(userAgent string) ClientOrHTTPClientParam {
 	return WithSetHeader("User-Agent", userAgent)
 }
 
+// WithOverrideRequestHost overrides the request Host from the default URL.Host
+func WithOverrideRequestHost(host string) ClientOrHTTPClientParam {
+	return WithMiddleware(MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+		req.Host = host
+		return next.RoundTrip(req)
+	}))
+}
+
 // WithMetrics enables the "client.response" metric. See MetricsMiddleware for details.
 // The serviceName will appear as the "service-name" tag.
 func WithMetrics(tagProviders ...TagsProvider) ClientOrHTTPClientParam {
@@ -450,6 +458,14 @@ func WithBaseURLs(urls []string) ClientParam {
 	})
 }
 
+// WithRefreshableBaseURLs sets the base URLs for every request. This is meant to be used in conjunction with WithPath.
+func WithRefreshableBaseURLs(urls refreshable.StringSlice) ClientParam {
+	return clientParamFunc(func(b *clientBuilder) error {
+		b.URIs = urls
+		return nil
+	})
+}
+
 // WithMaxBackoff sets the maximum backoff between retried calls to the same URI.
 // Defaults to 2 seconds. <= 0 indicates no limit.
 func WithMaxBackoff(maxBackoff time.Duration) ClientParam {
@@ -525,10 +541,14 @@ func WithErrorDecoder(errorDecoder ErrorDecoder) ClientParam {
 
 // WithBasicAuth sets the request's Authorization header to use HTTP Basic Authentication with the provided username and
 // password.
-func WithBasicAuth(user, password string) ClientParam {
+func WithBasicAuth(user, password string) ClientOrHTTPClientParam {
 	return WithMiddleware(&basicAuthMiddleware{provider: func(ctx context.Context) (BasicAuth, error) {
 		return BasicAuth{User: user, Password: password}, nil
 	}})
+}
+
+func WithBasicAuthProvider(provider BasicAuthProvider) ClientOrHTTPClientParam {
+	return WithMiddleware(&basicAuthMiddleware{provider: provider})
 }
 
 // WithBalancedURIScoring adds middleware that prioritizes sending requests to URIs with the fewest in-flight requests

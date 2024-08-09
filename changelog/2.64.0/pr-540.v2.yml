@@ -1,0 +1,5 @@
+type: improvement
+improvement:
+  description: Add WithRefreshableBaseURLs() for refreshable URLs without RefreshableClientConfig
+  links:
+  - https://github.com/palantir/conjure-go-runtime/pull/540

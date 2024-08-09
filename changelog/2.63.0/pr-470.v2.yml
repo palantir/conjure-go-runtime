@@ -1,0 +1,5 @@
+type: fix
+fix:
+  description: Scope tags in tlsTraceContext to avoid reuse
+  links:
+  - https://github.com/palantir/conjure-go-runtime/pull/470
