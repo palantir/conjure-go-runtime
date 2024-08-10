@@ -51,7 +51,7 @@ github.com/palantir/pkg/uuid/internal/uuid
 ## explicit; go 1.21
 github.com/palantir/witchcraft-go-error
 github.com/palantir/witchcraft-go-error/internal/errors
-# github.com/palantir/witchcraft-go-logging v1.56.0
+# github.com/palantir/witchcraft-go-logging v1.57.0
 ## explicit; go 1.21
 github.com/palantir/witchcraft-go-logging/internal/gopath
 github.com/palantir/witchcraft-go-logging/wlog
@@ -60,7 +60,7 @@ github.com/palantir/witchcraft-go-logging/wlog/svclog/svc1log
 # github.com/palantir/witchcraft-go-params v1.35.0
 ## explicit; go 1.21
 github.com/palantir/witchcraft-go-params
-# github.com/palantir/witchcraft-go-tracing v1.37.0
+# github.com/palantir/witchcraft-go-tracing v1.38.0
 ## explicit; go 1.21
 github.com/palantir/witchcraft-go-tracing/wtracing
 github.com/palantir/witchcraft-go-tracing/wtracing/propagation/b3
