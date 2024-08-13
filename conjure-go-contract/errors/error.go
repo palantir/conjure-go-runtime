@@ -135,6 +135,16 @@ func IsRequestEntityTooLarge(err error) bool {
 	return isErrorOfType(err, DefaultRequestEntityTooLarge)
 }
 
+// WrapWithTooManyRequests returns new error instance of default too many requests type wrapping an existing error.
+func WrapWithTooManyRequests(cause error, parameters ...wparams.ParamStorer) Error {
+	return newGenericError(cause, DefaultTooManyRequests, wparams.NewParamStorer(parameters...))
+}
+
+// IsTooManyRequests returns true if an error is an instance of default too many requests.
+func IsTooManyRequests(err error) bool {
+	return isErrorOfType(err, DefaultTooManyRequests)
+}
+
 // NewFailedPrecondition returns new error instance of default failed precondition type.
 func NewFailedPrecondition(parameters ...wparams.ParamStorer) Error {
 	return newGenericError(nil, DefaultFailedPrecondition, wparams.NewParamStorer(parameters...))

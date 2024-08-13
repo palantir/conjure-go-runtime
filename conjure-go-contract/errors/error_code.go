@@ -50,6 +50,8 @@ const (
 	Conflict
 	// RequestEntityTooLarge has status code 413 RequestEntityTooLarge.
 	RequestEntityTooLarge
+	// TooManyRequests has status code 429 TooManyRequests.
+	TooManyRequests
 	// FailedPrecondition has status code 500 InternalServerError.
 	FailedPrecondition
 	// Internal has status code 500 InternalServerError.
@@ -77,6 +79,8 @@ func (ec ErrorCode) StatusCode() int {
 		return http.StatusConflict
 	case RequestEntityTooLarge:
 		return http.StatusRequestEntityTooLarge
+	case TooManyRequests:
+		return http.StatusTooManyRequests
 	case FailedPrecondition:
 		return http.StatusInternalServerError
 	case Internal:
@@ -108,6 +112,8 @@ func (ec ErrorCode) String() string {
 		return "CONFLICT"
 	case RequestEntityTooLarge:
 		return "REQUEST_ENTITY_TOO_LARGE"
+	case TooManyRequests:
+		return "TOO_MANY_REQUESTS"
 	case FailedPrecondition:
 		return "FAILED_PRECONDITION"
 	case Internal:
@@ -142,6 +148,8 @@ func (ec *ErrorCode) UnmarshalText(data []byte) error {
 		*ec = Conflict
 	case "REQUEST_ENTITY_TOO_LARGE":
 		*ec = RequestEntityTooLarge
+	case "TOO_MANY_REQUESTS":
+		*ec = TooManyRequests
 	case "FAILED_PRECONDITION":
 		*ec = FailedPrecondition
 	case "INTERNAL":

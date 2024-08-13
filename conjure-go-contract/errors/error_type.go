@@ -31,6 +31,7 @@ var (
 	DefaultNotFound              = ErrorType{NotFound, errorNameNotFound}
 	DefaultConflict              = ErrorType{Conflict, errorNameConflict}
 	DefaultRequestEntityTooLarge = ErrorType{RequestEntityTooLarge, errorNameRequestEntityTooLarge}
+	DefaultTooManyRequests       = ErrorType{TooManyRequests, errorNameTooManyRequests}
 	DefaultFailedPrecondition    = ErrorType{FailedPrecondition, errorNameFailedPrecondition}
 	DefaultInternal              = ErrorType{Internal, errorNameInternal}
 	DefaultTimeout               = ErrorType{Timeout, errorNameTimeout}
@@ -117,6 +118,7 @@ const (
 	errorNameNotFound              = "Default:NotFound"
 	errorNameConflict              = "Default:Conflict"
 	errorNameRequestEntityTooLarge = "Default:RequestEntityTooLarge"
+	errorNameTooManyRequests       = "Default:TooManyRequests"
 	errorNameFailedPrecondition    = "Default:FailedPrecondition"
 	errorNameInternal              = "Default:Internal"
 	errorNameTimeout               = "Default:Timeout"
@@ -134,6 +136,7 @@ func verifyErrorNameString(name string) error {
 		case errorNameNotFound:
 		case errorNameConflict:
 		case errorNameRequestEntityTooLarge:
+		case errorNameTooManyRequests:
 		case errorNameFailedPrecondition:
 		case errorNameInternal:
 		case errorNameTimeout:
@@ -154,6 +157,7 @@ func verifyErrorCodeErrorNameCombination(code ErrorCode, name string) error {
 		case DefaultNotFound:
 		case DefaultConflict:
 		case DefaultRequestEntityTooLarge:
+		case DefaultTooManyRequests:
 		case DefaultFailedPrecondition:
 		case DefaultInternal:
 		case DefaultTimeout:
