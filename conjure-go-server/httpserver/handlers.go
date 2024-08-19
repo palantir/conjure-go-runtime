@@ -64,6 +64,9 @@ func (h handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		cause := getSerializableCause(err)
 		switch e := cause.(type) {
+		case errors.QOSResponse:
+			e.Header(w.Header())
+			w.WriteHeader(e.Status())
 		case errors.Error:
 			// if error is a conjure error, use WriteErrorResponse utility
 			errors.WriteErrorResponse(w, e)

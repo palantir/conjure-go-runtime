@@ -17,7 +17,9 @@ package httpclient
 import (
 	"io/ioutil"
 	"net/http"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient/internal"
 	"github.com/palantir/conjure-go-runtime/v2/conjure-go-contract/codecs"
@@ -79,6 +81,23 @@ func (d restErrorDecoder) DecodeError(resp *http.Response) error {
 		"statusCode": resp.StatusCode,
 	}
 	unsafeParams := map[string]interface{}{}
+
+	switch resp.StatusCode {
+	case http.StatusPermanentRedirect:
+		return errors.QOSRetryOther{Location: resp.Header.Get("Location")}
+	case http.StatusTooManyRequests:
+		var retryAfter time.Duration
+		if retryAfterStr := resp.Header.Get("Retry-After"); retryAfterStr != "" {
+			retryAfterInt, err := strconv.Atoi(retryAfterStr)
+			if err == nil {
+				retryAfter = time.Duration(retryAfterInt) * time.Second
+			}
+		}
+		return errors.QOSThrottle{RetryAfter: retryAfter}
+	case http.StatusServiceUnavailable:
+		return errors.QOSUnavailable{}
+	}
+
 	if resp.StatusCode >= http.StatusTemporaryRedirect &&
 		resp.StatusCode < http.StatusBadRequest {
 		location, err := resp.Location()
