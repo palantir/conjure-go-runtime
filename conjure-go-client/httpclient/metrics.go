@@ -98,7 +98,7 @@ func MetricsMiddleware(serviceName string, tagProviders ...TagsProvider) (Middle
 	return newMetricsMiddleware(serviceNameTag, tagProviders, nil), nil
 }
 
-func newMetricsMiddleware(serviceNameTag metrics.Tag, tagProviders []TagsProvider, disabled refreshable.Refreshable[bool]) Middleware {
+func newMetricsMiddleware(serviceNameTag metrics.Tag, tagProviders []TagsProvider, disabled func() bool) Middleware {
 	return &metricsMiddleware{
 		Disabled:       disabled,
 		ServiceNameTag: serviceNameTag,
@@ -113,7 +113,7 @@ func newMetricsMiddleware(serviceNameTag metrics.Tag, tagProviders []TagsProvide
 }
 
 type metricsMiddleware struct {
-	Disabled       refreshable.Refreshable[bool]
+	Disabled       func() bool
 	ServiceNameTag metrics.Tag
 	Tags           []TagsProvider
 }
@@ -121,7 +121,7 @@ type metricsMiddleware struct {
 // RoundTrip will emit counter and timer metrics with the name 'mariner.k8sClient.request'
 // and k8s for API group, API version, namespace, resource kind, request method, and response status code.
 func (h *metricsMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (*http.Response, error) {
-	if h.Disabled != nil && h.Disabled.Current() {
+	if h.Disabled != nil && h.Disabled() {
 		// If we have a Disabled refreshable and it is true, no-op.
 		return next.RoundTrip(req)
 	}

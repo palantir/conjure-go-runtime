@@ -67,7 +67,7 @@ type httpClientBuilder struct {
 	TransportParams refreshable.Refreshable[refreshingclient.TransportParams]
 	Middlewares     []Middleware
 
-	DisableMetrics      refreshable.Refreshable[bool]
+	DisableMetrics      func() bool
 	MetricsTagProviders []TagsProvider
 
 	// These middleware options are not refreshed anywhere because they are not in ClientConfig,
@@ -224,7 +224,7 @@ func newClientBuilder() *clientBuilder {
 				HTTP2ReadIdleTimeout:  defaultHTTP2ReadIdleTimeout,
 				HTTP2PingTimeout:      defaultHTTP2PingTimeout,
 			}),
-			DisableMetrics:      refreshable.New(false),
+			DisableMetrics:      func() bool { return false },
 			DisableRecovery:     false,
 			CreateRequestSpan:   true,
 			InjectTraceHeaders:  true,
@@ -282,7 +282,7 @@ func newClientBuilderFromRefreshableConfig(ctx context.Context, config refreshab
 	b.HTTP.DialerParams = refreshingclient.MapValidClientParams(validParams, refreshingclient.ValidatedClientParams.GetDialerParams)
 	b.HTTP.TransportParams = refreshingclient.MapValidClientParams(validParams, refreshingclient.ValidatedClientParams.GetTransport)
 	b.HTTP.Timeout = refreshingclient.MapValidClientParams(validParams, refreshingclient.ValidatedClientParams.GetTimeout)
-	b.HTTP.DisableMetrics = refreshingclient.MapValidClientParams(validParams, refreshingclient.ValidatedClientParams.GetDisableMetrics)
+	b.HTTP.DisableMetrics = func() bool { return validParams.Current().DisableMetrics }
 	b.HTTP.MetricsTagProviders = append(b.HTTP.MetricsTagProviders, refreshableMetricsTagsProvider{
 		Refreshable: refreshingclient.MapValidClientParams(validParams, refreshingclient.ValidatedClientParams.GetMetricsTags),
 	})

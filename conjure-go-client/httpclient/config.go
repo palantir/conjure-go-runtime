@@ -360,11 +360,10 @@ func configToParams(c ClientConfig) ([]ClientParam, error) {
 	return params, nil
 }
 
-func RefreshableClientConfigFromServiceConfig(servicesConfig refreshable.Refreshable[ServicesConfig], serviceName string) refreshable.Refreshable[ClientConfig] {
-	r, _ := refreshable.Map(servicesConfig, func(c ServicesConfig) ClientConfig {
+func RefreshableClientConfigFromServiceConfig(ctx context.Context, servicesConfig refreshable.Refreshable[ServicesConfig], serviceName string) refreshable.Refreshable[ClientConfig] {
+	return refreshable.MapContext(ctx, servicesConfig, func(c ServicesConfig) ClientConfig {
 		return c.ClientConfig(serviceName)
 	})
-	return r
 }
 
 func newValidatedClientParamsFromConfig(ctx context.Context, config ClientConfig, isHTTPClient bool) (refreshingclient.ValidatedClientParams, error) {

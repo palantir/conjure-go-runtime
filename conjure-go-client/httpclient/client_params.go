@@ -170,7 +170,7 @@ func WithOverrideRequestHost(host string) ClientOrHTTPClientParam {
 // The serviceName will appear as the "service-name" tag.
 func WithMetrics(tagProviders ...TagsProvider) ClientOrHTTPClientParam {
 	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
-		b.DisableMetrics = refreshable.New(false)
+		b.DisableMetrics = func() bool { return false }
 		b.MetricsTagProviders = append(b.MetricsTagProviders, tagProviders...)
 		return nil
 	})
@@ -541,13 +541,14 @@ func WithErrorDecoder(errorDecoder ErrorDecoder) ClientParam {
 
 // WithBasicAuth sets the request's Authorization header to use HTTP Basic Authentication with the provided username and
 // password.
-func WithBasicAuth(user, password string) ClientParam {
-	return WithMiddleware(&basicAuthMiddleware{
-		Refreshable: refreshable.New(&refreshingclient.BasicAuth{
-			User:     user,
-			Password: password,
-		}),
-	})
+func WithBasicAuth(user, password string) ClientOrHTTPClientParam {
+	return WithMiddleware(&basicAuthMiddleware{provider: func(ctx context.Context) (BasicAuth, error) {
+		return BasicAuth{User: user, Password: password}, nil
+	}})
+}
+
+func WithBasicAuthProvider(provider BasicAuthProvider) ClientOrHTTPClientParam {
+	return WithMiddleware(&basicAuthMiddleware{provider: provider})
 }
 
 // WithBalancedURIScoring adds middleware that prioritizes sending requests to URIs with the fewest in-flight requests

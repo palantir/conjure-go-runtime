@@ -49,9 +49,8 @@ func (h *authTokenMiddleware) RoundTrip(req *http.Request, next http.RoundTrippe
 }
 
 func newAuthTokenMiddlewareFromRefreshable(token refreshable.Refreshable[*string]) Middleware {
-	disabled, _ := refreshable.Map(token, func(s *string) bool { return s == nil })
 	return &conditionalMiddleware{
-		Disabled: disabled,
+		Disabled: func() bool { return token.Current() == nil },
 		Delegate: &authTokenMiddleware{provideToken: func(ctx context.Context) (string, error) {
 			if s := token.Current(); s != nil {
 				return *s, nil
@@ -61,20 +60,37 @@ func newAuthTokenMiddlewareFromRefreshable(token refreshable.Refreshable[*string
 	}
 }
 
+// BasicAuthProvider accepts a context and returns either:
+//
+// (1) a nonempty BasicAuth and a nil error, or
+//
+// (2) an empty BasicAuth and a non-nil error.
+type BasicAuthProvider func(context.Context) (BasicAuth, error)
+
 // basicAuthMiddleware wraps a refreshing BasicAuth pointer and injects basic auth credentials if the pointer is not nil
 type basicAuthMiddleware struct {
-	refreshable.Refreshable[*refreshingclient.BasicAuth]
+	provider BasicAuthProvider
 }
 
 func (b *basicAuthMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (*http.Response, error) {
-	if basicAuth := b.Current(); basicAuth != nil {
-		setBasicAuth(req.Header, basicAuth.User, basicAuth.Password)
+	basicAuth, err := b.provider(req.Context())
+	if err != nil {
+		return nil, err
 	}
+	setBasicAuth(req.Header, basicAuth.User, basicAuth.Password)
 	return next.RoundTrip(req)
 }
 
 func newBasicAuthMiddlewareFromRefreshable(auth refreshable.Refreshable[*refreshingclient.BasicAuth]) Middleware {
-	return &basicAuthMiddleware{Refreshable: auth}
+	return &conditionalMiddleware{
+		Disabled: func() bool { return auth.Current() == nil },
+		Delegate: &basicAuthMiddleware{provider: func(ctx context.Context) (BasicAuth, error) {
+			if b := auth.Current(); b != nil {
+				return BasicAuth(*b), nil
+			}
+			return BasicAuth{}, nil
+		}},
+	}
 }
 
 func setBasicAuth(h http.Header, username, password string) {

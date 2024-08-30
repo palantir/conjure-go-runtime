@@ -60,7 +60,7 @@ func TestRefreshableClientConfig(t *testing.T) {
 			}
 			if assert.IsType(t, &metricsMiddleware{}, initialMiddlewares[2]) {
 				metricsM := initialMiddlewares[2].(*metricsMiddleware)
-				assert.False(t, metricsM.Disabled.Current())
+				assert.False(t, metricsM.Disabled())
 				assert.Equal(t, metrics.MustNewTag(MetricTagServiceName, serviceName), metricsM.ServiceNameTag)
 			}
 		}
@@ -103,7 +103,9 @@ func TestRefreshableClientConfig(t *testing.T) {
 		}
 		return c
 	})
-	refreshableClientConfig := RefreshableClientConfigFromServiceConfig(refreshableServicesConfig, serviceName)
+	refreshableClientConfig, _ := refreshable.Map(refreshableServicesConfig, func(c ServicesConfig) ClientConfig {
+		return c.ClientConfig(serviceName)
+	})
 	_, err = NewClientFromRefreshableConfig(context.Background(), refreshableClientConfig)
 	require.EqualError(t, err, "httpclient URLs must not be empty")
 

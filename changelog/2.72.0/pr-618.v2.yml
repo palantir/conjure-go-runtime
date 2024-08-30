@@ -1,0 +1,5 @@
+type: fix
+fix:
+  description: Use ClientOrHttpClient
+  links:
+  - https://github.com/palantir/conjure-go-runtime/pull/618
