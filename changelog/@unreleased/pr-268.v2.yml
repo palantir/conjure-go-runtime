@@ -1,0 +1,6 @@
+type: improvement
+improvement:
+  description: Add rendezvous hash URI scorer to deterministically balance requests
+    across URIs 
+  links:
+  - https://github.com/palantir/conjure-go-runtime/pull/268

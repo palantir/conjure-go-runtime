@@ -576,3 +576,15 @@ func WithRandomURIScoring() ClientParam {
 		return nil
 	})
 }
+
+// WithRendezvousHashURIScoring adds middleware that deterministically routes to URIs based on a header.
+func WithRendezvousHashURIScoring(hashHeader string) ClientParam {
+	return clientParamFunc(func(b *clientBuilder) error {
+		b.URIScorerBuilder = func(uris []string) internal.URIScoringMiddleware {
+			return internal.NewRendezvousHashURIScoringMiddleware(uris, hashHeader, func() int64 {
+				return time.Now().UnixNano()
+			})
+		}
+		return nil
+	})
+}
