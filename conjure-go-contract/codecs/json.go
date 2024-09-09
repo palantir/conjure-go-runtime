@@ -15,10 +15,12 @@
 package codecs
 
 import (
-	"fmt"
+	"bytes"
+	"encoding/json"
 	"io"
 
 	"github.com/palantir/pkg/safejson"
+	werror "github.com/palantir/witchcraft-go-error"
 )
 
 const (
@@ -37,14 +39,29 @@ func (codecJSON) Accept() string {
 }
 
 func (codecJSON) Decode(r io.Reader, v interface{}) error {
-	if err := safejson.Decoder(r).Decode(v); err != nil {
-		return fmt.Errorf("failed to decode JSON-encoded value: %s", err.Error())
+	switch vv := v.(type) {
+	case jsonDecoder:
+		return werror.Convert(vv.DecodeJSON(r))
+	case json.Unmarshaler:
+		data, err := io.ReadAll(r)
+		if err != nil {
+			return werror.Convert(err)
+		}
+		return werror.Convert(vv.UnmarshalJSON(data))
+	default:
+		return werror.Convert(safejson.Decoder(r).Decode(v))
 	}
-	return nil
 }
 
 func (c codecJSON) Unmarshal(data []byte, v interface{}) error {
-	return safejson.Unmarshal(data, v)
+	switch vv := v.(type) {
+	case json.Unmarshaler:
+		return werror.Convert(vv.UnmarshalJSON(data))
+	case jsonDecoder:
+		return werror.Convert(vv.DecodeJSON(bytes.NewReader(data)))
+	default:
+		return werror.Convert(safejson.Unmarshal(data, v))
+	}
 }
 
 func (codecJSON) ContentType() string {
@@ -52,12 +69,32 @@ func (codecJSON) ContentType() string {
 }
 
 func (codecJSON) Encode(w io.Writer, v interface{}) error {
-	if err := safejson.Encoder(w).Encode(v); err != nil {
-		return fmt.Errorf("failed to JSON-encode value: %s", err.Error())
+	switch vv := v.(type) {
+	case jsonEncoder:
+		return werror.Convert(vv.EncodeJSON(w))
+	case json.Marshaler:
+		out, err := vv.MarshalJSON()
+		if err != nil {
+			return werror.Convert(err)
+		}
+		_, err = w.Write(out)
+		return werror.Convert(err)
+	default:
+		return werror.Convert(safejson.Encoder(w).Encode(v))
 	}
-	return nil
 }
 
 func (c codecJSON) Marshal(v interface{}) ([]byte, error) {
-	return safejson.Marshal(v)
+	switch vv := v.(type) {
+	case json.Marshaler:
+		out, err := vv.MarshalJSON()
+		return out, werror.Convert(err)
+	case jsonEncoder:
+		data := bytes.NewBuffer(nil) // TODO: Use bytesbuffer pool
+		err := vv.EncodeJSON(data)
+		return data.Bytes(), werror.Convert(err)
+	default:
+		out, err := safejson.Marshal(v)
+		return out, werror.Convert(err)
+	}
 }
