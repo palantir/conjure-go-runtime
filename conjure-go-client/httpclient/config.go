@@ -20,11 +20,13 @@ import (
 	"crypto/tls"
 	"io/ioutil"
 	"net/url"
+	"reflect"
 	"sort"
 	"time"
 
 	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient/internal/refreshingclient"
 	"github.com/palantir/pkg/metrics"
+	"github.com/palantir/pkg/refreshable/v2"
 	"github.com/palantir/pkg/tlsconfig"
 	werror "github.com/palantir/witchcraft-go-error"
 	"github.com/palantir/witchcraft-go-logging/wlog/svclog/svc1log"
@@ -358,10 +360,10 @@ func configToParams(c ClientConfig) ([]ClientParam, error) {
 	return params, nil
 }
 
-func RefreshableClientConfigFromServiceConfig(servicesConfig RefreshableServicesConfig, serviceName string) RefreshableClientConfig {
-	return NewRefreshingClientConfig(servicesConfig.MapServicesConfig(func(servicesConfig ServicesConfig) interface{} {
-		return servicesConfig.ClientConfig(serviceName)
-	}))
+func RefreshableClientConfigFromServiceConfig(ctx context.Context, servicesConfig refreshable.Refreshable[ServicesConfig], serviceName string) refreshable.Refreshable[ClientConfig] {
+	return refreshable.MapContext(ctx, servicesConfig, func(c ServicesConfig) ClientConfig {
+		return c.ClientConfig(serviceName)
+	})
 }
 
 func newValidatedClientParamsFromConfig(ctx context.Context, config ClientConfig, isHTTPClient bool) (refreshingclient.ValidatedClientParams, error) {
@@ -475,27 +477,27 @@ func newValidatedClientParamsFromConfig(ctx context.Context, config ClientConfig
 	}, nil
 }
 
-func subscribeTLSConfigUpdateWarning(ctx context.Context, security RefreshableSecurityConfig) (*tls.Config, error) {
+func subscribeTLSConfigUpdateWarning(ctx context.Context, security refreshable.Refreshable[SecurityConfig]) (*tls.Config, error) {
 	//TODO: Implement refreshable TLS configuration.
 	// It is hard to represent all of the configuration (e.g. a dynamic function for GetCertificate) in primitive values friendly to reflect.DeepEqual.
-	currentSecurity := security.CurrentSecurityConfig()
-
-	security.CAFiles().SubscribeToStringSlice(func(caFiles []string) {
-		svc1log.FromContext(ctx).Warn("conjure-go-runtime: CAFiles configuration changed but can not be live-reloaded.",
-			svc1log.SafeParam("existingCAFiles", currentSecurity.CAFiles),
-			svc1log.SafeParam("ignoredCAFiles", caFiles))
+	currentSecurity := security.Current()
+	security.Subscribe(func(config SecurityConfig) {
+		if !reflect.DeepEqual(currentSecurity.CAFiles, config.CAFiles) {
+			svc1log.FromContext(ctx).Warn("conjure-go-runtime: CAFiles configuration changed but can not be live-reloaded.",
+				svc1log.SafeParam("existingCAFiles", currentSecurity.CAFiles),
+				svc1log.SafeParam("ignoredCAFiles", config.CAFiles))
+		}
+		if currentSecurity.CertFile != config.CertFile {
+			svc1log.FromContext(ctx).Warn("conjure-go-runtime: CertFile configuration changed but can not be live-reloaded.",
+				svc1log.SafeParam("existingCertFile", currentSecurity.CertFile),
+				svc1log.SafeParam("ignoredCertFile", config.CertFile))
+		}
+		if currentSecurity.KeyFile != config.KeyFile {
+			svc1log.FromContext(ctx).Warn("conjure-go-runtime: KeyFile configuration changed but can not be live-reloaded.",
+				svc1log.SafeParam("existingKeyFile", currentSecurity.KeyFile),
+				svc1log.SafeParam("ignoredKeyFile", config.KeyFile))
+		}
 	})
-	security.CertFile().SubscribeToString(func(certFile string) {
-		svc1log.FromContext(ctx).Warn("conjure-go-runtime: CertFile configuration changed but can not be live-reloaded.",
-			svc1log.SafeParam("existingCertFile", currentSecurity.CertFile),
-			svc1log.SafeParam("ignoredCertFile", certFile))
-	})
-	security.KeyFile().SubscribeToString(func(keyFile string) {
-		svc1log.FromContext(ctx).Warn("conjure-go-runtime: KeyFile configuration changed but can not be live-reloaded.",
-			svc1log.SafeParam("existingKeyFile", currentSecurity.KeyFile),
-			svc1log.SafeParam("ignoredKeyFile", keyFile))
-	})
-
 	return newTLSConfig(currentSecurity)
 }
 
