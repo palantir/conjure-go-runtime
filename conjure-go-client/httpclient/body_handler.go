@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"io"
 	"net/http"
+	"reflect"
 	"strings"
 
 	"github.com/palantir/conjure-go-runtime/v2/conjure-go-contract/codecs"
@@ -57,58 +58,17 @@ func (b *bodyMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (*
 // setRequestBody returns a function that should be called once the request has been completed.
 func (b *bodyMiddleware) setRequestBody(req *http.Request) (func(), error) {
 	cleanup := func() {}
+
 	if b.requestInput == nil {
 		return cleanup, nil
 	}
+
 	// Special case: if the requestInput is an io.ReadCloser and the requestEncoder is nil,
 	// use the provided input directly as the request body.
 	if b.requestEncoder == nil {
-		switch v := b.requestInput.(type) {
-		case *bytes.Buffer:
-			req.ContentLength = int64(v.Len())
-			buf := v.Bytes()
-			req.GetBody = func() (io.ReadCloser, error) {
-				r := bytes.NewReader(buf)
-				return io.NopCloser(r), nil
-			}
-			req.Body, _ = req.GetBody()
-			return cleanup, nil
-		case *bytes.Reader:
-			req.ContentLength = int64(v.Len())
-			snapshot := *v
-			req.GetBody = func() (io.ReadCloser, error) {
-				r := snapshot
-				return io.NopCloser(&r), nil
-			}
-			req.Body, _ = req.GetBody()
-			return cleanup, nil
-		case *strings.Reader:
-			req.ContentLength = int64(v.Len())
-			snapshot := *v
-			req.GetBody = func() (io.ReadCloser, error) {
-				r := snapshot
-				return io.NopCloser(&r), nil
-			}
-			req.Body, _ = req.GetBody()
-			return cleanup, nil
-		case io.ReadCloser:
-			req.Body = v
-			return cleanup, nil
-		case func() io.ReadCloser:
-			req.Body = v()
-			return cleanup, nil
-		case func() (io.ReadCloser, error):
-			body, err := v()
-			if err != nil {
-				return cleanup, err
-			}
-			req.Body = body
-			req.GetBody = v
-			return cleanup, nil
-		}
-		return cleanup, werror.Error("requestEncoder is nil but requestInput is not a recognized binary type")
+		return cleanup, setRequestBody(req, b.requestInput)
 	}
-
+	// Use requestEncoder to serialize requestInput into in-memory buffer
 	var buf *bytes.Buffer
 	if b.bufferPool != nil {
 		buf = b.bufferPool.Get()
@@ -122,18 +82,58 @@ func (b *bodyMiddleware) setRequestBody(req *http.Request) (func(), error) {
 	if err := b.requestEncoder.Encode(buf, b.requestInput); err != nil {
 		return cleanup, werror.Wrap(err, "failed to encode request object")
 	}
+	return cleanup, setRequestBody(req, buf)
+}
 
-	if buf.Len() != 0 {
-		req.Body = io.NopCloser(bytes.NewReader(buf.Bytes()))
-		req.ContentLength = int64(buf.Len())
+// setRequestBody sets the fields Body, GetBody, and ContentLength based on the provided object.
+func setRequestBody(req *http.Request, body any) error {
+	switch v := body.(type) {
+	case nil:
+		return nil
+	case *bytes.Buffer:
+		req.ContentLength = int64(v.Len())
+		buf := v.Bytes()
 		req.GetBody = func() (io.ReadCloser, error) {
-			return io.NopCloser(bytes.NewReader(buf.Bytes())), nil
+			r := bytes.NewReader(buf)
+			return io.NopCloser(r), nil
 		}
-	} else {
-		req.Body = http.NoBody
-		req.GetBody = func() (io.ReadCloser, error) { return http.NoBody, nil }
+		req.Body, _ = req.GetBody()
+		return nil
+	case *bytes.Reader:
+		req.ContentLength = int64(v.Len())
+		snapshot := *v
+		req.GetBody = func() (io.ReadCloser, error) {
+			r := snapshot
+			return io.NopCloser(&r), nil
+		}
+		req.Body, _ = req.GetBody()
+		return nil
+	case *strings.Reader:
+		req.ContentLength = int64(v.Len())
+		snapshot := *v
+		req.GetBody = func() (io.ReadCloser, error) {
+			r := snapshot
+			return io.NopCloser(&r), nil
+		}
+		req.Body, _ = req.GetBody()
+		return nil
+	case io.ReadCloser:
+		req.Body = v
+		return nil
+	case func() io.ReadCloser:
+		req.Body = v()
+		return nil
+	case func() (io.ReadCloser, error):
+		body, err := v()
+		if err != nil {
+			return err
+		}
+		req.Body = body
+		req.GetBody = v
+		return nil
+	default:
+		return werror.Error("requestEncoder is nil but requestInput is not a recognized binary type", werror.SafeParam("requestInputType", reflect.TypeOf(body).String()))
 	}
-	return cleanup, nil
 }
 
 func (b *bodyMiddleware) readResponse(resp *http.Response, respErr error) error {
