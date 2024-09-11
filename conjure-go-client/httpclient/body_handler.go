@@ -17,8 +17,8 @@ package httpclient
 import (
 	"bytes"
 	"io"
-	"io/ioutil"
 	"net/http"
+	"strings"
 
 	"github.com/palantir/conjure-go-runtime/v2/conjure-go-contract/codecs"
 	"github.com/palantir/pkg/bytesbuffers"
@@ -57,20 +57,56 @@ func (b *bodyMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (*
 // setRequestBody returns a function that should be called once the request has been completed.
 func (b *bodyMiddleware) setRequestBody(req *http.Request) (func(), error) {
 	cleanup := func() {}
-
 	if b.requestInput == nil {
 		return cleanup, nil
 	}
-
 	// Special case: if the requestInput is an io.ReadCloser and the requestEncoder is nil,
 	// use the provided input directly as the request body.
-	if bodyReadCloser, ok := b.requestInput.(io.ReadCloser); ok && b.requestEncoder == nil {
-		req.Body = bodyReadCloser
-		// Use the same heuristic as http.NewRequest to generate the "GetBody" function.
-		if newReq, err := http.NewRequest("", "", bodyReadCloser); err == nil {
-			req.GetBody = newReq.GetBody
+	if b.requestEncoder == nil {
+		switch v := b.requestInput.(type) {
+		case *bytes.Buffer:
+			req.ContentLength = int64(v.Len())
+			buf := v.Bytes()
+			req.GetBody = func() (io.ReadCloser, error) {
+				r := bytes.NewReader(buf)
+				return io.NopCloser(r), nil
+			}
+			req.Body, _ = req.GetBody()
+			return cleanup, nil
+		case *bytes.Reader:
+			req.ContentLength = int64(v.Len())
+			snapshot := *v
+			req.GetBody = func() (io.ReadCloser, error) {
+				r := snapshot
+				return io.NopCloser(&r), nil
+			}
+			req.Body, _ = req.GetBody()
+			return cleanup, nil
+		case *strings.Reader:
+			req.ContentLength = int64(v.Len())
+			snapshot := *v
+			req.GetBody = func() (io.ReadCloser, error) {
+				r := snapshot
+				return io.NopCloser(&r), nil
+			}
+			req.Body, _ = req.GetBody()
+			return cleanup, nil
+		case io.ReadCloser:
+			req.Body = v
+			return cleanup, nil
+		case func() io.ReadCloser:
+			req.Body = v()
+			return cleanup, nil
+		case func() (io.ReadCloser, error):
+			body, err := v()
+			if err != nil {
+				return cleanup, err
+			}
+			req.Body = body
+			req.GetBody = v
+			return cleanup, nil
 		}
-		return cleanup, nil
+		return cleanup, werror.Error("requestEncoder is nil but requestInput is not a recognized binary type")
 	}
 
 	var buf *bytes.Buffer
@@ -88,10 +124,10 @@ func (b *bodyMiddleware) setRequestBody(req *http.Request) (func(), error) {
 	}
 
 	if buf.Len() != 0 {
-		req.Body = ioutil.NopCloser(buf)
+		req.Body = io.NopCloser(bytes.NewReader(buf.Bytes()))
 		req.ContentLength = int64(buf.Len())
 		req.GetBody = func() (io.ReadCloser, error) {
-			return ioutil.NopCloser(bytes.NewReader(buf.Bytes())), nil
+			return io.NopCloser(bytes.NewReader(buf.Bytes())), nil
 		}
 	} else {
 		req.Body = http.NoBody

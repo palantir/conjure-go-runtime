@@ -21,6 +21,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient"
@@ -139,13 +140,18 @@ func TestRedirectWithBodyAndBytesBuffer(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
 		var actualReqVar map[string]string
 		err := codecs.JSON.Decode(req.Body, &actualReqVar)
-		assert.NoError(t, err)
-		assert.Equal(t, reqVar, actualReqVar)
+		if assert.NoError(t, err) {
+			assert.Equal(t, reqVar, actualReqVar)
+		} else {
+			t.Log(err)
+			rw.WriteHeader(http.StatusInternalServerError)
+			return
+		}
 
 		switch req.URL.Path {
 		case "/redirect":
 			rw.Header().Add("Location", "/location")
-			rw.WriteHeader(302)
+			rw.WriteHeader(307)
 		case "/location":
 			assert.NoError(t, codecs.JSON.Encode(rw, respVar))
 		}
@@ -159,16 +165,55 @@ func TestRedirectWithBodyAndBytesBuffer(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	var actualRespVar map[string]string
-	resp, err := client.Do(context.Background(),
-		httpclient.WithRequestMethod(http.MethodPost),
-		httpclient.WithPath("/redirect"),
-		httpclient.WithJSONRequest(&reqVar),
-		httpclient.WithJSONResponse(&actualRespVar),
-	)
+	t.Run("WithJSONRequest", func(t *testing.T) {
+		var actualRespVar map[string]string
+		resp, err := client.Do(context.Background(),
+			httpclient.WithRequestMethod(http.MethodPost),
+			httpclient.WithPath("/redirect"),
+			httpclient.WithJSONRequest(&reqVar),
+			httpclient.WithJSONResponse(&actualRespVar),
+		)
 
-	assert.NoError(t, err)
-	assert.NotNil(t, resp)
-	assert.Equal(t, resp.StatusCode, 200)
-	assert.Equal(t, respVar, actualRespVar)
+		require.NoError(t, err)
+		assert.NotNil(t, resp)
+		if assert.NotNil(t, resp) {
+			assert.Equal(t, resp.StatusCode, 200)
+		}
+		assert.Equal(t, respVar, actualRespVar)
+	})
+
+	t.Run("WithRawRequestBodyPayload", func(t *testing.T) {
+		var actualRespVar map[string]string
+		resp, err := client.Do(context.Background(),
+			httpclient.WithRequestMethod(http.MethodPost),
+			httpclient.WithPath("/redirect"),
+			httpclient.WithRawRequestBodyPayload(strings.NewReader(`{"1":"2"}`)),
+			httpclient.WithJSONResponse(&actualRespVar),
+		)
+
+		require.NoError(t, err)
+		assert.NotNil(t, resp)
+		if assert.NotNil(t, resp) {
+			assert.Equal(t, resp.StatusCode, 200)
+		}
+		assert.Equal(t, respVar, actualRespVar)
+	})
+
+	t.Run("WithRawRequestBodyFunc", func(t *testing.T) {
+		var actualRespVar map[string]string
+		resp, err := client.Do(context.Background(),
+			httpclient.WithRequestMethod(http.MethodPost),
+			httpclient.WithPath("/redirect"),
+			httpclient.WithRawRequestBodyFunc(func() (io.ReadCloser, error) {
+				return io.NopCloser(strings.NewReader(`{"1":"2"}`)), nil
+			}),
+			httpclient.WithJSONResponse(&actualRespVar),
+		)
+
+		require.NoError(t, err)
+		if assert.NotNil(t, resp) {
+			assert.Equal(t, resp.StatusCode, 200)
+		}
+		assert.Equal(t, respVar, actualRespVar)
+	})
 }
