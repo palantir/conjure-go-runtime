@@ -202,7 +202,7 @@ func WithResponseBody(output interface{}, decoder codecs.Decoder) RequestParam {
 //
 //	resp, err := client.Do(..., WithRawResponseBody(), ...)
 //	defer resp.Body.Close()
-//	bytes, err := ioutil.ReadAll(resp.Body)
+//	bytes, err := io.ReadAll(resp.Body)
 //
 // In the case of an empty response, output will be unmodified (left nil).
 func WithRawResponseBody() RequestParam {

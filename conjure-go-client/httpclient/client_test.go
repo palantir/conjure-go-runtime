@@ -19,7 +19,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -44,7 +43,7 @@ func TestCanReadBodyWithBufferPool(t *testing.T) {
 	encodedBody, err := codecs.Plain.Marshal(unencodedBody)
 	require.NoError(t, err)
 	bodyIsCorrect := func(body io.ReadCloser) {
-		content, err := ioutil.ReadAll(body)
+		content, err := io.ReadAll(body)
 		require.NoError(t, err)
 		require.Equal(t, encodedBody, content)
 	}
@@ -143,7 +142,7 @@ func TestMiddlewareCanReadBody(t *testing.T) {
 	encodedBody, err := codecs.Plain.Marshal(unencodedBody)
 	require.NoError(t, err)
 	bodyIsCorrect := func(body io.ReadCloser) {
-		content, err := ioutil.ReadAll(body)
+		content, err := io.ReadAll(body)
 		require.NoError(t, err)
 		require.Equal(t, encodedBody, content)
 	}

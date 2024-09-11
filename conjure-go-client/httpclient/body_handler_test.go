@@ -18,7 +18,6 @@ import (
 	"bytes"
 	"context"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -71,7 +70,7 @@ func TestRawBody(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
 		assert.Equal(t, "TestNewRequest", req.Header.Get("User-Agent"))
-		gotReqBytes, err := ioutil.ReadAll(req.Body)
+		gotReqBytes, err := io.ReadAll(req.Body)
 		assert.NoError(t, err)
 		assert.Equal(t, gotReqBytes, reqVar)
 		_, err = rw.Write(respVar)
@@ -88,13 +87,13 @@ func TestRawBody(t *testing.T) {
 	resp, err := client.Do(context.Background(),
 		httpclient.WithRequestMethod(http.MethodPost),
 		httpclient.WithRawRequestBodyProvider(func() io.ReadCloser {
-			return ioutil.NopCloser(bytes.NewBuffer(reqVar))
+			return io.NopCloser(bytes.NewBuffer(reqVar))
 		}),
 		httpclient.WithRawResponseBody(),
 	)
 	assert.NoError(t, err)
 
-	gotRespBytes, err := ioutil.ReadAll(resp.Body)
+	gotRespBytes, err := io.ReadAll(resp.Body)
 	assert.NoError(t, err)
 	defer func() {
 		_ = resp.Body.Close()
@@ -109,7 +108,7 @@ func TestRawRequestRetry(t *testing.T) {
 	requestBytes := []byte{12, 13}
 
 	server := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
-		gotReqBytes, err := ioutil.ReadAll(req.Body)
+		gotReqBytes, err := io.ReadAll(req.Body)
 		assert.NoError(t, err)
 		assert.Equal(t, requestBytes, gotReqBytes)
 		if count == 0 {
@@ -126,7 +125,7 @@ func TestRawRequestRetry(t *testing.T) {
 	_, err = client.Do(
 		context.Background(),
 		httpclient.WithRawRequestBodyProvider(func() io.ReadCloser {
-			return ioutil.NopCloser(bytes.NewReader(requestBytes))
+			return io.NopCloser(bytes.NewReader(requestBytes))
 		}),
 		httpclient.WithRequestMethod(http.MethodPost))
 	assert.NoError(t, err)
