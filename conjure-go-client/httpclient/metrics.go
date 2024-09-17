@@ -59,6 +59,9 @@ var (
 	metricTagFamilyTimeout = metrics.MustNewTag(metricTagFamily, "timeout")
 )
 
+// now is a local copy of time.Now() for testing purposes.
+var now = time.Now
+
 // A TagsProvider returns metrics tags based on an http round trip.
 // The 'error' argument is that returned from the request (if any).
 type TagsProvider interface {
@@ -127,10 +130,10 @@ func (h *metricsMiddleware) RoundTrip(req *http.Request, next http.RoundTripper)
 	}
 
 	metrics.FromContext(req.Context()).Counter(MetricRequestInFlight, h.ServiceNameTag).Inc(1)
-	start := time.Now()
+	start := now()
 	tlsMetricsContext := h.tlsTraceContext(req.Context())
 	resp, err := next.RoundTrip(req.WithContext(tlsMetricsContext))
-	duration := time.Since(start)
+	duration := now().Sub(start)
 	metrics.FromContext(req.Context()).Counter(MetricRequestInFlight, h.ServiceNameTag).Dec(1)
 
 	var tags metrics.Tags
@@ -138,7 +141,7 @@ func (h *metricsMiddleware) RoundTrip(req *http.Request, next http.RoundTripper)
 		tags = append(tags, tagProvider.Tags(req, resp, err)...)
 	}
 
-	metrics.FromContext(req.Context()).Timer(metricClientResponse, tags...).Update(duration / time.Microsecond)
+	metrics.FromContext(req.Context()).Timer(metricClientResponse, tags...).Update(duration)
 	return resp, err
 }
 

@@ -1,0 +1,5 @@
+type: fix
+fix:
+  description: Report duration of `client.response` metric in microseconds.
+  links:
+  - https://github.com/palantir/conjure-go-runtime/pull/515
