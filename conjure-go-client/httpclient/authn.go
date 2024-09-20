@@ -17,6 +17,7 @@ package httpclient
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"net/http"
 
@@ -62,11 +63,17 @@ func newAuthTokenMiddlewareFromRefreshable(token refreshable.StringPtr) Middlewa
 	}
 }
 
+// ErrSkipBasicAuthHeader indicates that a basic auth header should not being added to a request.
+// This is useful in cases where a provider for basic auth does not exist, but may exist at some point in the future.
+var ErrSkipBasicAuthHeader = errors.New("basic auth headers should not be added")
+
 // BasicAuthProvider accepts a context and returns either:
 //
 // (1) a nonempty BasicAuth and a nil error, or
 //
 // (2) an empty BasicAuth and a non-nil error.
+//
+// (3) an empty BasicAuth and a typed error (ErrSkipBasicAuthHeader) indicating that no basic auth is available.
 type BasicAuthProvider func(context.Context) (BasicAuth, error)
 
 // basicAuthMiddleware wraps a refreshing BasicAuth pointer and injects basic auth credentials if the pointer is not nil
@@ -77,6 +84,9 @@ type basicAuthMiddleware struct {
 func (b *basicAuthMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (*http.Response, error) {
 	basicAuth, err := b.provider(req.Context())
 	if err != nil {
+		if errors.Is(err, ErrSkipBasicAuthHeader) {
+			return next.RoundTrip(req)
+		}
 		return nil, err
 	}
 	setBasicAuth(req.Header, basicAuth.User, basicAuth.Password)
