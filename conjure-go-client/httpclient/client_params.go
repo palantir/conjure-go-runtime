@@ -542,13 +542,21 @@ func WithErrorDecoder(errorDecoder ErrorDecoder) ClientParam {
 // WithBasicAuth sets the request's Authorization header to use HTTP Basic Authentication with the provided username and
 // password.
 func WithBasicAuth(user, password string) ClientOrHTTPClientParam {
-	return WithMiddleware(&basicAuthMiddleware{provider: func(ctx context.Context) (BasicAuth, error) {
+	return WithMiddleware(basicAuthProviderMiddleware(func(ctx context.Context) (BasicAuth, error) {
 		return BasicAuth{User: user, Password: password}, nil
-	}})
+	}))
 }
 
+// WithBasicAuthProvider sets the request's Authorization header to use HTTP Basic Authentication.
+// The provider is expected to always return a nonempty BasicAuth value, or an error.
 func WithBasicAuthProvider(provider BasicAuthProvider) ClientOrHTTPClientParam {
-	return WithMiddleware(&basicAuthMiddleware{provider: provider})
+	return WithMiddleware(basicAuthProviderMiddleware(provider))
+}
+
+// WithBasicAuthOptionalProvider sets the request's Authorization header to use HTTP Basic Authentication with the provided username
+// and password, if the returned BasicAuth is non-nil.
+func WithBasicAuthOptionalProvider(provider BasicAuthOptionalProvider) ClientOrHTTPClientParam {
+	return WithMiddleware(basicAuthOptionalProviderMiddleware(provider))
 }
 
 // WithBalancedURIScoring adds middleware that prioritizes sending requests to URIs with the fewest in-flight requests
