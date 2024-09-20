@@ -75,7 +75,7 @@ type BasicAuthProvider func(context.Context) (BasicAuth, error)
 //
 // (2) a nonempty BasicAuth and a nil error, or
 //
-// (3) an empty BasicAuth and a non-nil error.
+// (3) a nil BasicAuth and a non-nil error.
 type BasicAuthOptionalProvider func(context.Context) (*BasicAuth, error)
 
 func newBasicAuthMiddlewareFromRefreshable(auth refreshingclient.RefreshableBasicAuthPtr) Middleware {

@@ -551,18 +551,19 @@ func WithBasicAuth(user, password string) ClientOrHTTPClientParam {
 // WithBasicAuthProvider sets the request's Authorization header to use HTTP Basic Authentication.
 // The provider is expected to always return a nonempty BasicAuth value, or an error.
 func WithBasicAuthProvider(provider BasicAuthProvider) ClientOrHTTPClientParam {
-	return WithMiddleware(MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
-		basicAuth, err := provider(req.Context())
+	return WithBasicAuthOptionalProvider(func(ctx context.Context) (*BasicAuth, error) {
+		basicAuth, err := provider(ctx)
 		if err != nil {
 			return nil, err
 		}
-		setBasicAuth(req.Header, basicAuth.User, basicAuth.Password)
-		return next.RoundTrip(req)
-	}))
+		return &basicAuth, nil
+	})
 }
 
-// WithBasicAuthOptionalProvider sets the request's Authorization header to use HTTP Basic Authentication with the provided username
-// and password, if the returned BasicAuth is non-nil.
+// WithBasicAuthOptionalProvider sets the request's Authorization header to use HTTP Basic Authentication based on the
+// return value of the provided BasicAuthOptionalProvider. If the provider returns a non-nil error, if the returned
+// BasicAuth value is non-nil then its values are set on the header, while if the returned BasicAuth value is nil then
+// no basic authentication header values are set.
 func WithBasicAuthOptionalProvider(provider BasicAuthOptionalProvider) ClientOrHTTPClientParam {
 	return WithMiddleware(MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
 		basicAuth, err := provider(req.Context())
