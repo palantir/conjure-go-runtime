@@ -352,15 +352,23 @@ func WithProxyURL(proxyURLString string) ClientOrHTTPClientParam {
 	})
 }
 
-// WithTLSConfig sets the SSL/TLS configuration for the HTTP client's Transport using a copy of the provided config.
-// The palantir/pkg/tlsconfig package is recommended to build a tls.Config from sane defaults.
+// WithTLSConfig is the same as WithRefreshableTLSConfig, but provides a static config.
 func WithTLSConfig(conf *tls.Config) ClientOrHTTPClientParam {
 	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
 		if conf == nil {
 			b.TLSConfig = nil
 		} else {
-			b.TLSConfig = conf.Clone()
+			b.TLSConfig = refreshable.NewDefaultRefreshable(conf.Clone())
 		}
+		return nil
+	})
+}
+
+// WithRefreshableTLSConfig sets the SSL/TLS configuration for the HTTP client's Transport using a copy of the provided config.
+// The palantir/pkg/tlsconfig package is recommended to build a tls.Config from sane defaults.
+func WithRefreshableTLSConfig(refreshingTLSConfig refreshable.Refreshable) ClientOrHTTPClientParam {
+	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
+		b.TLSConfig = refreshingTLSConfig
 		return nil
 	})
 }
@@ -370,7 +378,11 @@ func WithTLSConfig(conf *tls.Config) ClientOrHTTPClientParam {
 func WithTLSInsecureSkipVerify() ClientOrHTTPClientParam {
 	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
 		if b.TLSConfig != nil {
-			b.TLSConfig.InsecureSkipVerify = true
+			b.TLSConfig = b.TLSConfig.Map(func(confI interface{}) interface{} {
+				conf := confI.(*tls.Config).Clone()
+				conf.InsecureSkipVerify = true
+				return conf
+			})
 		}
 		return nil
 	})
