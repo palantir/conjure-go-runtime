@@ -20,6 +20,7 @@ type RefreshableValidatedClientParams interface {
 	MaxAttempts() refreshable.IntPtr
 	MetricsTags() RefreshableTags
 	Retry() RefreshableRetryParams
+	ServiceName() refreshable.String
 	Timeout() refreshable.Duration
 	Transport() RefreshableTransportParams
 	URIs() refreshable.StringSlice
@@ -88,6 +89,12 @@ func (r RefreshingValidatedClientParams) MetricsTags() RefreshableTags {
 func (r RefreshingValidatedClientParams) Retry() RefreshableRetryParams {
 	return NewRefreshingRetryParams(r.MapValidatedClientParams(func(i ValidatedClientParams) interface{} {
 		return i.Retry
+	}))
+}
+
+func (r RefreshingValidatedClientParams) ServiceName() refreshable.String {
+	return refreshable.NewString(r.MapValidatedClientParams(func(i ValidatedClientParams) interface{} {
+		return i.ServiceName
 	}))
 }
 

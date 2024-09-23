@@ -22,7 +22,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/palantir/pkg/metrics"
 	"github.com/palantir/pkg/refreshable"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -55,13 +54,13 @@ func TestRefreshableClientConfig(t *testing.T) {
 			assert.IsType(t, recoveryMiddleware{}, initialMiddlewares[0])
 			if assert.IsType(t, traceMiddleware{}, initialMiddlewares[1]) {
 				traceM := initialMiddlewares[1].(traceMiddleware)
-				assert.True(t, traceM.CreateRequestSpan)
-				assert.True(t, traceM.InjectHeaders)
+				assert.False(t, traceM.DisableRequestSpan)
+				assert.False(t, traceM.DisableTraceHeaders)
 			}
 			if assert.IsType(t, &metricsMiddleware{}, initialMiddlewares[2]) {
 				metricsM := initialMiddlewares[2].(*metricsMiddleware)
 				assert.False(t, metricsM.Disabled.CurrentBool())
-				assert.Equal(t, metrics.MustNewTag(MetricTagServiceName, serviceName), metricsM.ServiceNameTag)
+				assert.Equal(t, serviceName, metricsM.ServiceName.CurrentString())
 			}
 		}
 
