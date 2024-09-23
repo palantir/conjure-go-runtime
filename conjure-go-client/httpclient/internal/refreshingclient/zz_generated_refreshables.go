@@ -558,6 +558,6 @@ func (r RefreshingTLSParams) KeyFile() refreshable.String {
 
 func (r RefreshingTLSParams) Insecure() refreshable.Bool {
 	return refreshable.NewBool(r.MapTLSParams(func(i TLSParams) interface{} {
-		return i.Insecure
+		return i.InsecureSkipVerify
 	}))
 }

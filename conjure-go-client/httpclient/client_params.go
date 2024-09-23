@@ -374,7 +374,7 @@ func WithTLSInsecureSkipVerify() ClientOrHTTPClientParam {
 			b.TLSConfig.InsecureSkipVerify = true
 		}
 		b.TransportParams = refreshingclient.ConfigureTransport(b.TransportParams, func(p refreshingclient.TransportParams) refreshingclient.TransportParams {
-			p.TLS.Insecure = true
+			p.TLS.InsecureSkipVerify = true
 			return p
 		})
 		return nil

@@ -24,17 +24,20 @@ import (
 	"github.com/palantir/witchcraft-go-logging/wlog/svclog/svc1log"
 )
 
+// TLSParams contains the parameters needed to build a *tls.Config.
+// Its fields must all be compatible with reflect.DeepEqual.
 type TLSParams struct {
-	CAFiles  []string
-	CertFile string
-	KeyFile  string
-	Insecure bool
+	CAFiles            []string
+	CertFile           string
+	KeyFile            string
+	InsecureSkipVerify bool
 }
 
 type TLSProvider interface {
 	GetTLSConfig(ctx context.Context) *tls.Config
 }
 
+// StaticTLSConfigProvider is a TLSProvider that always returns the same *tls.Config.
 type StaticTLSConfigProvider tls.Config
 
 func NewStaticTLSConfigProvider(tlsConfig *tls.Config) *StaticTLSConfigProvider {
@@ -76,6 +79,7 @@ func (r RefreshableTLSConfig) GetTLSConfig(ctx context.Context) *tls.Config {
 	return r.r.Current().(*tls.Config)
 }
 
+// NewTLSConfig returns a *tls.Config built from the provided TLSParams.
 func NewTLSConfig(ctx context.Context, p TLSParams) (*tls.Config, error) {
 	var tlsParams []tlsconfig.ClientParam
 	if len(p.CAFiles) != 0 {
@@ -84,7 +88,7 @@ func NewTLSConfig(ctx context.Context, p TLSParams) (*tls.Config, error) {
 	if p.CertFile != "" && p.KeyFile != "" {
 		tlsParams = append(tlsParams, tlsconfig.ClientKeyPairFiles(p.CertFile, p.KeyFile))
 	}
-	if p.Insecure {
+	if p.InsecureSkipVerify {
 		tlsParams = append(tlsParams, tlsconfig.ClientInsecureSkipVerify())
 	}
 	tlsConfig, err := tlsconfig.NewClientConfig(tlsParams...)
