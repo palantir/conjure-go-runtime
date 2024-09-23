@@ -511,7 +511,7 @@ type RefreshableTLSParams interface {
 	CAFiles() refreshable.StringSlice
 	CertFile() refreshable.String
 	KeyFile() refreshable.String
-	Insecure() refreshable.Bool
+	InsecureSkipVerify() refreshable.Bool
 }
 
 type RefreshingTLSParams struct {
@@ -556,7 +556,7 @@ func (r RefreshingTLSParams) KeyFile() refreshable.String {
 	}))
 }
 
-func (r RefreshingTLSParams) Insecure() refreshable.Bool {
+func (r RefreshingTLSParams) InsecureSkipVerify() refreshable.Bool {
 	return refreshable.NewBool(r.MapTLSParams(func(i TLSParams) interface{} {
 		return i.InsecureSkipVerify
 	}))
