@@ -44,21 +44,20 @@ func (h *authTokenMiddleware) RoundTrip(req *http.Request, next http.RoundTrippe
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
+	if token != "" {
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
+	}
 	return next.RoundTrip(req)
 }
 
 func newAuthTokenMiddlewareFromRefreshable(token refreshable.StringPtr) Middleware {
-	return &conditionalMiddleware{
-		Disabled: refreshable.NewBool(token.MapStringPtr(func(s *string) interface{} {
-			return s == nil
-		})),
-		Delegate: &authTokenMiddleware{provideToken: func(ctx context.Context) (string, error) {
+	return &authTokenMiddleware{
+		provideToken: func(ctx context.Context) (string, error) {
 			if s := token.CurrentStringPtr(); s != nil {
 				return *s, nil
 			}
 			return "", nil
-		}},
+		},
 	}
 }
 

@@ -465,6 +465,7 @@ func newValidatedClientParamsFromConfig(ctx context.Context, config ClientConfig
 		MaxAttempts:    maxAttempts,
 		MetricsTags:    metricsTags,
 		Retry:          retryParams,
+		ServiceName:    config.ServiceName,
 		Timeout:        timeout,
 		Transport:      transport,
 		URIs:           uris,
