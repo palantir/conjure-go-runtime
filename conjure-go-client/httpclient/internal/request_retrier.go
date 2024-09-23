@@ -15,9 +15,11 @@
 package internal
 
 import (
+	"errors"
 	"net/http"
 	"net/url"
 	"strings"
+	"syscall"
 
 	"github.com/palantir/pkg/retry"
 )
@@ -82,7 +84,7 @@ func (r *RequestRetrier) GetNextURI(resp *http.Response, respErr error) (uri str
 		// Retries exhausted
 		return "", false
 	}
-	if r.isMeshURI(r.currentURI) {
+	if r.isMeshURI(r.currentURI) && !isConnectionRefused(respErr) {
 		// Mesh uris don't get retried
 		return "", false
 	}
@@ -95,7 +97,7 @@ func (r *RequestRetrier) GetNextURI(resp *http.Response, respErr error) (uri str
 	if !retryFn() {
 		return "", false
 	}
-	return r.currentURI, r.isRelocatedURI(r.currentURI)
+	return r.removeMeshSchemeIfPresent(r.currentURI), r.isRelocatedURI(r.currentURI)
 }
 
 func (r *RequestRetrier) getRetryFn(resp *http.Response, respErr error) func() bool {
@@ -173,4 +175,13 @@ func (r *RequestRetrier) isMeshURI(uri string) bool {
 func (r *RequestRetrier) isRelocatedURI(uri string) bool {
 	_, relocatedURI := r.relocatedURIs[uri]
 	return relocatedURI
+}
+
+func isConnectionRefused(err error) bool {
+	if syscallErr := syscall.Errno(0); errors.As(err, &syscallErr) {
+		if syscallErr == syscall.ECONNREFUSED {
+			return true
+		}
+	}
+	return false
 }
