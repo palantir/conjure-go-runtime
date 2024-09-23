@@ -1,0 +1,5 @@
+type: feature
+feature:
+  description: Refresh *tls.Config when configured paths change
+  links:
+  - https://github.com/palantir/conjure-go-runtime/pull/689
