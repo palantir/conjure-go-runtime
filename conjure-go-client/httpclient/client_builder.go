@@ -90,11 +90,7 @@ func (b *httpClientBuilder) Build(ctx context.Context, params ...HTTPClientParam
 		b.TLSConfig,
 		refreshingclient.NewRefreshableDialer(ctx, b.DialerParams))
 	transport = wrapTransport(transport, newMetricsMiddleware(b.ServiceName, b.MetricsTagProviders, b.DisableMetrics))
-	transport = wrapTransport(transport, traceMiddleware{
-		ServiceName:         b.ServiceName,
-		DisableRequestSpan:  b.DisableRequestSpan,
-		DisableTraceHeaders: b.DisableTraceHeaders,
-	})
+	transport = wrapTransport(transport, newTraceMiddleware(b.ServiceName, b.DisableRequestSpan, b.DisableTraceHeaders))
 	if !b.DisableRecovery {
 		transport = wrapTransport(transport, recoveryMiddleware{})
 	}
