@@ -1,0 +1,5 @@
+type: improvement
+improvement:
+  description: ServiceName is refreshable
+  links:
+  - https://github.com/palantir/conjure-go-runtime/pull/692
