@@ -88,6 +88,12 @@ type ClientConfig struct {
 	// IdleConnTimeout sets the timeout to receive the server's first response headers after
 	// fully writing the request headers if the request has an "Expect: 100-continue" header.
 	ExpectContinueTimeout *time.Duration `json:"expect-continue-timeout,omitempty" yaml:"expect-continue-timeout,omitempty"`
+	// ResponseHeaderTimeout, if non-zero, specifies the amount of time to wait for a server's response headers after fully
+	// writing the request (including its body, if any). This time does not include the time to read the response body.
+	ResponseHeaderTimeout *time.Duration `json:"response-header-timeout,omitempty" yaml:"response-header-timeout,omitempty"`
+	// KeepAlive sets the time to keep idle connections alive.
+	// If unset, the client defaults to 30s. If set to 0, the client will not keep connections alive.
+	KeepAlive *time.Duration `json:"keep-alive,omitempty" yaml:"keep-alive,omitempty"`
 
 	// HTTP2ReadIdleTimeout sets the maximum time to wait before sending periodic health checks (pings) for an HTTP/2 connection.
 	// If unset, the client defaults to 30s for HTTP/2 clients.
@@ -130,6 +136,10 @@ type SecurityConfig struct {
 	CAFiles  []string `json:"ca-files,omitempty" yaml:"ca-files,omitempty"`
 	CertFile string   `json:"cert-file,omitempty" yaml:"cert-file,omitempty"`
 	KeyFile  string   `json:"key-file,omitempty" yaml:"key-file,omitempty"`
+
+	// InsecureSkipVerify sets the InsecureSkipVerify field for the HTTP client's tls config.
+	// This option should only be used in clients that have other ways to establish trust with servers.
+	InsecureSkipVerify *bool `json:"insecure-skip-verify,omitempty" yaml:"insecure-skip-verify,omitempty"`
 }
 
 // MustClientConfig returns an error if the service name is not configured.
@@ -188,6 +198,12 @@ func MergeClientConfig(conf, defaults ClientConfig) ClientConfig {
 	if conf.ExpectContinueTimeout == nil {
 		conf.ExpectContinueTimeout = defaults.ExpectContinueTimeout
 	}
+	if conf.ResponseHeaderTimeout == nil {
+		conf.ResponseHeaderTimeout = defaults.ResponseHeaderTimeout
+	}
+	if conf.KeepAlive == nil {
+		conf.KeepAlive = defaults.KeepAlive
+	}
 	if conf.HTTP2ReadIdleTimeout == nil {
 		conf.HTTP2ReadIdleTimeout = defaults.HTTP2ReadIdleTimeout
 	}
@@ -237,6 +253,9 @@ func MergeClientConfig(conf, defaults ClientConfig) ClientConfig {
 	}
 	if conf.Security.KeyFile == "" {
 		conf.Security.KeyFile = defaults.Security.KeyFile
+	}
+	if conf.Security.InsecureSkipVerify == nil {
+		conf.Security.InsecureSkipVerify = defaults.Security.InsecureSkipVerify
 	}
 	return conf
 }
@@ -320,6 +339,12 @@ func configToParams(c ClientConfig) ([]ClientParam, error) {
 	if c.ExpectContinueTimeout != nil && *c.ExpectContinueTimeout != 0 {
 		params = append(params, WithExpectContinueTimeout(*c.ExpectContinueTimeout))
 	}
+	if c.ResponseHeaderTimeout != nil && *c.ResponseHeaderTimeout != 0 {
+		params = append(params, WithResponseHeaderTimeout(*c.ResponseHeaderTimeout))
+	}
+	if c.KeepAlive != nil && *c.KeepAlive != 0 {
+		params = append(params, WithKeepAlive(*c.KeepAlive))
+	}
 	if c.HTTP2ReadIdleTimeout != nil && *c.HTTP2ReadIdleTimeout >= 0 {
 		params = append(params, WithHTTP2ReadIdleTimeout(*c.HTTP2ReadIdleTimeout))
 	}
@@ -367,7 +392,7 @@ func RefreshableClientConfigFromServiceConfig(servicesConfig RefreshableServices
 func newValidatedClientParamsFromConfig(ctx context.Context, config ClientConfig, isHTTPClient bool) (refreshingclient.ValidatedClientParams, error) {
 	dialer := refreshingclient.DialerParams{
 		DialTimeout: derefDurationPtr(config.ConnectTimeout, defaultDialTimeout),
-		KeepAlive:   defaultKeepAlive,
+		KeepAlive:   derefDurationPtr(config.KeepAlive, defaultKeepAlive),
 	}
 
 	transport := refreshingclient.TransportParams{
@@ -376,6 +401,7 @@ func newValidatedClientParamsFromConfig(ctx context.Context, config ClientConfig
 		DisableHTTP2:          derefBoolPtr(config.DisableHTTP2, false),
 		IdleConnTimeout:       derefDurationPtr(config.IdleConnTimeout, defaultIdleConnTimeout),
 		ExpectContinueTimeout: derefDurationPtr(config.ExpectContinueTimeout, defaultExpectContinueTimeout),
+		ResponseHeaderTimeout: derefDurationPtr(config.ResponseHeaderTimeout, 0),
 		HTTP2PingTimeout:      derefDurationPtr(config.HTTP2PingTimeout, defaultHTTP2PingTimeout),
 		HTTP2ReadIdleTimeout:  derefDurationPtr(config.HTTP2ReadIdleTimeout, defaultHTTP2ReadIdleTimeout),
 		ProxyFromEnvironment:  derefBoolPtr(config.ProxyFromEnvironment, true),
@@ -506,6 +532,9 @@ func newTLSConfig(security SecurityConfig) (*tls.Config, error) {
 	}
 	if security.CertFile != "" && security.KeyFile != "" {
 		tlsParams = append(tlsParams, tlsconfig.ClientKeyPairFiles(security.CertFile, security.KeyFile))
+	}
+	if derefBoolPtr(security.InsecureSkipVerify, false) {
+		tlsParams = append(tlsParams, tlsconfig.ClientInsecureSkipVerify())
 	}
 	if len(tlsParams) != 0 {
 		tlsConfig, err := tlsconfig.NewClientConfig(tlsParams...)
