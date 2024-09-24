@@ -542,13 +542,38 @@ func WithErrorDecoder(errorDecoder ErrorDecoder) ClientParam {
 // WithBasicAuth sets the request's Authorization header to use HTTP Basic Authentication with the provided username and
 // password.
 func WithBasicAuth(user, password string) ClientOrHTTPClientParam {
-	return WithMiddleware(&basicAuthMiddleware{provider: func(ctx context.Context) (BasicAuth, error) {
+	return WithBasicAuthProvider(func(context.Context) (BasicAuth, error) {
 		return BasicAuth{User: user, Password: password}, nil
-	}})
+	})
 }
 
+// WithBasicAuthProvider sets the request's Authorization header to use HTTP Basic Authentication.
+// The provider is expected to always return a nonempty BasicAuth value, or an error.
 func WithBasicAuthProvider(provider BasicAuthProvider) ClientOrHTTPClientParam {
-	return WithMiddleware(&basicAuthMiddleware{provider: provider})
+	return WithBasicAuthOptionalProvider(func(ctx context.Context) (*BasicAuth, error) {
+		basicAuth, err := provider(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return &basicAuth, nil
+	})
+}
+
+// WithBasicAuthOptionalProvider sets the request's Authorization header to use HTTP Basic Authentication based on the
+// return value of the provided BasicAuthOptionalProvider. If the provider returns a non-nil error, if the returned
+// BasicAuth value is non-nil then its values are set on the header, while if the returned BasicAuth value is nil then
+// no basic authentication header values are set.
+func WithBasicAuthOptionalProvider(provider BasicAuthOptionalProvider) ClientOrHTTPClientParam {
+	return WithMiddleware(MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+		basicAuth, err := provider(req.Context())
+		if err != nil {
+			return nil, err
+		}
+		if basicAuth != nil {
+			setBasicAuth(req.Header, basicAuth.User, basicAuth.Password)
+		}
+		return next.RoundTrip(req)
+	}))
 }
 
 // WithBalancedURIScoring adds middleware that prioritizes sending requests to URIs with the fewest in-flight requests

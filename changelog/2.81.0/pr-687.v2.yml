@@ -1,0 +1,5 @@
+type: improvement
+improvement:
+  description: Add client param WithBasicAuthOptionalProvider for dynamic basic auth
+  links:
+  - https://github.com/palantir/conjure-go-runtime/pull/687

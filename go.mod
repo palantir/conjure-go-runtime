@@ -1,6 +1,6 @@
 module github.com/palantir/conjure-go-runtime/v2
 
-go 1.21
+go 1.22.0
 
 require (
 	github.com/golang/snappy v0.0.4
