@@ -42,20 +42,23 @@ type TransportParams struct {
 	TLS TLSParams
 }
 
-func NewRefreshableTransport(ctx context.Context, p RefreshableTransportParams, tlsProvider TLSProvider, dialer ContextDialer) http.RoundTripper {
+func NewRefreshableTransport(
+	ctx context.Context,
+	transportParams RefreshableTransportParams,
+	tlsProvider TLSProvider,
+	dialer ContextDialer,
+) http.RoundTripper {
+	rebuild := false
 	return &RefreshableTransport{
-		Refreshable: p.MapTransportParams(func(p TransportParams) interface{} {
+		Refreshable: transportParams.MapTransportParams(func(p TransportParams) interface{} {
+			if rebuild {
+				svc1log.FromContext(ctx).Debug("Reconstructing HTTP Transport")
+			} else {
+				rebuild = true
+			}
 			return newTransport(ctx, p, tlsProvider, dialer)
 		}),
 	}
-}
-
-// ConfigureTransport accepts a mapping function which will be applied to the params value as it is evaluated.
-// This can be used to layer/overwrite configuration before building the RefreshableTransportParams.
-func ConfigureTransport(r RefreshableTransportParams, mapFn func(p TransportParams) TransportParams) RefreshableTransportParams {
-	return NewRefreshingTransportParams(r.MapTransportParams(func(params TransportParams) interface{} {
-		return mapFn(params)
-	}))
 }
 
 // RefreshableTransport implements http.RoundTripper backed by a refreshable *http.Transport.
@@ -70,8 +73,17 @@ func (r *RefreshableTransport) RoundTrip(req *http.Request) (*http.Response, err
 
 func newTransport(ctx context.Context, p TransportParams, tlsProvider TLSProvider, dialer ContextDialer) *http.Transport {
 	svc1log.FromContext(ctx).Debug("Reconstructing HTTP Transport")
+
+	var transportProxy func(*http.Request) (*url.URL, error)
+	if p.HTTPProxyURL != nil {
+		transportProxy = func(*http.Request) (*url.URL, error) { return p.HTTPProxyURL, nil }
+	} else if p.ProxyFromEnvironment {
+		transportProxy = http.ProxyFromEnvironment
+	}
+
 	tlsConfig := tlsProvider.GetTLSConfig(ctx)
 	transport := &http.Transport{
+		Proxy:                 transportProxy,
 		DialContext:           dialer.DialContext,
 		MaxIdleConns:          p.MaxIdleConns,
 		MaxIdleConnsPerHost:   p.MaxIdleConnsPerHost,
@@ -81,12 +93,6 @@ func newTransport(ctx context.Context, p TransportParams, tlsProvider TLSProvide
 		IdleConnTimeout:       p.IdleConnTimeout,
 		TLSHandshakeTimeout:   p.TLSHandshakeTimeout,
 		ResponseHeaderTimeout: p.ResponseHeaderTimeout,
-	}
-
-	if p.HTTPProxyURL != nil {
-		transport.Proxy = func(*http.Request) (*url.URL, error) { return p.HTTPProxyURL, nil }
-	} else if p.ProxyFromEnvironment {
-		transport.Proxy = http.ProxyFromEnvironment
 	}
 
 	if !p.DisableHTTP2 {

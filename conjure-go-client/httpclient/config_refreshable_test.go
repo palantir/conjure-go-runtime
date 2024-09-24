@@ -71,7 +71,6 @@ func TestRefreshableClientConfig(t *testing.T) {
 				assert.Equal(t, uint16(tls.VersionTLS12), tlsConfig.MinVersion, "unexpected tls min version")
 			}
 		}
-
 	}
 	t.Run("default static config", func(t *testing.T) {
 		client, err := NewClient(WithConfig(ClientConfig{ServiceName: serviceName, URIs: []string{"https://localhost"}}))
@@ -79,33 +78,30 @@ func TestRefreshableClientConfig(t *testing.T) {
 		testDefaultClient(t, client.(*clientImpl))
 	})
 
-	// Build a refreshable client from the ground up -- start with an empty configuration, then add/mutate values.
-
-	initialConfig := ServicesConfig{
-		Default:  ClientConfig{},
-		Services: map[string]ClientConfig{},
-	}
-	initialConfigBytes, err := yaml.Marshal(initialConfig)
-	require.NoError(t, err)
-	refreshableConfigBytes := refreshable.NewDefaultRefreshable(initialConfigBytes)
-	updateRefreshableBytes := func(s ServicesConfig) {
-		b, err := yaml.Marshal(s)
-		if err != nil {
-			panic(err)
-		}
-		if err := refreshableConfigBytes.Update(b); err != nil {
-			panic(err)
-		}
-	}
-	refreshableServicesConfig := NewRefreshingServicesConfig(refreshableConfigBytes.Map(func(i interface{}) interface{} {
-		var c ServicesConfig
-		if err := yaml.Unmarshal(i.([]byte), &c); err != nil {
-			panic(err)
-		}
-		return c
-	}))
-
 	t.Run("refreshable config without uris fails", func(t *testing.T) {
+		initialConfig := ServicesConfig{
+			Default:  ClientConfig{},
+			Services: map[string]ClientConfig{},
+		}
+		initialConfigBytes, err := yaml.Marshal(initialConfig)
+		require.NoError(t, err)
+		refreshableConfigBytes := refreshable.NewDefaultRefreshable(initialConfigBytes)
+		updateRefreshableBytes := func(s ServicesConfig) {
+			b, err := yaml.Marshal(s)
+			if err != nil {
+				panic(err)
+			}
+			if err := refreshableConfigBytes.Update(b); err != nil {
+				panic(err)
+			}
+		}
+		refreshableServicesConfig := NewRefreshingServicesConfig(refreshableConfigBytes.Map(func(i interface{}) interface{} {
+			var c ServicesConfig
+			if err := yaml.Unmarshal(i.([]byte), &c); err != nil {
+				panic(err)
+			}
+			return c
+		}))
 		getClientURIs := func(client Client) []string {
 			return client.(*clientImpl).uriScorer.CurrentURIScoringMiddleware().GetURIsInOrderOfIncreasingScore()
 		}
@@ -135,8 +131,45 @@ func TestRefreshableClientConfig(t *testing.T) {
 
 			require.Equal(t, []string{"https://localhost"}, getClientURIs(client), "expected URIs to be set")
 		})
+
+		t.Run("WithBaseURL overrides invalid configured uris", func(t *testing.T) {
+			_, err := NewClient(
+				WithConfig(ClientConfig{URIs: []string{"invalid://localhost"}}),
+				WithBaseURL("https://localhost"))
+			require.NoError(t, err)
+
+			_, err = NewClientFromRefreshableConfig(
+				context.Background(),
+				NewRefreshingClientConfig(refreshable.NewDefaultRefreshable(ClientConfig{URIs: []string{"invalid://localhost"}})),
+				WithBaseURL("https://localhost"))
+			require.NoError(t, err)
+		})
 	})
 
+	// Build a refreshable client from the ground up -- start with an empty configuration, then add/mutate values.
+	initialConfig := ServicesConfig{
+		Default:  ClientConfig{},
+		Services: map[string]ClientConfig{},
+	}
+	initialConfigBytes, err := yaml.Marshal(initialConfig)
+	require.NoError(t, err)
+	refreshableConfigBytes := refreshable.NewDefaultRefreshable(initialConfigBytes)
+	updateRefreshableBytes := func(s ServicesConfig) {
+		b, err := yaml.Marshal(s)
+		if err != nil {
+			panic(err)
+		}
+		if err := refreshableConfigBytes.Update(b); err != nil {
+			panic(err)
+		}
+	}
+	refreshableServicesConfig := NewRefreshingServicesConfig(refreshableConfigBytes.Map(func(i interface{}) interface{} {
+		var c ServicesConfig
+		if err := yaml.Unmarshal(i.([]byte), &c); err != nil {
+			panic(err)
+		}
+		return c
+	}))
 	refreshableClientConfig := RefreshableClientConfigFromServiceConfig(refreshableServicesConfig, serviceName)
 	initialConfig.Services[serviceName] = ClientConfig{ServiceName: serviceName, URIs: []string{"https://localhost"}}
 	updateRefreshableBytes(initialConfig)
@@ -156,7 +189,7 @@ func TestRefreshableClientConfig(t *testing.T) {
 
 		t.Run("service config", func(t *testing.T) {
 			serviceCfg := initialConfig.Services[serviceName]
-			serviceCfg.WriteTimeout = newDurationPtr(time.Second)
+			serviceCfg.WriteTimeout = newPtr(time.Second)
 			initialConfig.Services[serviceName] = serviceCfg
 			updateRefreshableBytes(initialConfig)
 
@@ -168,7 +201,7 @@ func TestRefreshableClientConfig(t *testing.T) {
 			assert.Equal(t, oldMiddlewares, newMiddlewares, "expected middlewares to remain unchanged")
 		})
 		t.Run("default config", func(t *testing.T) {
-			initialConfig.Default.ReadTimeout = newDurationPtr(time.Hour)
+			initialConfig.Default.ReadTimeout = newPtr(time.Hour)
 			updateRefreshableBytes(initialConfig)
 
 			newClient := currentHTTPClient()
@@ -260,8 +293,28 @@ func TestRefreshableClientConfig(t *testing.T) {
 		initialConfig.Default.ProxyFromEnvironment = nil
 		updateRefreshableBytes(initialConfig)
 	})
-}
 
-func newDurationPtr(dur time.Duration) *time.Duration {
-	return &dur
+	t.Run("update keep-alive, transport updates, tlsconfig doesn't", func(t *testing.T) {
+		oldClient := currentHTTPClient()
+		oldTransport, _ := unwrapTransport(oldClient.Transport)
+
+		assert.False(t, oldTransport.DisableKeepAlives)
+
+		c := initialConfig.Services[serviceName]
+		oldKeepAlive := c.KeepAlive
+		c.KeepAlive = newPtr(time.Duration(0))
+		initialConfig.Services[serviceName] = c
+		updateRefreshableBytes(initialConfig)
+
+		newClient := currentHTTPClient()
+		newTransport, _ := unwrapTransport(newClient.Transport)
+
+		assert.True(t, newTransport.DisableKeepAlives)
+
+		assert.Equal(t, oldTransport.TLSClientConfig, newTransport.TLSClientConfig)
+
+		c.KeepAlive = oldKeepAlive
+		initialConfig.Services[serviceName] = c
+		updateRefreshableBytes(initialConfig)
+	})
 }
