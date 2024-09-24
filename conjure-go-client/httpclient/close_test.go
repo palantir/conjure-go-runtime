@@ -18,7 +18,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"runtime"
@@ -145,7 +145,7 @@ func TestStreamingResponse(t *testing.T) {
 	resp, err := client.Get(ctx, httpclient.WithPath("/"), httpclient.WithRawResponseBody())
 	require.NoError(t, err)
 	close(finishResponseChan)
-	b, err := ioutil.ReadAll(resp.Body)
+	b, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
 	assert.Equal(t, firstLine+"\n"+secondLine+"\n", string(b))
 }

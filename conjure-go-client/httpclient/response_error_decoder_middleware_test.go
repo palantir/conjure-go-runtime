@@ -17,7 +17,7 @@ package httpclient_test
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -237,7 +237,7 @@ func (bodyReadingErrorDecoder) Handles(resp *http.Response) bool {
 }
 
 func (bodyReadingErrorDecoder) DecodeError(resp *http.Response) error {
-	b, err := ioutil.ReadAll(resp.Body)
+	b, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return fmt.Errorf("error reading response body: %v", err)
 	}

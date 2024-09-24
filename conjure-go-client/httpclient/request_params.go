@@ -15,6 +15,7 @@
 package httpclient
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -102,11 +103,47 @@ func WithRequestBody(input interface{}, encoder codecs.Encoder) RequestParam {
 //	input, _ := os.Open("file.txt")
 //	resp, err := client.Do(..., WithRawRequestBody(input), ...)
 //
-// Deprecated: Retries don't include the body for WithRawRequestBody.
-// Use WithRawRequestBodyProvider for full retry support.
+// Retries don't include the body for WithRawRequestBody.
+// Use WithRawRequestBodyFunc for full retry support.
 func WithRawRequestBody(input io.ReadCloser) RequestParam {
-	return WithRawRequestBodyProvider(func() io.ReadCloser {
-		return input
+	return requestParamFunc(func(b *requestBuilder) error {
+		b.bodyMiddleware.requestInput = input
+		b.bodyMiddleware.requestEncoder = nil
+		b.headers.Set("Content-Type", "application/octet-stream")
+		return nil
+	})
+}
+
+// WithRawRequestBodyPayload uses the provided bytes.Buffer, bytes.Reader, or strings.Reader as
+// the request body. The request body will be replayable.
+func WithRawRequestBodyPayload[T *bytes.Buffer | *bytes.Reader | *strings.Reader](input T) RequestParam {
+	return requestParamFunc(func(b *requestBuilder) error {
+		b.bodyMiddleware.requestInput = input
+		b.bodyMiddleware.requestEncoder = nil
+		b.headers.Set("Content-Type", "application/octet-stream")
+		return nil
+	})
+}
+
+// WithRawRequestBodyFunc uses the io.ReadCloser provided by
+// getBody as the request body. The getBody parameter must not be nil.
+// Example:
+//
+//	provider := func() (io.ReadCloser, error) {
+//	    return os.Open("file.txt")
+//	}
+//	resp, err := client.Do(..., WithRawRequestBodyProvider(provider), ...)
+//
+// If body is not replayable, use WithRawRequestBody instead.
+func WithRawRequestBodyFunc(getBody func() (io.ReadCloser, error)) RequestParam {
+	return requestParamFunc(func(b *requestBuilder) error {
+		if getBody == nil {
+			return werror.Error("getBody can not be nil")
+		}
+		b.bodyMiddleware.requestInput = getBody
+		b.bodyMiddleware.requestEncoder = nil
+		b.headers.Set("Content-Type", "application/octet-stream")
+		return nil
 	})
 }
 
@@ -119,6 +156,8 @@ func WithRawRequestBody(input io.ReadCloser) RequestParam {
 //	    return input
 //	}
 //	resp, err := client.Do(..., WithRawRequestBodyProvider(provider), ...)
+//
+// Deprecated: Use WithRawRequestBodyFunc to return an error.
 func WithRawRequestBodyProvider(getBody func() io.ReadCloser) RequestParam {
 	return requestParamFunc(func(b *requestBuilder) error {
 		if getBody == nil {
@@ -163,7 +202,7 @@ func WithResponseBody(output interface{}, decoder codecs.Decoder) RequestParam {
 //
 //	resp, err := client.Do(..., WithRawResponseBody(), ...)
 //	defer resp.Body.Close()
-//	bytes, err := ioutil.ReadAll(resp.Body)
+//	bytes, err := io.ReadAll(resp.Body)
 //
 // In the case of an empty response, output will be unmodified (left nil).
 func WithRawResponseBody() RequestParam {

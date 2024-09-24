@@ -18,9 +18,9 @@ import (
 	"bytes"
 	"context"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient"
@@ -70,7 +70,7 @@ func TestRawBody(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
 		assert.Equal(t, "TestNewRequest", req.Header.Get("User-Agent"))
-		gotReqBytes, err := ioutil.ReadAll(req.Body)
+		gotReqBytes, err := io.ReadAll(req.Body)
 		assert.NoError(t, err)
 		assert.Equal(t, gotReqBytes, reqVar)
 		_, err = rw.Write(respVar)
@@ -87,13 +87,13 @@ func TestRawBody(t *testing.T) {
 	resp, err := client.Do(context.Background(),
 		httpclient.WithRequestMethod(http.MethodPost),
 		httpclient.WithRawRequestBodyProvider(func() io.ReadCloser {
-			return ioutil.NopCloser(bytes.NewBuffer(reqVar))
+			return io.NopCloser(bytes.NewBuffer(reqVar))
 		}),
 		httpclient.WithRawResponseBody(),
 	)
 	assert.NoError(t, err)
 
-	gotRespBytes, err := ioutil.ReadAll(resp.Body)
+	gotRespBytes, err := io.ReadAll(resp.Body)
 	assert.NoError(t, err)
 	defer func() {
 		_ = resp.Body.Close()
@@ -108,7 +108,7 @@ func TestRawRequestRetry(t *testing.T) {
 	requestBytes := []byte{12, 13}
 
 	server := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
-		gotReqBytes, err := ioutil.ReadAll(req.Body)
+		gotReqBytes, err := io.ReadAll(req.Body)
 		assert.NoError(t, err)
 		assert.Equal(t, requestBytes, gotReqBytes)
 		if count == 0 {
@@ -125,7 +125,7 @@ func TestRawRequestRetry(t *testing.T) {
 	_, err = client.Do(
 		context.Background(),
 		httpclient.WithRawRequestBodyProvider(func() io.ReadCloser {
-			return ioutil.NopCloser(bytes.NewReader(requestBytes))
+			return io.NopCloser(bytes.NewReader(requestBytes))
 		}),
 		httpclient.WithRequestMethod(http.MethodPost))
 	assert.NoError(t, err)
@@ -139,13 +139,18 @@ func TestRedirectWithBodyAndBytesBuffer(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
 		var actualReqVar map[string]string
 		err := codecs.JSON.Decode(req.Body, &actualReqVar)
-		assert.NoError(t, err)
-		assert.Equal(t, reqVar, actualReqVar)
+		if assert.NoError(t, err) {
+			assert.Equal(t, reqVar, actualReqVar)
+		} else {
+			t.Log(err)
+			rw.WriteHeader(http.StatusInternalServerError)
+			return
+		}
 
 		switch req.URL.Path {
 		case "/redirect":
 			rw.Header().Add("Location", "/location")
-			rw.WriteHeader(302)
+			rw.WriteHeader(307)
 		case "/location":
 			assert.NoError(t, codecs.JSON.Encode(rw, respVar))
 		}
@@ -159,16 +164,55 @@ func TestRedirectWithBodyAndBytesBuffer(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	var actualRespVar map[string]string
-	resp, err := client.Do(context.Background(),
-		httpclient.WithRequestMethod(http.MethodPost),
-		httpclient.WithPath("/redirect"),
-		httpclient.WithJSONRequest(&reqVar),
-		httpclient.WithJSONResponse(&actualRespVar),
-	)
+	t.Run("WithJSONRequest", func(t *testing.T) {
+		var actualRespVar map[string]string
+		resp, err := client.Do(context.Background(),
+			httpclient.WithRequestMethod(http.MethodPost),
+			httpclient.WithPath("/redirect"),
+			httpclient.WithJSONRequest(&reqVar),
+			httpclient.WithJSONResponse(&actualRespVar),
+		)
 
-	assert.NoError(t, err)
-	assert.NotNil(t, resp)
-	assert.Equal(t, resp.StatusCode, 200)
-	assert.Equal(t, respVar, actualRespVar)
+		require.NoError(t, err)
+		assert.NotNil(t, resp)
+		if assert.NotNil(t, resp) {
+			assert.Equal(t, resp.StatusCode, 200)
+		}
+		assert.Equal(t, respVar, actualRespVar)
+	})
+
+	t.Run("WithRawRequestBodyPayload", func(t *testing.T) {
+		var actualRespVar map[string]string
+		resp, err := client.Do(context.Background(),
+			httpclient.WithRequestMethod(http.MethodPost),
+			httpclient.WithPath("/redirect"),
+			httpclient.WithRawRequestBodyPayload(strings.NewReader(`{"1":"2"}`)),
+			httpclient.WithJSONResponse(&actualRespVar),
+		)
+
+		require.NoError(t, err)
+		assert.NotNil(t, resp)
+		if assert.NotNil(t, resp) {
+			assert.Equal(t, resp.StatusCode, 200)
+		}
+		assert.Equal(t, respVar, actualRespVar)
+	})
+
+	t.Run("WithRawRequestBodyFunc", func(t *testing.T) {
+		var actualRespVar map[string]string
+		resp, err := client.Do(context.Background(),
+			httpclient.WithRequestMethod(http.MethodPost),
+			httpclient.WithPath("/redirect"),
+			httpclient.WithRawRequestBodyFunc(func() (io.ReadCloser, error) {
+				return io.NopCloser(strings.NewReader(`{"1":"2"}`)), nil
+			}),
+			httpclient.WithJSONResponse(&actualRespVar),
+		)
+
+		require.NoError(t, err)
+		if assert.NotNil(t, resp) {
+			assert.Equal(t, resp.StatusCode, 200)
+		}
+		assert.Equal(t, respVar, actualRespVar)
+	})
 }
