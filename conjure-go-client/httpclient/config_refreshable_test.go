@@ -54,8 +54,8 @@ func TestRefreshableClientConfig(t *testing.T) {
 			assert.IsType(t, recoveryMiddleware{}, initialMiddlewares[0])
 			if assert.IsType(t, traceMiddleware{}, initialMiddlewares[1]) {
 				traceM := initialMiddlewares[1].(traceMiddleware)
-				assert.False(t, traceM.DisableRequestSpan)
-				assert.False(t, traceM.DisableTraceHeaders)
+				assert.True(t, traceM.CreateRequestSpan)
+				assert.True(t, traceM.InjectHeaders)
 			}
 			if assert.IsType(t, &metricsMiddleware{}, initialMiddlewares[2]) {
 				metricsM := initialMiddlewares[2].(*metricsMiddleware)
