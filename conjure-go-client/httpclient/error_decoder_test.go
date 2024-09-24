@@ -45,7 +45,7 @@ func TestErrorDecoder(t *testing.T) {
 	defer ts.Close()
 	t.Run("ClientDefault", func(t *testing.T) {
 		client, err := httpclient.NewClient(
-			httpclient.WithBaseURL(ts.URL),
+			httpclient.WithBaseURLs([]string{ts.URL}),
 		)
 		require.NoError(t, err)
 		resp, err := client.Get(context.Background())
@@ -57,7 +57,7 @@ func TestErrorDecoder(t *testing.T) {
 	})
 	t.Run("ClientNoop", func(t *testing.T) {
 		client, err := httpclient.NewClient(
-			httpclient.WithBaseURL(ts.URL),
+			httpclient.WithBaseURLs([]string{ts.URL}),
 			httpclient.WithDisableRestErrors(),
 		)
 		require.NoError(t, err)
@@ -68,7 +68,7 @@ func TestErrorDecoder(t *testing.T) {
 	})
 	t.Run("ClientCustom", func(t *testing.T) {
 		client, err := httpclient.NewClient(
-			httpclient.WithBaseURL(ts.URL),
+			httpclient.WithBaseURLs([]string{ts.URL}),
 			httpclient.WithErrorDecoder(&customErrorDecoder{
 				statusCode: statusCode,
 				message:    clientDecoderMsg,
@@ -81,7 +81,7 @@ func TestErrorDecoder(t *testing.T) {
 	})
 	t.Run("RequestCustom", func(t *testing.T) {
 		client, err := httpclient.NewClient(
-			httpclient.WithBaseURL(ts.URL),
+			httpclient.WithBaseURLs([]string{ts.URL}),
 			httpclient.WithErrorDecoder(&customErrorDecoder{
 				statusCode: statusCode,
 				message:    clientDecoderMsg,
@@ -101,7 +101,7 @@ func TestErrorDecoder(t *testing.T) {
 	})
 	t.Run("FallbackToClient", func(t *testing.T) {
 		client, err := httpclient.NewClient(
-			httpclient.WithBaseURL(ts.URL),
+			httpclient.WithBaseURLs([]string{ts.URL}),
 			httpclient.WithErrorDecoder(&customErrorDecoder{
 				statusCode: statusCode,
 				message:    clientDecoderMsg,

@@ -114,7 +114,7 @@ func TestRefreshableClientConfig(t *testing.T) {
 		require.EqualError(t, err, "httpclient URLs must not be empty")
 		require.Nil(t, client)
 
-		client, err = NewClientFromRefreshableConfig(context.Background(), refreshableClientConfig, WithBaseURL("https://localhost"))
+		client, err = NewClientFromRefreshableConfig(context.Background(), refreshableClientConfig, WithBaseURLs([]string{"https://localhost"}))
 		require.NoError(t, err, "expected to successfully create client using WithBaseURL even when config has no URIs")
 		require.Equal(t, []string{"https://localhost"}, getClientURIs(client), "expected URIs to be set")
 

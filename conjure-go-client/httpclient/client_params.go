@@ -450,11 +450,6 @@ func WithKeepAlive(keepAlive time.Duration) ClientOrHTTPClientParam {
 	})
 }
 
-// WithBaseURL is a variadic-argument alias for WithBaseURLs. Any previous base URLs will be overwritten.
-func WithBaseURL(urls ...string) ClientParam {
-	return WithBaseURLs(urls)
-}
-
 // WithBaseURLs sets the base URLs for every request. This is meant to be used in conjunction with WithPath.
 func WithBaseURLs(urls []string) ClientParam {
 	return clientParamFunc(func(b *clientBuilder) error {

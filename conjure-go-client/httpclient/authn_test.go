@@ -42,7 +42,7 @@ func TestRoundTripperWithToken(t *testing.T) {
 	client, err := httpclient.NewClient(
 		httpclient.WithHTTPTimeout(time.Minute),
 		httpclient.WithAuthTokenProvider(tokenProvider),
-		httpclient.WithBaseURL(server.URL))
+		httpclient.WithBaseURLs([]string{server.URL}))
 	require.NoError(t, err)
 
 	resp, err := client.Do(context.Background(), httpclient.WithRequestMethod(http.MethodGet))
@@ -71,7 +71,7 @@ func TestRoundTripperWithBasicAuth(t *testing.T) {
 	client, err := httpclient.NewClient(
 		httpclient.WithHTTPTimeout(time.Minute),
 		httpclient.WithBasicAuth(expected.User, expected.Password),
-		httpclient.WithBaseURL(server.URL))
+		httpclient.WithBaseURLs([]string{server.URL}))
 	require.NoError(t, err)
 
 	resp, err := client.Do(context.Background(), httpclient.WithRequestMethod(http.MethodGet))
@@ -106,7 +106,7 @@ func TestRoundTripperWithBasicAuthProvider(t *testing.T) {
 				Password: "password",
 			}, nil
 		}),
-		httpclient.WithBaseURL(server.URL))
+		httpclient.WithBaseURLs([]string{server.URL}))
 	require.NoError(t, err)
 
 	resp, err := client.Do(context.Background(), httpclient.WithRequestMethod(http.MethodGet))

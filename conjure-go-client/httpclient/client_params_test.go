@@ -145,7 +145,8 @@ func TestBuilder(t *testing.T) {
 	} {
 		t.Run(test.Name, func(t *testing.T) {
 			// Must provide URLs for client creation
-			client, err := NewClient(WithBaseURL("https://localhost"), test.Param)
+			urls := WithBaseURLs([]string{"https://localhost"})
+			client, err := NewClient(urls, test.Param)
 			require.NoError(t, err)
 			test.Test(t, client.(*clientImpl))
 		})

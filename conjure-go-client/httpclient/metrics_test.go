@@ -123,7 +123,7 @@ func TestRoundTripperWithMetrics(t *testing.T) {
 			httpclient.WithHTTPTimeout(5*time.Second),
 			httpclient.WithServiceName("my-service"),
 			httpclient.WithMetrics(tagsProviders...),
-			httpclient.WithBaseURL(serverURLstr))
+			httpclient.WithBaseURLs([]string{serverURLstr}))
 		require.NoError(t, err)
 
 		rpcMethodName, expectedMethodNameTag := getRpcNameAndExpectedTag()
@@ -212,17 +212,17 @@ func TestMetricsMiddleware_HTTPClient(t *testing.T) {
 }
 
 func TestMetricsMiddleware_ClientTimeout(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		time.Sleep(time.Second)
 		w.WriteHeader(200)
 	}))
-	defer server.Close()
+	defer srv.Close()
 
 	rootRegistry := metrics.NewRootMetricsRegistry()
 	ctx := metrics.WithRegistry(context.Background(), rootRegistry)
 
 	client, err := httpclient.NewClient(
-		httpclient.WithBaseURL(server.URL),
+		httpclient.WithBaseURLs([]string{srv.URL}),
 		httpclient.WithTLSInsecureSkipVerify(),
 		httpclient.WithServiceName("test-service"),
 		httpclient.WithHTTPTimeout(time.Millisecond),
@@ -251,10 +251,10 @@ func TestMetricsMiddleware_ClientTimeout(t *testing.T) {
 }
 
 func TestMetricsMiddleware_ContextCanceled(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(200)
 	}))
-	defer server.Close()
+	defer srv.Close()
 
 	rootRegistry := metrics.NewRootMetricsRegistry()
 	ctx := metrics.WithRegistry(context.Background(), rootRegistry)
@@ -262,7 +262,7 @@ func TestMetricsMiddleware_ContextCanceled(t *testing.T) {
 	cancel()
 
 	client, err := httpclient.NewClient(
-		httpclient.WithBaseURL(server.URL),
+		httpclient.WithBaseURLs([]string{srv.URL}),
 		httpclient.WithTLSInsecureSkipVerify(),
 		httpclient.WithServiceName("test-service"),
 		httpclient.WithMetrics())
@@ -383,15 +383,15 @@ func TestMetricsMiddleware_InFlightRequests(t *testing.T) {
 	ctx := metrics.WithRegistry(context.Background(), rootRegistry)
 	serviceNameTag := metrics.MustNewTag("service-name", "test-service")
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		clientMetric := rootRegistry.Counter(httpclient.MetricRequestInFlight, serviceNameTag).Count()
 		assert.Equal(t, int64(1), clientMetric, "%s should be nonzero during a request", httpclient.MetricRequestInFlight)
 		w.WriteHeader(200)
 	}))
-	defer server.Close()
+	defer srv.Close()
 
 	client, err := httpclient.NewClient(
-		httpclient.WithBaseURL(server.URL),
+		httpclient.WithBaseURLs([]string{srv.URL}),
 		httpclient.WithServiceName("test-service"),
 		httpclient.WithMetrics())
 	require.NoError(t, err)

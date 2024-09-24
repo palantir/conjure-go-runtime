@@ -47,7 +47,7 @@ func TestWrapTransport(t *testing.T) {
 		httpclient.WithMiddleware(middleware(1)),
 		httpclient.WithMiddleware(middleware(2)),
 		httpclient.WithMiddleware(middleware(3)),
-		httpclient.WithBaseURL(server.URL),
+		httpclient.WithBaseURLs([]string{server.URL}),
 	)
 	require.NoError(t, err)
 
