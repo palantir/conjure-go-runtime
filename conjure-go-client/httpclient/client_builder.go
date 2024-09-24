@@ -71,9 +71,9 @@ type httpClientBuilder struct {
 
 	// These middleware options are not refreshed anywhere because they are not in ClientConfig,
 	// but they could be made refreshable if ever needed.
-	CreateRequestSpan  bool
-	DisableRecovery    bool
-	InjectTraceHeaders bool
+	DisableRequestSpan  bool
+	DisableRecovery     bool
+	DisableTraceHeaders bool
 }
 
 func (b *httpClientBuilder) Build(ctx context.Context, params ...HTTPClientParam) (RefreshableHTTPClient, error) {
@@ -100,11 +100,7 @@ func (b *httpClientBuilder) Build(ctx context.Context, params ...HTTPClientParam
 	dialer := refreshingclient.NewRefreshableDialer(ctx, b.DialerParams)
 	transport := refreshingclient.NewRefreshableTransport(ctx, b.TransportParams, tlsProvider, dialer)
 	transport = wrapTransport(transport, newMetricsMiddleware(b.ServiceName, b.MetricsTagProviders, b.DisableMetrics))
-	transport = wrapTransport(transport, traceMiddleware{
-		ServiceName:       b.ServiceName,
-		CreateRequestSpan: b.CreateRequestSpan,
-		InjectHeaders:     b.InjectTraceHeaders,
-	})
+	transport = wrapTransport(transport, newTraceMiddleware(b.ServiceName, b.DisableRequestSpan, b.DisableTraceHeaders))
 	if !b.DisableRecovery {
 		transport = wrapTransport(transport, recoveryMiddleware{})
 	}
@@ -228,12 +224,12 @@ func newClientBuilder() *clientBuilder {
 				HTTP2ReadIdleTimeout:  defaultHTTP2ReadIdleTimeout,
 				HTTP2PingTimeout:      defaultHTTP2PingTimeout,
 			})),
-			DisableMetrics:      refreshable.NewBool(refreshable.NewDefaultRefreshable(false)),
-			DisableRecovery:     false,
-			CreateRequestSpan:   true,
-			InjectTraceHeaders:  true,
-			MetricsTagProviders: nil,
 			Middlewares:         nil,
+			DisableMetrics:      refreshable.NewBool(refreshable.NewDefaultRefreshable(false)),
+			MetricsTagProviders: nil,
+			DisableRecovery:     false,
+			DisableRequestSpan:  false,
+			DisableTraceHeaders: false,
 		},
 		URIs:            nil,
 		BytesBufferPool: nil,
