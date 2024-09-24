@@ -22,6 +22,7 @@ import (
 
 	"github.com/palantir/pkg/refreshable"
 	"github.com/palantir/witchcraft-go-logging/wlog/svclog/svc1log"
+	"golang.org/x/net/http2"
 )
 
 type TransportParams struct {
@@ -69,8 +70,17 @@ func (r *RefreshableTransport) RoundTrip(req *http.Request) (*http.Response, err
 
 func newTransport(ctx context.Context, p TransportParams, tlsProvider TLSProvider, dialer ContextDialer) *http.Transport {
 	svc1log.FromContext(ctx).Debug("Reconstructing HTTP Transport")
+
+	var transportProxy func(*http.Request) (*url.URL, error)
+	if p.HTTPProxyURL != nil {
+		transportProxy = func(*http.Request) (*url.URL, error) { return p.HTTPProxyURL, nil }
+	} else if p.ProxyFromEnvironment {
+		transportProxy = http.ProxyFromEnvironment
+	}
+
 	tlsConfig := tlsProvider.GetTLSConfig(ctx)
 	transport := &http.Transport{
+		Proxy:                 transportProxy,
 		DialContext:           dialer.DialContext,
 		MaxIdleConns:          p.MaxIdleConns,
 		MaxIdleConnsPerHost:   p.MaxIdleConnsPerHost,
@@ -82,19 +92,29 @@ func newTransport(ctx context.Context, p TransportParams, tlsProvider TLSProvide
 		ResponseHeaderTimeout: p.ResponseHeaderTimeout,
 	}
 
-	if p.HTTPProxyURL != nil {
-		transport.Proxy = func(*http.Request) (*url.URL, error) { return p.HTTPProxyURL, nil }
-	} else if p.ProxyFromEnvironment {
-		transport.Proxy = http.ProxyFromEnvironment
-	}
-
 	if !p.DisableHTTP2 {
-		if err := configureHTTP2(transport, p.HTTP2ReadIdleTimeout, p.HTTP2PingTimeout); err != nil {
+		// Attempt to configure net/http HTTP/1 Transport to use HTTP/2.
+		http2Transport, err := http2.ConfigureTransports(transport)
+		if err != nil {
 			// ConfigureTransport's only error as of this writing is the idempotent "protocol https already registered."
 			// It should never happen in our usage because this is immediately after creation.
 			// In case of something unexpected, log it and move on.
 			svc1log.FromContext(ctx).Error("failed to configure transport for http2", svc1log.Stacktrace(err))
+		} else {
+			// ReadIdleTimeout is the amount of time to wait before running periodic health checks (pings)
+			// after not receiving a frame from the HTTP/2 connection.
+			// Setting this value will enable the health checks and allows broken idle
+			// connections to be pruned more quickly, preventing the client from
+			// attempting to re-use connections that will no longer work.
+			// ref: https://github.com/golang/go/issues/36026
+			http2Transport.ReadIdleTimeout = p.HTTP2ReadIdleTimeout
+
+			// PingTimeout configures the amount of time to wait for a ping response (health check)
+			// before closing an HTTP/2 connection. The PingTimeout is only valid if
+			// the above ReadIdleTimeout is > 0.
+			http2Transport.PingTimeout = p.HTTP2PingTimeout
 		}
 	}
+
 	return transport
 }
