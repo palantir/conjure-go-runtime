@@ -205,7 +205,7 @@ func WithDisablePanicRecovery() ClientOrHTTPClientParam {
 // trace information is propagate. This will not create a span if one does not exist.
 func WithDisableTracing() ClientOrHTTPClientParam {
 	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
-		b.CreateRequestSpan = false
+		b.DisableRequestSpan = true
 		return nil
 	})
 }
@@ -215,7 +215,7 @@ func WithDisableTracing() ClientOrHTTPClientParam {
 // then the client will attach this traceId as a header for future services to do the same if desired
 func WithDisableTraceHeaderPropagation() ClientOrHTTPClientParam {
 	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
-		b.InjectTraceHeaders = false
+		b.DisableTraceHeaders = true
 		return nil
 	})
 }
