@@ -48,7 +48,7 @@ func TestJSONBody(t *testing.T) {
 
 	client, err := httpclient.NewClient(
 		httpclient.WithUserAgent("TestNewRequest"),
-		httpclient.WithBaseURLs([]string{server.URL}),
+		httpclient.WithBaseURL(server.URL),
 	)
 	require.NoError(t, err)
 
@@ -80,7 +80,7 @@ func TestRawBody(t *testing.T) {
 
 	client, err := httpclient.NewClient(
 		httpclient.WithUserAgent("TestNewRequest"),
-		httpclient.WithBaseURLs([]string{server.URL}),
+		httpclient.WithBaseURL(server.URL),
 	)
 	require.NoError(t, err)
 
@@ -119,7 +119,7 @@ func TestRawRequestRetry(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client, err := httpclient.NewClient(httpclient.WithBaseURLs([]string{server.URL}))
+	client, err := httpclient.NewClient(httpclient.WithBaseURL(server.URL))
 	assert.NoError(t, err)
 
 	_, err = client.Do(
@@ -154,7 +154,7 @@ func TestRedirectWithBodyAndBytesBuffer(t *testing.T) {
 
 	client, err := httpclient.NewClient(
 		httpclient.WithUserAgent("TestNewRequest"),
-		httpclient.WithBaseURLs([]string{server.URL}),
+		httpclient.WithBaseURL(server.URL),
 		httpclient.WithBytesBufferPool(bytesbuffers.NewSizedPool(1, 10)),
 	)
 	require.NoError(t, err)

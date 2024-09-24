@@ -71,7 +71,7 @@ func testProxy(t *testing.T, readIdleTimeout, pingTimeout time.Duration, expecte
 	go proxy.serve(t, stopCh, false)
 
 	client, err := httpclient.NewClient(
-		httpclient.WithBaseURLs([]string{"https://" + proxy.ln.Addr().String()}),
+		httpclient.WithBaseURL("https://"+proxy.ln.Addr().String()),
 		httpclient.WithHTTP2ReadIdleTimeout(readIdleTimeout),
 		httpclient.WithHTTP2PingTimeout(pingTimeout),
 		httpclient.WithTLSInsecureSkipVerify(),

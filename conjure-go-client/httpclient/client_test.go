@@ -57,7 +57,7 @@ func TestCanReadBodyWithBufferPool(t *testing.T) {
 
 	client, err := httpclient.NewClient(
 		httpclient.WithBytesBufferPool(bytesbuffers.NewSizedPool(1, 10)),
-		httpclient.WithBaseURLs([]string{server.URL}),
+		httpclient.WithBaseURL(server.URL),
 	)
 	require.NoError(t, err)
 
@@ -89,7 +89,7 @@ func TestCanUseRelocationURI(t *testing.T) {
 
 	client, err := httpclient.NewClient(
 		httpclient.WithBytesBufferPool(bytesbuffers.NewSizedPool(1, 10)),
-		httpclient.WithBaseURLs([]string{server.URL}),
+		httpclient.WithBaseURL(server.URL),
 	)
 	assert.NoError(t, err)
 
@@ -122,7 +122,7 @@ func TestCanUseSimpleRelocationURI(t *testing.T) {
 
 	client, err := httpclient.NewClient(
 		httpclient.WithBytesBufferPool(bytesbuffers.NewSizedPool(1, 10)),
-		httpclient.WithBaseURLs([]string{server.URL}),
+		httpclient.WithBaseURL(server.URL),
 	)
 	assert.NoError(t, err)
 
@@ -169,7 +169,7 @@ func TestMiddlewareCanReadBody(t *testing.T) {
 	t.Run("NoByteBufferPool", func(t *testing.T) {
 		client, err := httpclient.NewClient(
 			withMiddleware,
-			httpclient.WithBaseURLs([]string{server.URL}),
+			httpclient.WithBaseURL(server.URL),
 		)
 		require.NoError(t, err)
 		resp, err := client.Do(context.Background(), httpclient.WithRequestBody(unencodedBody, codecs.Plain), httpclient.WithRequestMethod("GET"))
@@ -180,7 +180,7 @@ func TestMiddlewareCanReadBody(t *testing.T) {
 		client, err := httpclient.NewClient(
 			httpclient.WithBytesBufferPool(bytesbuffers.NewSizedPool(1, 10)),
 			withMiddleware,
-			httpclient.WithBaseURLs([]string{server.URL}),
+			httpclient.WithBaseURL(server.URL),
 		)
 		require.NoError(t, err)
 		resp, err := client.Do(context.Background(), httpclient.WithRequestBody(unencodedBody, codecs.Plain), httpclient.WithRequestMethod("GET"))
@@ -258,7 +258,7 @@ func TestTimeouts(t *testing.T) {
 	} {
 		t.Run(tt.Name, func(t *testing.T) {
 			clientParams := []httpclient.ClientParam{
-				httpclient.WithBaseURLs([]string{timeoutServer.URL}),
+				httpclient.WithBaseURL(timeoutServer.URL),
 				httpclient.WithMaxRetries(0),
 			}
 			if tt.ClientTimeout > 0 {
@@ -317,7 +317,7 @@ func BenchmarkAllocWithBytesBufferPool(b *testing.B) {
 	}
 	b.Run("NoByteBufferPool", func(b *testing.B) {
 		client, err := httpclient.NewClient(
-			httpclient.WithBaseURLs([]string{server.URL}),
+			httpclient.WithBaseURL(server.URL),
 		)
 		require.NoError(b, err)
 		runBench(b, client)
@@ -325,7 +325,7 @@ func BenchmarkAllocWithBytesBufferPool(b *testing.B) {
 	b.Run("WithByteBufferPool", func(b *testing.B) {
 		client, err := httpclient.NewClient(
 			httpclient.WithBytesBufferPool(bytesbuffers.NewSizedPool(1, 10)),
-			httpclient.WithBaseURLs([]string{server.URL}),
+			httpclient.WithBaseURL(server.URL),
 		)
 		require.NoError(b, err)
 		runBench(b, client)
@@ -376,42 +376,42 @@ func BenchmarkUnavailableURIs(b *testing.B) {
 	}
 	b.Run("OneAvailableServer", func(b *testing.B) {
 		client, err := httpclient.NewClient(
-			httpclient.WithBaseURLs([]string{server1.URL}),
+			httpclient.WithBaseURL(server1.URL),
 		)
 		require.NoError(b, err)
 		runBench(b, client)
 	})
 	b.Run("FourAvailableServers", func(b *testing.B) {
 		client, err := httpclient.NewClient(
-			httpclient.WithBaseURLs([]string{server1.URL, server2.URL, server3.URL, server4.URL}),
+			httpclient.WithBaseURL(server1.URL, server2.URL, server3.URL, server4.URL),
 		)
 		require.NoError(b, err)
 		runBench(b, client)
 	})
 	b.Run("OneOutOfFourUnavailableServers", func(b *testing.B) {
 		client, err := httpclient.NewClient(
-			httpclient.WithBaseURLs([]string{server1.URL, server2.URL, server3.URL, unavailableServer.URL}),
+			httpclient.WithBaseURL(server1.URL, server2.URL, server3.URL, unavailableServer.URL),
 		)
 		require.NoError(b, err)
 		runBench(b, client)
 	})
 	b.Run("OneOutOfThreeUnavailableServers", func(b *testing.B) {
 		client, err := httpclient.NewClient(
-			httpclient.WithBaseURLs([]string{server1.URL, server2.URL, unavailableServer.URL}),
+			httpclient.WithBaseURL(server1.URL, server2.URL, unavailableServer.URL),
 		)
 		require.NoError(b, err)
 		runBench(b, client)
 	})
 	b.Run("OneOutOfTwoUnavailableServers", func(b *testing.B) {
 		client, err := httpclient.NewClient(
-			httpclient.WithBaseURLs([]string{server1.URL, unavailableServer.URL}),
+			httpclient.WithBaseURL(server1.URL, unavailableServer.URL),
 		)
 		require.NoError(b, err)
 		runBench(b, client)
 	})
 	b.Run("OneOutOfTwoUnstartedServers", func(b *testing.B) {
 		client, err := httpclient.NewClient(
-			httpclient.WithBaseURLs([]string{server1.URL, unstartedServer.URL}),
+			httpclient.WithBaseURL(server1.URL, unstartedServer.URL),
 		)
 		require.NoError(b, err)
 		runBench(b, client)

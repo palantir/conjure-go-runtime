@@ -43,7 +43,7 @@ func TestFailover503(t *testing.T) {
 	s2 := httptest.NewServer(handler)
 	s3 := httptest.NewServer(handler)
 
-	cli, err := NewClient(WithBaseURLs([]string{s1.URL, s2.URL, s3.URL}))
+	cli, err := NewClient(WithBaseURL(s1.URL, s2.URL, s3.URL))
 	require.NoError(t, err)
 
 	_, err = cli.Do(context.Background(), WithRequestMethod("GET"))
@@ -71,7 +71,7 @@ func TestFailover429(t *testing.T) {
 	s3 := httptest.NewServer(handler)
 
 	backoff := 5 * time.Millisecond
-	cli, err := NewClient(WithBaseURLs([]string{s1.URL, s2.URL, s3.URL}), WithInitialBackoff(backoff), WithMaxBackoff(backoff))
+	cli, err := NewClient(WithBaseURL(s1.URL, s2.URL, s3.URL), WithInitialBackoff(backoff), WithMaxBackoff(backoff))
 	require.NoError(t, err)
 
 	timer := time.NewTimer(backoff)
@@ -96,7 +96,7 @@ func TestFailover200(t *testing.T) {
 	s1 := httptest.NewServer(handler)
 	s2 := httptest.NewServer(handler)
 	s3 := httptest.NewServer(handler)
-	cli, err := NewClient(WithBaseURLs([]string{s1.URL, s2.URL, s3.URL}))
+	cli, err := NewClient(WithBaseURL(s1.URL, s2.URL, s3.URL))
 	require.NoError(t, err)
 
 	_, err = cli.Do(context.Background(), WithRequestMethod("GET"))
@@ -114,7 +114,7 @@ func TestFailoverEverythingDown(t *testing.T) {
 	s1 := httptest.NewServer(handler)
 	s2 := httptest.NewServer(handler)
 	s3 := httptest.NewServer(handler)
-	cli, err := NewClient(WithBaseURLs([]string{s1.URL, s2.URL, s3.URL}), WithMaxRetries(5))
+	cli, err := NewClient(WithBaseURL(s1.URL, s2.URL, s3.URL), WithMaxRetries(5))
 	require.NoError(t, err)
 
 	_, err = cli.Do(context.Background(), WithRequestMethod("GET"))
@@ -133,7 +133,7 @@ func TestBackoffSingleURL(t *testing.T) {
 		}
 	})
 	s1 := httptest.NewServer(handler)
-	cli, err := NewClient(WithBaseURLs([]string{s1.URL}), WithMaxRetries(4))
+	cli, err := NewClient(WithBaseURL(s1.URL), WithMaxRetries(4))
 	require.NoError(t, err)
 
 	_, err = cli.Do(context.Background(), WithRequestMethod("GET"))
@@ -161,7 +161,7 @@ func TestFailoverOtherURL(t *testing.T) {
 		rw.WriteHeader(http.StatusPermanentRedirect)
 	}))
 
-	cli, err := NewClient(WithBaseURLs([]string{s2.URL, s3.URL}))
+	cli, err := NewClient(WithBaseURL(s2.URL, s3.URL))
 	require.NoError(t, err)
 
 	_, err = cli.Do(context.Background(), WithRequestMethod("GET"))
@@ -218,7 +218,7 @@ func TestSleep(t *testing.T) {
 
 	s1 := httptest.NewServer(handler)
 	s2 := httptest.NewServer(handler)
-	cli, err := NewClient(WithBaseURLs([]string{s1.URL, s2.URL}))
+	cli, err := NewClient(WithBaseURL(s1.URL, s2.URL))
 	require.NoError(t, err)
 
 	_, err = cli.Do(context.Background(), WithRequestMethod("GET"))
@@ -237,7 +237,7 @@ func TestRoundRobin(t *testing.T) {
 	s0 := httptest.NewServer(getHandler(0))
 	s1 := httptest.NewServer(getHandler(1))
 	s2 := httptest.NewServer(getHandler(2))
-	cli, err := NewClient(WithBaseURLs([]string{s0.URL, s1.URL, s2.URL}), WithMaxRetries(5))
+	cli, err := NewClient(WithBaseURL(s0.URL, s1.URL, s2.URL), WithMaxRetries(5))
 	require.NoError(t, err)
 	_, err = cli.Do(context.Background(), WithRequestMethod("GET"))
 	assert.Error(t, err)
@@ -255,7 +255,7 @@ func TestFailover_ConnectionRefused(t *testing.T) {
 	s1 := httptest.NewServer(http.NotFoundHandler())
 	defer s1.Close()
 
-	cli, err := NewClient(WithBaseURLs([]string{url1, url2, url1, url2, s1.URL}), WithDisableRestErrors())
+	cli, err := NewClient(WithBaseURL(url1, url2, url1, url2, s1.URL), WithDisableRestErrors())
 	require.NoError(t, err)
 
 	_, err = cli.Get(context.Background())
@@ -273,7 +273,7 @@ func TestFailover_NoHost(t *testing.T) {
 	s1 := httptest.NewServer(http.NotFoundHandler())
 	defer s1.Close()
 
-	cli, err := NewClient(WithBaseURLs([]string{url1, url2, url1, url2, s1.URL}), WithDisableRestErrors())
+	cli, err := NewClient(WithBaseURL(url1, url2, url1, url2, s1.URL), WithDisableRestErrors())
 	require.NoError(t, err)
 
 	_, err = cli.Get(context.Background())
