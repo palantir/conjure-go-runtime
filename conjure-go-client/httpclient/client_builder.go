@@ -62,7 +62,7 @@ type httpClientBuilder struct {
 	ServiceName     refreshable.String
 	Timeout         refreshable.Duration
 	DialerParams    refreshingclient.RefreshableDialerParams
-	TLSConfig       *tls.Config // TODO: Make this refreshing and wire into transport
+	TLSConfig       *tls.Config // If unset, config in TransportParams will be used.
 	TransportParams refreshingclient.RefreshableTransportParams
 	Middlewares     []Middleware
 
@@ -85,10 +85,20 @@ func (b *httpClientBuilder) Build(ctx context.Context, params ...HTTPClientParam
 			return nil, err
 		}
 	}
-	transport := refreshingclient.NewRefreshableTransport(ctx,
-		b.TransportParams,
-		b.TLSConfig,
-		refreshingclient.NewRefreshableDialer(ctx, b.DialerParams))
+
+	var tlsProvider refreshingclient.TLSProvider
+	if b.TLSConfig != nil {
+		tlsProvider = refreshingclient.NewStaticTLSConfigProvider(b.TLSConfig)
+	} else {
+		refreshableProvider, err := refreshingclient.NewRefreshableTLSConfig(ctx, b.TransportParams.TLS())
+		if err != nil {
+			return nil, err
+		}
+		tlsProvider = refreshableProvider
+	}
+
+	dialer := refreshingclient.NewRefreshableDialer(ctx, b.DialerParams)
+	transport := refreshingclient.NewRefreshableTransport(ctx, b.TransportParams, tlsProvider, dialer)
 	transport = wrapTransport(transport, newMetricsMiddleware(b.ServiceName, b.MetricsTagProviders, b.DisableMetrics))
 	transport = wrapTransport(transport, newTraceMiddleware(b.ServiceName, b.DisableRequestSpan, b.DisableTraceHeaders))
 	if !b.DisableRecovery {
@@ -233,12 +243,6 @@ func newClientBuilder() *clientBuilder {
 }
 
 func newClientBuilderFromRefreshableConfig(ctx context.Context, config RefreshableClientConfig, b *clientBuilder, reloadErrorSubmitter func(error), isHTTPClient bool) error {
-	if tlsConfig, err := subscribeTLSConfigUpdateWarning(ctx, config.Security()); err != nil {
-		return err
-	} else if tlsConfig != nil {
-		b.HTTP.TLSConfig = tlsConfig
-	}
-
 	refreshingParams, err := refreshable.NewMapValidatingRefreshable(config, func(i interface{}) (interface{}, error) {
 		p, err := newValidatedClientParamsFromConfig(ctx, i.(ClientConfig), isHTTPClient)
 		if reloadErrorSubmitter != nil {

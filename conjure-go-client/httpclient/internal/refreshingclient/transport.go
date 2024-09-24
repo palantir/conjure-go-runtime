@@ -16,7 +16,6 @@ package refreshingclient
 
 import (
 	"context"
-	"crypto/tls"
 	"net/http"
 	"net/url"
 	"time"
@@ -38,12 +37,14 @@ type TransportParams struct {
 	ProxyFromEnvironment  bool
 	HTTP2ReadIdleTimeout  time.Duration
 	HTTP2PingTimeout      time.Duration
+
+	TLS TLSParams
 }
 
-func NewRefreshableTransport(ctx context.Context, p RefreshableTransportParams, tlsConfig *tls.Config, dialer ContextDialer) http.RoundTripper {
+func NewRefreshableTransport(ctx context.Context, p RefreshableTransportParams, tlsProvider TLSProvider, dialer ContextDialer) http.RoundTripper {
 	return &RefreshableTransport{
 		Refreshable: p.MapTransportParams(func(p TransportParams) interface{} {
-			return newTransport(ctx, p, tlsConfig, dialer)
+			return newTransport(ctx, p, tlsProvider, dialer)
 		}),
 	}
 }
@@ -62,12 +63,13 @@ type RefreshableTransport struct {
 	refreshable.Refreshable // contains *http.Transport
 }
 
-func (r RefreshableTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+func (r *RefreshableTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	return r.Current().(*http.Transport).RoundTrip(req)
 }
 
-func newTransport(ctx context.Context, p TransportParams, tlsConfig *tls.Config, dialer ContextDialer) *http.Transport {
+func newTransport(ctx context.Context, p TransportParams, tlsProvider TLSProvider, dialer ContextDialer) *http.Transport {
 	svc1log.FromContext(ctx).Debug("Reconstructing HTTP Transport")
+	tlsConfig := tlsProvider.GetTLSConfig(ctx)
 	transport := &http.Transport{
 		DialContext:           dialer.DialContext,
 		MaxIdleConns:          p.MaxIdleConns,
