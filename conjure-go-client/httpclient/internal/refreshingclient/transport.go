@@ -69,7 +69,16 @@ func (r RefreshableTransport) RoundTrip(req *http.Request) (*http.Response, erro
 
 func newTransport(ctx context.Context, p TransportParams, tlsConfig *tls.Config, dialer ContextDialer) *http.Transport {
 	svc1log.FromContext(ctx).Debug("Reconstructing HTTP Transport")
+
+	var transportProxy func(*http.Request) (*url.URL, error)
+	if p.HTTPProxyURL != nil {
+		transportProxy = func(*http.Request) (*url.URL, error) { return p.HTTPProxyURL, nil }
+	} else if p.ProxyFromEnvironment {
+		transportProxy = http.ProxyFromEnvironment
+	}
+
 	transport := &http.Transport{
+		Proxy:                 transportProxy,
 		DialContext:           dialer.DialContext,
 		MaxIdleConns:          p.MaxIdleConns,
 		MaxIdleConnsPerHost:   p.MaxIdleConnsPerHost,
@@ -79,12 +88,6 @@ func newTransport(ctx context.Context, p TransportParams, tlsConfig *tls.Config,
 		IdleConnTimeout:       p.IdleConnTimeout,
 		TLSHandshakeTimeout:   p.TLSHandshakeTimeout,
 		ResponseHeaderTimeout: p.ResponseHeaderTimeout,
-	}
-
-	if p.HTTPProxyURL != nil {
-		transport.Proxy = func(*http.Request) (*url.URL, error) { return p.HTTPProxyURL, nil }
-	} else if p.ProxyFromEnvironment {
-		transport.Proxy = http.ProxyFromEnvironment
 	}
 
 	if !p.DisableHTTP2 {
