@@ -18,6 +18,7 @@ package httpclient
 import (
 	"context"
 	"crypto/tls"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -45,11 +46,19 @@ const (
 	defaultMaxBackoff            = 2 * time.Second
 )
 
+var (
+	ErrEmptyURIs = fmt.Errorf("httpclient URLs must not be empty")
+)
+
 type clientBuilder struct {
 	HTTP *httpClientBuilder
 
 	URIs             refreshable.StringSlice
 	URIScorerBuilder func([]string) internal.URIScoringMiddleware
+
+	// If false, NewClient() will return an error when URIs.Current() is empty.
+	// This allows for a refreshable URI slice to be populated after construction but before use.
+	AllowEmptyURIs bool
 
 	ErrorDecoder ErrorDecoder
 
@@ -119,7 +128,7 @@ func NewClient(params ...ClientParam) (Client, error) {
 // We apply "sane defaults" before applying the provided params.
 func NewClientFromRefreshableConfig(ctx context.Context, config RefreshableClientConfig, params ...ClientParam) (Client, error) {
 	b := newClientBuilder()
-	if err := newClientBuilderFromRefreshableConfig(ctx, config, b, nil, false); err != nil {
+	if err := newClientBuilderFromRefreshableConfig(ctx, config, b, nil); err != nil {
 		return nil, err
 	}
 	return newClient(ctx, b, params...)
@@ -135,7 +144,10 @@ func newClient(ctx context.Context, b *clientBuilder, params ...ClientParam) (Cl
 		}
 	}
 	if b.URIs == nil {
-		return nil, werror.Error("httpclient URLs must not be empty", werror.SafeParam("serviceName", b.HTTP.ServiceName.CurrentString()))
+		return nil, werror.ErrorWithContextParams(ctx, "httpclient URLs must be set in configuration or by constructor param", werror.SafeParam("serviceName", b.HTTP.ServiceName.CurrentString()))
+	}
+	if !b.AllowEmptyURIs && len(b.URIs.CurrentStringSlice()) == 0 {
+		return nil, werror.WrapWithContextParams(ctx, ErrEmptyURIs, "", werror.SafeParam("serviceName", b.HTTP.ServiceName.CurrentString()))
 	}
 
 	var edm Middleware
@@ -191,7 +203,7 @@ type RefreshableHTTPClient = refreshingclient.RefreshableHTTPClient
 // We apply "sane defaults" before applying the provided params.
 func NewHTTPClientFromRefreshableConfig(ctx context.Context, config RefreshableClientConfig, params ...HTTPClientParam) (RefreshableHTTPClient, error) {
 	b := newClientBuilder()
-	if err := newClientBuilderFromRefreshableConfig(ctx, config, b, nil, true); err != nil {
+	if err := newClientBuilderFromRefreshableConfig(ctx, config, b, nil); err != nil {
 		return nil, err
 	}
 	return b.HTTP.Build(ctx, params...)
@@ -241,18 +253,18 @@ func newClientBuilder() *clientBuilder {
 	}
 }
 
-func newClientBuilderFromRefreshableConfig(ctx context.Context, config RefreshableClientConfig, b *clientBuilder, reloadErrorSubmitter func(error), isHTTPClient bool) error {
+func newClientBuilderFromRefreshableConfig(ctx context.Context, config RefreshableClientConfig, b *clientBuilder, reloadErrorSubmitter func(error)) error {
 	refreshingParams, err := refreshable.NewMapValidatingRefreshable(config, func(i interface{}) (interface{}, error) {
-		p, err := newValidatedClientParamsFromConfig(ctx, i.(ClientConfig), isHTTPClient)
+		p, err := newValidatedClientParamsFromConfig(ctx, i.(ClientConfig))
 		if reloadErrorSubmitter != nil {
 			reloadErrorSubmitter(err)
 		}
 		return p, err
 	})
-	validParams := refreshingclient.NewRefreshingValidatedClientParams(refreshingParams)
 	if err != nil {
 		return err
 	}
+	validParams := refreshingclient.NewRefreshingValidatedClientParams(refreshingParams)
 
 	b.HTTP.ServiceName = validParams.ServiceName()
 	b.HTTP.DialerParams = validParams.Dialer()
