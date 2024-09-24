@@ -72,7 +72,7 @@ type httpClientBuilder struct {
 	ServiceNameTag  metrics.Tag // Service name is not refreshable.
 	Timeout         refreshable.Duration
 	DialerParams    refreshingclient.RefreshableDialerParams
-	TLSConfig       *tls.Config // TODO: Make this refreshing and wire into transport
+	TLSConfig       *tls.Config // If unset, config in TransportParams will be used.
 	TransportParams refreshingclient.RefreshableTransportParams
 	Middlewares     []Middleware
 
@@ -95,10 +95,19 @@ func (b *httpClientBuilder) Build(ctx context.Context, params ...HTTPClientParam
 			return nil, err
 		}
 	}
-	transport := refreshingclient.NewRefreshableTransport(ctx,
-		b.TransportParams,
-		b.TLSConfig,
-		refreshingclient.NewRefreshableDialer(ctx, b.DialerParams))
+	var tlsProvider refreshingclient.TLSProvider
+	if b.TLSConfig != nil {
+		tlsProvider = refreshingclient.NewStaticTLSConfigProvider(b.TLSConfig)
+	} else {
+		refreshableProvider, err := refreshingclient.NewRefreshableTLSConfig(ctx, b.TransportParams.TLS())
+		if err != nil {
+			return nil, err
+		}
+		tlsProvider = refreshableProvider
+	}
+
+	dialer := refreshingclient.NewRefreshableDialer(ctx, b.DialerParams)
+	transport := refreshingclient.NewRefreshableTransport(ctx, b.TransportParams, tlsProvider, dialer)
 	transport = wrapTransport(transport, newMetricsMiddleware(b.ServiceNameTag, b.MetricsTagProviders, b.DisableMetrics))
 	transport = wrapTransport(transport, traceMiddleware{
 		ServiceName:       b.ServiceNameTag.Value(),
@@ -260,12 +269,6 @@ func newClientBuilderFromRefreshableConfig(ctx context.Context, config Refreshab
 			svc1log.SafeParam("existingServiceName", b.HTTP.ServiceNameTag.Value()),
 			svc1log.SafeParam("updatedServiceName", s))
 	})
-
-	if tlsConfig, err := subscribeTLSConfigUpdateWarning(ctx, config.Security()); err != nil {
-		return err
-	} else if tlsConfig != nil {
-		b.HTTP.TLSConfig = tlsConfig
-	}
 
 	refreshingParams, err := refreshable.NewMapValidatingRefreshable(config, func(i interface{}) (interface{}, error) {
 		p, err := newValidatedClientParamsFromConfig(ctx, i.(ClientConfig))
