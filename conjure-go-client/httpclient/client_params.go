@@ -450,6 +450,11 @@ func WithKeepAlive(keepAlive time.Duration) ClientOrHTTPClientParam {
 	})
 }
 
+// WithBaseURL is a variadic-argument alias for WithBaseURLs. Any previous base URLs will be overwritten.
+func WithBaseURL(urls ...string) ClientParam {
+	return WithBaseURLs(urls)
+}
+
 // WithBaseURLs sets the base URLs for every request. This is meant to be used in conjunction with WithPath.
 func WithBaseURLs(urls []string) ClientParam {
 	return clientParamFunc(func(b *clientBuilder) error {
@@ -462,6 +467,16 @@ func WithBaseURLs(urls []string) ClientParam {
 func WithRefreshableBaseURLs(urls refreshable.StringSlice) ClientParam {
 	return clientParamFunc(func(b *clientBuilder) error {
 		b.URIs = urls
+		return nil
+	})
+}
+
+// WithAllowCreateWithEmptyURIs prevents NewClient from returning an error when the URI slice is empty.
+// This is useful when the URIs are not known at client creation time but will be populated by a refreshable.
+// Requests will error if attempted before URIs are populated.
+func WithAllowCreateWithEmptyURIs() ClientParam {
+	return clientParamFunc(func(b *clientBuilder) error {
+		b.AllowEmptyURIs = true
 		return nil
 	})
 }

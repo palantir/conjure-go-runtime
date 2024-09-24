@@ -84,7 +84,7 @@ func (c *clientImpl) Delete(ctx context.Context, params ...RequestParam) (*http.
 func (c *clientImpl) Do(ctx context.Context, params ...RequestParam) (*http.Response, error) {
 	uris := c.uriScorer.CurrentURIScoringMiddleware().GetURIsInOrderOfIncreasingScore()
 	if len(uris) == 0 {
-		return nil, werror.ErrorWithContextParams(ctx, "no base URIs are configured")
+		return nil, werror.WrapWithContextParams(ctx, ErrEmptyURIs, "")
 	}
 
 	attempts := 2 * len(uris)
