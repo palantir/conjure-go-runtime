@@ -17,6 +17,7 @@ package httpclient
 import (
 	"net/http"
 
+	"github.com/palantir/pkg/refreshable"
 	"github.com/palantir/witchcraft-go-tracing/wtracing"
 	"github.com/palantir/witchcraft-go-tracing/wtracing/propagation/b3"
 )
@@ -26,12 +27,12 @@ import (
 // Only if the RPC method name is set does the middleware create a new span (with that name) for the
 // duration of the request.
 type traceMiddleware struct {
-	ServiceName         string
+	ServiceName         refreshable.String
 	DisableRequestSpan  bool
 	DisableTraceHeaders bool
 }
 
-func newTraceMiddleware(serviceName string, disableRequestSpan, disableTraceHeaders bool) traceMiddleware {
+func newTraceMiddleware(serviceName refreshable.String, disableRequestSpan, disableTraceHeaders bool) traceMiddleware {
 	return traceMiddleware{
 		ServiceName:         serviceName,
 		DisableRequestSpan:  disableRequestSpan,
@@ -48,7 +49,7 @@ func (t traceMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (*
 		if method := getRPCMethodName(req.Context()); method != "" {
 			span, ctx = wtracing.StartSpanFromContext(ctx, wtracing.TracerFromContext(ctx), method,
 				wtracing.WithKind(wtracing.Client),
-				wtracing.WithRemoteEndpoint(&wtracing.Endpoint{ServiceName: t.ServiceName}))
+				wtracing.WithRemoteEndpoint(&wtracing.Endpoint{ServiceName: t.ServiceName.CurrentString()}))
 			if span != nil {
 				defer span.Finish()
 			}
