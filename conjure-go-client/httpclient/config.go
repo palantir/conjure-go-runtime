@@ -19,7 +19,7 @@ import (
 	"context"
 	"io/ioutil"
 	"net/url"
-	"sort"
+	"slices"
 	"time"
 
 	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient/internal/refreshingclient"
@@ -385,7 +385,7 @@ func RefreshableClientConfigFromServiceConfig(servicesConfig RefreshableServices
 	}))
 }
 
-func newValidatedClientParamsFromConfig(ctx context.Context, config ClientConfig, isHTTPClient bool) (refreshingclient.ValidatedClientParams, error) {
+func newValidatedClientParamsFromConfig(ctx context.Context, config ClientConfig) (refreshingclient.ValidatedClientParams, error) {
 	dialer := refreshingclient.DialerParams{
 		DialTimeout: derefPtr(config.ConnectTimeout, defaultDialTimeout),
 		KeepAlive:   derefPtr(config.KeepAlive, defaultKeepAlive),
@@ -477,11 +477,7 @@ func newValidatedClientParamsFromConfig(ctx context.Context, config ClientConfig
 		}
 		uris = append(uris, uriStr)
 	}
-	// Plain HTTP clients do not store URIs
-	if !isHTTPClient && len(uris) == 0 {
-		return refreshingclient.ValidatedClientParams{}, werror.ErrorWithContextParams(ctx, "httpclient URLs must not be empty")
-	}
-	sort.Strings(uris)
+	slices.Sort(uris)
 
 	return refreshingclient.ValidatedClientParams{
 		APIToken:       apiToken,

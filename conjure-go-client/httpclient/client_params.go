@@ -466,6 +466,16 @@ func WithRefreshableBaseURLs(urls refreshable.StringSlice) ClientParam {
 	})
 }
 
+// WithAllowCreateWithEmptyURIs prevents NewClient from returning an error when the URI slice is empty.
+// This is useful when the URIs are not known at client creation time but will be populated by a refreshable.
+// Requests will error if attempted before URIs are populated.
+func WithAllowCreateWithEmptyURIs() ClientParam {
+	return clientParamFunc(func(b *clientBuilder) error {
+		b.AllowEmptyURIs = true
+		return nil
+	})
+}
+
 // WithMaxBackoff sets the maximum backoff between retried calls to the same URI.
 // Defaults to 2 seconds. <= 0 indicates no limit.
 func WithMaxBackoff(maxBackoff time.Duration) ClientParam {
