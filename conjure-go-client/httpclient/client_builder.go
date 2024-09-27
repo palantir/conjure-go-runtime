@@ -47,6 +47,9 @@ const (
 )
 
 var (
+	// ErrEmptyURIs is returned when the client expects to have base URIs configured to make requests, but the URIs are empty.
+	// This check occurs in two places: when the client is constructed and when a request is executed.
+	// To avoid the construction validation, use WithAllowCreateWithEmptyURIs().
 	ErrEmptyURIs = fmt.Errorf("httpclient URLs must not be empty")
 )
 
