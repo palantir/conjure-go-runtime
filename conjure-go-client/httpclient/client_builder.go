@@ -178,6 +178,7 @@ func newClient(ctx context.Context, b *clientBuilder, params ...ClientParam) (Cl
 		return b.URIScorerBuilder(uris)
 	})
 	return &clientImpl{
+		serviceName:            b.HTTP.ServiceName,
 		client:                 httpClient,
 		uriScorer:              uriScorer,
 		maxAttempts:            b.MaxAttempts,
