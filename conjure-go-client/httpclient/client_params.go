@@ -360,6 +360,8 @@ func WithTLSConfig(conf *tls.Config) ClientOrHTTPClientParam {
 	})
 }
 
+// withSecurityConfig sets the builder's TransportParams.TLS to match the provided SecurityConfig.
+// This param is used by configToParams() but is not exported because users should use WithConfig().
 func withSecurityConfig(conf SecurityConfig) ClientOrHTTPClientParam {
 	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
 		b.TransportParams = refreshingclient.ConfigureTransport(b.TransportParams, func(p refreshingclient.TransportParams) refreshingclient.TransportParams {
