@@ -69,7 +69,7 @@ func NewRefreshableTLSConfig(ctx context.Context, params RefreshableTLSParams) (
 	return RefreshableTLSConfig{r: r}, nil
 }
 
-// GetTLSConfig returns the the most recent valid *tls.Config.
+// GetTLSConfig returns the most recent valid *tls.Config.
 // If the last refreshable update resulted in an error, that error is logged and
 // the previous value is returned.
 func (r RefreshableTLSConfig) GetTLSConfig(ctx context.Context) *tls.Config {

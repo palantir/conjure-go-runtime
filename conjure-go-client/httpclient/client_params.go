@@ -360,6 +360,23 @@ func WithTLSConfig(conf *tls.Config) ClientOrHTTPClientParam {
 	})
 }
 
+func withSecurityConfig(conf SecurityConfig) ClientOrHTTPClientParam {
+	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
+		b.TransportParams = refreshingclient.ConfigureTransport(b.TransportParams, func(p refreshingclient.TransportParams) refreshingclient.TransportParams {
+			p.TLS.CertFile = conf.CertFile
+			p.TLS.KeyFile = conf.KeyFile
+			p.TLS.CAFiles = conf.CAFiles
+			if conf.InsecureSkipVerify != nil {
+				p.TLS.InsecureSkipVerify = *conf.InsecureSkipVerify
+			} else {
+				p.TLS.InsecureSkipVerify = false
+			}
+			return p
+		})
+		return nil
+	})
+}
+
 // WithTLSInsecureSkipVerify sets the InsecureSkipVerify field for the HTTP client's tls config.
 // This option should only be used in clients that have way to establish trust with servers.
 // If WithTLSConfig is used, the config's InsecureSkipVerify is set to true.

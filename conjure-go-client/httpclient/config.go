@@ -365,16 +365,7 @@ func configToParams(c ClientConfig) ([]ClientParam, error) {
 	}
 
 	// Security (TLS) Config
-
-	if tlsConfig, err := refreshingclient.NewTLSConfig(context.TODO(), refreshingclient.TLSParams{
-		CAFiles:  c.Security.CAFiles,
-		CertFile: c.Security.CertFile,
-		KeyFile:  c.Security.KeyFile,
-	}); err != nil {
-		return nil, err
-	} else if tlsConfig != nil {
-		params = append(params, WithTLSConfig(tlsConfig))
-	}
+	params = append(params, withSecurityConfig(c.Security))
 
 	return params, nil
 }
@@ -402,6 +393,12 @@ func newValidatedClientParamsFromConfig(ctx context.Context, config ClientConfig
 		HTTP2ReadIdleTimeout:  derefPtr(config.HTTP2ReadIdleTimeout, defaultHTTP2ReadIdleTimeout),
 		ProxyFromEnvironment:  derefPtr(config.ProxyFromEnvironment, true),
 		TLSHandshakeTimeout:   derefPtr(config.TLSHandshakeTimeout, defaultTLSHandshakeTimeout),
+		TLS: refreshingclient.TLSParams{
+			CAFiles:            config.Security.CAFiles,
+			CertFile:           config.Security.CertFile,
+			KeyFile:            config.Security.KeyFile,
+			InsecureSkipVerify: derefPtr(config.Security.InsecureSkipVerify, false),
+		},
 	}
 
 	if config.ProxyURL != nil {
