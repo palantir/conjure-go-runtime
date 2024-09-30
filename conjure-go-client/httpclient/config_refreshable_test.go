@@ -260,6 +260,24 @@ func TestRefreshableClientConfig(t *testing.T) {
 		initialConfig.Default.ProxyFromEnvironment = nil
 		updateRefreshableBytes(initialConfig)
 	})
+
+	t.Run("tls updates, transport updates", func(t *testing.T) {
+		oldClient := currentHTTPClient()
+		oldTransport, _ := unwrapTransport(oldClient.Transport)
+
+		assert.Equal(t, false, oldTransport.TLSClientConfig.InsecureSkipVerify)
+
+		initialConfig.Default.Security.InsecureSkipVerify = &[]bool{true}[0]
+		updateRefreshableBytes(initialConfig)
+
+		newClient := currentHTTPClient()
+		newTransport, _ := unwrapTransport(newClient.Transport)
+
+		assert.Equal(t, true, newTransport.TLSClientConfig.InsecureSkipVerify)
+
+		initialConfig.Default.Security.InsecureSkipVerify = nil
+		updateRefreshableBytes(initialConfig)
+	})
 }
 
 func newDurationPtr(dur time.Duration) *time.Duration {

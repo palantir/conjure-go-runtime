@@ -27,7 +27,6 @@ import (
 	"github.com/palantir/pkg/bytesbuffers"
 	"github.com/palantir/pkg/metrics"
 	"github.com/palantir/pkg/refreshable"
-	"github.com/palantir/pkg/tlsconfig"
 	werror "github.com/palantir/witchcraft-go-error"
 )
 
@@ -215,7 +214,6 @@ func NewHTTPClientFromRefreshableConfig(ctx context.Context, config RefreshableC
 }
 
 func newClientBuilder() *clientBuilder {
-	defaultTLSConfig, _ := tlsconfig.NewClientConfig()
 	return &clientBuilder{
 		HTTP: &httpClientBuilder{
 			ServiceName: refreshable.NewString(refreshable.NewDefaultRefreshable("")),
@@ -225,7 +223,6 @@ func newClientBuilder() *clientBuilder {
 				KeepAlive:     defaultKeepAlive,
 				SocksProxyURL: nil,
 			})),
-			TLSConfig: defaultTLSConfig,
 			TransportParams: refreshingclient.NewRefreshingTransportParams(refreshable.NewDefaultRefreshable(refreshingclient.TransportParams{
 				MaxIdleConns:          defaultMaxIdleConns,
 				MaxIdleConnsPerHost:   defaultMaxIdleConnsPerHost,
