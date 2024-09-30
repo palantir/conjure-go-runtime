@@ -365,7 +365,16 @@ func configToParams(c ClientConfig) ([]ClientParam, error) {
 	}
 
 	// Security (TLS) Config
-	params = append(params, withSecurityConfig(c.Security))
+	if tlsConfig, err := refreshingclient.NewTLSConfig(context.TODO(), refreshingclient.TLSParams{
+		CAFiles:            c.Security.CAFiles,
+		CertFile:           c.Security.CertFile,
+		KeyFile:            c.Security.KeyFile,
+		InsecureSkipVerify: derefPtr(c.Security.InsecureSkipVerify, false),
+	}); err != nil {
+		return nil, err
+	} else if tlsConfig != nil {
+		params = append(params, WithTLSConfig(tlsConfig))
+	}
 
 	return params, nil
 }
