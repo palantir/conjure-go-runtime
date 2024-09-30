@@ -1,0 +1,5 @@
+type: fix
+fix:
+  description: NewClientFromRefreshableConfig respects SecurityConfig
+  links:
+  - https://github.com/palantir/conjure-go-runtime/pull/701
