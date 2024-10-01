@@ -18,7 +18,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"runtime"
@@ -38,7 +38,7 @@ func TestClose(t *testing.T) {
 		_, _ = fmt.Fprintln(rw, "test")
 	}))
 	client, err := httpclient.NewClient(
-		httpclient.WithBaseURLs([]string{ts.URL}),
+		httpclient.WithBaseURL(ts.URL),
 		httpclient.WithHTTPTimeout(5*time.Second),
 	)
 	require.NoError(t, err)
@@ -65,7 +65,7 @@ func TestCloseOnError(t *testing.T) {
 	before := runtime.NumGoroutine()
 	// create test server and client with an HTTP Timeout of 5s
 	client, err := httpclient.NewClient(
-		httpclient.WithBaseURLs([]string{ts.URL}),
+		httpclient.WithBaseURL(ts.URL),
 		httpclient.WithHTTPTimeout(5*time.Second),
 	)
 	require.NoError(t, err)
@@ -96,7 +96,7 @@ func TestCloseOnEmptyResponse(t *testing.T) {
 	before := runtime.NumGoroutine()
 	// create test server and client with an HTTP Timeout of 5s
 	client, err := httpclient.NewClient(
-		httpclient.WithBaseURLs([]string{ts.URL}),
+		httpclient.WithBaseURL(ts.URL),
 		httpclient.WithHTTPTimeout(5*time.Second),
 	)
 	require.NoError(t, err)
@@ -138,14 +138,14 @@ func TestStreamingResponse(t *testing.T) {
 	}))
 	defer ts.Close()
 	client, err := httpclient.NewClient(
-		httpclient.WithBaseURLs([]string{ts.URL}),
+		httpclient.WithBaseURL(ts.URL),
 	)
 	require.NoError(t, err)
 	ctx := context.Background()
 	resp, err := client.Get(ctx, httpclient.WithPath("/"), httpclient.WithRawResponseBody())
 	require.NoError(t, err)
 	close(finishResponseChan)
-	b, err := ioutil.ReadAll(resp.Body)
+	b, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
 	assert.Equal(t, firstLine+"\n"+secondLine+"\n", string(b))
 }

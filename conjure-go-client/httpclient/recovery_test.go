@@ -33,7 +33,7 @@ func TestRecoveryMiddleware(t *testing.T) {
 	defer server.Close()
 
 	client, err := httpclient.NewClient(
-		httpclient.WithBaseURLs([]string{server.URL}),
+		httpclient.WithBaseURL(server.URL),
 		httpclient.WithMiddleware(panicMiddleware{err: helloErr}),
 	)
 	require.NoError(t, err)

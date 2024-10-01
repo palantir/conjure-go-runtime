@@ -88,7 +88,7 @@ func TestTracing(t *testing.T) {
 			}))
 			defer server.Close()
 
-			client, err := httpclient.NewClient(httpclient.WithBaseURLs([]string{server.URL}))
+			client, err := httpclient.NewClient(httpclient.WithBaseURL(server.URL))
 			require.NoError(t, err)
 
 			resp, err := client.Do(ctx, testCase.requestParams...)
