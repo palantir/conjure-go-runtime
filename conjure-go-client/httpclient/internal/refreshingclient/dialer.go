@@ -37,9 +37,14 @@ type ContextDialer interface {
 }
 
 func NewRefreshableDialer(ctx context.Context, p RefreshableDialerParams) ContextDialer {
+	rebuild := false
 	return &RefreshableDialer{
 		Refreshable: p.MapDialerParams(func(p DialerParams) interface{} {
-			svc1log.FromContext(ctx).Debug("Reconstructing HTTP Dialer")
+			if rebuild {
+				svc1log.FromContext(ctx).Debug("Reconstructing HTTP Dialer")
+			} else {
+				rebuild = true
+			}
 			dialer := &net.Dialer{
 				Timeout:   p.DialTimeout,
 				KeepAlive: p.KeepAlive,
@@ -56,14 +61,6 @@ func NewRefreshableDialer(ctx context.Context, p RefreshableDialerParams) Contex
 			return proxyDialer
 		}),
 	}
-}
-
-// ConfigureDialer accepts a mapping function which will be applied to the params value as it is evaluated.
-// This can be used to layer/overwrite configuration before building the RefreshableDialer.
-func ConfigureDialer(r RefreshableDialerParams, mapFn func(p DialerParams) DialerParams) RefreshableDialerParams {
-	return NewRefreshingDialerParams(r.MapDialerParams(func(params DialerParams) interface{} {
-		return mapFn(params)
-	}))
 }
 
 type RefreshableDialer struct {
