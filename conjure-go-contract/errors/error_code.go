@@ -60,6 +60,8 @@ const (
 	CustomClient
 	// CustomServer has status code 500 InternalServerError.
 	CustomServer
+	// ServiceUnavailable has status code 503 StatusServiceUnavailable.
+	ServiceUnavailable
 )
 
 // StatusCode returns HTTP status code associated with this error code.
@@ -87,6 +89,8 @@ func (ec ErrorCode) StatusCode() int {
 		return http.StatusBadRequest
 	case CustomServer:
 		return http.StatusInternalServerError
+	case ServiceUnavailable:
+		return http.StatusServiceUnavailable
 	}
 	return http.StatusInternalServerError
 }
@@ -118,6 +122,8 @@ func (ec ErrorCode) String() string {
 		return "CUSTOM_CLIENT"
 	case CustomServer:
 		return "CUSTOM_SERVER"
+	case ServiceUnavailable:
+		return "SERVICE_UNAVAILABLE"
 	}
 	return fmt.Sprintf("<invalid error code: %d>", ec)
 }
@@ -152,6 +158,8 @@ func (ec *ErrorCode) UnmarshalText(data []byte) error {
 		*ec = CustomClient
 	case "CUSTOM_SERVER":
 		*ec = CustomServer
+	case "SERVICE_UNAVAILABLE":
+		*ec = ServiceUnavailable
 	default:
 		return fmt.Errorf(`errors: unknown error code string`)
 	}

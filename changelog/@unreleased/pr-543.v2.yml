@@ -1,0 +1,5 @@
+type: feature
+feature:
+  description: Adding new ServiceUnavailable error code with status code 503 StatusServiceUnavailable
+  links:
+  - https://github.com/palantir/conjure-go-runtime/pull/543
