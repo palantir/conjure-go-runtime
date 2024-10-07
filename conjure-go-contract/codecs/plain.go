@@ -72,6 +72,8 @@ func (codecPlain) Marshal(v interface{}) ([]byte, error) {
 	switch t := v.(type) {
 	case string:
 		return []byte(t), nil
+	case []byte:
+		return t, nil
 	case encoding.TextMarshaler:
 		return t.MarshalText()
 	default:
