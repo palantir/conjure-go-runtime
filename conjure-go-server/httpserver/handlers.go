@@ -66,7 +66,7 @@ func (h handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		switch e := cause.(type) {
 		case errors.Error:
 			// if error is a conjure error, use WriteErrorResponse utility
-			errors.WriteErrorResponse(w, e)
+			errors.WriteErrorResponseWithContext(r.Context(), w, e)
 		case json.Marshaler:
 			// else if error is a json marshaler, write as json
 			WriteJSONResponse(w, e, status)
