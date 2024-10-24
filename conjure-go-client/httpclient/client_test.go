@@ -35,7 +35,7 @@ import (
 
 func TestNoBaseURIs(t *testing.T) {
 	client, err := httpclient.NewClient()
-	require.EqualError(t, err, "httpclient URLs must be set in configuration or by constructor param")
+	require.EqualError(t, err, "httpclient URLs must not be empty")
 	require.Nil(t, client)
 }
 
