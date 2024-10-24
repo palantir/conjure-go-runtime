@@ -263,7 +263,31 @@ func RefreshableClientConfigFromServiceConfig(servicesConfig RefreshableServices
 }
 
 func newValidatedClientParamsFromConfig(ctx context.Context, config ClientConfig) (refreshingclient.ValidatedClientParams, error) {
-	var httpProxyURL, socksProxyURL *url.URL
+	dialer := refreshingclient.DialerParams{
+		DialTimeout: derefPtr(config.ConnectTimeout, defaultDialTimeout),
+		KeepAlive:   derefPtr(config.KeepAlive, defaultKeepAlive),
+	}
+
+	transport := refreshingclient.TransportParams{
+		MaxIdleConns:          derefPtr(config.MaxIdleConns, defaultMaxIdleConns),
+		MaxIdleConnsPerHost:   derefPtr(config.MaxIdleConnsPerHost, defaultMaxIdleConnsPerHost),
+		DisableHTTP2:          derefPtr(config.DisableHTTP2, false),
+		DisableKeepAlives:     derefPtr(config.KeepAlive, defaultKeepAlive) == 0,
+		IdleConnTimeout:       derefPtr(config.IdleConnTimeout, defaultIdleConnTimeout),
+		ExpectContinueTimeout: derefPtr(config.ExpectContinueTimeout, defaultExpectContinueTimeout),
+		ResponseHeaderTimeout: derefPtr(config.ResponseHeaderTimeout, 0),
+		HTTP2PingTimeout:      derefPtr(config.HTTP2PingTimeout, defaultHTTP2PingTimeout),
+		HTTP2ReadIdleTimeout:  derefPtr(config.HTTP2ReadIdleTimeout, defaultHTTP2ReadIdleTimeout),
+		ProxyFromEnvironment:  derefPtr(config.ProxyFromEnvironment, true),
+		TLSHandshakeTimeout:   derefPtr(config.TLSHandshakeTimeout, defaultTLSHandshakeTimeout),
+		TLS: refreshingclient.TLSParams{
+			CAFiles:            config.Security.CAFiles,
+			CertFile:           config.Security.CertFile,
+			KeyFile:            config.Security.KeyFile,
+			InsecureSkipVerify: derefPtr(config.Security.InsecureSkipVerify, false),
+		},
+	}
+
 	if config.ProxyURL != nil {
 		proxyURL, err := url.ParseRequestURI(*config.ProxyURL)
 		if err != nil {
@@ -271,9 +295,9 @@ func newValidatedClientParamsFromConfig(ctx context.Context, config ClientConfig
 		}
 		switch proxyURL.Scheme {
 		case "http", "https":
-			httpProxyURL = proxyURL
+			transport.HTTPProxyURL = proxyURL
 		case "socks5", "socks5h":
-			socksProxyURL = proxyURL
+			dialer.SocksProxyURL = proxyURL
 		default:
 			return refreshingclient.ValidatedClientParams{}, werror.WrapWithContextParams(ctx, err, "invalid proxy url: only http(s) and socks5 are supported")
 		}
@@ -298,11 +322,17 @@ func newValidatedClientParamsFromConfig(ctx context.Context, config ClientConfig
 		}
 	}
 
+	disableMetrics := !derefPtr(config.Metrics.Enabled, true)
+
 	metricsTags, err := metrics.NewTags(config.Metrics.Tags)
 	if err != nil {
 		return refreshingclient.ValidatedClientParams{}, err
 	}
 
+	retryParams := refreshingclient.RetryParams{
+		InitialBackoff: derefPtr(config.InitialBackoff, defaultInitialBackoff),
+		MaxBackoff:     derefPtr(config.MaxBackoff, defaultMaxBackoff),
+	}
 	var maxAttempts *int
 	if config.MaxNumRetries != nil {
 		maxAttempts = newPtr(*config.MaxNumRetries + 1)
@@ -333,43 +363,17 @@ func newValidatedClientParamsFromConfig(ctx context.Context, config ClientConfig
 	slices.Sort(uris)
 
 	return refreshingclient.ValidatedClientParams{
-		ServiceName: config.ServiceName,
-		APIToken:    apiToken,
-		BasicAuth:   basicAuth,
-		Dialer: refreshingclient.DialerParams{
-			DialTimeout:   derefPtr(config.ConnectTimeout, defaultDialTimeout),
-			KeepAlive:     derefPtr(config.KeepAlive, defaultKeepAlive),
-			SocksProxyURL: socksProxyURL,
-		},
-		DisableMetrics: !derefPtr(config.Metrics.Enabled, true),
+		APIToken:       apiToken,
+		BasicAuth:      basicAuth,
+		Dialer:         dialer,
+		DisableMetrics: disableMetrics,
 		MaxAttempts:    maxAttempts,
 		MetricsTags:    metricsTags,
-		Retry: refreshingclient.RetryParams{
-			InitialBackoff: derefPtr(config.InitialBackoff, defaultInitialBackoff),
-			MaxBackoff:     derefPtr(config.MaxBackoff, defaultMaxBackoff),
-		},
-		Timeout: timeout,
-		Transport: refreshingclient.TransportParams{
-			MaxIdleConns:          derefPtr(config.MaxIdleConns, defaultMaxIdleConns),
-			MaxIdleConnsPerHost:   derefPtr(config.MaxIdleConnsPerHost, defaultMaxIdleConnsPerHost),
-			DisableHTTP2:          derefPtr(config.DisableHTTP2, false),
-			DisableKeepAlives:     derefPtr(config.KeepAlive, defaultKeepAlive) == 0,
-			IdleConnTimeout:       derefPtr(config.IdleConnTimeout, defaultIdleConnTimeout),
-			ExpectContinueTimeout: derefPtr(config.ExpectContinueTimeout, defaultExpectContinueTimeout),
-			ResponseHeaderTimeout: derefPtr(config.ResponseHeaderTimeout, 0),
-			TLSHandshakeTimeout:   derefPtr(config.TLSHandshakeTimeout, defaultTLSHandshakeTimeout),
-			HTTPProxyURL:          httpProxyURL,
-			ProxyFromEnvironment:  derefPtr(config.ProxyFromEnvironment, true),
-			HTTP2ReadIdleTimeout:  derefPtr(config.HTTP2ReadIdleTimeout, defaultHTTP2ReadIdleTimeout),
-			HTTP2PingTimeout:      derefPtr(config.HTTP2PingTimeout, defaultHTTP2PingTimeout),
-			TLS: refreshingclient.TLSParams{
-				CAFiles:            config.Security.CAFiles,
-				CertFile:           config.Security.CertFile,
-				KeyFile:            config.Security.KeyFile,
-				InsecureSkipVerify: derefPtr(config.Security.InsecureSkipVerify, false),
-			},
-		},
-		URIs: uris,
+		Retry:          retryParams,
+		ServiceName:    config.ServiceName,
+		Timeout:        timeout,
+		Transport:      transport,
+		URIs:           uris,
 	}, nil
 }
 

@@ -71,8 +71,6 @@ type httpClientBuilder struct {
 	// Populated by client params and applied using Map on the underlying refreshable config.
 	ConfigOverride []func(c *ClientConfig)
 
-	// These are non-serializable fields collected from client params
-	// and do not originate from the ClientConfig.
 	TLSConfig           *tls.Config // Optionally set by WithTLSConfig(). If unset, config.Security is used.
 	Middlewares         []Middleware
 	MetricsTagProviders []TagsProvider
@@ -247,6 +245,6 @@ type RefreshableHTTPClient = refreshingclient.RefreshableHTTPClient
 // The RefreshableClientConfig is not accepted as a client param because there must be exactly one
 // subscription used to build the ValidatedClientParams in Build().
 func NewHTTPClientFromRefreshableConfig(ctx context.Context, config RefreshableClientConfig, params ...HTTPClientParam) (RefreshableHTTPClient, error) {
-	client, _, err := (&httpClientBuilder{}).Build(ctx, config, nil, params...)
+	client, _, err := new(httpClientBuilder).Build(ctx, config, nil, params...)
 	return client, err
 }
