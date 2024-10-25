@@ -43,7 +43,7 @@ func RequestBodyInMemory[T bytes.Buffer | bytes.Reader | strings.Reader](input *
 		if input == nil {
 			return 0, nil, nil, nil
 		}
-		contentLen := int64(any(input).(interface{ Len() int }).Len())
+		contentLen := contentLengthInMemory(input)
 		snapshot := *input
 		getBody := func() (io.ReadCloser, error) {
 			r := snapshot
@@ -52,6 +52,17 @@ func RequestBodyInMemory[T bytes.Buffer | bytes.Reader | strings.Reader](input *
 		firstBody, _ := getBody()
 		return contentLen, firstBody, getBody, nil
 	})
+}
+
+func contentLengthInMemory[T bytes.Buffer | bytes.Reader | strings.Reader](input *T) int64 {
+	if input == nil {
+		return 0
+	}
+
+	// lenInterface is implemented by all three buffer variants' pointer types.
+	type lenInterface interface{ Len() int }
+
+	return int64(any(input).(lenInterface).Len())
 }
 
 type requestBodyStreamInput interface {
