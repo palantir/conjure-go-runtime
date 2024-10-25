@@ -24,7 +24,6 @@ import (
 	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient/internal"
 	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient/internal/refreshingclient"
 	"github.com/palantir/pkg/bytesbuffers"
-	"github.com/palantir/pkg/metrics"
 	"github.com/palantir/pkg/refreshable"
 	werror "github.com/palantir/witchcraft-go-error"
 )
@@ -108,11 +107,7 @@ func WithConfigForHTTPClient(c ClientConfig) HTTPClientParam {
 
 func WithServiceName(serviceName string) ClientOrHTTPClientParam {
 	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
-		tag, err := metrics.NewTag(MetricTagServiceName, serviceName)
-		if err != nil {
-			return err
-		}
-		b.ServiceNameTag = tag
+		b.ServiceName = refreshable.NewString(refreshable.NewDefaultRefreshable(serviceName))
 		return nil
 	})
 }
@@ -205,7 +200,7 @@ func WithDisablePanicRecovery() ClientOrHTTPClientParam {
 // trace information is propagate. This will not create a span if one does not exist.
 func WithDisableTracing() ClientOrHTTPClientParam {
 	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
-		b.CreateRequestSpan = false
+		b.DisableRequestSpan = true
 		return nil
 	})
 }
@@ -215,7 +210,7 @@ func WithDisableTracing() ClientOrHTTPClientParam {
 // then the client will attach this traceId as a header for future services to do the same if desired
 func WithDisableTraceHeaderPropagation() ClientOrHTTPClientParam {
 	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
-		b.InjectTraceHeaders = false
+		b.DisableTraceHeaders = true
 		return nil
 	})
 }
@@ -367,11 +362,16 @@ func WithTLSConfig(conf *tls.Config) ClientOrHTTPClientParam {
 
 // WithTLSInsecureSkipVerify sets the InsecureSkipVerify field for the HTTP client's tls config.
 // This option should only be used in clients that have way to establish trust with servers.
+// If WithTLSConfig is used, the config's InsecureSkipVerify is set to true.
 func WithTLSInsecureSkipVerify() ClientOrHTTPClientParam {
 	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
 		if b.TLSConfig != nil {
 			b.TLSConfig.InsecureSkipVerify = true
 		}
+		b.TransportParams = refreshingclient.ConfigureTransport(b.TransportParams, func(p refreshingclient.TransportParams) refreshingclient.TransportParams {
+			p.TLS.InsecureSkipVerify = true
+			return p
+		})
 		return nil
 	})
 }
@@ -462,6 +462,16 @@ func WithBaseURLs(urls []string) ClientParam {
 func WithRefreshableBaseURLs(urls refreshable.StringSlice) ClientParam {
 	return clientParamFunc(func(b *clientBuilder) error {
 		b.URIs = urls
+		return nil
+	})
+}
+
+// WithAllowCreateWithEmptyURIs prevents NewClient from returning an error when the URI slice is empty.
+// This is useful when the URIs are not known at client creation time but will be populated by a refreshable.
+// Requests will error if attempted before URIs are populated.
+func WithAllowCreateWithEmptyURIs() ClientParam {
+	return clientParamFunc(func(b *clientBuilder) error {
+		b.AllowEmptyURIs = true
 		return nil
 	})
 }
