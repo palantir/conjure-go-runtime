@@ -20,6 +20,8 @@ import (
 	"io"
 	"net/http"
 	"strings"
+
+	"github.com/palantir/conjure-go-runtime/v2/conjure-go-contract/codecs"
 )
 
 // RequestBody is an interface that can be used to set the body of an http.Request.
@@ -34,6 +36,13 @@ type requestBodyFunc func() (length int64, body io.ReadCloser, getBody func() (i
 func (f requestBodyFunc) setRequestBody(req *http.Request) (err error) {
 	req.ContentLength, req.Body, req.GetBody, err = f()
 	return err
+}
+
+// RequestBodyEmpty sets the *http.Request Body field to nil for upload.
+func RequestBodyEmpty() RequestBody {
+	return requestBodyFunc(func() (int64, io.ReadCloser, func() (io.ReadCloser, error), error) {
+		return 0, http.NoBody, nil, nil
+	})
 }
 
 // RequestBodyInMemory sets the *http.Request Body field to the provided *bytes.Buffer, *bytes.Reader, or *strings.Reader for upload.
@@ -54,6 +63,7 @@ func RequestBodyInMemory[T bytes.Buffer | bytes.Reader | strings.Reader](input *
 	})
 }
 
+// contentLengthInMemory returns the length of the provided *bytes.Buffer, *bytes.Reader, or *strings.Reader.
 func contentLengthInMemory[T bytes.Buffer | bytes.Reader | strings.Reader](input *T) int64 {
 	if input == nil {
 		return 0
@@ -65,6 +75,12 @@ func contentLengthInMemory[T bytes.Buffer | bytes.Reader | strings.Reader](input
 	return int64(any(input).(lenInterface).Len())
 }
 
+// noRetriesRequestBodyFunc is a marker type to indicate the body can only be used once.
+type noRetriesRequestBody struct {
+	requestBodyFunc
+}
+
+// requestBodyStreamInput is a generic constraint for functions that return a reader with optional content length and error.
 type requestBodyStreamInput interface {
 	func() io.ReadCloser | func() (io.ReadCloser, error) | func() (io.ReadCloser, int64, error)
 }
@@ -81,7 +97,7 @@ type requestBodyStreamInput interface {
 //   - func() (io.ReadCloser, error)        // Returns the body and an error
 //   - func() (io.ReadCloser, int64, error) // Returns the body, content length, and an error
 func RequestBodyStreamOnce[T requestBodyStreamInput](input T) RequestBody {
-	return requestBodyFunc(func() (contentLen int64, body io.ReadCloser, getBody func() (io.ReadCloser, error), err error) {
+	return noRetriesRequestBody{requestBodyFunc: func() (contentLen int64, body io.ReadCloser, getBody func() (io.ReadCloser, error), err error) {
 		switch v := any(input).(type) {
 		default:
 			// Cases below MUST be exhaustive of the generic type!
@@ -92,16 +108,12 @@ func RequestBodyStreamOnce[T requestBodyStreamInput](input T) RequestBody {
 			return -1, v(), nil, nil
 		case func() (io.ReadCloser, error):
 			body, err = v()
-			return -1, body, v, err
+			return -1, body, nil, err
 		case func() (io.ReadCloser, int64, error):
-			getBody = func() (io.ReadCloser, error) {
-				b, _, e := v()
-				return b, e
-			}
 			body, contentLen, err = v()
-			return contentLen, body, getBody, err
+			return contentLen, body, nil, err
 		}
-	})
+	}}
 }
 
 // RequestBodyStreamWithReplay sets the *http.Request Body and GetBody fields for upload.
@@ -140,5 +152,35 @@ func RequestBodyStreamWithReplay[T requestBodyStreamInput](input T) RequestBody 
 			body, contentLen, err = v()
 			return contentLen, body, getBody, err
 		}
+	})
+}
+
+// RequestBodyEncoderObject sets the *http.Request Body field for upload using the provided encoder.
+func RequestBodyEncoderObject(input any, encoder codecs.Encoder) RequestBody {
+	return requestBodyFunc(func() (contentLen int64, body io.ReadCloser, getBody func() (io.ReadCloser, error), err error) {
+		raw, err := encoder.Marshal(input)
+		if err != nil {
+			return 0, nil, nil, err
+		}
+		getBody = func() (io.ReadCloser, error) {
+			return io.NopCloser(bytes.NewReader(raw)), nil
+		}
+		body, _ = getBody()
+		return int64(len(raw)), body, getBody, nil
+	})
+}
+
+func RequestBodyEncoderObjectBuffer(input any, encoder codecs.Encoder, buffer *bytes.Buffer) RequestBody {
+	return requestBodyFunc(func() (contentLen int64, body io.ReadCloser, getBody func() (io.ReadCloser, error), err error) {
+		if err := encoder.Encode(buffer, input); err != nil {
+			return 0, nil, nil, err
+		}
+		raw := buffer.Bytes()
+
+		getBody = func() (io.ReadCloser, error) {
+			return io.NopCloser(bytes.NewReader(raw)), nil
+		}
+		body, _ = getBody()
+		return int64(len(raw)), body, getBody, nil
 	})
 }

@@ -17,6 +17,7 @@ package httpclient_test
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -149,6 +150,8 @@ func TestRedirectWithBodyAndBytesBuffer(t *testing.T) {
 			rw.WriteHeader(307)
 		case "/location":
 			assert.NoError(t, codecs.JSON.Encode(rw, respVar))
+		default:
+			rw.WriteHeader(http.StatusNotFound)
 		}
 	}))
 	defer server.Close()
@@ -177,7 +180,7 @@ func TestRedirectWithBodyAndBytesBuffer(t *testing.T) {
 		assert.Equal(t, respVar, actualRespVar)
 	})
 
-	t.Run("RequestBodyInMemory[string]", func(t *testing.T) {
+	t.Run("RequestBodyInMemory[*strings.Reader]", func(t *testing.T) {
 		var actualRespVar map[string]string
 		resp, err := client.Do(context.Background(),
 			httpclient.WithRequestMethod(http.MethodPost),
@@ -210,5 +213,63 @@ func TestRedirectWithBodyAndBytesBuffer(t *testing.T) {
 			assert.Equal(t, resp.StatusCode, 200)
 		}
 		assert.Equal(t, respVar, actualRespVar)
+	})
+
+	t.Run("RequestBodyStreamOnce posts body", func(t *testing.T) {
+		var actualRespVar map[string]string
+		resp, err := client.Do(context.Background(),
+			httpclient.WithRequestMethod(http.MethodPost),
+			httpclient.WithPath("/location"),
+			httpclient.WithBinaryRequestBody(httpclient.RequestBodyStreamOnce(func() (io.ReadCloser, error) {
+				return io.NopCloser(strings.NewReader(`{"1":"2"}`)), nil
+			})),
+			httpclient.WithJSONResponse(&actualRespVar),
+		)
+
+		require.NoError(t, err)
+		if assert.NotNil(t, resp) {
+			assert.Equal(t, resp.StatusCode, 200)
+		}
+		assert.Equal(t, respVar, actualRespVar)
+	})
+
+	t.Run("RequestBodyStreamOnce does not follow redirect", func(t *testing.T) {
+		var readOnce bool
+		var actualRespVar map[string]string
+		resp, err := client.Do(context.Background(),
+			httpclient.WithRequestMethod(http.MethodPost),
+			httpclient.WithPath("/redirect"),
+			httpclient.WithBinaryRequestBody(httpclient.RequestBodyStreamOnce(func() (io.ReadCloser, error) {
+				if readOnce {
+					return nil, fmt.Errorf("readOnce is true")
+				}
+				readOnce = true
+				return io.NopCloser(strings.NewReader(`{"1":"2"}`)), nil
+			})),
+			httpclient.WithJSONResponse(&actualRespVar),
+		)
+
+		require.EqualError(t, err, "httpclient request failed: 307 Temporary Redirect")
+		assert.Nil(t, resp)
+	})
+
+	t.Run("RequestBodyStreamOnce does not retry on 404", func(t *testing.T) {
+		var readOnce bool
+		var actualRespVar map[string]string
+		resp, err := client.Do(context.Background(),
+			httpclient.WithRequestMethod(http.MethodPost),
+			httpclient.WithPath("/invalid"),
+			httpclient.WithBinaryRequestBody(httpclient.RequestBodyStreamOnce(func() (io.ReadCloser, error) {
+				if readOnce {
+					return nil, fmt.Errorf("readOnce is true")
+				}
+				readOnce = true
+				return io.NopCloser(strings.NewReader(`{"1":"2"}`)), nil
+			})),
+			httpclient.WithJSONResponse(&actualRespVar),
+		)
+
+		require.EqualError(t, err, "httpclient request failed: 404 Not Found")
+		assert.Nil(t, resp)
 	})
 }
