@@ -17,7 +17,7 @@ require (
 	github.com/palantir/witchcraft-go-params v1.36.0
 	github.com/palantir/witchcraft-go-tracing v1.38.0
 	github.com/stretchr/testify v1.9.0
-	golang.org/x/net v0.30.0
+	golang.org/x/net v0.31.0
 	google.golang.org/protobuf v1.33.0
 	gopkg.in/yaml.v2 v2.4.0
 )
@@ -31,7 +31,7 @@ require (
 	github.com/palantir/pkg/refreshable/v2 v2.0.0 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
-	golang.org/x/text v0.19.0 // indirect
+	golang.org/x/text v0.20.0 // indirect
 	gopkg.in/check.v1 v1.0.0-20180628173108-788fd7840127 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
