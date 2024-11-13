@@ -103,7 +103,7 @@ func WithRequestBody(input interface{}, encoder codecs.Encoder) RequestParam {
 //	resp, err := client.Do(..., WithRawRequestBody(input), ...)
 //
 // Retries don't include the body for WithRawRequestBody.
-// Use WithRawRequestBodyPayload for full retry support.
+// Use WithBinaryRequestBody for full retry support.
 func WithRawRequestBody(input io.ReadCloser) RequestParam {
 	return requestParamFunc(func(b *requestBuilder) error {
 		b.bodyMiddleware.requestInput = RequestBodyStreamOnce(func() io.ReadCloser { return input })
@@ -130,8 +130,8 @@ func WithBinaryRequestBody(input RequestBody) RequestParam {
 // WithRawRequestBodyProvider uses the io.ReadCloser provided by
 // getBody as the request body.
 //
-// Deprecated: Use WithBinaryRequestBody(RequestBodyStreamWithReplay) if the body can be recreated,
-// otherwise WithBinaryRequestBody(RequestBodyStreamOnce).
+// Deprecated: Use WithBinaryRequestBody(RequestBodyStreamWithReplay(getBody)) if the body can be recreated,
+// otherwise WithBinaryRequestBody(RequestBodyStreamOnce(getBody)).
 func WithRawRequestBodyProvider(getBody func() io.ReadCloser) RequestParam {
 	return requestParamFunc(func(b *requestBuilder) error {
 		if getBody == nil {

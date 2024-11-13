@@ -30,7 +30,10 @@ type RequestBody interface {
 	setRequestBody(req *http.Request) error
 }
 
-// requestBodyFunc is a function that sets the body of an http.Request and implements RequestBody.
+// requestBodyFunc is a function that returns the length, body reader, and
+// getBody function that should be set on an http.Request. It implements the
+// RequestBody interface by setting the "ContentLength", "Body", and "GetBody"
+// fields of the provided *http.Request to the values returned by the function.
 type requestBodyFunc func() (length int64, body io.ReadCloser, getBody func() (io.ReadCloser, error), err error)
 
 func (f requestBodyFunc) setRequestBody(req *http.Request) (err error) {
@@ -170,6 +173,7 @@ func RequestBodyEncoderObject(input any, encoder codecs.Encoder) RequestBody {
 	})
 }
 
+// RequestBodyEncoderObjectBuffer is like RequestBodyEncoderObject but writes the encoded object to the provided buffer.
 func RequestBodyEncoderObjectBuffer(input any, encoder codecs.Encoder, buffer *bytes.Buffer) RequestBody {
 	return requestBodyFunc(func() (contentLen int64, body io.ReadCloser, getBody func() (io.ReadCloser, error), err error) {
 		if err := encoder.Encode(buffer, input); err != nil {
