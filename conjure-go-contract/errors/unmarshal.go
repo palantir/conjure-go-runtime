@@ -46,3 +46,19 @@ func UnmarshalError(body []byte) (Error, error) {
 	// Cast should never panic, as we've verified in RegisterErrorType
 	return instance.(Error), nil
 }
+
+// UnmarshalErrorWithDecoder attempts to deserialize the message to a known implementation of Error
+// using the provided ConjureErrorDecoder.
+func UnmarshalErrorWithDecoder(ced ConjureErrorDecoder, body []byte) (Error, error) {
+	var name struct {
+		Name string `json:"errorName"`
+	}
+	if err := codecs.JSON.Unmarshal(body, &name); err != nil {
+		return nil, werror.Wrap(err, "failed to unmarshal body as conjure error")
+	}
+	cErr, err := ced.DecodeConjureError(name.Name, body)
+	if err != nil {
+		return nil, werror.Wrap(err, "failed to decode body using ConjureErrorDecoder")
+	}
+	return cErr, nil
+}
