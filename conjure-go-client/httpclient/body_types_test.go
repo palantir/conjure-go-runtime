@@ -16,10 +16,12 @@ package httpclient
 
 import (
 	"bytes"
+	"io"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestContentLengthInMemory(t *testing.T) {
@@ -32,4 +34,74 @@ func TestContentLengthInMemory(t *testing.T) {
 	t.Run("strings.Reader", func(t *testing.T) {
 		assert.EqualValues(t, 5, contentLengthInMemory(strings.NewReader("hello")))
 	})
+}
+
+func TestRetrieveRequestBodyReader(t *testing.T) {
+	for _, test := range []struct {
+		Name          string
+		Body          RequestBody
+		Expected      string
+		ContentLength int64
+	}{
+		{
+			Name:          "RequestBodyInMemory(*bytes.Buffer)",
+			Body:          RequestBodyInMemory(bytes.NewBuffer([]byte("hello"))),
+			Expected:      "hello",
+			ContentLength: 5,
+		},
+		{
+			Name:          "RequestBodyInMemory(*bytes.Reader)",
+			Body:          RequestBodyInMemory(bytes.NewReader([]byte("hello"))),
+			Expected:      "hello",
+			ContentLength: 5,
+		},
+		{
+			Name:          "RequestBodyInMemory(*strings.Reader)",
+			Body:          RequestBodyInMemory(strings.NewReader("hello")),
+			Expected:      "hello",
+			ContentLength: 5,
+		},
+		{
+			Name:          "RequestBodyEmpty()",
+			Body:          RequestBodyEmpty(),
+			Expected:      "",
+			ContentLength: 0,
+		},
+		{
+			Name:          "RequestBodyStreamOnce(func() io.ReadCloser)",
+			Body:          RequestBodyStreamOnce(func() io.ReadCloser { return io.NopCloser(strings.NewReader("hello")) }),
+			Expected:      "hello",
+			ContentLength: -1,
+		},
+		{
+			Name:          "RequestBodyStreamOnce(func() io.ReadCloser { return nil })",
+			Body:          RequestBodyStreamOnce(func() io.ReadCloser { return nil }),
+			Expected:      "",
+			ContentLength: 0,
+		},
+		{
+			Name:          "RequestBodyStreamWithReplay(func() io.ReadCloser)",
+			Body:          RequestBodyStreamWithReplay(func() io.ReadCloser { return io.NopCloser(strings.NewReader("hello")) }),
+			Expected:      "hello",
+			ContentLength: -1,
+		},
+		{
+			Name:          "RequestBodyStreamWithReplay(func() io.ReadCloser { return nil })",
+			Body:          RequestBodyStreamWithReplay(func() io.ReadCloser { return nil }),
+			Expected:      "",
+			ContentLength: 0,
+		},
+	} {
+		t.Run(test.Name, func(t *testing.T) {
+			r, l, err := RetrieveReaderFromRequestBody(test.Body)
+			require.NoError(t, err)
+			assert.EqualValues(t, test.ContentLength, l)
+			content, err := io.ReadAll(r)
+			require.NoError(t, err)
+			assert.Equal(t, test.Expected, string(content))
+			if test.ContentLength != -1 {
+				assert.Len(t, content, int(l), "content length does not match read bytes")
+			}
+		})
+	}
 }
