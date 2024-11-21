@@ -200,7 +200,7 @@ func RequestBodyEncoderObjectBuffer(input any, encoder codecs.Encoder, buffer *b
 
 // RetrieveReaderFromRequestBody extracts the io.ReadCloser and ContentLength from the RequestBody.
 // It is primarily useful for testing.
-// This reader does 'count' as a stream for RequestBodyStreamOnce constraints and
+// This reader does not 'count' as a stream for RequestBodyStreamOnce constraints and
 // subsequent requests made using the same RequestBody will use a corrupt already-read body.
 func RetrieveReaderFromRequestBody(body RequestBody) (io.ReadCloser, int64, error) {
 	req := &http.Request{}
