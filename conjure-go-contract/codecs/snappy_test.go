@@ -50,7 +50,7 @@ func TestSnappyCompression(t *testing.T) {
 		require.Equal(t, input, actual)
 	})
 	t.Run("Marshal/Unmarshal", func(t *testing.T) {
-		encoded, err := snappyEncoder.Marshal([]byte(input))
+		encoded, err := snappyEncoder.Marshal(input)
 		require.NoError(t, err)
 
 		// assert encoded message compressed
