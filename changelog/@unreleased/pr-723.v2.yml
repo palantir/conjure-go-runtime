@@ -1,0 +1,5 @@
+type: fix
+fix:
+  description: Codecs.codecSNAPPY.Marshal uses configured contentCodec
+  links:
+  - https://github.com/palantir/conjure-go-runtime/pull/723
