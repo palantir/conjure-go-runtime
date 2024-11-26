@@ -1,0 +1,5 @@
+type: fix
+fix:
+  description: RequestBodyFunc handles functions returning nil readers; add RetrieveReaderFromRequestBody
+  links:
+  - https://github.com/palantir/conjure-go-runtime/pull/719
