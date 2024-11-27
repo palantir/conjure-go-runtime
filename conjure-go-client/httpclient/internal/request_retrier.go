@@ -101,7 +101,7 @@ func (r *RequestRetrier) GetNextURI(resp *http.Response, respErr error) (uri str
 
 func (r *RequestRetrier) getRetryFn(resp *http.Response, respErr error) func() bool {
 	errCode, _ := StatusCodeFromError(respErr)
-	if isThrottle, duration := isThrottleResponse(resp, respErr); isThrottle {
+	if isThrottle, duration := isThrottleResponse(resp, errCode); isThrottle {
 		// 429: throttle
 		if duration > 0 {
 			// Sleep for the duration and retry the same URI.
@@ -109,10 +109,10 @@ func (r *RequestRetrier) getRetryFn(resp *http.Response, respErr error) func() b
 		}
 		// Immediately backoff and select the next URI.
 		return r.nextURIAndBackoff
-	} else if isUnavailableResponse(resp, respErr) {
+	} else if isUnavailableResponse(resp, errCode) {
 		// 503: go to next node
 		return r.nextURIOrBackoff
-	} else if shouldTryOther, otherURI := isRetryOtherResponse(resp, respErr); shouldTryOther {
+	} else if shouldTryOther, otherURI := isRetryOtherResponse(resp, respErr, errCode); shouldTryOther {
 		// 307 or 308: go to next node, or particular node if provided.
 		if otherURI != nil {
 			return func() bool {
@@ -169,11 +169,11 @@ func (r *RequestRetrier) nextURIWithRetryAfter(retryAfter time.Duration) bool {
 		retrierNextC <- r.retrier.Next()
 	}()
 	// Wait for retrier to indicate whether next attempt is valid. If so, wait for retryAfter to complete.
-	ok := <-retrierNextC
-	if ok {
-		<-retryAfterC
+	if ok := <-retrierNextC; !ok {
+		return false
 	}
-	return ok
+	<-retryAfterC
+	return true
 }
 
 func (r *RequestRetrier) markFailedAndMoveToNextURI() {

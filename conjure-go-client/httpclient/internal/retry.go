@@ -15,12 +15,10 @@
 package internal
 
 import (
-	"errors"
 	"net/http"
 	"net/url"
+	"strconv"
 	"time"
-
-	cgrerrors "github.com/palantir/conjure-go-runtime/v2/conjure-go-contract/errors"
 )
 
 /* https://github.com/palantir/http-remoting#quality-of-service-retry-failover-throttling
@@ -61,22 +59,20 @@ const (
 	StatusCodeUnavailable            = http.StatusServiceUnavailable
 )
 
-func isRetryOtherResponse(resp *http.Response, respErr error) (bool, *url.URL) {
-	if respErr != nil {
-		if retryOther := new(cgrerrors.QOSRetryOther); errors.As(respErr, retryOther) {
-			if retryOther.Location != "" {
-				return true, parseLocationURL(retryOther.Location)
-			}
+func isRetryOtherResponse(resp *http.Response, err error, errCode int) (bool, *url.URL) {
+	if errCode == StatusCodeRetryOther || errCode == StatusCodeRetryTemporaryRedirect {
+		locationStr, ok := LocationFromError(err)
+		if !ok {
 			return true, nil
 		}
-		if st, ok := StatusCodeFromError(respErr); ok && st == StatusCodeRetryOther || st == StatusCodeRetryTemporaryRedirect {
-			return true, nil
-		}
+		return true, parseLocationURL(locationStr)
 	}
+
 	if resp == nil {
 		return false, nil
 	}
-	if resp.StatusCode != StatusCodeRetryOther && resp.StatusCode != StatusCodeRetryTemporaryRedirect {
+	if resp.StatusCode != StatusCodeRetryOther &&
+		resp.StatusCode != StatusCodeRetryTemporaryRedirect {
 		return false, nil
 	}
 	location, err := resp.Location()
@@ -100,45 +96,35 @@ func parseLocationURL(locationStr string) *url.URL {
 
 // isThrottleResponse returns true if the response a throttle response type. It
 // also returns a duration after which the failed URI can be retried
-func isThrottleResponse(resp *http.Response, respErr error) (bool, time.Duration) {
-	if respErr != nil {
-		if throttle := new(cgrerrors.QOSThrottle); errors.As(respErr, throttle) {
-			if throttle.RetryAfter > 0 {
-				return true, throttle.RetryAfter
-			}
-			if !throttle.RetryAt.IsZero() {
-				return true, time.Until(throttle.RetryAt)
-			}
-			return true, 0
-		}
-		if st, ok := StatusCodeFromError(respErr); ok && st == StatusCodeThrottle {
-			return true, 0
-		}
-	}
-	if resp != nil && resp.StatusCode == StatusCodeThrottle {
-		throttle := cgrerrors.QOSThrottleFromHeader(resp.Header)
-		if throttle.RetryAfter > 0 {
-			return true, throttle.RetryAfter
-		}
-		if !throttle.RetryAt.IsZero() {
-			return true, time.Until(throttle.RetryAt)
-		}
+func isThrottleResponse(resp *http.Response, errCode int) (bool, time.Duration) {
+	if errCode == StatusCodeThrottle {
 		return true, 0
 	}
-	return false, 0
+	if resp == nil || resp.StatusCode != StatusCodeThrottle {
+		return false, 0
+	}
+	retryAfterStr := resp.Header.Get("Retry-After")
+	if retryAfterStr == "" {
+		return true, 0
+	}
+	// Retry-After can be either a Date or a number of seconds; look for both.
+	if retryAfterSec, err := strconv.Atoi(retryAfterStr); err == nil {
+		return true, time.Duration(retryAfterSec) * time.Second
+	}
+	retryAfterDate, err := http.ParseTime(retryAfterStr)
+	if err != nil {
+		// Unable to parse non-zero header as something we recognize...
+		return true, 0
+	}
+	return true, time.Until(retryAfterDate)
 }
 
-func isUnavailableResponse(resp *http.Response, respErr error) bool {
-	if respErr != nil {
-		if errors.As(respErr, new(cgrerrors.QOSUnavailable)) {
-			return true
-		}
-		if st, ok := StatusCodeFromError(respErr); ok && st == StatusCodeUnavailable {
-			return true
-		}
-	} else if resp != nil && resp.StatusCode == StatusCodeUnavailable {
+func isUnavailableResponse(resp *http.Response, errCode int) bool {
+	if errCode == StatusCodeUnavailable {
 		return true
 	}
-
-	return false
+	if resp == nil || resp.StatusCode != StatusCodeUnavailable {
+		return false
+	}
+	return true
 }

@@ -40,7 +40,10 @@ type QOSRetryOther struct {
 	Err      error // optional underlying cause
 }
 
-func (QOSRetryOther) Error() string {
+func (q QOSRetryOther) Error() string {
+	if q.Err != nil {
+		return "308 Retry Other: " + q.Err.Error()
+	}
 	return "308 Retry Other"
 }
 
@@ -102,8 +105,11 @@ func QOSThrottleFromHeader(header http.Header) QOSThrottle {
 	return QOSThrottle{}
 }
 
-func (QOSThrottle) Error() string {
-	return "429 Throttle"
+func (q QOSThrottle) Error() string {
+	if q.Err != nil {
+		return "429 Too Many Requests: " + q.Err.Error()
+	}
+	return "429 Too Many Requests"
 }
 
 func (QOSThrottle) Status() int {
@@ -118,8 +124,14 @@ func (q QOSThrottle) Header(h http.Header) {
 	}
 }
 
-func (QOSThrottle) SafeParams() map[string]any {
-	return map[string]any{"statusCode": http.StatusTooManyRequests}
+func (q QOSThrottle) SafeParams() map[string]any {
+	m := map[string]any{"statusCode": http.StatusTooManyRequests}
+	if q.RetryAfter > 0 {
+		m["retryAfter"] = q.RetryAfter.String()
+	}
+	if !q.RetryAt.IsZero() {
+		m["retryAt"] = q.RetryAt.UTC().Format(http.TimeFormat)
+	}
 }
 
 func (QOSThrottle) UnsafeParams() map[string]any {
@@ -141,7 +153,10 @@ type QOSUnavailable struct {
 	Err error // optional underlying cause
 }
 
-func (QOSUnavailable) Error() string {
+func (q QOSUnavailable) Error() string {
+	if q.Err != nil {
+		return "503 Unavailable: " + q.Err.Error()
+	}
 	return "503 Unavailable"
 }
 
