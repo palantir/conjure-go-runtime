@@ -1,0 +1,6 @@
+type: feature
+feature:
+  description: Add errors.ConjureErrorDecoder interface & instantiable registry type
+    for customizing error deserialization
+  links:
+  - https://github.com/palantir/conjure-go-runtime/pull/724
