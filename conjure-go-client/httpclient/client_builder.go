@@ -17,7 +17,6 @@ package httpclient
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
 	"net/http"
 	"time"
@@ -70,10 +69,12 @@ type clientBuilder struct {
 }
 
 type httpClientBuilder struct {
-	ServiceName     refreshable.String
-	Timeout         refreshable.Duration
-	DialerParams    refreshingclient.RefreshableDialerParams
-	TLSConfig       *tls.Config // If unset, config in TransportParams will be used.
+	ServiceName  refreshable.String
+	Timeout      refreshable.Duration
+	DialerParams refreshingclient.RefreshableDialerParams
+	// TLSConfig supplies the *tls.Config for the underlying transport to use.
+	// If unset, config in TransportParams will be used.
+	TLSConfig       refreshingclient.RefreshableTLSConfig
 	TransportParams refreshingclient.RefreshableTransportParams
 	Middlewares     []Middleware
 
@@ -97,11 +98,11 @@ func (b *httpClientBuilder) Build(ctx context.Context, params ...HTTPClientParam
 		}
 	}
 
-	var tlsProvider refreshingclient.TLSProvider
+	var tlsProvider refreshingclient.RefreshableTLSConfig
 	if b.TLSConfig != nil {
-		tlsProvider = refreshingclient.NewStaticTLSConfigProvider(b.TLSConfig)
+		tlsProvider = b.TLSConfig
 	} else {
-		refreshableProvider, err := refreshingclient.NewRefreshableTLSConfig(ctx, b.TransportParams.TLS())
+		refreshableProvider, err := refreshingclient.NewRefreshableTLSConfigFromParams(ctx, b.TransportParams.TLS())
 		if err != nil {
 			return nil, err
 		}

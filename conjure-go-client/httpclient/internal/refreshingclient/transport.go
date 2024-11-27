@@ -16,11 +16,12 @@ package refreshingclient
 
 import (
 	"context"
+	"crypto/tls"
 	"net/http"
 	"net/url"
+	"sync/atomic"
 	"time"
 
-	"github.com/palantir/pkg/refreshable"
 	"github.com/palantir/witchcraft-go-logging/wlog/svclog/svc1log"
 	"golang.org/x/net/http2"
 )
@@ -42,12 +43,21 @@ type TransportParams struct {
 	TLS TLSParams
 }
 
-func NewRefreshableTransport(ctx context.Context, p RefreshableTransportParams, tlsProvider TLSProvider, dialer ContextDialer) http.RoundTripper {
-	return &RefreshableTransport{
-		Refreshable: p.MapTransportParams(func(p TransportParams) interface{} {
-			return newTransport(ctx, p, tlsProvider, dialer)
-		}),
-	}
+func NewRefreshableTransport(ctx context.Context, p RefreshableTransportParams, t RefreshableTLSConfig, dialer ContextDialer) http.RoundTripper {
+	var refreshingTransport RefreshableTransport
+
+	// initialize the transport the first time.
+	refreshingTransport.Update(ctx, p.CurrentTransportParams(), t.GetTLSConfig(ctx), dialer)
+
+	// also subscribe to updates on transport params and the tls provider.
+	p.SubscribeToTransportParams(func(tp TransportParams) {
+		refreshingTransport.Update(ctx, tp, t.GetTLSConfig(ctx), dialer)
+	})
+	t.SubscribeToTLSConfig(func(conf *tls.Config) {
+		refreshingTransport.Update(ctx, p.CurrentTransportParams(), conf, dialer)
+	})
+
+	return &refreshingTransport
 }
 
 // ConfigureTransport accepts a mapping function which will be applied to the params value as it is evaluated.
@@ -61,14 +71,14 @@ func ConfigureTransport(r RefreshableTransportParams, mapFn func(p TransportPara
 // RefreshableTransport implements http.RoundTripper backed by a refreshable *http.Transport.
 // The transport and internal dialer are each rebuilt when any of their respective parameters are updated.
 type RefreshableTransport struct {
-	refreshable.Refreshable // contains *http.Transport
+	atomic.Pointer[http.Transport]
 }
 
 func (r *RefreshableTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	return r.Current().(*http.Transport).RoundTrip(req)
+	return r.Load().RoundTrip(req)
 }
 
-func newTransport(ctx context.Context, p TransportParams, tlsProvider TLSProvider, dialer ContextDialer) *http.Transport {
+func (r *RefreshableTransport) Update(ctx context.Context, p TransportParams, tlsConfig *tls.Config, dialer ContextDialer) {
 	svc1log.FromContext(ctx).Debug("Reconstructing HTTP Transport")
 
 	var transportProxy func(*http.Request) (*url.URL, error)
@@ -78,7 +88,6 @@ func newTransport(ctx context.Context, p TransportParams, tlsProvider TLSProvide
 		transportProxy = http.ProxyFromEnvironment
 	}
 
-	tlsConfig := tlsProvider.GetTLSConfig(ctx)
 	transport := &http.Transport{
 		Proxy:                 transportProxy,
 		DialContext:           dialer.DialContext,
@@ -115,6 +124,5 @@ func newTransport(ctx context.Context, p TransportParams, tlsProvider TLSProvide
 			http2Transport.PingTimeout = p.HTTP2PingTimeout
 		}
 	}
-
-	return transport
+	r.Store(transport)
 }

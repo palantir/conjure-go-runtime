@@ -354,7 +354,7 @@ func WithTLSConfig(conf *tls.Config) ClientOrHTTPClientParam {
 		if conf == nil {
 			b.TLSConfig = nil
 		} else {
-			b.TLSConfig = conf.Clone()
+			b.TLSConfig = refreshingclient.NewStaticTLSConfigProvider(conf.Clone())
 		}
 		return nil
 	})
@@ -366,7 +366,11 @@ func WithTLSConfig(conf *tls.Config) ClientOrHTTPClientParam {
 func WithTLSInsecureSkipVerify() ClientOrHTTPClientParam {
 	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
 		if b.TLSConfig != nil {
-			b.TLSConfig.InsecureSkipVerify = true
+			b.TLSConfig = refreshingclient.ConfigureTLSConfig(b.TLSConfig, func(conf *tls.Config) *tls.Config {
+				conf = conf.Clone()
+				conf.InsecureSkipVerify = true
+				return conf
+			})
 		}
 		b.TransportParams = refreshingclient.ConfigureTransport(b.TransportParams, func(p refreshingclient.TransportParams) refreshingclient.TransportParams {
 			p.TLS.InsecureSkipVerify = true
