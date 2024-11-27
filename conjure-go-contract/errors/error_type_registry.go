@@ -41,7 +41,7 @@ func NewReflectTypeConjureErrorDecoder() *ReflectTypeConjureErrorDecoder {
 }
 
 // ReflectTypeConjureErrorDecoder is a ConjureErrorDecoder that uses reflection to convert JSON errors to their go types.
-// It stores a mapping of error name to
+// It stores a mapping of serialized error name to the go type that should be used to unmarshal the error.
 type ReflectTypeConjureErrorDecoder struct {
 	registry map[string]reflect.Type
 }
