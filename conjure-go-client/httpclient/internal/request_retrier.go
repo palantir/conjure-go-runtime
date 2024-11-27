@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/palantir/pkg/retry"
 )
@@ -100,15 +101,18 @@ func (r *RequestRetrier) GetNextURI(resp *http.Response, respErr error) (uri str
 
 func (r *RequestRetrier) getRetryFn(resp *http.Response, respErr error) func() bool {
 	errCode, _ := StatusCodeFromError(respErr)
-	if retryOther, _ := isThrottleResponse(resp, errCode); retryOther {
+	if isThrottle, duration := isThrottleResponse(resp, respErr); isThrottle {
 		// 429: throttle
+		if duration > 0 {
+			// Sleep for the duration and retry the same URI.
+			return func() bool { return r.nextURIWithRetryAfter(duration) }
+		}
 		// Immediately backoff and select the next URI.
-		// TODO(whickman): use the retry-after header once #81 is resolved
 		return r.nextURIAndBackoff
-	} else if isUnavailableResponse(resp, errCode) {
+	} else if isUnavailableResponse(resp, respErr) {
 		// 503: go to next node
 		return r.nextURIOrBackoff
-	} else if shouldTryOther, otherURI := isRetryOtherResponse(resp, respErr, errCode); shouldTryOther {
+	} else if shouldTryOther, otherURI := isRetryOtherResponse(resp, respErr); shouldTryOther {
 		// 307 or 308: go to next node, or particular node if provided.
 		if otherURI != nil {
 			return func() bool {
@@ -149,6 +153,27 @@ func (r *RequestRetrier) nextURIOrBackoff() bool {
 func (r *RequestRetrier) nextURIAndBackoff() bool {
 	r.markFailedAndMoveToNextURI()
 	return r.retrier.Next()
+}
+
+// Performs a backoff as determined the specified retryAfter value, typically from a 429 response's header.
+// We do not mark the host as failed or rotate the URI so sticky transactional workflows can continue.
+// If the retrier has exhausted its attempts, false is returned without waiting for retryAfter.
+// The final delay will be the longer of the retryAfter and the retrier's backoff.
+// See equivalent in dialogue: https://github.com/palantir/dialogue/blob/14b190859e/dialogue-core/src/main/java/com/palantir/dialogue/core/PinUntilErrorNodeSelectionStrategyChannel.java#L146-L148
+func (r *RequestRetrier) nextURIWithRetryAfter(retryAfter time.Duration) bool {
+	// Run both timers concurrently: one for the retryAfter duration, and one for the retrier's backoff.
+	retryAfterC := time.After(retryAfter)
+	retrierNextC := make(chan bool)
+	go func() {
+		defer close(retrierNextC)
+		retrierNextC <- r.retrier.Next()
+	}()
+	// Wait for retrier to indicate whether next attempt is valid. If so, wait for retryAfter to complete.
+	ok := <-retrierNextC
+	if ok {
+		<-retryAfterC
+	}
+	return ok
 }
 
 func (r *RequestRetrier) markFailedAndMoveToNextURI() {

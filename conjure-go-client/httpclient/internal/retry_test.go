@@ -129,20 +129,19 @@ func TestRetryResponseParsers(t *testing.T) {
 		},
 	} {
 		t.Run(test.Name, func(t *testing.T) {
-			errCode, _ := StatusCodeFromError(test.RespErr)
-			isRetryOther, retryOtherURL := isRetryOtherResponse(test.Response, test.RespErr, errCode)
+			isRetryOther, retryOtherURL := isRetryOtherResponse(test.Response, test.RespErr)
 			if assert.Equal(t, test.IsRetryOther, isRetryOther) && test.RetryOtherURL != "" {
 				if assert.NotNil(t, retryOtherURL) {
 					assert.Equal(t, test.RetryOtherURL, retryOtherURL.String())
 				}
 			}
 
-			isThrottle, throttleDur := isThrottleResponse(test.Response, errCode)
+			isThrottle, throttleDur := isThrottleResponse(test.Response, test.RespErr)
 			if assert.Equal(t, test.IsThrottle, isThrottle) {
 				assert.WithinDuration(t, time.Now().Add(test.ThrottleDuration), time.Now().Add(throttleDur), time.Second)
 			}
 
-			isUnavailable := isUnavailableResponse(test.Response, errCode)
+			isUnavailable := isUnavailableResponse(test.Response, test.RespErr)
 			assert.Equal(t, test.IsUnavailable, isUnavailable)
 		})
 	}

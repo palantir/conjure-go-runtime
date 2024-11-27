@@ -15,7 +15,7 @@
 package httpclient
 
 import (
-	"io/ioutil"
+	"io"
 	"net/http"
 	"strings"
 
@@ -23,6 +23,7 @@ import (
 	"github.com/palantir/conjure-go-runtime/v2/conjure-go-contract/codecs"
 	"github.com/palantir/conjure-go-runtime/v2/conjure-go-contract/errors"
 	werror "github.com/palantir/witchcraft-go-error"
+	wparams "github.com/palantir/witchcraft-go-params"
 )
 
 // ErrorDecoder implementations declare whether or not they should be used to handle certain http responses, and return
@@ -79,34 +80,45 @@ func (d restErrorDecoder) DecodeError(resp *http.Response) error {
 		"statusCode": resp.StatusCode,
 	}
 	unsafeParams := map[string]interface{}{}
-	if resp.StatusCode >= http.StatusTemporaryRedirect &&
-		resp.StatusCode < http.StatusBadRequest {
+
+	if resp.StatusCode >= http.StatusTemporaryRedirect && resp.StatusCode < http.StatusBadRequest {
 		location, err := resp.Location()
 		if err == nil {
 			unsafeParams["location"] = location.String()
 		}
 	}
-	wSafeParams := werror.SafeParams(safeParams)
-	wUnsafeParams := werror.UnsafeParams(unsafeParams)
+	wParams := wparams.NewSafeAndUnsafeParamStorer(safeParams, unsafeParams)
 
 	// TODO(#98): If a byte buffer pool is configured, use it to avoid an allocation.
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return werror.Wrap(err, "server returned an error and failed to read body", wSafeParams, wUnsafeParams)
+		return werror.Wrap(err, "server returned an error and failed to read body", werror.Params(wParams))
 	}
-	if len(body) == 0 {
-		return werror.Error(resp.Status, wSafeParams, wUnsafeParams)
+	if len(body) > 0 {
+		// If JSON, try to unmarshal as conjure error
+		if isJSON := strings.Contains(resp.Header.Get("Content-Type"), codecs.JSON.ContentType()); isJSON {
+			conjureErr, _ := errors.UnmarshalError(body)
+			if conjureErr != nil {
+				return werror.Wrap(conjureErr, "", werror.Params(wParams))
+			}
+		}
+		wParams = wparams.NewParamStorer(wParams, wparams.NewUnsafeParam("responseBody", string(body)))
 	}
 
-	// If JSON, try to unmarshal as conjure error
-	if isJSON := strings.Contains(resp.Header.Get("Content-Type"), codecs.JSON.ContentType()); !isJSON {
-		return werror.Error(resp.Status, wSafeParams, wUnsafeParams, werror.UnsafeParam("responseBody", string(body)))
+	// If a recognized Quality of Service (Qos) status, use the corresponding error type
+
+	if resp.StatusCode == http.StatusPermanentRedirect {
+		return werror.Wrap(errors.QOSRetryOther{Location: resp.Header.Get("Location")}, "", werror.Params(wParams))
 	}
-	conjureErr, jsonErr := errors.UnmarshalError(body)
-	if jsonErr != nil {
-		return werror.Error(resp.Status, wSafeParams, wUnsafeParams, werror.UnsafeParam("responseBody", string(body)))
+	if resp.StatusCode == http.StatusTooManyRequests {
+		return werror.Wrap(errors.QOSThrottleFromHeader(resp.Header), "", werror.Params(wParams))
 	}
-	return werror.Wrap(conjureErr, "", wSafeParams, wUnsafeParams)
+	if resp.StatusCode == http.StatusServiceUnavailable {
+		return werror.Wrap(errors.QOSUnavailable{}, "", werror.Params(wParams))
+	}
+
+	// As a fallback, wrap with the status text
+	return werror.Error(resp.Status, werror.Params(wParams))
 }
 
 // StatusCodeFromError wraps the internal StatusCodeFromError func. For behavior details, see its docs.
