@@ -36,14 +36,14 @@ func (c codecGZIP) Accept() string {
 	return c.contentCodec.Accept()
 }
 
-func (c codecGZIP) Decode(r io.Reader, v interface{}) (err error) {
+func (c codecGZIP) Decode(r io.Reader, v interface{}) (rErr error) {
 	gzipReader, err := gzip.NewReader(r)
 	if err != nil {
 		return fmt.Errorf("failed to create gzip reader: %w", err)
 	}
 	defer func() {
-		if closeErr := gzipReader.Close(); err == nil && closeErr != nil {
-			err = closeErr
+		if closeErr := gzipReader.Close(); rErr == nil && closeErr != nil {
+			rErr = closeErr
 		}
 	}()
 	return c.contentCodec.Decode(gzipReader, v)
@@ -57,11 +57,11 @@ func (c codecGZIP) ContentType() string {
 	return c.contentCodec.ContentType()
 }
 
-func (c codecGZIP) Encode(w io.Writer, v interface{}) (err error) {
+func (c codecGZIP) Encode(w io.Writer, v interface{}) (rErr error) {
 	gzipWriter := gzip.NewWriter(w)
 	defer func() {
-		if closeErr := gzipWriter.Close(); err == nil && closeErr != nil {
-			err = closeErr
+		if closeErr := gzipWriter.Close(); rErr == nil && closeErr != nil {
+			rErr = closeErr
 		}
 	}()
 	return c.contentCodec.Encode(gzipWriter, v)

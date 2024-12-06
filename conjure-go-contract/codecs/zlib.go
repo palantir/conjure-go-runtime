@@ -36,16 +36,16 @@ func (c codecZLIB) Accept() string {
 	return c.contentCodec.Accept()
 }
 
-func (c codecZLIB) Decode(r io.Reader, v interface{}) (err error) {
+func (c codecZLIB) Decode(r io.Reader, v interface{}) (rErr error) {
 	zlibReader, err := zlib.NewReader(r)
-	defer func() {
-		if closeErr := zlibReader.Close(); err == nil && closeErr != nil {
-			err = closeErr
-		}
-	}()
 	if err != nil {
 		return fmt.Errorf("failed to create zlib reader: %s", err.Error())
 	}
+	defer func() {
+		if closeErr := zlibReader.Close(); rErr == nil && closeErr != nil {
+			rErr = closeErr
+		}
+	}()
 	return c.contentCodec.Decode(zlibReader, v)
 }
 
@@ -57,11 +57,11 @@ func (c codecZLIB) ContentType() string {
 	return c.contentCodec.ContentType()
 }
 
-func (c codecZLIB) Encode(w io.Writer, v interface{}) (err error) {
+func (c codecZLIB) Encode(w io.Writer, v interface{}) (rErr error) {
 	zlibWriter := zlib.NewWriter(w)
 	defer func() {
-		if closeErr := zlibWriter.Close(); err == nil && closeErr != nil {
-			err = closeErr
+		if closeErr := zlibWriter.Close(); rErr == nil && closeErr != nil {
+			rErr = closeErr
 		}
 	}()
 	return c.contentCodec.Encode(zlibWriter, v)
@@ -73,5 +73,5 @@ func (c codecZLIB) Marshal(v interface{}) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return bytes.TrimSuffix(buffer.Bytes(), []byte{'\n'}), nil
+	return buffer.Bytes(), nil
 }
