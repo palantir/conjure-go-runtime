@@ -37,14 +37,9 @@ type ContextDialer interface {
 }
 
 func NewRefreshableDialer(ctx context.Context, p RefreshableDialerParams) ContextDialer {
-	rebuild := false
 	return &RefreshableDialer{
 		Refreshable: p.MapDialerParams(func(p DialerParams) interface{} {
-			if rebuild {
-				svc1log.FromContext(ctx).Debug("Reconstructing HTTP Dialer")
-			} else {
-				rebuild = true
-			}
+			svc1log.FromContext(ctx).Debug("Reconstructing HTTP Dialer")
 			dialer := &net.Dialer{
 				Timeout:   p.DialTimeout,
 				KeepAlive: p.KeepAlive,

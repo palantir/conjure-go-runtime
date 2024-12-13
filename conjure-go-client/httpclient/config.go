@@ -338,19 +338,19 @@ func newValidatedClientParamsFromConfig(ctx context.Context, config ClientConfig
 		maxAttempts = newPtr(*config.MaxNumRetries + 1)
 	}
 
-	var timeout time.Duration
-	if config.ReadTimeout == nil && config.WriteTimeout == nil {
-		timeout = defaultHTTPTimeout
-	} else if config.ReadTimeout == nil {
-		timeout = *config.WriteTimeout
-	} else if config.WriteTimeout == nil {
-		timeout = *config.ReadTimeout
-	} else {
+	timeout := defaultHTTPTimeout
+	if config.ReadTimeout != nil || config.WriteTimeout != nil {
+		rt := derefPtr(config.ReadTimeout, 0)
+		wt := derefPtr(config.WriteTimeout, 0)
 		// return max of read and write
-		timeout = max(*config.ReadTimeout, *config.WriteTimeout)
+		if rt > wt {
+			timeout = rt
+		} else {
+			timeout = wt
+		}
 	}
 
-	var uris []string
+	uris := make([]string, 0, len(config.URIs))
 	for _, uriStr := range config.URIs {
 		if uriStr == "" {
 			continue

@@ -42,20 +42,9 @@ type TransportParams struct {
 	TLS TLSParams
 }
 
-func NewRefreshableTransport(
-	ctx context.Context,
-	transportParams RefreshableTransportParams,
-	tlsProvider TLSProvider,
-	dialer ContextDialer,
-) http.RoundTripper {
-	rebuild := false
+func NewRefreshableTransport(ctx context.Context, p RefreshableTransportParams, tlsProvider TLSProvider, dialer ContextDialer) http.RoundTripper {
 	return &RefreshableTransport{
-		Refreshable: transportParams.MapTransportParams(func(p TransportParams) interface{} {
-			if rebuild {
-				svc1log.FromContext(ctx).Debug("Reconstructing HTTP Transport")
-			} else {
-				rebuild = true
-			}
+		Refreshable: p.MapTransportParams(func(p TransportParams) interface{} {
 			return newTransport(ctx, p, tlsProvider, dialer)
 		}),
 	}
@@ -72,6 +61,7 @@ func (r *RefreshableTransport) RoundTrip(req *http.Request) (*http.Response, err
 }
 
 func newTransport(ctx context.Context, p TransportParams, tlsProvider TLSProvider, dialer ContextDialer) *http.Transport {
+	svc1log.FromContext(ctx).Debug("Reconstructing HTTP Transport")
 
 	var transportProxy func(*http.Request) (*url.URL, error)
 	if p.HTTPProxyURL != nil {
