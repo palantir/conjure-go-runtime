@@ -169,7 +169,7 @@ func newClient(ctx context.Context, config RefreshableClientConfig, b *clientBui
 	if !b.AllowEmptyURIs {
 		// Validate that the URIs are not empty.
 		if curr := validParams.CurrentValidatedClientParams(); len(curr.URIs) == 0 {
-			return nil, werror.ErrorWithContextParams(ctx, "httpclient URLs must be set in configuration or by constructor param",
+			return nil, werror.ErrorWithContextParams(ctx, "httpclient URIs must be set in configuration or by constructor param",
 				werror.SafeParam("serviceName", curr.ServiceName))
 		}
 	}

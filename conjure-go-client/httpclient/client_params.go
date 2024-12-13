@@ -33,7 +33,7 @@ type ClientParam interface {
 }
 
 // HTTPClientParam is an interface that seals optional parameters used by NewHTTPClient and its variants.
-// These params (generally) operate on the http.Transport and do not modify the http.Request itself./
+// These params (generally) operate on the http.Transport and do not modify the http.Request itself.
 type HTTPClientParam interface {
 	applyHTTPClient(builder *httpClientBuilder) error
 }
@@ -72,6 +72,9 @@ func (f clientOrHTTPClientParamFunc) applyHTTPClient(b *httpClientBuilder) error
 	return f(b)
 }
 
+// configOverrideClientParamFunc constructs a ClientOrHTTPClientParam that modifies a ClientConfig pointer.
+// If provided to NewClient or NewHTTPClient, these parameters will be applied to the ClientConfig before the client is built
+// and will override any values set in the refreshable configuration.
 func configOverrideClientParamFunc(override func(c *ClientConfig)) clientOrHTTPClientParamFunc {
 	return func(b *httpClientBuilder) error {
 		b.ConfigOverride = append(b.ConfigOverride, override)
