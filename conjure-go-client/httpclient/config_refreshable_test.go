@@ -107,7 +107,7 @@ func TestRefreshableClientConfig(t *testing.T) {
 		}
 		refreshableClientConfig := RefreshableClientConfigFromServiceConfig(refreshableServicesConfig, serviceName)
 		client, err := NewClientFromRefreshableConfig(context.Background(), refreshableClientConfig)
-		require.EqualError(t, err, "httpclient URLs must not be empty")
+		require.EqualError(t, err, "httpclient URLs must be set in configuration or by constructor param")
 		require.Nil(t, client)
 
 		client, err = NewClientFromRefreshableConfig(context.Background(), refreshableClientConfig, WithBaseURLs([]string{"https://localhost"}))
