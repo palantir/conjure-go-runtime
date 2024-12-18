@@ -16,8 +16,11 @@ package httpclient_test
 
 import (
 	"context"
+	"encoding/base64"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -113,5 +116,205 @@ func TestRoundTripperWithBasicAuthProvider(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, resp)
 	assert.True(t, wrappedRTInvoked)
+}
 
+func TestAuthHeaders(t *testing.T) {
+	username, password, token := "user", "pass", "eyJ..."
+	apiTokenFile := filepath.Join(t.TempDir(), "token.txt")
+	require.NoError(t, os.WriteFile(apiTokenFile, []byte(token), 0600))
+
+	noAuthServer := func(t *testing.T) *httptest.Server {
+		return httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+			if assert.NotContains(t, req.Header, "Authorization") {
+				rw.WriteHeader(http.StatusOK)
+			} else {
+				rw.WriteHeader(http.StatusUnauthorized)
+			}
+		}))
+	}
+	basicAuthServer := func(t *testing.T) *httptest.Server {
+		basicAuthHeader := "Basic " + base64.StdEncoding.EncodeToString([]byte(username+":"+password))
+		return httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+			if assert.Equal(t, basicAuthHeader, req.Header.Get("Authorization")) {
+				rw.WriteHeader(http.StatusOK)
+			} else {
+				rw.WriteHeader(http.StatusUnauthorized)
+			}
+		}))
+	}
+	bearerAuthServer := func(t *testing.T) *httptest.Server {
+		bearerAuthHeader := "Bearer " + token
+		return httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+			if assert.Equal(t, bearerAuthHeader, req.Header.Get("Authorization")) {
+				rw.WriteHeader(http.StatusOK)
+			} else {
+				rw.WriteHeader(http.StatusUnauthorized)
+			}
+		}))
+	}
+
+	for _, tc := range []struct {
+		Name          string
+		Server        func(t *testing.T) *httptest.Server
+		Config        httpclient.ClientConfig
+		ClientParams  []httpclient.ClientOrHTTPClientParam
+		RequestParams []httpclient.RequestParam
+	}{
+		{
+			Name:   "NoAuth",
+			Server: noAuthServer,
+		},
+		// Basic Auth
+		{
+			Name:   "BasicAuth config",
+			Server: basicAuthServer,
+			Config: httpclient.ClientConfig{BasicAuth: &httpclient.BasicAuth{User: username, Password: password}},
+		},
+		{
+			Name:         "WithBasicAuth param",
+			Server:       basicAuthServer,
+			ClientParams: []httpclient.ClientOrHTTPClientParam{httpclient.WithBasicAuth(username, password)},
+		},
+		{
+			Name:   "WithBasicAuthProvider param",
+			Server: basicAuthServer,
+			ClientParams: []httpclient.ClientOrHTTPClientParam{httpclient.WithBasicAuthProvider(func(ctx context.Context) (httpclient.BasicAuth, error) {
+				return httpclient.BasicAuth{User: username, Password: password}, nil
+			})},
+		},
+		{
+			Name:   "WithBasicAuthOptionalProvider present",
+			Server: basicAuthServer,
+			ClientParams: []httpclient.ClientOrHTTPClientParam{httpclient.WithBasicAuthOptionalProvider(func(ctx context.Context) (*httpclient.BasicAuth, error) {
+				return &httpclient.BasicAuth{User: username, Password: password}, nil
+			})},
+		},
+		{
+			Name:   "WithBasicAuthOptionalProvider absent",
+			Server: noAuthServer,
+			ClientParams: []httpclient.ClientOrHTTPClientParam{httpclient.WithBasicAuthOptionalProvider(func(ctx context.Context) (*httpclient.BasicAuth, error) {
+				return nil, nil
+			})},
+		},
+		{
+			Name:         "WithBasicAuth param beats basic config",
+			Server:       basicAuthServer,
+			Config:       httpclient.ClientConfig{BasicAuth: &httpclient.BasicAuth{User: "wrong", Password: "wrong"}},
+			ClientParams: []httpclient.ClientOrHTTPClientParam{httpclient.WithBasicAuth(username, password)},
+		},
+		{
+			Name:         "WithBasicAuth param beats bearer config",
+			Server:       basicAuthServer,
+			Config:       httpclient.ClientConfig{APIToken: &token},
+			ClientParams: []httpclient.ClientOrHTTPClientParam{httpclient.WithBasicAuth(username, password)},
+		},
+		// Bearer tokens
+		{
+			Name:   "APIToken config",
+			Server: bearerAuthServer,
+			Config: httpclient.ClientConfig{APIToken: &token},
+		},
+		{
+			Name:   "APITokenFile config",
+			Server: bearerAuthServer,
+			Config: httpclient.ClientConfig{APITokenFile: &apiTokenFile},
+		},
+		{
+			Name:         "WithAuthToken param",
+			Server:       bearerAuthServer,
+			ClientParams: []httpclient.ClientOrHTTPClientParam{httpclient.WithAuthToken(token)},
+		},
+		{
+			Name:         "WithAuthToken param beats basic config",
+			Server:       bearerAuthServer,
+			Config:       httpclient.ClientConfig{BasicAuth: &httpclient.BasicAuth{User: "wrong", Password: "wrong"}},
+			ClientParams: []httpclient.ClientOrHTTPClientParam{httpclient.WithAuthToken(token)},
+		},
+		{
+			Name:   "WithAuthTokenProvider param",
+			Server: bearerAuthServer,
+			ClientParams: []httpclient.ClientOrHTTPClientParam{httpclient.WithAuthTokenProvider(func(ctx context.Context) (string, error) {
+				return token, nil
+			})},
+		},
+		// WithRequest*
+		{
+			Name:          "WithRequestBasicAuth param",
+			Server:        basicAuthServer,
+			RequestParams: []httpclient.RequestParam{httpclient.WithRequestBasicAuth(username, password)},
+		},
+		{
+			Name:          "WithRequestBasicAuth param beats config basic",
+			Server:        basicAuthServer,
+			Config:        httpclient.ClientConfig{BasicAuth: &httpclient.BasicAuth{User: "wrong", Password: "wrong"}},
+			RequestParams: []httpclient.RequestParam{httpclient.WithRequestBasicAuth(username, password)},
+		},
+		{
+			Name:          "WithRequestBasicAuth param beats config bearer",
+			Server:        basicAuthServer,
+			Config:        httpclient.ClientConfig{APIToken: &token},
+			RequestParams: []httpclient.RequestParam{httpclient.WithRequestBasicAuth(username, password)},
+		},
+		{
+			Name:          "WithRequestBasicAuth param beats param basic",
+			Server:        basicAuthServer,
+			ClientParams:  []httpclient.ClientOrHTTPClientParam{httpclient.WithBasicAuth("wrong", "wrong")},
+			RequestParams: []httpclient.RequestParam{httpclient.WithRequestBasicAuth(username, password)},
+		},
+		{
+			Name:          "WithRequestBasicAuth param beats param bearer",
+			Server:        basicAuthServer,
+			ClientParams:  []httpclient.ClientOrHTTPClientParam{httpclient.WithAuthToken(token)},
+			RequestParams: []httpclient.RequestParam{httpclient.WithRequestBasicAuth(username, password)},
+		},
+	} {
+		t.Run(tc.Name, func(t *testing.T) {
+			t.Run("httpclient.Client", func(t *testing.T) {
+				server := tc.Server(t)
+				defer server.Close()
+				cfg := tc.Config
+				cfg.URIs = []string{server.URL}
+				clientParams := []httpclient.ClientParam{httpclient.WithConfig(cfg)}
+				for _, p := range tc.ClientParams {
+					clientParams = append(clientParams, p)
+				}
+
+				client, err := httpclient.NewClient(clientParams...)
+				require.NoError(t, err)
+
+				var requestParams []httpclient.RequestParam
+				for _, p := range tc.RequestParams {
+					requestParams = append(requestParams, p)
+				}
+
+				resp, err := client.Get(context.Background(), requestParams...)
+				require.NoError(t, err)
+				require.NotNil(t, resp)
+				require.NoError(t, resp.Body.Close())
+				require.EqualValues(t, 200, resp.StatusCode)
+			})
+
+			// if testing request params, don't run the *http.Client test
+			if tc.RequestParams == nil {
+				t.Run("*http.Client", func(t *testing.T) {
+					server := tc.Server(t)
+					defer server.Close()
+					cfg := tc.Config
+					clientParams := []httpclient.HTTPClientParam{httpclient.WithConfigForHTTPClient(cfg)}
+					for _, p := range tc.ClientParams {
+						clientParams = append(clientParams, p)
+					}
+
+					client, err := httpclient.NewHTTPClient(clientParams...)
+					require.NoError(t, err)
+
+					resp, err := client.Get(server.URL)
+					require.NoError(t, err)
+					require.NotNil(t, resp)
+					require.NoError(t, resp.Body.Close())
+					require.EqualValues(t, 200, resp.StatusCode)
+				})
+			}
+		})
+	}
 }

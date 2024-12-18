@@ -15,9 +15,11 @@
 package httpclient
 
 import (
+	"context"
 	"crypto/tls"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"testing"
@@ -164,6 +166,106 @@ func TestBuilder(t *testing.T) {
 			client, err := NewClient(urls, test.Param)
 			require.NoError(t, err)
 			test.Test(t, client.(*clientImpl))
+		})
+	}
+}
+
+func TestMiddlewareOrdering(t *testing.T) {
+	for _, tc := range []struct {
+		Name          string
+		Config        ClientConfig
+		ClientParams  []ClientParam
+		RequestParams []RequestParam
+		ExpectHeaders http.Header
+	}{
+		{
+			Name:          "no middleware",
+			ExpectHeaders: http.Header{},
+		},
+		{
+			Name:         "WithSetHeader middleware",
+			ClientParams: []ClientParam{WithSetHeader("X-Test", "value1"), WithSetHeader("X-Test", "value2")},
+			ExpectHeaders: http.Header{
+				"X-Test": []string{"value2"},
+			},
+		},
+		{
+			Name:         "WithAddHeader middleware",
+			ClientParams: []ClientParam{WithAddHeader("X-Test", "value1"), WithAddHeader("X-Test", "value2")},
+			ExpectHeaders: http.Header{
+				"X-Test": []string{"value1", "value2"},
+			},
+		},
+		{
+			Name:         "WithAddHeader adds to WithSetHeader middleware",
+			ClientParams: []ClientParam{WithSetHeader("X-Test", "value1"), WithAddHeader("X-Test", "value2")},
+			ExpectHeaders: http.Header{
+				"X-Test": []string{"value1", "value2"},
+			},
+		},
+		{
+			Name:         "WithSetHeader overwrites WithAddHeader middleware",
+			ClientParams: []ClientParam{WithAddHeader("X-Test", "value1"), WithSetHeader("X-Test", "value2")},
+			ExpectHeaders: http.Header{
+				"X-Test": []string{"value2"},
+			},
+		},
+		{
+			Name:          "WithHeader request param overwrites WithAddHeader middleware",
+			ClientParams:  []ClientParam{WithAddHeader("X-Test", "value1")},
+			RequestParams: []RequestParam{WithHeader("X-Test", "value2")},
+			ExpectHeaders: http.Header{
+				"X-Test": []string{"value2"},
+			},
+		},
+		{
+			Name: "WithInnerMiddleware overwrites WithAddHeader middleware",
+			ClientParams: []ClientParam{
+				WithAddHeader("X-Test", "value1"),
+				WithInnerMiddleware(MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+					req.Header.Set("X-Test", "value2")
+					return next.RoundTrip(req)
+				})),
+			},
+			ExpectHeaders: http.Header{
+				"X-Test": []string{"value2"},
+			},
+		},
+		{
+			Name: "WithAddHeader middleware adds to WithInnerMiddleware",
+			ClientParams: []ClientParam{
+				WithInnerMiddleware(MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+					req.Header.Set("X-Test", "value1")
+					return next.RoundTrip(req)
+				})),
+				WithAddHeader("X-Test", "value2"),
+			},
+			ExpectHeaders: http.Header{
+				"X-Test": []string{"value1", "value2"},
+			},
+		},
+	} {
+		t.Run(tc.Name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+				delete(req.Header, "Accept-Encoding")
+				delete(req.Header, "User-Agent")
+				assert.Equal(t, tc.ExpectHeaders, req.Header)
+			}))
+			defer server.Close()
+			cfg := tc.Config
+			cfg.URIs = []string{server.URL}
+			clientParams := []ClientParam{WithConfig(cfg)}
+			for _, p := range tc.ClientParams {
+				clientParams = append(clientParams, p)
+			}
+
+			client, err := NewClient(clientParams...)
+			require.NoError(t, err)
+
+			resp, err := client.Get(context.Background(), tc.RequestParams...)
+			require.NoError(t, err)
+			require.NotNil(t, resp)
+			require.EqualValues(t, http.StatusOK, resp.StatusCode)
 		})
 	}
 }
