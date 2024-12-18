@@ -18,7 +18,6 @@ import (
 	"context"
 	"net/http"
 	"net/url"
-	"strings"
 
 	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient/internal"
 	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient/internal/refreshingclient"
@@ -145,7 +144,11 @@ func (c *clientImpl) doOnce(
 	if b.method == "" {
 		return nil, false, werror.ErrorWithContextParams(ctx, "httpclient: use WithRequestMethod() to specify HTTP method")
 	}
-	reqURI := joinURIAndPath(baseURI, b.path)
+	baseURL, err := url.Parse(baseURI)
+	if err != nil {
+		return nil, false, werror.WrapWithContextParams(ctx, err, "invalid URL")
+	}
+	reqURI := baseURL.JoinPath(b.path).String()
 	req, err := http.NewRequestWithContext(ctx, b.method, reqURI, nil)
 	if err != nil {
 		return nil, false, werror.WrapWithContextParams(ctx, err, "failed to build new HTTP request")
@@ -228,12 +231,4 @@ func unwrapURLError(ctx context.Context, respErr error) error {
 	}
 
 	return werror.WrapWithContextParams(ctx, urlErr.Err, "httpclient request failed", params...)
-}
-
-func joinURIAndPath(baseURI, reqPath string) string {
-	fullURI := strings.TrimRight(baseURI, "/")
-	if reqPath != "" {
-		fullURI += "/" + strings.TrimLeft(reqPath, "/")
-	}
-	return fullURI
 }
