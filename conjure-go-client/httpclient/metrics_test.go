@@ -213,9 +213,14 @@ func TestMetricsMiddleware_HTTPClient(t *testing.T) {
 }
 
 func TestMetricsMiddleware_ClientTimeout(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		time.Sleep(time.Second)
-		w.WriteHeader(200)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		select {
+		case <-req.Context().Done():
+			// client timed out and closed connection
+			return
+		case <-time.After(5 * time.Second):
+			assert.Fail(t, "timeout waiting for client to close connection")
+		}
 	}))
 	defer srv.Close()
 

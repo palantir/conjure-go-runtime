@@ -21,7 +21,6 @@ import (
 	"net/http"
 
 	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient/internal/refreshingclient"
-	"github.com/palantir/pkg/refreshable"
 )
 
 // TokenProvider accepts a context and returns either:
@@ -50,17 +49,6 @@ func (h *authTokenMiddleware) RoundTrip(req *http.Request, next http.RoundTrippe
 	return next.RoundTrip(req)
 }
 
-func newAuthTokenMiddlewareFromRefreshable(token refreshable.StringPtr) Middleware {
-	return &authTokenMiddleware{
-		provideToken: func(ctx context.Context) (string, error) {
-			if s := token.CurrentStringPtr(); s != nil {
-				return *s, nil
-			}
-			return "", nil
-		},
-	}
-}
-
 // BasicAuthProvider accepts a context and returns either:
 //
 // (1) a nonempty BasicAuth and a nil error, or
@@ -77,13 +65,40 @@ type BasicAuthProvider func(context.Context) (BasicAuth, error)
 // (3) a nil BasicAuth and a non-nil error.
 type BasicAuthOptionalProvider func(context.Context) (*BasicAuth, error)
 
-func newBasicAuthMiddlewareFromRefreshable(auth refreshingclient.RefreshableBasicAuthPtr) Middleware {
-	return MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
-		if basicAuth := auth.CurrentBasicAuthPtr(); basicAuth != nil {
-			setBasicAuth(req.Header, basicAuth.User, basicAuth.Password)
-		}
-		return next.RoundTrip(req)
-	})
+type basicAuthMiddleware struct {
+	provideBasicAuth BasicAuthOptionalProvider
+}
+
+func (b basicAuthMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+	basicAuth, err := b.provideBasicAuth(req.Context())
+	if err != nil {
+		return nil, err
+	}
+	if basicAuth != nil {
+		setBasicAuth(req.Header, basicAuth.User, basicAuth.Password)
+	}
+	return next.RoundTrip(req)
+}
+
+type refreshableConfigAuthHeaderMiddleware struct {
+	cfg refreshingclient.RefreshableValidatedClientParams
+}
+
+// newRefreshableConfigAuthHeaderMiddleware returns a new Middleware that sets the Authorization header using the
+// current API token or BasicAuth credentials from the provided RefreshableValidatedClientParams. If the request already
+// has an Authorization header (e.g. set by a different Middleware), it will not be overwritten.
+func newRefreshableConfigAuthHeaderMiddleware(cfg refreshingclient.RefreshableValidatedClientParams) Middleware {
+	return &refreshableConfigAuthHeaderMiddleware{cfg: cfg}
+}
+
+func (r *refreshableConfigAuthHeaderMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+	curr := r.cfg.CurrentValidatedClientParams()
+	if curr.APIToken != nil {
+		req.Header.Set("Authorization", "Bearer "+*curr.APIToken)
+	} else if curr.BasicAuth != nil {
+		setBasicAuth(req.Header, curr.BasicAuth.User, curr.BasicAuth.Password)
+	}
+	return next.RoundTrip(req)
 }
 
 func setBasicAuth(h http.Header, username, password string) {

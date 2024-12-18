@@ -81,7 +81,8 @@ type httpClientBuilder struct {
 	DisableTraceHeaders bool
 }
 
-func (b *httpClientBuilder) Build(ctx context.Context, config RefreshableClientConfig, reloadErrorSubmitter func(error), params ...HTTPClientParam) (RefreshableHTTPClient, refreshingclient.RefreshableValidatedClientParams, error) {
+// Build returns a RoundTripper and the refreshable validated client params it's based on.
+func (b *httpClientBuilder) Build(ctx context.Context, config RefreshableClientConfig, reloadErrorSubmitter func(error), params ...HTTPClientParam) (http.RoundTripper, refreshingclient.RefreshableValidatedClientParams, error) {
 	for _, p := range params {
 		if p == nil {
 			continue
@@ -121,10 +122,8 @@ func (b *httpClientBuilder) Build(ctx context.Context, config RefreshableClientC
 	if !b.DisableRecovery {
 		transport = wrapTransport(transport, recoveryMiddleware{})
 	}
-	transport = wrapTransport(transport, b.Middlewares...)
 
-	client := refreshingclient.NewRefreshableHTTPClient(transport, validParams.Timeout())
-	return client, validParams, nil
+	return transport, validParams, nil
 }
 
 // NewClient returns a configured client ready for use.
@@ -158,13 +157,11 @@ func newClient(ctx context.Context, config RefreshableClientConfig, b *clientBui
 		edm = errorDecoderMiddleware{errorDecoder: b.ErrorDecoder}
 	}
 
-	middleware := b.HTTP.Middlewares
-	b.HTTP.Middlewares = nil
-
-	httpClient, validParams, err := b.HTTP.Build(ctx, config, reloadErrorSubmitter)
+	transport, validParams, err := b.HTTP.Build(ctx, config, reloadErrorSubmitter)
 	if err != nil {
 		return nil, err
 	}
+	httpClient := refreshingclient.NewRefreshableHTTPClient(transport, validParams.Timeout())
 
 	if !b.AllowEmptyURIs {
 		// Validate that the URIs are not empty.
@@ -185,9 +182,13 @@ func newClient(ctx context.Context, config RefreshableClientConfig, b *clientBui
 		return b.URIScorerBuilder(uris)
 	})
 
-	middleware = append(middleware,
-		newAuthTokenMiddlewareFromRefreshable(validParams.APIToken()),
-		newBasicAuthMiddlewareFromRefreshable(validParams.BasicAuth()))
+	// Move the user-configured middlewares from the http.Client to the clientImpl struct
+	// before httpClientBuilder.Build so they can be wrapped in the correct layer
+	// of the Client transport stack (outside error decoder and inside body middleware).
+	middleware := b.HTTP.Middlewares
+	// Prepend the auth header middleware to the middleware stack.
+	// If a user-provided middleware sets an Authorization header, it will take precedence over a value from configuration.
+	middleware = append(middleware, newRefreshableConfigAuthHeaderMiddleware(validParams))
 
 	return &clientImpl{
 		serviceName:            validParams.ServiceName(),
@@ -221,8 +222,15 @@ type RefreshableHTTPClient = refreshingclient.RefreshableHTTPClient
 // The RefreshableClientConfig is not accepted as a client param because there must be exactly one
 // subscription used to build the ValidatedClientParams in Build().
 func NewHTTPClientFromRefreshableConfig(ctx context.Context, config RefreshableClientConfig, params ...HTTPClientParam) (RefreshableHTTPClient, error) {
-	client, _, err := new(httpClientBuilder).Build(ctx, config, nil, params...)
-	return client, err
+	b := &httpClientBuilder{}
+	transport, validParams, err := b.Build(ctx, config, nil, params...)
+	if err != nil {
+		return nil, err
+	}
+	transport = wrapTransport(transport, b.Middlewares...)
+	transport = wrapTransport(transport, newRefreshableConfigAuthHeaderMiddleware(validParams))
+	httpClient := refreshingclient.NewRefreshableHTTPClient(transport, validParams.Timeout())
+	return httpClient, nil
 }
 
 // Map the final config to a set of validated client params used to build the dialer, retrier, tls config, and transport.
