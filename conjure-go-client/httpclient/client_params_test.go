@@ -244,6 +244,35 @@ func TestMiddlewareOrdering(t *testing.T) {
 				"X-Test": []string{"value1", "value2"},
 			},
 		},
+		{
+			Name: "WithInnerMiddleware adds to WithAddHeader",
+			ClientParams: []ClientParam{
+				WithAddHeader("X-Test", "value1"),
+				WithInnerMiddleware(MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+					req.Header.Add("X-Test", "value2")
+					return next.RoundTrip(req)
+				})),
+			},
+			ExpectHeaders: http.Header{
+				"X-Test": []string{"value1", "value2"},
+			},
+		},
+		{
+			// This test demonstrates the 'wrapping' of WithMiddleware. The outermost middleware
+			// sees the request first, so request modifications are applied in a 'last-applied-first-executed' order.
+			// Note the expected "value2", "value1" output order.
+			Name: "WithMiddleware adds to WithAddHeader",
+			ClientParams: []ClientParam{
+				WithAddHeader("X-Test", "value1"),
+				WithMiddleware(MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+					req.Header.Add("X-Test", "value2")
+					return next.RoundTrip(req)
+				})),
+			},
+			ExpectHeaders: http.Header{
+				"X-Test": []string{"value2", "value1"},
+			},
+		},
 	} {
 		t.Run(tc.Name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
