@@ -110,6 +110,7 @@ func TestCustomBinaryContentType(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
 		assert.Equal(t, "TestNewRequest", req.Header.Get("User-Agent"))
 		assert.Equal(t, "application/protobuf", req.Header.Get("Content-Type"))
+		assert.Equal(t, "application/protobuf", req.Header.Get("Accept"))
 		gotReqBytes, err := io.ReadAll(req.Body)
 		assert.NoError(t, err)
 		assert.Equal(t, gotReqBytes, reqVar)
@@ -127,15 +128,18 @@ func TestCustomBinaryContentType(t *testing.T) {
 	resp, err := client.Do(context.Background(),
 		httpclient.WithRequestMethod(http.MethodPost),
 		httpclient.WithBinaryRequestBody(httpclient.RequestBodyInMemory(bytes.NewBuffer(reqVar))),
+		httpclient.WithRawResponseBody(),
 		httpclient.WithHeader("Content-Type", "application/protobuf"),
+		httpclient.WithHeader("Accept", "application/protobuf"),
 	)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	defer func() {
 		_ = resp.Body.Close()
 	}()
 
-	assert.NotNil(t, resp)
+	require.NotNil(t, resp)
+	require.EqualValues(t, http.StatusOK, resp.StatusCode)
 }
 
 func TestRawRequestRetry(t *testing.T) {
