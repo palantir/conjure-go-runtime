@@ -71,6 +71,7 @@ func TestRawBody(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
 		assert.Equal(t, "TestNewRequest", req.Header.Get("User-Agent"))
+		assert.Equal(t, "application/octet-stream", req.Header.Get("Content-Type"))
 		gotReqBytes, err := io.ReadAll(req.Body)
 		assert.NoError(t, err)
 		assert.Equal(t, gotReqBytes, reqVar)
@@ -90,7 +91,7 @@ func TestRawBody(t *testing.T) {
 		httpclient.WithBinaryRequestBody(httpclient.RequestBodyInMemory(bytes.NewBuffer(reqVar))),
 		httpclient.WithRawResponseBody(),
 	)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	gotRespBytes, err := io.ReadAll(resp.Body)
 	assert.NoError(t, err)
@@ -100,6 +101,45 @@ func TestRawBody(t *testing.T) {
 
 	assert.NotNil(t, resp)
 	assert.Equal(t, respVar, gotRespBytes)
+}
+
+func TestCustomBinaryContentType(t *testing.T) {
+	reqVar := []byte{0x01, 0x00}
+	respVar := []byte{0x00, 0x01}
+
+	server := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		assert.Equal(t, "TestNewRequest", req.Header.Get("User-Agent"))
+		assert.Equal(t, "application/protobuf", req.Header.Get("Content-Type"))
+		assert.Equal(t, "application/protobuf", req.Header.Get("Accept"))
+		gotReqBytes, err := io.ReadAll(req.Body)
+		assert.NoError(t, err)
+		assert.Equal(t, gotReqBytes, reqVar)
+		_, err = rw.Write(respVar)
+		assert.NoError(t, err)
+	}))
+	defer server.Close()
+
+	client, err := httpclient.NewClient(
+		httpclient.WithUserAgent("TestNewRequest"),
+		httpclient.WithBaseURLs([]string{server.URL}),
+	)
+	require.NoError(t, err)
+
+	resp, err := client.Do(context.Background(),
+		httpclient.WithRequestMethod(http.MethodPost),
+		httpclient.WithBinaryRequestBody(httpclient.RequestBodyInMemory(bytes.NewBuffer(reqVar))),
+		httpclient.WithRawResponseBody(),
+		httpclient.WithHeader("Content-Type", "application/protobuf"),
+		httpclient.WithHeader("Accept", "application/protobuf"),
+	)
+	require.NoError(t, err)
+
+	defer func() {
+		_ = resp.Body.Close()
+	}()
+
+	require.NotNil(t, resp)
+	require.EqualValues(t, http.StatusOK, resp.StatusCode)
 }
 
 func TestRawRequestRetry(t *testing.T) {
