@@ -1,0 +1,6 @@
+type: improvement
+improvement:
+  description: WithAllowCreateWithEmptyURIs() suppresses errors due to empty URIs
+    in NewClient()
+  links:
+  - https://github.com/palantir/conjure-go-runtime/pull/693

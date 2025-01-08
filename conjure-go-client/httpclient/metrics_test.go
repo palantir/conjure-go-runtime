@@ -123,7 +123,8 @@ func TestRoundTripperWithMetrics(t *testing.T) {
 			httpclient.WithHTTPTimeout(5*time.Second),
 			httpclient.WithServiceName("my-service"),
 			httpclient.WithMetrics(tagsProviders...),
-			httpclient.WithBaseURLs([]string{serverURLstr}))
+			httpclient.WithBaseURLs([]string{serverURLstr}),
+			httpclient.WithMaxRetries(0))
 		require.NoError(t, err)
 
 		rpcMethodName, expectedMethodNameTag := getRpcNameAndExpectedTag()

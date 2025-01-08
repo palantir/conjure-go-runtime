@@ -18,7 +18,6 @@ import (
 	"context"
 	"net/http"
 	"net/url"
-	"strings"
 
 	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient/internal"
 	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient/internal/refreshingclient"
@@ -50,6 +49,7 @@ type Client interface {
 }
 
 type clientImpl struct {
+	serviceName            refreshable.String
 	client                 RefreshableHTTPClient
 	middlewares            []Middleware
 	errorDecoderMiddleware Middleware
@@ -88,7 +88,7 @@ func (c *clientImpl) Do(ctx context.Context, params ...RequestParam) (*http.Resp
 	}
 	uris := c.uriScorer.CurrentURIScoringMiddleware().GetURIsInOrderOfIncreasingScore(headers)
 	if len(uris) == 0 {
-		return nil, werror.ErrorWithContextParams(ctx, "no base URIs are configured")
+		return nil, werror.WrapWithContextParams(ctx, ErrEmptyURIs, "", werror.SafeParam("serviceName", c.serviceName.CurrentString()))
 	}
 
 	attempts := 2 * len(uris)
@@ -98,23 +98,21 @@ func (c *clientImpl) Do(ctx context.Context, params ...RequestParam) (*http.Resp
 		}
 	}
 
-	var resp *http.Response
-
 	retrier := internal.NewRequestRetrier(uris, c.backoffOptions.CurrentRetryParams().Start(ctx), attempts)
+	uri, isRelocated := retrier.GetNextURI(nil, nil)
 	for {
-		uri, isRelocated := retrier.GetNextURI(resp, err)
+		resp, retryable, err := c.doOnce(ctx, uri, isRelocated, params...)
+		if !retryable {
+			return resp, err
+		}
+		uri, isRelocated = retrier.GetNextURI(resp, err)
 		if uri == "" {
-			break
+			return resp, err
 		}
 		if err != nil {
 			svc1log.FromContext(ctx).Debug("Retrying request", svc1log.Stacktrace(err))
 		}
-		resp, err = c.doOnce(ctx, uri, isRelocated, params...)
 	}
-	if err != nil {
-		return nil, err
-	}
-	return resp, nil
 }
 
 func getHeadersFromRequestParams(params ...RequestParam) (http.Header, error) {
@@ -140,7 +138,7 @@ func (c *clientImpl) doOnce(
 	baseURI string,
 	useBaseURIOnly bool,
 	params ...RequestParam,
-) (*http.Response, error) {
+) (_ *http.Response, retryable bool, _ error) {
 
 	// 1. create the request
 	b := &requestBuilder{
@@ -154,7 +152,7 @@ func (c *clientImpl) doOnce(
 			continue
 		}
 		if err := p.apply(b); err != nil {
-			return nil, err
+			return nil, false, err
 		}
 	}
 	if useBaseURIOnly {
@@ -166,15 +164,18 @@ func (c *clientImpl) doOnce(
 	}
 
 	if b.method == "" {
-		return nil, werror.ErrorWithContextParams(ctx, "httpclient: use WithRequestMethod() to specify HTTP method")
+		return nil, false, werror.ErrorWithContextParams(ctx, "httpclient: use WithRequestMethod() to specify HTTP method")
 	}
-	reqURI := joinURIAndPath(baseURI, b.path)
+	baseURL, err := url.Parse(baseURI)
+	if err != nil {
+		return nil, false, werror.WrapWithContextParams(ctx, err, "invalid URL")
+	}
+	reqURI := baseURL.JoinPath(b.path).String()
 	req, err := http.NewRequestWithContext(ctx, b.method, reqURI, nil)
 	if err != nil {
-		return nil, werror.WrapWithContextParams(ctx, err, "failed to build new HTTP request")
+		return nil, false, werror.WrapWithContextParams(ctx, err, "failed to build new HTTP request")
 	}
 
-	req.Header = b.headers
 	if q := b.query.Encode(); q != "" {
 		req.URL.RawQuery = q
 	}
@@ -195,6 +196,8 @@ func (c *clientImpl) doOnce(
 	// request decoder must precede the client decoder
 	// must precede the body middleware to read the response body
 	transport = wrapTransport(transport, b.errorDecoderMiddleware, c.errorDecoderMiddleware)
+	// must precede client's user-configured middlewares to set request-specific headers
+	transport = wrapTransport(transport, requestHeadersMiddlewareFunc(b.headers))
 	// must precede the body middleware to read the request body
 	transport = wrapTransport(transport, c.middlewares...)
 	// must wrap inner middlewares to mutate the return values
@@ -215,7 +218,17 @@ func (c *clientImpl) doOnce(
 		internal.DrainBody(ctx, resp)
 	}
 
-	return resp, unwrapURLError(ctx, respErr)
+	// doOnce should be retried unless the body specifically indicates it can not be replayed.
+	if respErr != nil {
+		if !b.bodyMiddleware.noRetriesRequestBody() {
+			retryable = true
+		} else {
+			svc1log.FromContext(ctx).Debug("Request body can not be replayed, not retrying.")
+		}
+		return nil, retryable, unwrapURLError(ctx, respErr)
+	}
+
+	return resp, false, nil
 }
 
 // unwrapURLError converts a *url.Error to a werror. We need this because all
@@ -243,10 +256,11 @@ func unwrapURLError(ctx context.Context, respErr error) error {
 	return werror.WrapWithContextParams(ctx, urlErr.Err, "httpclient request failed", params...)
 }
 
-func joinURIAndPath(baseURI, reqPath string) string {
-	fullURI := strings.TrimRight(baseURI, "/")
-	if reqPath != "" {
-		fullURI += "/" + strings.TrimLeft(reqPath, "/")
+func requestHeadersMiddlewareFunc(headers http.Header) MiddlewareFunc {
+	return func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+		for k, v := range headers {
+			req.Header[k] = v
+		}
+		return next.RoundTrip(req)
 	}
-	return fullURI
 }

@@ -24,7 +24,6 @@ import (
 	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient/internal"
 	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient/internal/refreshingclient"
 	"github.com/palantir/pkg/bytesbuffers"
-	"github.com/palantir/pkg/metrics"
 	"github.com/palantir/pkg/refreshable"
 	werror "github.com/palantir/witchcraft-go-error"
 )
@@ -108,11 +107,7 @@ func WithConfigForHTTPClient(c ClientConfig) HTTPClientParam {
 
 func WithServiceName(serviceName string) ClientOrHTTPClientParam {
 	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
-		tag, err := metrics.NewTag(MetricTagServiceName, serviceName)
-		if err != nil {
-			return err
-		}
-		b.ServiceNameTag = tag
+		b.ServiceName = refreshable.NewString(refreshable.NewDefaultRefreshable(serviceName))
 		return nil
 	})
 }
@@ -127,15 +122,27 @@ func WithMiddleware(h Middleware) ClientOrHTTPClientParam {
 	})
 }
 
+// WithInnerMiddleware is like WithMiddleware, but adds the handler to the
+// beginning of the middleware chain. This function will see the request last
+// (after all already-configured middleware) and see the response first.
+// This is useful for middleware that wants to mutate the request, including
+// overwriting actions from previous middleware.
+func WithInnerMiddleware(h Middleware) ClientOrHTTPClientParam {
+	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
+		b.Middlewares = append([]Middleware{h}, b.Middlewares...)
+		return nil
+	})
+}
+
 func WithAddHeader(key, value string) ClientOrHTTPClientParam {
-	return WithMiddleware(MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+	return WithInnerMiddleware(MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
 		req.Header.Add(key, value)
 		return next.RoundTrip(req)
 	}))
 }
 
 func WithSetHeader(key, value string) ClientOrHTTPClientParam {
-	return WithMiddleware(MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+	return WithInnerMiddleware(MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
 		req.Header.Set(key, value)
 		return next.RoundTrip(req)
 	}))
@@ -150,7 +157,7 @@ func WithAuthToken(bearerToken string) ClientOrHTTPClientParam {
 
 // WithAuthTokenProvider calls provideToken() and sets the Authorization header.
 func WithAuthTokenProvider(provideToken TokenProvider) ClientOrHTTPClientParam {
-	return WithMiddleware(&authTokenMiddleware{provideToken: provideToken})
+	return WithInnerMiddleware(&authTokenMiddleware{provideToken: provideToken})
 }
 
 // WithUserAgent sets the User-Agent header.
@@ -160,7 +167,7 @@ func WithUserAgent(userAgent string) ClientOrHTTPClientParam {
 
 // WithOverrideRequestHost overrides the request Host from the default URL.Host
 func WithOverrideRequestHost(host string) ClientOrHTTPClientParam {
-	return WithMiddleware(MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+	return WithInnerMiddleware(MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
 		req.Host = host
 		return next.RoundTrip(req)
 	}))
@@ -205,7 +212,7 @@ func WithDisablePanicRecovery() ClientOrHTTPClientParam {
 // trace information is propagate. This will not create a span if one does not exist.
 func WithDisableTracing() ClientOrHTTPClientParam {
 	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
-		b.CreateRequestSpan = false
+		b.DisableRequestSpan = true
 		return nil
 	})
 }
@@ -215,7 +222,7 @@ func WithDisableTracing() ClientOrHTTPClientParam {
 // then the client will attach this traceId as a header for future services to do the same if desired
 func WithDisableTraceHeaderPropagation() ClientOrHTTPClientParam {
 	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
-		b.InjectTraceHeaders = false
+		b.DisableTraceHeaders = true
 		return nil
 	})
 }
@@ -367,11 +374,16 @@ func WithTLSConfig(conf *tls.Config) ClientOrHTTPClientParam {
 
 // WithTLSInsecureSkipVerify sets the InsecureSkipVerify field for the HTTP client's tls config.
 // This option should only be used in clients that have way to establish trust with servers.
+// If WithTLSConfig is used, the config's InsecureSkipVerify is set to true.
 func WithTLSInsecureSkipVerify() ClientOrHTTPClientParam {
 	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
 		if b.TLSConfig != nil {
 			b.TLSConfig.InsecureSkipVerify = true
 		}
+		b.TransportParams = refreshingclient.ConfigureTransport(b.TransportParams, func(p refreshingclient.TransportParams) refreshingclient.TransportParams {
+			p.TLS.InsecureSkipVerify = true
+			return p
+		})
 		return nil
 	})
 }
@@ -466,6 +478,16 @@ func WithRefreshableBaseURLs(urls refreshable.StringSlice) ClientParam {
 	})
 }
 
+// WithAllowCreateWithEmptyURIs prevents NewClient from returning an error when the URI slice is empty.
+// This is useful when the URIs are not known at client creation time but will be populated by a refreshable.
+// Requests will error if attempted before URIs are populated.
+func WithAllowCreateWithEmptyURIs() ClientParam {
+	return clientParamFunc(func(b *clientBuilder) error {
+		b.AllowEmptyURIs = true
+		return nil
+	})
+}
+
 // WithMaxBackoff sets the maximum backoff between retried calls to the same URI.
 // Defaults to 2 seconds. <= 0 indicates no limit.
 func WithMaxBackoff(maxBackoff time.Duration) ClientParam {
@@ -542,13 +564,40 @@ func WithErrorDecoder(errorDecoder ErrorDecoder) ClientParam {
 // WithBasicAuth sets the request's Authorization header to use HTTP Basic Authentication with the provided username and
 // password.
 func WithBasicAuth(user, password string) ClientOrHTTPClientParam {
-	return WithMiddleware(&basicAuthMiddleware{provider: func(ctx context.Context) (BasicAuth, error) {
-		return BasicAuth{User: user, Password: password}, nil
-	}})
+	return WithInnerMiddleware(MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+		setBasicAuth(req.Header, user, password)
+		return next.RoundTrip(req)
+	}))
 }
 
+// WithBasicAuthProvider sets the request's Authorization header to use HTTP Basic Authentication.
+// The provider is expected to always return a nonempty BasicAuth value, or an error.
 func WithBasicAuthProvider(provider BasicAuthProvider) ClientOrHTTPClientParam {
-	return WithMiddleware(&basicAuthMiddleware{provider: provider})
+	return WithInnerMiddleware(MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+		basicAuth, err := provider(req.Context())
+		if err != nil {
+			return nil, err
+		}
+		setBasicAuth(req.Header, basicAuth.User, basicAuth.Password)
+		return next.RoundTrip(req)
+	}))
+}
+
+// WithBasicAuthOptionalProvider sets the request's Authorization header to use HTTP Basic Authentication based on the
+// return value of the provided BasicAuthOptionalProvider. If the provider returns a non-nil error, if the returned
+// BasicAuth value is non-nil then its values are set on the header, while if the returned BasicAuth value is nil then
+// no basic authentication header values are set.
+func WithBasicAuthOptionalProvider(provider BasicAuthOptionalProvider) ClientOrHTTPClientParam {
+	return WithInnerMiddleware(MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+		basicAuth, err := provider(req.Context())
+		if err != nil {
+			return nil, err
+		}
+		if basicAuth != nil {
+			setBasicAuth(req.Header, basicAuth.User, basicAuth.Password)
+		}
+		return next.RoundTrip(req)
+	}))
 }
 
 // WithBalancedURIScoring adds middleware that prioritizes sending requests to URIs with the fewest in-flight requests

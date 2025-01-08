@@ -1,0 +1,5 @@
+type: feature
+feature:
+  description: Update config, not params, during builder phase
+  links:
+  - https://github.com/palantir/conjure-go-runtime/pull/694
