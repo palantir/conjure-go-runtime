@@ -64,6 +64,13 @@ func WithPathf(format string, args ...interface{}) RequestParam {
 	return WithPath(fmt.Sprintf(format, args...))
 }
 
+func WithRequestMiddleware(middleware Middleware) RequestParam {
+	return requestParamFunc(func(b *requestBuilder) error {
+		b.middlewares = append(b.middlewares, middleware)
+		return nil
+	})
+}
+
 // WithHeader sets a header on a request.
 func WithHeader(key, value string) RequestParam {
 	return requestParamFunc(func(b *requestBuilder) error {

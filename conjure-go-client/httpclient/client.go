@@ -176,6 +176,8 @@ func (c *clientImpl) doOnce(
 	transport = wrapTransport(transport, b.errorDecoderMiddleware, c.errorDecoderMiddleware)
 	// must precede client's user-configured middlewares to set request-specific headers
 	transport = wrapTransport(transport, requestHeadersMiddlewareFunc(b.headers))
+	// must precede client middlewares but follow the request headers middleware.
+	transport = wrapTransport(transport, b.middlewares...)
 	// must precede the body middleware to read the request body
 	transport = wrapTransport(transport, c.middlewares...)
 	// must wrap inner middlewares to mutate the return values

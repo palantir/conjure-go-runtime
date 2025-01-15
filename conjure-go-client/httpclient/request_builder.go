@@ -29,6 +29,7 @@ type requestBuilder struct {
 	address        string
 	headers        http.Header
 	query          url.Values
+	middlewares    []Middleware
 	bodyMiddleware *bodyMiddleware
 	bufferPool     bytesbuffers.Pool
 
