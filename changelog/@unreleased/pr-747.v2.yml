@@ -1,0 +1,5 @@
+type: feature
+feature:
+  description: Add client.connection.dialer timer to measure DialContext()
+  links:
+  - https://github.com/palantir/conjure-go-runtime/pull/747
