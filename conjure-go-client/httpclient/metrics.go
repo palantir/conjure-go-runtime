@@ -91,10 +91,12 @@ func newMetricsDialer(dialer refreshingclient.ContextDialer, serviceName refresh
 }
 
 func (d *metricsDialer) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
-	defer func(startTime time.Time) {
-		serviceNameTag := metrics.NewTagWithFallbackValue(MetricTagServiceName, d.ServiceName.CurrentString(), "unknown")
-		metrics.FromContext(ctx).Timer(metricClientDialer, serviceNameTag).UpdateSince(startTime)
-	}(time.Now())
+	if !d.Disabled.CurrentBool() {
+		defer func(startTime time.Time) {
+			serviceNameTag := metrics.NewTagWithFallbackValue(MetricTagServiceName, d.ServiceName.CurrentString(), "unknown")
+			metrics.FromContext(ctx).Timer(metricClientDialer, serviceNameTag).UpdateSince(startTime)
+		}(time.Now())
+	}
 
 	return d.Dialer.DialContext(ctx, network, address)
 }
