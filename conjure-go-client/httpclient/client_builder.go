@@ -108,7 +108,7 @@ func (b *httpClientBuilder) Build(ctx context.Context, params ...HTTPClientParam
 		tlsProvider = refreshableProvider
 	}
 
-	dialer := refreshingclient.NewRefreshableDialer(ctx, b.DialerParams)
+	dialer := newMetricsDialer(refreshingclient.NewRefreshableDialer(ctx, b.DialerParams), b.ServiceName, b.DisableMetrics)
 	transport := refreshingclient.NewRefreshableTransport(ctx, b.TransportParams, tlsProvider, dialer)
 	transport = wrapTransport(transport, newMetricsMiddleware(b.ServiceName, b.MetricsTagProviders, b.DisableMetrics))
 	transport = wrapTransport(transport, newTraceMiddleware(b.ServiceName, b.DisableRequestSpan, b.DisableTraceHeaders))

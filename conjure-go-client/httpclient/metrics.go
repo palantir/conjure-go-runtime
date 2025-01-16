@@ -23,6 +23,7 @@ import (
 	"net/http/httptrace"
 	"time"
 
+	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient/internal/refreshingclient"
 	"github.com/palantir/pkg/metrics"
 	"github.com/palantir/pkg/refreshable"
 	werror "github.com/palantir/witchcraft-go-error"
@@ -30,6 +31,7 @@ import (
 
 const (
 	MetricTagServiceName = "service-name"
+	metricClientDialer   = "client.connection.dialer"
 	metricClientResponse = "client.response"
 	metricTagFamily      = "family"
 	metricTagMethod      = "method"
@@ -76,6 +78,25 @@ type StaticTagsProvider metrics.Tags
 
 func (s StaticTagsProvider) Tags(_ *http.Request, _ *http.Response, _ error) metrics.Tags {
 	return metrics.Tags(s)
+}
+
+type metricsDialer struct {
+	Dialer      refreshingclient.ContextDialer
+	ServiceName refreshable.String
+	Disabled    refreshable.Bool
+}
+
+func newMetricsDialer(dialer refreshingclient.ContextDialer, serviceName refreshable.String, disabled refreshable.Bool) refreshingclient.ContextDialer {
+	return &metricsDialer{Dialer: dialer, ServiceName: serviceName, Disabled: disabled}
+}
+
+func (d *metricsDialer) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
+	defer func(startTime time.Time) {
+		serviceNameTag := metrics.NewTagWithFallbackValue(MetricTagServiceName, d.ServiceName.CurrentString(), "unknown")
+		metrics.FromContext(ctx).Timer(metricClientDialer, serviceNameTag).UpdateSince(startTime)
+	}(time.Now())
+
+	return d.Dialer.DialContext(ctx, network, address)
 }
 
 // MetricsMiddleware updates the "client.response" timer metric on every request.
