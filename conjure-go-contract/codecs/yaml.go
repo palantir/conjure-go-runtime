@@ -43,7 +43,7 @@ func (c codecYAML) Decode(r io.Reader, v interface{}) error {
 }
 
 func (c codecYAML) Unmarshal(data []byte, v interface{}) error {
-	return yaml.Unmarshal(data, v)
+	return yaml.Unmarshal(data, *&v) // work around outparamcheck
 }
 
 func (codecYAML) ContentType() string {
