@@ -18,7 +18,7 @@ import (
 	"fmt"
 	"io"
 
-	"gopkg.in/yaml.v3"
+	"gopkg.in/yaml.v2"
 )
 
 const (
@@ -27,7 +27,7 @@ const (
 
 var _ Codec = codecYAML{}
 
-// YAML codec encodes and decodes YAML using gopkg.in/yaml.v3.
+// YAML codec encodes and decodes YAML using gopkg.in/yaml.v2.
 func YAML() Codec {
 	return &codecYAML{}
 }
@@ -58,7 +58,7 @@ func (c codecYAML) Encode(w io.Writer, v interface{}) error {
 	}
 	err = encoder.Close()
 	if err != nil {
-		return fmt.Errorf("failed to close yaml.v3 encoder: %s", err.Error())
+		return fmt.Errorf("failed to close yaml.v2 encoder: %s", err.Error())
 	}
 	return nil
 }
