@@ -196,6 +196,18 @@ func TestAuthHeaders(t *testing.T) {
 				return nil, nil
 			})},
 		},
+		{
+			Name:         "WithBasicAuth param beats basic config",
+			Server:       basicAuthServer,
+			Config:       httpclient.ClientConfig{BasicAuth: &httpclient.BasicAuth{User: "wrong", Password: "wrong"}},
+			ClientParams: []httpclient.ClientOrHTTPClientParam{httpclient.WithBasicAuth(username, password)},
+		},
+		{
+			Name:         "WithBasicAuth param beats bearer config",
+			Server:       basicAuthServer,
+			Config:       httpclient.ClientConfig{APIToken: &token},
+			ClientParams: []httpclient.ClientOrHTTPClientParam{httpclient.WithBasicAuth(username, password)},
+		},
 		// Bearer tokens
 		{
 			Name:   "APIToken config",
@@ -210,6 +222,12 @@ func TestAuthHeaders(t *testing.T) {
 		{
 			Name:         "WithAuthToken param",
 			Server:       bearerAuthServer,
+			ClientParams: []httpclient.ClientOrHTTPClientParam{httpclient.WithAuthToken(token)},
+		},
+		{
+			Name:         "WithAuthToken param beats basic config",
+			Server:       bearerAuthServer,
+			Config:       httpclient.ClientConfig{BasicAuth: &httpclient.BasicAuth{User: "wrong", Password: "wrong"}},
 			ClientParams: []httpclient.ClientOrHTTPClientParam{httpclient.WithAuthToken(token)},
 		},
 		{
