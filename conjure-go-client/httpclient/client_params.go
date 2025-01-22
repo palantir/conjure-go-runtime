@@ -122,27 +122,15 @@ func WithMiddleware(h Middleware) ClientOrHTTPClientParam {
 	})
 }
 
-// WithInnerMiddleware is like WithMiddleware, but adds the handler to the
-// beginning of the middleware chain. This function will see the request last
-// (after all already-configured middleware) and see the response first.
-// This is useful for middleware that wants to mutate the request, including
-// overwriting actions from previous middleware.
-func WithInnerMiddleware(h Middleware) ClientOrHTTPClientParam {
-	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
-		b.Middlewares = append([]Middleware{h}, b.Middlewares...)
-		return nil
-	})
-}
-
 func WithAddHeader(key, value string) ClientOrHTTPClientParam {
-	return WithInnerMiddleware(MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+	return WithMiddleware(MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
 		req.Header.Add(key, value)
 		return next.RoundTrip(req)
 	}))
 }
 
 func WithSetHeader(key, value string) ClientOrHTTPClientParam {
-	return WithInnerMiddleware(MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+	return WithMiddleware(MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
 		req.Header.Set(key, value)
 		return next.RoundTrip(req)
 	}))
@@ -157,7 +145,7 @@ func WithAuthToken(bearerToken string) ClientOrHTTPClientParam {
 
 // WithAuthTokenProvider calls provideToken() and sets the Authorization header.
 func WithAuthTokenProvider(provideToken TokenProvider) ClientOrHTTPClientParam {
-	return WithInnerMiddleware(&authTokenMiddleware{provideToken: provideToken})
+	return WithMiddleware(&authTokenMiddleware{provideToken: provideToken})
 }
 
 // WithUserAgent sets the User-Agent header.
@@ -167,7 +155,7 @@ func WithUserAgent(userAgent string) ClientOrHTTPClientParam {
 
 // WithOverrideRequestHost overrides the request Host from the default URL.Host
 func WithOverrideRequestHost(host string) ClientOrHTTPClientParam {
-	return WithInnerMiddleware(MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+	return WithMiddleware(MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
 		req.Host = host
 		return next.RoundTrip(req)
 	}))
@@ -564,23 +552,21 @@ func WithErrorDecoder(errorDecoder ErrorDecoder) ClientParam {
 // WithBasicAuth sets the request's Authorization header to use HTTP Basic Authentication with the provided username and
 // password.
 func WithBasicAuth(user, password string) ClientOrHTTPClientParam {
-	return WithInnerMiddleware(MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
-		setBasicAuth(req.Header, user, password)
-		return next.RoundTrip(req)
-	}))
+	return WithBasicAuthProvider(func(context.Context) (BasicAuth, error) {
+		return BasicAuth{User: user, Password: password}, nil
+	})
 }
 
 // WithBasicAuthProvider sets the request's Authorization header to use HTTP Basic Authentication.
 // The provider is expected to always return a nonempty BasicAuth value, or an error.
 func WithBasicAuthProvider(provider BasicAuthProvider) ClientOrHTTPClientParam {
-	return WithInnerMiddleware(MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
-		basicAuth, err := provider(req.Context())
+	return WithBasicAuthOptionalProvider(func(ctx context.Context) (*BasicAuth, error) {
+		basicAuth, err := provider(ctx)
 		if err != nil {
 			return nil, err
 		}
-		setBasicAuth(req.Header, basicAuth.User, basicAuth.Password)
-		return next.RoundTrip(req)
-	}))
+		return &basicAuth, nil
+	})
 }
 
 // WithBasicAuthOptionalProvider sets the request's Authorization header to use HTTP Basic Authentication based on the
@@ -588,7 +574,7 @@ func WithBasicAuthProvider(provider BasicAuthProvider) ClientOrHTTPClientParam {
 // BasicAuth value is non-nil then its values are set on the header, while if the returned BasicAuth value is nil then
 // no basic authentication header values are set.
 func WithBasicAuthOptionalProvider(provider BasicAuthOptionalProvider) ClientOrHTTPClientParam {
-	return WithInnerMiddleware(MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+	return WithMiddleware(MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
 		basicAuth, err := provider(req.Context())
 		if err != nil {
 			return nil, err
