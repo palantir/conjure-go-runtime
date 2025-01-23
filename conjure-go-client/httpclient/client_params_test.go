@@ -211,14 +211,6 @@ func TestMiddlewareOrdering(t *testing.T) {
 			},
 		},
 		{
-			Name:          "WithHeader request param overwrites WithAddHeader middleware",
-			ClientParams:  []ClientParam{WithAddHeader("X-Test", "value1")},
-			RequestParams: []RequestParam{WithHeader("X-Test", "value2")},
-			ExpectHeaders: http.Header{
-				"X-Test": []string{"value2"},
-			},
-		},
-		{
 			Name: "WithInnerMiddleware overwrites WithAddHeader middleware",
 			ClientParams: []ClientParam{
 				WithAddHeader("X-Test", "value1"),

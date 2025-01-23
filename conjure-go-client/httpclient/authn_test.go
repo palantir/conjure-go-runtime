@@ -243,30 +243,6 @@ func TestAuthHeaders(t *testing.T) {
 			Server:        basicAuthServer,
 			RequestParams: []httpclient.RequestParam{httpclient.WithRequestBasicAuth(username, password)},
 		},
-		{
-			Name:          "WithRequestBasicAuth param beats config basic",
-			Server:        basicAuthServer,
-			Config:        httpclient.ClientConfig{BasicAuth: &httpclient.BasicAuth{User: "wrong", Password: "wrong"}},
-			RequestParams: []httpclient.RequestParam{httpclient.WithRequestBasicAuth(username, password)},
-		},
-		{
-			Name:          "WithRequestBasicAuth param beats config bearer",
-			Server:        basicAuthServer,
-			Config:        httpclient.ClientConfig{APIToken: &token},
-			RequestParams: []httpclient.RequestParam{httpclient.WithRequestBasicAuth(username, password)},
-		},
-		{
-			Name:          "WithRequestBasicAuth param beats param basic",
-			Server:        basicAuthServer,
-			ClientParams:  []httpclient.ClientOrHTTPClientParam{httpclient.WithBasicAuth("wrong", "wrong")},
-			RequestParams: []httpclient.RequestParam{httpclient.WithRequestBasicAuth(username, password)},
-		},
-		{
-			Name:          "WithRequestBasicAuth param beats param bearer",
-			Server:        basicAuthServer,
-			ClientParams:  []httpclient.ClientOrHTTPClientParam{httpclient.WithAuthToken(token)},
-			RequestParams: []httpclient.RequestParam{httpclient.WithRequestBasicAuth(username, password)},
-		},
 	} {
 		t.Run(tc.Name, func(t *testing.T) {
 			t.Run("httpclient.Client", func(t *testing.T) {

@@ -1,0 +1,6 @@
+type: fix
+fix:
+  description: 'Partially Revert "fix: Prepend request modifiers with WithInnerMiddleware()
+    to execute in the intuitive order (#739)"'
+  links:
+  - https://github.com/palantir/conjure-go-runtime/pull/749
