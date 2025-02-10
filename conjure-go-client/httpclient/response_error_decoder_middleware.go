@@ -23,6 +23,7 @@ import (
 	"github.com/palantir/conjure-go-runtime/v2/conjure-go-contract/codecs"
 	"github.com/palantir/conjure-go-runtime/v2/conjure-go-contract/errors"
 	werror "github.com/palantir/witchcraft-go-error"
+	"github.com/palantir/witchcraft-go-logging/wlog/svclog/svc1log"
 	wparams "github.com/palantir/witchcraft-go-params"
 )
 
@@ -67,7 +68,9 @@ func (e errorDecoderMiddleware) RoundTrip(req *http.Request, next http.RoundTrip
 // If the response has a Content-Type containing 'application/json', we attempt
 // to unmarshal the error as a conjure error. See TestErrorDecoderMiddlewares for
 // example error messages and parameters.
-type restErrorDecoder struct{}
+type restErrorDecoder struct {
+	conjureErrorDecoder errors.ConjureErrorDecoder
+}
 
 var _ ErrorDecoder = restErrorDecoder{}
 
@@ -97,24 +100,33 @@ func (d restErrorDecoder) DecodeError(resp *http.Response) error {
 	if len(body) > 0 {
 		// If JSON, try to unmarshal as conjure error
 		if isJSON := strings.Contains(resp.Header.Get("Content-Type"), codecs.JSON.ContentType()); isJSON {
-			conjureErr, _ := errors.UnmarshalError(body)
+			var conjureErr errors.Error
+			var jsonErr error
+			if d.conjureErrorDecoder != nil {
+				conjureErr, jsonErr = errors.UnmarshalErrorWithDecoder(d.conjureErrorDecoder, body)
+			} else {
+				conjureErr, jsonErr = errors.UnmarshalError(body)
+			}
 			if conjureErr != nil {
 				return werror.Wrap(conjureErr, "", werror.Params(wParams))
 			}
+			if jsonErr != nil {
+				svc1log.FromContext(resp.Request.Context()).Warn("Failed to unmarshal error response as conjure error.",
+					svc1log.Params(wParams), svc1log.Stacktrace(jsonErr))
+			}
 		}
+		// If not a JSON conjure error, continue with the body as an unsafeParam.
 		wParams = wparams.NewParamStorer(wParams, wparams.NewUnsafeParam("responseBody", string(body)))
 	}
 
 	// If a recognized Quality of Service (Qos) status, use the corresponding error type
-
-	if resp.StatusCode == http.StatusPermanentRedirect {
-		return werror.Wrap(errors.QOSRetryOther{Location: resp.Header.Get("Location")}, "", werror.Params(wParams))
-	}
-	if resp.StatusCode == http.StatusTooManyRequests {
+	switch resp.StatusCode {
+	case http.StatusPermanentRedirect:
+		return werror.Wrap(errors.QOSRetryOtherFromHeader(resp.Header), "", werror.Params(wParams))
+	case http.StatusTooManyRequests:
 		return werror.Wrap(errors.QOSThrottleFromHeader(resp.Header), "", werror.Params(wParams))
-	}
-	if resp.StatusCode == http.StatusServiceUnavailable {
-		return werror.Wrap(errors.QOSUnavailable{}, "", werror.Params(wParams))
+	case http.StatusServiceUnavailable:
+		return werror.Wrap(errors.NewQOSUnavailable(nil), "", werror.Params(wParams))
 	}
 
 	// As a fallback, wrap with the status text

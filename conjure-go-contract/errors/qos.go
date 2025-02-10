@@ -40,6 +40,10 @@ type QOSRetryOther struct {
 	Err      error // optional underlying cause
 }
 
+func QOSRetryOtherFromHeader(header http.Header) QOSRetryOther {
+	return QOSRetryOther{Location: header.Get("Location")}
+}
+
 func (q QOSRetryOther) Error() string {
 	if q.Err != nil {
 		return "308 Retry Other: " + q.Err.Error()
@@ -132,6 +136,7 @@ func (q QOSThrottle) SafeParams() map[string]any {
 	if !q.RetryAt.IsZero() {
 		m["retryAt"] = q.RetryAt.UTC().Format(http.TimeFormat)
 	}
+	return m
 }
 
 func (QOSThrottle) UnsafeParams() map[string]any {
@@ -151,6 +156,11 @@ func (QOSThrottle) isQoS() {}
 // QOSUnavailable is an error type that represents a 503 Service Unavailable response.
 type QOSUnavailable struct {
 	Err error // optional underlying cause
+}
+
+// NewQOSUnavailable returns a QOSUnavailable error with the provided error as the underlying cause.
+func NewQOSUnavailable(err error) QOSUnavailable {
+	return QOSUnavailable{Err: err}
 }
 
 func (q QOSUnavailable) Error() string {
