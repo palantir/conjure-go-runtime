@@ -74,7 +74,7 @@ type httpClientBuilder struct {
 	DialerParams refreshingclient.RefreshableDialerParams
 	// TLSConfig supplies the *tls.Config for the underlying transport to use.
 	// If unset, config in TransportParams will be used.
-	TLSConfig       refreshingclient.RefreshableTLSConf
+	TLSConfig       refreshingclient.RefreshableTLSConfig
 	TransportParams refreshingclient.RefreshableTransportParams
 	Middlewares     []Middleware
 
@@ -98,7 +98,7 @@ func (b *httpClientBuilder) Build(ctx context.Context, params ...HTTPClientParam
 		}
 	}
 
-	var tlsProvider refreshingclient.RefreshableTLSConf
+	var tlsProvider refreshingclient.RefreshableTLSConfig
 	if b.TLSConfig != nil {
 		tlsProvider = b.TLSConfig
 	} else {

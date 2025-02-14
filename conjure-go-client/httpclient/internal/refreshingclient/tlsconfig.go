@@ -18,6 +18,7 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"reflect"
 	"sync"
 	"sync/atomic"
 
@@ -27,14 +28,14 @@ import (
 	"github.com/palantir/witchcraft-go-logging/wlog/svclog/svc1log"
 )
 
-type RefreshableTLSConf interface {
+type RefreshableTLSConfig interface {
 	GetTLSConfig(ctx context.Context) *tls.Config
 	SubscribeToTLSConfig(consumer func(*tls.Config)) (unsubscribe func())
 }
 
-var _ RefreshableTLSConf = (*MappedRefreshableTLSConfig)(nil)
+var _ RefreshableTLSConfig = (*MappedRefreshableTLSConfig)(nil)
 
-func ConfigureTLSConfig(r RefreshableTLSConf, mapFn func(conf *tls.Config) *tls.Config) RefreshableTLSConf {
+func ConfigureTLSConfig(r RefreshableTLSConfig, mapFn func(conf *tls.Config) *tls.Config) RefreshableTLSConfig {
 	var m MappedRefreshableTLSConfig
 	r.SubscribeToTLSConfig(func(c *tls.Config) {
 		m.update(mapFn(c))
@@ -91,7 +92,7 @@ type TLSProvider interface {
 // StaticTLSConfigProvider is a TLSProvider that always returns the same *tls.Config.
 type StaticTLSConfigProvider tls.Config
 
-func NewStaticTLSConfigProvider(tlsConfig *tls.Config) RefreshableTLSConf {
+func NewStaticTLSConfigProvider(tlsConfig *tls.Config) RefreshableTLSConfig {
 	return (*StaticTLSConfigProvider)(tlsConfig)
 }
 
@@ -115,7 +116,7 @@ type WrappedRefreshableTLSConfig struct {
 //
 // N.B. This subscription only fires when the paths are updated, not when the contents of the files are updated.
 // We could consider adding a file refreshable to watch the key and cert files.
-func NewRefreshableTLSConfigFromParams(ctx context.Context, params RefreshableTLSParams) (RefreshableTLSConf, error) {
+func NewRefreshableTLSConfigFromParams(ctx context.Context, params RefreshableTLSParams) (RefreshableTLSConfig, error) {
 	r, err := refreshable.NewMapValidatingRefreshable(params, func(i interface{}) (interface{}, error) {
 		return NewTLSConfig(ctx, i.(TLSParams))
 	})
@@ -123,20 +124,14 @@ func NewRefreshableTLSConfigFromParams(ctx context.Context, params RefreshableTL
 		return nil, werror.WrapWithContextParams(ctx, err, "failed to build RefreshableTLSConfig")
 	}
 	return WrappedRefreshableTLSConfig{r: r}, nil
+
 }
 
-func NewRefreshableTLSConfigFromRefreshable(r refreshable.Refreshable) (RefreshableTLSConf, error) {
-	validating, err := refreshable.NewValidatingRefreshable(r, func(i interface{}) error {
-		_, ok := r.Current().(*tls.Config)
-		if !ok {
-			// TODO(smenon): proper error msg.
-			return errors.New("invalid type for refreshable")
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, werror.Wrap(err, "failed to build RefreshableTLSConfig")
+func NewRefreshableTLSConfigFromRefreshable(r refreshable.Refreshable) (RefreshableTLSConfig, error) {
+	if err := validateRefreshableTLSConfig(r); err != nil {
+		panic(err)
 	}
+	validating, _ := refreshable.NewValidatingRefreshable(r, func(i interface{}) error { return nil })
 	return WrappedRefreshableTLSConfig{
 		r: validating,
 	}, nil
@@ -176,4 +171,15 @@ func NewTLSConfig(ctx context.Context, p TLSParams) (*tls.Config, error) {
 		return nil, werror.WrapWithContextParams(ctx, err, "failed to build tlsConfig")
 	}
 	return tlsConfig, nil
+}
+
+func validateRefreshableTLSConfig(r refreshable.Refreshable) error {
+	if _, ok := r.Current().(*tls.Config); ok {
+		return nil
+	}
+	typ := reflect.TypeOf(r.Current())
+	if typ == nil {
+		return errors.New("refreshable TLS config cannot be nil")
+	}
+	return werror.Error("refreshable tls config has an invalid type", werror.SafeParam("type", typ.String()))
 }

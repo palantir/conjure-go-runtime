@@ -43,7 +43,7 @@ type TransportParams struct {
 	TLS TLSParams
 }
 
-func NewRefreshableTransport(ctx context.Context, p RefreshableTransportParams, t RefreshableTLSConf, dialer ContextDialer) http.RoundTripper {
+func NewRefreshableTransport(ctx context.Context, p RefreshableTransportParams, t RefreshableTLSConfig, dialer ContextDialer) http.RoundTripper {
 	var refreshingTransport RefreshableTransport
 
 	// initialize the transport the first time.
@@ -72,6 +72,10 @@ func ConfigureTransport(r RefreshableTransportParams, mapFn func(p TransportPara
 // The transport and internal dialer are each rebuilt when any of their respective parameters are updated.
 type RefreshableTransport struct {
 	t atomic.Pointer[http.Transport]
+}
+
+func (r *RefreshableTransport) CurrentHTTPTransport() *http.Transport {
+	return r.t.Load()
 }
 
 func (r *RefreshableTransport) RoundTrip(req *http.Request) (*http.Response, error) {
