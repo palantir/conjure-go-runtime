@@ -48,6 +48,13 @@ type MappedRefreshableTLSConfig struct {
 	subscribers []*func(*tls.Config)
 }
 
+// NewMappedRefreshableTLSConfig returns a new *MappedRefreshableTLSConfig.
+func NewMappedRefreshableTLSConfig(conf *tls.Config) *MappedRefreshableTLSConfig {
+	var m MappedRefreshableTLSConfig
+	m.conf.Store(conf)
+	return &m
+}
+
 // GetTLSConfig implements RefreshableTLSConf.
 func (m *MappedRefreshableTLSConfig) GetTLSConfig(ctx context.Context) *tls.Config {
 	return m.conf.Load()

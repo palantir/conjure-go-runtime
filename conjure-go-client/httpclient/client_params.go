@@ -360,6 +360,19 @@ func WithTLSConfig(conf *tls.Config) ClientOrHTTPClientParam {
 	})
 }
 
+// WithRefreshableTLSConfig sets the SSL/TLS configuration for the HTTP client's Transport.
+// Clients can update the TLS configuration of the underlying HTTP Transport using the 'updateFn'.
+// This function does not accept a refreshable because 'reflect.DeepEqual' (which underpins refreshables)
+// does not work for structs with functional fields, which *tls.Config uses extensively.
+// The palantir/pkg/tlsconfig package is recommended to build a tls.Config from sane defaults.
+func WithRefreshableTLSConfig(conf *tls.Config) (param ClientOrHTTPClientParam, updateFn func(*tls.Config)) {
+	m := refreshingclient.NewMappedRefreshableTLSConfig(conf)
+	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
+		b.TLSConfig = m
+		return nil
+	}), m.Update
+}
+
 // WithTLSInsecureSkipVerify sets the InsecureSkipVerify field for the HTTP client's tls config.
 // This option should only be used in clients that have way to establish trust with servers.
 // If WithTLSConfig is used, the config's InsecureSkipVerify is set to true.
