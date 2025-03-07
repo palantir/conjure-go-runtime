@@ -132,5 +132,5 @@ func (ced *customErrorDecoder) Handles(resp *http.Response) bool {
 }
 
 func (ced *customErrorDecoder) DecodeError(_ *http.Response) error {
-	return fmt.Errorf(ced.message)
+	return fmt.Errorf("%s", ced.message)
 }
