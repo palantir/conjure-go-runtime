@@ -21,7 +21,7 @@ import (
 	"net/http"
 
 	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient/internal/refreshingclient"
-	"github.com/palantir/pkg/refreshable"
+	"github.com/palantir/pkg/refreshable/v2"
 )
 
 // TokenProvider accepts a context and returns either:
@@ -50,13 +50,10 @@ func (h *authTokenMiddleware) RoundTrip(req *http.Request, next http.RoundTrippe
 	return next.RoundTrip(req)
 }
 
-func newAuthTokenMiddlewareFromRefreshable(token refreshable.StringPtr) Middleware {
+func newAuthTokenMiddlewareFromRefreshable(token refreshable.Refreshable[*string]) Middleware {
 	return &authTokenMiddleware{
 		provideToken: func(ctx context.Context) (string, error) {
-			if s := token.CurrentStringPtr(); s != nil {
-				return *s, nil
-			}
-			return "", nil
+			return derefPtr(token.Current(), ""), nil
 		},
 	}
 }
@@ -77,9 +74,9 @@ type BasicAuthProvider func(context.Context) (BasicAuth, error)
 // (3) a nil BasicAuth and a non-nil error.
 type BasicAuthOptionalProvider func(context.Context) (*BasicAuth, error)
 
-func newBasicAuthMiddlewareFromRefreshable(auth refreshingclient.RefreshableBasicAuthPtr) Middleware {
+func newBasicAuthMiddlewareFromRefreshable(auth refreshable.Refreshable[*refreshingclient.BasicAuth]) Middleware {
 	return MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
-		if basicAuth := auth.CurrentBasicAuthPtr(); basicAuth != nil {
+		if basicAuth := auth.Current(); basicAuth != nil {
 			setBasicAuth(req.Header, basicAuth.User, basicAuth.Password)
 		}
 		return next.RoundTrip(req)

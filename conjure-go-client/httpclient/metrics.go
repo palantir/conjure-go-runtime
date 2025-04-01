@@ -24,7 +24,7 @@ import (
 	"time"
 
 	"github.com/palantir/pkg/metrics"
-	"github.com/palantir/pkg/refreshable"
+	"github.com/palantir/pkg/refreshable/v2"
 	werror "github.com/palantir/witchcraft-go-error"
 )
 
@@ -83,11 +83,10 @@ func (s StaticTagsProvider) Tags(_ *http.Request, _ *http.Response, _ error) met
 // status code). This metric name and tag set matches http-remoting's DefaultHostMetrics:
 // https://github.com/palantir/http-remoting/blob/develop/okhttp-clients/src/main/java/com/palantir/remoting3/okhttp/DefaultHostMetrics.java
 func MetricsMiddleware(serviceName string, tagProviders ...TagsProvider) (Middleware, error) {
-	refreshableName := refreshable.NewString(refreshable.NewDefaultRefreshable(serviceName))
-	return newMetricsMiddleware(refreshableName, tagProviders, nil), nil
+	return newMetricsMiddleware(refreshable.New(serviceName), tagProviders, nil), nil
 }
 
-func newMetricsMiddleware(serviceName refreshable.String, tagProviders []TagsProvider, disabled refreshable.Bool) Middleware {
+func newMetricsMiddleware(serviceName refreshable.Refreshable[string], tagProviders []TagsProvider, disabled refreshable.Refreshable[bool]) Middleware {
 	return &metricsMiddleware{
 		Disabled:    disabled,
 		ServiceName: serviceName,
@@ -101,19 +100,19 @@ func newMetricsMiddleware(serviceName refreshable.String, tagProviders []TagsPro
 }
 
 type metricsMiddleware struct {
-	Disabled    refreshable.Bool
-	ServiceName refreshable.String
+	Disabled    refreshable.Refreshable[bool]
+	ServiceName refreshable.Refreshable[string]
 	Tags        []TagsProvider
 }
 
 // RoundTrip will emit counter and timer metrics with the name 'mariner.k8sClient.request'
 // and k8s for API group, API version, namespace, resource kind, request method, and response status code.
 func (h *metricsMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (*http.Response, error) {
-	if h.Disabled != nil && h.Disabled.CurrentBool() {
+	if h.Disabled != nil && h.Disabled.Current() {
 		// If we have a Disabled refreshable and it is true, no-op.
 		return next.RoundTrip(req)
 	}
-	serviceNameTag := metrics.NewTagWithFallbackValue(MetricTagServiceName, h.ServiceName.CurrentString(), "unknown")
+	serviceNameTag := metrics.NewTagWithFallbackValue(MetricTagServiceName, h.ServiceName.Current(), "unknown")
 
 	metrics.FromContext(req.Context()).Counter(MetricRequestInFlight, serviceNameTag).Inc(1)
 	start := time.Now()

@@ -43,3 +43,15 @@ type BasicAuth struct {
 	User     string
 	Password string
 }
+
+func (p ValidatedClientParams) GetAPIToken() *string          { return p.APIToken }
+func (p ValidatedClientParams) GetBasicAuth() *BasicAuth      { return p.BasicAuth }
+func (p ValidatedClientParams) GetDialerParams() DialerParams { return p.Dialer }
+func (p ValidatedClientParams) GetDisableMetrics() bool       { return p.DisableMetrics }
+func (p ValidatedClientParams) GetMaxAttempts() *int          { return p.MaxAttempts }
+func (p ValidatedClientParams) GetMetricsTags() metrics.Tags  { return p.MetricsTags }
+func (p ValidatedClientParams) GetRetry() RetryParams         { return p.Retry }
+func (p ValidatedClientParams) GetServiceName() string        { return p.ServiceName }
+func (p ValidatedClientParams) GetTimeout() time.Duration     { return p.Timeout }
+func (p ValidatedClientParams) GetTransport() TransportParams { return p.Transport }
+func (p ValidatedClientParams) GetURIs() []string             { return p.URIs }

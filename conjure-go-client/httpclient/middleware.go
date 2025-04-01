@@ -35,7 +35,7 @@ func (f MiddlewareFunc) RoundTrip(req *http.Request, next http.RoundTripper) (*h
 // wrapTransport is used by clientBuilder to create the final Client's RoundTripper.
 func wrapTransport(baseTransport http.RoundTripper, middlewares ...Middleware) http.RoundTripper {
 	if baseTransport == nil {
-		baseTransport = http.DefaultTransport
+		panic("baseTransport can not be nil")
 	}
 	for i := range middlewares {
 		if middleware := middlewares[i]; middleware != nil {

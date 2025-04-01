@@ -18,7 +18,7 @@ import (
 	"context"
 	"crypto/tls"
 
-	"github.com/palantir/pkg/refreshable"
+	"github.com/palantir/pkg/refreshable/v2"
 	"github.com/palantir/pkg/tlsconfig"
 	werror "github.com/palantir/witchcraft-go-error"
 	"github.com/palantir/witchcraft-go-logging/wlog/svclog/svc1log"
@@ -49,7 +49,7 @@ func (p *StaticTLSConfigProvider) GetTLSConfig(context.Context) *tls.Config {
 }
 
 type RefreshableTLSConfig struct {
-	r *refreshable.ValidatingRefreshable // contains *tls.Config
+	r refreshable.Validated[*tls.Config]
 }
 
 // NewRefreshableTLSConfig evaluates the provided TLSParams and returns a RefreshableTLSConfig that will update the
@@ -59,9 +59,10 @@ type RefreshableTLSConfig struct {
 //
 // N.B. This subscription only fires when the paths are updated, not when the contents of the files are updated.
 // We could consider adding a file refreshable to watch the key and cert files.
-func NewRefreshableTLSConfig(ctx context.Context, params RefreshableTLSParams) (TLSProvider, error) {
-	r, err := refreshable.NewMapValidatingRefreshable(params, func(i interface{}) (interface{}, error) {
-		return NewTLSConfig(ctx, i.(TLSParams))
+func NewRefreshableTLSConfig(ctx context.Context, params refreshable.Refreshable[TLSParams]) (TLSProvider, error) {
+	params, _ = refreshable.Cached(params)
+	r, _, err := refreshable.MapWithError(params, func(t TLSParams) (*tls.Config, error) {
+		return NewTLSConfig(ctx, t)
 	})
 	if err != nil {
 		return nil, werror.WrapWithContextParams(ctx, err, "failed to build RefreshableTLSConfig")
@@ -73,10 +74,10 @@ func NewRefreshableTLSConfig(ctx context.Context, params RefreshableTLSParams) (
 // If the last refreshable update resulted in an error, that error is logged and
 // the previous value is returned.
 func (r RefreshableTLSConfig) GetTLSConfig(ctx context.Context) *tls.Config {
-	if err := r.r.LastValidateErr(); err != nil {
+	if _, err := r.r.Validation(); err != nil {
 		svc1log.FromContext(ctx).Warn("Invalid TLS config. Using previous value.", svc1log.Stacktrace(err))
 	}
-	return r.r.Current().(*tls.Config)
+	return r.r.Current()
 }
 
 // NewTLSConfig returns a *tls.Config built from the provided TLSParams.
