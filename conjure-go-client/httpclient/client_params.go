@@ -184,7 +184,7 @@ func WithMetrics(tagProviders ...TagsProvider) ClientOrHTTPClientParam {
 }
 
 // WithoutMetrics disables the "client.response" metric.
-func WithoutMetrics(tagProviders ...TagsProvider) ClientOrHTTPClientParam {
+func WithoutMetrics() ClientOrHTTPClientParam {
 	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
 		b.DisableMetrics = refreshable.NewBool(refreshable.NewDefaultRefreshable(true))
 		b.MetricsTagProviders = nil
