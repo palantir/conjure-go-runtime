@@ -183,6 +183,15 @@ func WithMetrics(tagProviders ...TagsProvider) ClientOrHTTPClientParam {
 	})
 }
 
+// WithoutMetrics disables the "client.response" metric.
+func WithoutMetrics(tagProviders ...TagsProvider) ClientOrHTTPClientParam {
+	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
+		b.DisableMetrics = refreshable.NewBool(refreshable.NewDefaultRefreshable(true))
+		b.MetricsTagProviders = nil
+		return nil
+	})
+}
+
 // WithBytesBufferPool stores a bytes buffer pool on the client for use in encoding request bodies.
 // This prevents allocating a new byte buffer for every request.
 func WithBytesBufferPool(pool bytesbuffers.Pool) ClientParam {
