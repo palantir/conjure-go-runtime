@@ -6,8 +6,8 @@ github.com/davecgh/go-spew/spew
 github.com/golang/snappy
 # github.com/kr/pretty v0.1.0
 ## explicit
-# github.com/openzipkin/zipkin-go v0.2.2
-## explicit; go 1.12
+# github.com/openzipkin/zipkin-go v0.4.3
+## explicit; go 1.20
 github.com/openzipkin/zipkin-go
 github.com/openzipkin/zipkin-go/idgenerator
 github.com/openzipkin/zipkin-go/model
