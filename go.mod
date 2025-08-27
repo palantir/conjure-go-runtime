@@ -12,9 +12,9 @@ require (
 	github.com/palantir/pkg/safejson v1.1.0
 	github.com/palantir/pkg/tlsconfig v1.3.0
 	github.com/palantir/pkg/uuid v1.2.0
-	github.com/palantir/witchcraft-go-error v1.41.0
-	github.com/palantir/witchcraft-go-logging v1.61.0
-	github.com/palantir/witchcraft-go-params v1.38.0
+	github.com/palantir/witchcraft-go-error v1.42.0
+	github.com/palantir/witchcraft-go-logging v1.62.0
+	github.com/palantir/witchcraft-go-params v1.39.0
 	github.com/palantir/witchcraft-go-tracing v1.41.0
 	github.com/stretchr/testify v1.11.0
 	golang.org/x/net v0.43.0
