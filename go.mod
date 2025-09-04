@@ -6,12 +6,12 @@ require (
 	github.com/golang/snappy v1.0.0
 	github.com/palantir/pkg/bytesbuffers v1.3.0
 	github.com/palantir/pkg/httpserver v1.2.0
-	github.com/palantir/pkg/metrics v1.8.0
+	github.com/palantir/pkg/metrics v1.9.0
 	github.com/palantir/pkg/refreshable v1.6.0
-	github.com/palantir/pkg/retry v1.2.0
-	github.com/palantir/pkg/safejson v1.1.0
+	github.com/palantir/pkg/retry v1.3.0
+	github.com/palantir/pkg/safejson v1.2.0
 	github.com/palantir/pkg/tlsconfig v1.4.0
-	github.com/palantir/pkg/uuid v1.2.0
+	github.com/palantir/pkg/uuid v1.3.0
 	github.com/palantir/witchcraft-go-error v1.42.0
 	github.com/palantir/witchcraft-go-logging v1.62.0
 	github.com/palantir/witchcraft-go-params v1.39.0
