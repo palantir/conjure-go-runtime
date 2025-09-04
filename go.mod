@@ -10,7 +10,7 @@ require (
 	github.com/palantir/pkg/refreshable v1.6.0
 	github.com/palantir/pkg/retry v1.2.0
 	github.com/palantir/pkg/safejson v1.1.0
-	github.com/palantir/pkg/tlsconfig v1.3.0
+	github.com/palantir/pkg/tlsconfig v1.4.0
 	github.com/palantir/pkg/uuid v1.2.0
 	github.com/palantir/witchcraft-go-error v1.42.0
 	github.com/palantir/witchcraft-go-logging v1.62.0
