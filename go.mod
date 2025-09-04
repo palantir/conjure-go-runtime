@@ -4,7 +4,7 @@ go 1.25.0
 
 require (
 	github.com/golang/snappy v1.0.0
-	github.com/palantir/pkg/bytesbuffers v1.2.0
+	github.com/palantir/pkg/bytesbuffers v1.3.0
 	github.com/palantir/pkg/httpserver v1.1.0
 	github.com/palantir/pkg/metrics v1.8.0
 	github.com/palantir/pkg/refreshable v1.6.0
