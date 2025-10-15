@@ -18,7 +18,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http/httptest"
 	"testing"
 
@@ -54,7 +54,7 @@ func TestWriteErrorResponse_ValidateJSON(t *testing.T) {
 	response := recorder.Result()
 
 	assert.Equal(t, "application/json; charset=utf-8", response.Header.Get("Content-Type"))
-	body, err := ioutil.ReadAll(response.Body)
+	body, err := io.ReadAll(response.Body)
 	require.NoError(t, err)
 
 	var buffer bytes.Buffer
