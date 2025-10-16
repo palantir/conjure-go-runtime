@@ -19,7 +19,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -53,7 +53,7 @@ func TestHandler_ServeHTTP(t *testing.T) {
 			},
 			verifyResp: func(t *testing.T, resp *http.Response) {
 				assert.Equal(t, http.StatusOK, resp.StatusCode)
-				body, err := ioutil.ReadAll(resp.Body)
+				body, err := io.ReadAll(resp.Body)
 				assert.NoError(t, err)
 				assert.Equal(t, "plaintext", string(body))
 			},
@@ -69,7 +69,7 @@ func TestHandler_ServeHTTP(t *testing.T) {
 			verifyResp: func(t *testing.T, resp *http.Response) {
 				assert.Equal(t, http.StatusInternalServerError, resp.StatusCode)
 				assert.Equal(t, "text/plain; charset=utf-8", resp.Header.Get("Content-Type"))
-				body, err := ioutil.ReadAll(resp.Body)
+				body, err := io.ReadAll(resp.Body)
 				assert.NoError(t, err)
 				assert.Equal(t, "a bad thing\n", string(body))
 			},
@@ -90,7 +90,7 @@ func TestHandler_ServeHTTP(t *testing.T) {
 			verifyResp: func(t *testing.T, resp *http.Response) {
 				assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 				assert.Equal(t, "text/plain; charset=utf-8", resp.Header.Get("Content-Type"))
-				body, err := ioutil.ReadAll(resp.Body)
+				body, err := io.ReadAll(resp.Body)
 				assert.NoError(t, err)
 				assert.Equal(t, "a bad thing\n", string(body))
 			},
@@ -111,7 +111,7 @@ func TestHandler_ServeHTTP(t *testing.T) {
 			verifyResp: func(t *testing.T, resp *http.Response) {
 				assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 				assert.Equal(t, "application/json", resp.Header.Get("Content-Type"))
-				body, err := ioutil.ReadAll(resp.Body)
+				body, err := io.ReadAll(resp.Body)
 				assert.NoError(t, err)
 				assert.Equal(t, "{\"message\":\"a bad thing\"}\n", string(body))
 			},
@@ -135,7 +135,7 @@ func TestHandler_ServeHTTP(t *testing.T) {
 				// the body, the headers are already sent. A solution would be encoding to a buffer, but this would come
 				// with a memory cost.
 				assert.Equal(t, "application/json", resp.Header.Get("Content-Type"))
-				body, err := ioutil.ReadAll(resp.Body)
+				body, err := io.ReadAll(resp.Body)
 				assert.NoError(t, err)
 				assert.Equal(t, "json: error calling MarshalJSON for type httpserver.testJSONErrorMarshalFails: failed to marshal json\n", string(body))
 			},
@@ -156,7 +156,7 @@ func TestHandler_ServeHTTP(t *testing.T) {
 			verifyResp: func(t *testing.T, resp *http.Response) {
 				assert.Equal(t, http.StatusInternalServerError, resp.StatusCode)
 				assert.Equal(t, "application/json; charset=utf-8", resp.Header.Get("Content-Type"))
-				body, err := ioutil.ReadAll(resp.Body)
+				body, err := io.ReadAll(resp.Body)
 				assert.NoError(t, err)
 				expected, err := conjure500Err.(json.Marshaler).MarshalJSON()
 				assert.NoError(t, err)
@@ -179,7 +179,7 @@ func TestHandler_ServeHTTP(t *testing.T) {
 			verifyResp: func(t *testing.T, resp *http.Response) {
 				assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 				assert.Equal(t, "application/json; charset=utf-8", resp.Header.Get("Content-Type"))
-				body, err := ioutil.ReadAll(resp.Body)
+				body, err := io.ReadAll(resp.Body)
 				assert.NoError(t, err)
 				expected, err := conjure404Err.(json.Marshaler).MarshalJSON()
 				assert.NoError(t, err)
@@ -202,7 +202,7 @@ func TestHandler_ServeHTTP(t *testing.T) {
 			verifyResp: func(t *testing.T, resp *http.Response) {
 				assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 				assert.Equal(t, "application/json; charset=utf-8", resp.Header.Get("Content-Type"))
-				body, err := ioutil.ReadAll(resp.Body)
+				body, err := io.ReadAll(resp.Body)
 				assert.NoError(t, err)
 				expected, err := conjure404Err.(json.Marshaler).MarshalJSON()
 				assert.NoError(t, err)
@@ -232,7 +232,7 @@ func TestHandler_ServeHTTP(t *testing.T) {
 			},
 			verifyResp: func(t *testing.T, resp *http.Response) {
 				assert.Equal(t, http.StatusOK, resp.StatusCode)
-				body, err := ioutil.ReadAll(resp.Body)
+				body, err := io.ReadAll(resp.Body)
 				assert.NoError(t, err)
 				assert.Equal(t, "ok", string(body))
 			},
