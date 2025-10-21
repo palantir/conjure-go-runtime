@@ -15,7 +15,7 @@
 package errors
 
 import (
-	"github.com/palantir/conjure-go-runtime/v2/conjure-go-contract/codecs"
+	"github.com/palantir/conjure-go-runtime/v3/conjure-go-contract/codecs"
 	werror "github.com/palantir/witchcraft-go-error"
 )
 
