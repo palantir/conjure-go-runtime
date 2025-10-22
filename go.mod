@@ -3,6 +3,7 @@ module github.com/palantir/conjure-go-runtime/v2
 go 1.25.0
 
 require (
+	github.com/go-json-experiment/json v0.0.0-20250910080747-cc2cfa0554c3
 	github.com/golang/snappy v1.0.0
 	github.com/palantir/pkg/bytesbuffers v1.3.0
 	github.com/palantir/pkg/httpserver v1.2.0
