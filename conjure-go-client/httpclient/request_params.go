@@ -128,23 +128,6 @@ func WithBinaryRequestBody(input RequestBody) RequestParam {
 	})
 }
 
-// WithRawRequestBodyProvider uses the io.ReadCloser provided by
-// getBody as the request body.
-//
-// Deprecated: Use WithBinaryRequestBody(RequestBodyStreamWithReplay(getBody)) if the body can be recreated,
-// otherwise WithBinaryRequestBody(RequestBodyStreamOnce(getBody)).
-func WithRawRequestBodyProvider(getBody func() io.ReadCloser) RequestParam {
-	return requestParamFunc(func(b *requestBuilder) error {
-		if getBody == nil {
-			return werror.Error("getBody can not be nil")
-		}
-		b.bodyMiddleware.requestInput = RequestBodyStreamOnce(getBody)
-		b.bodyMiddleware.requestEncoder = nil
-		b.headers.Set("Content-Type", "application/octet-stream")
-		return nil
-	})
-}
-
 // WithJSONRequest sets the request body to the input marshaled using the JSON codec.
 func WithJSONRequest(input interface{}) RequestParam {
 	return WithRequestBody(input, codecs.JSON)
