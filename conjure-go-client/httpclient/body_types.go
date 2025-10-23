@@ -21,7 +21,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/palantir/conjure-go-runtime/v2/conjure-go-contract/codecs"
+	"github.com/palantir/conjure-go-runtime/v3/conjure-go-contract/codecs"
 )
 
 // RequestBody is an interface that can be used to set the body of an http.Request.

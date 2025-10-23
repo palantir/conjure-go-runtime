@@ -22,8 +22,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient/internal"
-	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient/internal/refreshingclient"
+	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpclient/internal"
+	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpclient/internal/refreshingclient"
 	"github.com/palantir/pkg/bytesbuffers"
 	"github.com/palantir/pkg/metrics"
 	"github.com/palantir/pkg/refreshable"

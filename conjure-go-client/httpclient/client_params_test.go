@@ -25,7 +25,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient/internal/refreshingclient"
+	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpclient/internal/refreshingclient"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
