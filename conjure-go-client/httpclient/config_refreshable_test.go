@@ -22,7 +22,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/palantir/pkg/refreshable"
+	"github.com/palantir/pkg/refreshable/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v2"
@@ -32,14 +32,14 @@ func TestRefreshableClientConfig(t *testing.T) {
 	const serviceName = "serviceName"
 	// testDefaultClient is pulled out because we also use it to test the non-refreshable version which is backed by the same infra.
 	testDefaultClient := func(t *testing.T, client *clientImpl) {
-		httpClient := client.client.CurrentHTTPClient()
+		httpClient := client.client.Current()
 		assert.Equal(t, defaultHTTPTimeout, httpClient.Timeout, "http timeout not set to default")
 
 		if client.maxAttempts != nil {
-			assert.Nil(t, client.maxAttempts.CurrentIntPtr())
+			assert.Nil(t, client.maxAttempts.Current())
 		}
-		assert.Equal(t, defaultInitialBackoff, client.backoffOptions.InitialBackoff().CurrentDuration())
-		assert.Equal(t, defaultMaxBackoff, client.backoffOptions.MaxBackoff().CurrentDuration())
+		assert.Equal(t, defaultInitialBackoff, client.backoffOptions.Current().InitialBackoff)
+		assert.Equal(t, defaultMaxBackoff, client.backoffOptions.Current().MaxBackoff)
 
 		initialTransport, initialMiddlewares := unwrapTransport(httpClient.Transport)
 		assert.Equal(t, defaultMaxIdleConns, initialTransport.MaxIdleConns)
@@ -59,8 +59,8 @@ func TestRefreshableClientConfig(t *testing.T) {
 			}
 			if assert.IsType(t, &metricsMiddleware{}, initialMiddlewares[2]) {
 				metricsM := initialMiddlewares[2].(*metricsMiddleware)
-				assert.False(t, metricsM.Disabled.CurrentBool())
-				assert.Equal(t, serviceName, metricsM.ServiceName.CurrentString())
+				assert.False(t, metricsM.Disabled.Current())
+				assert.Equal(t, serviceName, metricsM.ServiceName.Current())
 			}
 		}
 
@@ -87,29 +87,31 @@ func TestRefreshableClientConfig(t *testing.T) {
 	}
 	initialConfigBytes, err := yaml.Marshal(initialConfig)
 	require.NoError(t, err)
-	refreshableConfigBytes := refreshable.NewDefaultRefreshable(initialConfigBytes)
+	refreshableConfigBytes := refreshable.New(initialConfigBytes)
 	updateRefreshableBytes := func(s ServicesConfig) {
 		b, err := yaml.Marshal(s)
 		if err != nil {
 			panic(err)
 		}
-		if err := refreshableConfigBytes.Update(b); err != nil {
-			panic(err)
-		}
+		refreshableConfigBytes.Update(b)
 	}
-	refreshableServicesConfig := NewRefreshingServicesConfig(refreshableConfigBytes.Map(func(i interface{}) interface{} {
+	mapped, _ := refreshable.Map(refreshableConfigBytes, func(b []byte) ServicesConfig {
 		var c ServicesConfig
-		if err := yaml.Unmarshal(i.([]byte), &c); err != nil {
+		if err := yaml.Unmarshal(b, &c); err != nil {
 			panic(err)
 		}
 		return c
-	}))
+	})
+	refreshableServicesConfig := mapped
 
 	t.Run("refreshable config without uris fails", func(t *testing.T) {
 		getClientURIs := func(client Client) []string {
 			return client.(*clientImpl).uriScorer.CurrentURIScoringMiddleware().GetURIsInOrderOfIncreasingScore()
 		}
-		refreshableClientConfig := RefreshableClientConfigFromServiceConfig(refreshableServicesConfig, serviceName)
+		refreshableClientConfig, unsubscribe := refreshable.Map(refreshableServicesConfig, func(t ServicesConfig) ClientConfig {
+			return t.ClientConfig(serviceName)
+		})
+		t.Cleanup(unsubscribe)
 		client, err := NewClientFromRefreshableConfig(context.Background(), refreshableClientConfig)
 		require.EqualError(t, err, "httpclient URLs must not be empty")
 		require.Nil(t, client)
@@ -118,7 +120,7 @@ func TestRefreshableClientConfig(t *testing.T) {
 		require.NoError(t, err, "expected to successfully create client using WithBaseURL even when config has no URIs")
 		require.Equal(t, []string{"https://localhost"}, getClientURIs(client), "expected URIs to be set")
 
-		client, err = NewClientFromRefreshableConfig(context.Background(), refreshableClientConfig, WithRefreshableBaseURLs(refreshable.NewStringSlice(refreshable.NewDefaultRefreshable([]string{"https://localhost"}))))
+		client, err = NewClientFromRefreshableConfig(context.Background(), refreshableClientConfig, WithRefreshableBaseURLs(refreshable.New([]string{"https://localhost"})))
 		require.NoError(t, err, "expected to successfully create client using WithRefreshableBaseURLs even when config has no URIs")
 		require.Equal(t, []string{"https://localhost"}, getClientURIs(client), "expected URIs to be set")
 
@@ -137,7 +139,10 @@ func TestRefreshableClientConfig(t *testing.T) {
 		})
 	})
 
-	refreshableClientConfig := RefreshableClientConfigFromServiceConfig(refreshableServicesConfig, serviceName)
+	refreshableClientConfig, unsubscribe := refreshable.Map(refreshableServicesConfig, func(t ServicesConfig) ClientConfig {
+		return t.ClientConfig(serviceName)
+	})
+	t.Cleanup(unsubscribe)
 	initialConfig.Services[serviceName] = ClientConfig{ServiceName: serviceName, URIs: []string{"https://localhost"}}
 	updateRefreshableBytes(initialConfig)
 	client, err := NewClientFromRefreshableConfig(context.Background(), refreshableClientConfig)
@@ -148,7 +153,7 @@ func TestRefreshableClientConfig(t *testing.T) {
 	})
 
 	currentHTTPClient := func() *http.Client {
-		return client.(*clientImpl).client.CurrentHTTPClient()
+		return client.(*clientImpl).client.Current()
 	}
 	t.Run("update timeout, transport unchanged", func(t *testing.T) {
 		oldClient := currentHTTPClient()
@@ -209,7 +214,7 @@ func TestRefreshableClientConfig(t *testing.T) {
 		assert.Equal(t, oldTransport, newTransport, "expected transport to remain unchanged")
 		assert.Equal(t, oldMiddlewares, newMiddlewares, "expected middlewares to remain unchanged")
 
-		// Test that the we time out quickly due to the new value.
+		// Test that we time out quickly due to the new value.
 		// Unfortunately because transport.DialContext is a function type, we can not inspect the underlying struct.
 		start := time.Now()
 		conn, dialErr := newTransport.DialContext(context.Background(), "tcp", "palantir.com:443")

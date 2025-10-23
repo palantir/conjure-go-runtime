@@ -379,12 +379,6 @@ func configToParams(c ClientConfig) ([]ClientParam, error) {
 	return params, nil
 }
 
-func RefreshableClientConfigFromServiceConfig(servicesConfig RefreshableServicesConfig, serviceName string) RefreshableClientConfig {
-	return NewRefreshingClientConfig(servicesConfig.MapServicesConfig(func(servicesConfig ServicesConfig) interface{} {
-		return servicesConfig.ClientConfig(serviceName)
-	}))
-}
-
 func newValidatedClientParamsFromConfig(ctx context.Context, config ClientConfig) (refreshingclient.ValidatedClientParams, error) {
 	dialer := refreshingclient.DialerParams{
 		DialTimeout: derefPtr(config.ConnectTimeout, defaultDialTimeout),

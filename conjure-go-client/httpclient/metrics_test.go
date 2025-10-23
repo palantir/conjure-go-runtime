@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -232,7 +233,10 @@ func TestMetricsMiddleware_ClientTimeout(t *testing.T) {
 
 	_, err = client.Get(ctx, httpclient.WithRPCMethodName("test-endpoint"))
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "Client.Timeout exceeded while awaiting headers")
+	// The error message changed in newer Go versions
+	require.True(t, strings.Contains(err.Error(), "Client.Timeout exceeded while awaiting headers") ||
+		strings.Contains(err.Error(), "context deadline exceeded"),
+		"Expected timeout error, got: %s", err.Error())
 
 	found := false
 	rootRegistry.Each(func(name string, tags metrics.Tags, value metrics.MetricVal) {

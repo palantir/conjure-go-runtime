@@ -15,21 +15,22 @@
 package internal
 
 import (
-	"github.com/palantir/pkg/refreshable"
+	"github.com/palantir/pkg/refreshable/v2"
 )
 
 type RefreshableURIScoringMiddleware interface {
 	CurrentURIScoringMiddleware() URIScoringMiddleware
 }
 
-func NewRefreshableURIScoringMiddleware(uris refreshable.StringSlice, constructor func([]string) URIScoringMiddleware) RefreshableURIScoringMiddleware {
-	return refreshableURIScoringMiddleware{uris.MapStringSlice(func(uris []string) interface{} {
-		return constructor(uris)
-	})}
+func NewRefreshableURIScoringMiddleware(uris refreshable.Refreshable[[]string], constructor func([]string) URIScoringMiddleware) RefreshableURIScoringMiddleware {
+	mapped, _ := refreshable.Map(uris, constructor)
+	return refreshableURIScoringMiddleware{mapped}
 }
 
-type refreshableURIScoringMiddleware struct{ refreshable.Refreshable }
+type refreshableURIScoringMiddleware struct {
+	refreshable.Refreshable[URIScoringMiddleware]
+}
 
 func (r refreshableURIScoringMiddleware) CurrentURIScoringMiddleware() URIScoringMiddleware {
-	return r.Current().(URIScoringMiddleware)
+	return r.Current()
 }
