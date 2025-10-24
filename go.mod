@@ -7,7 +7,7 @@ require (
 	github.com/palantir/pkg/bytesbuffers v1.3.0
 	github.com/palantir/pkg/httpserver v1.2.0
 	github.com/palantir/pkg/metrics v1.9.0
-	github.com/palantir/pkg/refreshable v1.6.0
+	github.com/palantir/pkg/refreshable/v2 v2.2.0
 	github.com/palantir/pkg/retry v1.3.0
 	github.com/palantir/pkg/safejson v1.2.0
 	github.com/palantir/pkg/tlsconfig v1.4.0
@@ -28,7 +28,6 @@ require (
 	github.com/openzipkin/zipkin-go v0.4.3 // indirect
 	github.com/palantir/go-metrics v1.1.1 // indirect
 	github.com/palantir/pkg v1.1.0 // indirect
-	github.com/palantir/pkg/refreshable/v2 v2.2.0 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	golang.org/x/text v0.30.0 // indirect

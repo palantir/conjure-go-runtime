@@ -26,14 +26,6 @@ type RetryParams struct {
 	MaxBackoff     time.Duration
 }
 
-// ConfigureRetry accepts a mapping function which will be applied to the params value as it is evaluated.
-// This can be used to layer/overwrite configuration before building the RefreshableRetryParams.
-func ConfigureRetry(r RefreshableRetryParams, mapFn func(p RetryParams) RetryParams) RefreshableRetryParams {
-	return NewRefreshingRetryParams(r.MapRetryParams(func(params RetryParams) interface{} {
-		return mapFn(params)
-	}))
-}
-
 func (r RetryParams) Start(ctx context.Context) retry.Retrier {
 	return retry.Start(ctx,
 		retry.WithInitialBackoff(r.InitialBackoff),

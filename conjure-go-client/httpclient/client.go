@@ -22,7 +22,7 @@ import (
 	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpclient/internal"
 	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpclient/internal/refreshingclient"
 	"github.com/palantir/pkg/bytesbuffers"
-	"github.com/palantir/pkg/refreshable"
+	"github.com/palantir/pkg/refreshable/v2"
 	werror "github.com/palantir/witchcraft-go-error"
 	"github.com/palantir/witchcraft-go-logging/wlog/svclog/svc1log"
 )
@@ -49,15 +49,15 @@ type Client interface {
 }
 
 type clientImpl struct {
-	serviceName            refreshable.String
-	client                 RefreshableHTTPClient
+	serviceName            refreshable.Refreshable[string]
+	client                 refreshable.Refreshable[*http.Client]
 	middlewares            []Middleware
 	errorDecoderMiddleware Middleware
 	recoveryMiddleware     Middleware
 
 	uriScorer      internal.RefreshableURIScoringMiddleware
-	maxAttempts    refreshable.IntPtr // 0 means no limit. If nil, uses 2*len(uris).
-	backoffOptions refreshingclient.RefreshableRetryParams
+	maxAttempts    refreshable.Refreshable[*int] // 0 means no limit. If nil, uses 2*len(uris).
+	backoffOptions refreshable.Refreshable[refreshingclient.RetryParams]
 	bufferPool     bytesbuffers.Pool
 }
 
@@ -84,17 +84,17 @@ func (c *clientImpl) Delete(ctx context.Context, params ...RequestParam) (*http.
 func (c *clientImpl) Do(ctx context.Context, params ...RequestParam) (*http.Response, error) {
 	uris := c.uriScorer.CurrentURIScoringMiddleware().GetURIsInOrderOfIncreasingScore()
 	if len(uris) == 0 {
-		return nil, werror.WrapWithContextParams(ctx, ErrEmptyURIs, "", werror.SafeParam("serviceName", c.serviceName.CurrentString()))
+		return nil, werror.WrapWithContextParams(ctx, ErrEmptyURIs, "", werror.SafeParam("serviceName", c.serviceName.Current()))
 	}
 
 	attempts := 2 * len(uris)
 	if c.maxAttempts != nil {
-		if confMaxAttempts := c.maxAttempts.CurrentIntPtr(); confMaxAttempts != nil {
+		if confMaxAttempts := c.maxAttempts.Current(); confMaxAttempts != nil {
 			attempts = *confMaxAttempts
 		}
 	}
 
-	retrier := internal.NewRequestRetrier(uris, c.backoffOptions.CurrentRetryParams().Start(ctx), attempts)
+	retrier := internal.NewRequestRetrier(uris, c.backoffOptions.Current().Start(ctx), attempts)
 	uri, isRelocated := retrier.GetNextURI(nil, nil)
 	for {
 		resp, retryable, err := c.doOnce(ctx, uri, isRelocated, params...)
@@ -161,7 +161,7 @@ func (c *clientImpl) doOnce(
 
 	// 2. create the transport and client
 	// shallow copy so we can overwrite the Transport with a wrapped one.
-	clientCopy := *c.client.CurrentHTTPClient()
+	clientCopy := *c.client.Current()
 
 	// use request-specific timeout if set
 	if b.requestTimeout != nil {
