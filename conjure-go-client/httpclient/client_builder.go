@@ -268,7 +268,7 @@ func newClientBuilderFromRefreshableConfig(ctx context.Context, config refreshab
 	}
 
 	// Extract individual fields from ValidatedClientParams using Map.
-	// We discard the unsubscribe callbacks since these subscriptions persist for the HTTP clients lifetime.
+	// We discard the unsubscribe callbacks since these subscriptions persist for the HTTP client's lifetime.
 	b.HTTP.ServiceName, _ = refreshable.Map(validParams, func(p refreshingclient.ValidatedClientParams) string {
 		return p.ServiceName
 	})
