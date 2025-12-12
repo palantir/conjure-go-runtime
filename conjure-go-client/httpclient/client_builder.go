@@ -97,18 +97,12 @@ func (b *httpClientBuilder) Build(ctx context.Context, params ...HTTPClientParam
 		}
 	}
 
-	var tlsProvider refreshingclient.TLSProvider
-	if b.TLSConfig != nil {
-		tlsProvider = refreshingclient.NewStaticTLSConfigProvider(b.TLSConfig)
-	} else {
-		tlsParams := refreshable.View(b.TransportParams, func(t refreshingclient.TransportParams) refreshingclient.TLSParams {
-			return t.TLS
-		})
-		refreshableProvider, err := refreshingclient.NewRefreshableTLSConfig(ctx, tlsParams)
-		if err != nil {
-			return nil, err
-		}
-		tlsProvider = refreshableProvider
+	tlsParams := refreshable.View(b.TransportParams, func(t refreshingclient.TransportParams) refreshingclient.TLSParams {
+		return t.TLS
+	})
+	tlsProvider, err := refreshingclient.NewRefreshableTLSConfig(ctx, b.TLSConfig, tlsParams)
+	if err != nil {
+		return nil, err
 	}
 
 	dialer := refreshingclient.NewRefreshableDialer(ctx, b.DialerParams)
