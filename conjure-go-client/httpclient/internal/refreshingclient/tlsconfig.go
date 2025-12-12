@@ -86,7 +86,8 @@ func (r RefreshableTLSConfig) GetTLSConfig(ctx context.Context) *tls.Config {
 // NewTLSConfig returns a *tls.Config built from the provided TLSParams.
 func NewTLSConfig(ctx context.Context, potentialStartingTLSConfig *tls.Config, p TLSParams) (*tls.Config, error) {
 	var tlsParams []tlsconfig.ClientParam
-	if len(p.CAFiles) != 0 {
+	if len(p.CAFiles) != 0 || len(p.CABytes) != 0 {
+		// TODO
 		tlsParams = append(tlsParams, tlsconfig.ClientRootCAFiles(p.CAFiles...))
 	}
 	if p.CertFile != "" && p.KeyFile != "" {
@@ -95,9 +96,17 @@ func NewTLSConfig(ctx context.Context, potentialStartingTLSConfig *tls.Config, p
 	if p.InsecureSkipVerify {
 		tlsParams = append(tlsParams, tlsconfig.ClientInsecureSkipVerify())
 	}
-	tlsConfig, err := tlsconfig.NewClientConfig(tlsParams...)
+	tlsConfig, err := createTLSConfig(ctx, potentialStartingTLSConfig, tlsParams)
 	if err != nil {
 		return nil, werror.WrapWithContextParams(ctx, err, "failed to build tlsConfig")
 	}
 	return tlsConfig, nil
+}
+
+func createTLSConfig(ctx context.Context, potentialStartingTLSConfig *tls.Config, tlsParams []tlsconfig.ClientParam) (*tls.Config, error) {
+	if potentialStartingTLSConfig == nil {
+		return tlsconfig.NewClientConfig(tlsParams...)
+	}
+	// TODO CHANGE
+	return tlsconfig.NewClientConfig(tlsParams...)
 }
