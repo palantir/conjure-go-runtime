@@ -398,14 +398,12 @@ func WithTLSInsecureSkipVerify() ClientOrHTTPClientParam {
 	})
 }
 
-// WithTLSCABytes sets the root CA certificates for the HTTP client's TLS config using PEM-encoded bytes.
-// This is useful when the CA certificates are available in memory rather than on disk.
-func WithTLSCABytes(caBytes ...[]byte) ClientOrHTTPClientParam {
+// WithTLSCABytes sets the root CA certificates for the HTTP client's TLS config using a refreshable
+// source of PEM-encoded bytes. The TLS configuration will be rebuilt whenever the refreshable updates.
+// This is useful when the CA certificates are available in memory rather than on disk and may change over time.
+func WithTLSCABytes(caBytes refreshable.Refreshable[[][]byte]) ClientOrHTTPClientParam {
 	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
-		b.TransportParams = refreshable.View(b.TransportParams, func(p refreshingclient.TransportParams) refreshingclient.TransportParams {
-			p.TLS.CABytes = append(p.TLS.CABytes, caBytes...)
-			return p
-		})
+		b.TLSCABytes = caBytes
 		return nil
 	})
 }

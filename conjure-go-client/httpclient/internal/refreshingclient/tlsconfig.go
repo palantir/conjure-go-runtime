@@ -29,7 +29,6 @@ import (
 // Its fields must all be compatible with reflect.DeepEqual.
 type TLSParams struct {
 	CAFiles            []string
-	CABytes            [][]byte
 	CertFile           string
 	KeyFile            string
 	InsecureSkipVerify bool
@@ -83,14 +82,19 @@ func (r RefreshableTLSConfig) GetTLSConfig(ctx context.Context) *tls.Config {
 
 // NewTLSConfig returns a *tls.Config built from the provided TLSParams.
 func NewTLSConfig(ctx context.Context, p TLSParams) (*tls.Config, error) {
+	return NewTLSConfigWithCABytes(ctx, p, nil)
+}
+
+// NewTLSConfigWithCABytes returns a *tls.Config built from the provided TLSParams and optional CA certificate bytes.
+func NewTLSConfigWithCABytes(ctx context.Context, p TLSParams, caBytes [][]byte) (*tls.Config, error) {
 	var tlsParams []tlsconfig.ClientParam
 	if len(p.CAFiles) != 0 {
 		tlsParams = append(tlsParams, tlsconfig.ClientRootCAFiles(p.CAFiles...))
 	}
-	if len(p.CABytes) != 0 {
+	if len(caBytes) != 0 {
 		tlsParams = append(tlsParams, tlsconfig.ClientRootCAs(func() (*x509.CertPool, error) {
 			pool := x509.NewCertPool()
-			for _, certBytes := range p.CABytes {
+			for _, certBytes := range caBytes {
 				if !pool.AppendCertsFromPEM(certBytes) {
 					return nil, werror.ErrorWithContextParams(ctx, "failed to parse CA certificate from bytes")
 				}
@@ -109,4 +113,31 @@ func NewTLSConfig(ctx context.Context, p TLSParams) (*tls.Config, error) {
 		return nil, werror.WrapWithContextParams(ctx, err, "failed to build tlsConfig")
 	}
 	return tlsConfig, nil
+}
+
+// tlsParamsWithCABytes combines TLSParams with CA bytes for use with refreshables.
+type tlsParamsWithCABytes struct {
+	TLSParams
+	CABytes [][]byte
+}
+
+// NewRefreshableTLSConfigWithCABytes creates a TLSProvider that rebuilds when either TLSParams or CA bytes change.
+func NewRefreshableTLSConfigWithCABytes(
+	ctx context.Context,
+	params refreshable.Refreshable[TLSParams],
+	caBytes refreshable.Refreshable[[][]byte],
+) (TLSProvider, error) {
+	combined, _ := refreshable.Merge(params, caBytes, func(p TLSParams, ca [][]byte) tlsParamsWithCABytes {
+		return tlsParamsWithCABytes{
+			TLSParams: p,
+			CABytes:   ca,
+		}
+	})
+	r, _, err := refreshable.MapWithError(combined, func(p tlsParamsWithCABytes) (*tls.Config, error) {
+		return NewTLSConfigWithCABytes(ctx, p.TLSParams, p.CABytes)
+	})
+	if err != nil {
+		return nil, werror.WrapWithContextParams(ctx, err, "failed to build RefreshableTLSConfig")
+	}
+	return RefreshableTLSConfig{r: r}, nil
 }

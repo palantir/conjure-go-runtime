@@ -73,7 +73,8 @@ type httpClientBuilder struct {
 	ServiceName     refreshable.Refreshable[string]
 	Timeout         refreshable.Refreshable[time.Duration]
 	DialerParams    refreshable.Refreshable[refreshingclient.DialerParams]
-	TLSConfig       *tls.Config // If unset, config in TransportParams will be used.
+	TLSConfig       *tls.Config                           // If unset, config in TransportParams will be used.
+	TLSCABytes      refreshable.Refreshable[[][]byte]     // Optional refreshable CA bytes to combine with TLSParams.
 	TransportParams refreshable.Refreshable[refreshingclient.TransportParams]
 	Middlewares     []Middleware
 
@@ -104,11 +105,15 @@ func (b *httpClientBuilder) Build(ctx context.Context, params ...HTTPClientParam
 		tlsParams := refreshable.View(b.TransportParams, func(t refreshingclient.TransportParams) refreshingclient.TLSParams {
 			return t.TLS
 		})
-		refreshableProvider, err := refreshingclient.NewRefreshableTLSConfig(ctx, tlsParams)
+		var err error
+		if b.TLSCABytes != nil {
+			tlsProvider, err = refreshingclient.NewRefreshableTLSConfigWithCABytes(ctx, tlsParams, b.TLSCABytes)
+		} else {
+			tlsProvider, err = refreshingclient.NewRefreshableTLSConfig(ctx, tlsParams)
+		}
 		if err != nil {
 			return nil, err
 		}
-		tlsProvider = refreshableProvider
 	}
 
 	dialer := refreshingclient.NewRefreshableDialer(ctx, b.DialerParams)
