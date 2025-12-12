@@ -17,6 +17,7 @@ package refreshingclient
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 
 	"github.com/palantir/pkg/refreshable/v2"
 	"github.com/palantir/pkg/tlsconfig"
@@ -28,6 +29,7 @@ import (
 // Its fields must all be compatible with reflect.DeepEqual.
 type TLSParams struct {
 	CAFiles            []string
+	CABytes            [][]byte
 	CertFile           string
 	KeyFile            string
 	InsecureSkipVerify bool
@@ -84,6 +86,17 @@ func NewTLSConfig(ctx context.Context, p TLSParams) (*tls.Config, error) {
 	var tlsParams []tlsconfig.ClientParam
 	if len(p.CAFiles) != 0 {
 		tlsParams = append(tlsParams, tlsconfig.ClientRootCAFiles(p.CAFiles...))
+	}
+	if len(p.CABytes) != 0 {
+		tlsParams = append(tlsParams, tlsconfig.ClientRootCAs(func() (*x509.CertPool, error) {
+			pool := x509.NewCertPool()
+			for _, certBytes := range p.CABytes {
+				if !pool.AppendCertsFromPEM(certBytes) {
+					return nil, werror.ErrorWithContextParams(ctx, "failed to parse CA certificate from bytes")
+				}
+			}
+			return pool, nil
+		}))
 	}
 	if p.CertFile != "" && p.KeyFile != "" {
 		tlsParams = append(tlsParams, tlsconfig.ClientKeyPairFiles(p.CertFile, p.KeyFile))

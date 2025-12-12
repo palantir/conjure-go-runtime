@@ -398,6 +398,18 @@ func WithTLSInsecureSkipVerify() ClientOrHTTPClientParam {
 	})
 }
 
+// WithTLSCABytes sets the root CA certificates for the HTTP client's TLS config using PEM-encoded bytes.
+// This is useful when the CA certificates are available in memory rather than on disk.
+func WithTLSCABytes(caBytes ...[]byte) ClientOrHTTPClientParam {
+	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
+		b.TransportParams = refreshable.View(b.TransportParams, func(p refreshingclient.TransportParams) refreshingclient.TransportParams {
+			p.TLS.CABytes = append(p.TLS.CABytes, caBytes...)
+			return p
+		})
+		return nil
+	})
+}
+
 // WithDialTimeout sets the timeout on the Dialer.
 // If unset, the client defaults to 90 seconds.
 func WithDialTimeout(timeout time.Duration) ClientOrHTTPClientParam {
