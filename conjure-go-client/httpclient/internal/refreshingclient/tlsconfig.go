@@ -26,11 +26,48 @@ import (
 
 // TLSParams contains the parameters needed to build a *tls.Config.
 // Its fields must all be compatible with reflect.DeepEqual.
-type TLSParams struct {
+type TLSParams2 struct {
 	CAFiles            []string
 	CertFile           string
 	KeyFile            string
 	InsecureSkipVerify bool
+}
+
+// Option is a function to modify the cache config
+type TLSParams = func() []tlsconfig.ClientParam
+
+// WithMaxNumberOfThreads allows users to set maximum number of workers the workerpool will spin up
+// By default this is un-set and an unlimited number of workers may be used
+// Each worker is a single go-routine
+func WithCAFiles(caFiles []string) TLSParams {
+	return func() []tlsconfig.ClientParam {
+		if len(caFiles) != 0 {
+			return nil
+		}
+		return []tlsconfig.ClientParam{tlsconfig.ClientRootCAFiles(caFiles...)}
+	}
+}
+
+func WithCertAndKeyFile(certFile, keyFile string) TLSParams {
+	return func() []tlsconfig.ClientParam {
+		if certFile == "" || keyFile == "" {
+			return nil
+		}
+		return []tlsconfig.ClientParam{tlsconfig.ClientKeyPairFiles(certFile, keyFile)}
+	}
+}
+
+func WithInsecureSkipVerify(insecureSkipVerify bool) TLSParams {
+	return func() []tlsconfig.ClientParam {
+		if !insecureSkipVerify {
+			return nil
+		}
+		return []tlsconfig.ClientParam{tlsconfig.ClientInsecureSkipVerify()}
+	}
+}
+
+type CAFiles struct {
+	CAFiles []string
 }
 
 type TLSProvider interface {
@@ -59,8 +96,8 @@ type RefreshableTLSConfig struct {
 //
 // N.B. This subscription only fires when the paths are updated, not when the contents of the files are updated.
 // We could consider adding a file refreshable to watch the key and cert files.
-func NewRefreshableTLSConfig(ctx context.Context, params refreshable.Refreshable[TLSParams]) (TLSProvider, error) {
-	r, _, err := refreshable.MapWithError(params, func(p TLSParams) (*tls.Config, error) {
+func NewRefreshableTLSConfig(ctx context.Context, params refreshable.Refreshable[[]TLSParams]) (TLSProvider, error) {
+	r, _, err := refreshable.MapWithError(params, func(p []TLSParams) (*tls.Config, error) {
 		return NewTLSConfig(ctx, p)
 	})
 	if err != nil {
@@ -80,16 +117,10 @@ func (r RefreshableTLSConfig) GetTLSConfig(ctx context.Context) *tls.Config {
 }
 
 // NewTLSConfig returns a *tls.Config built from the provided TLSParams.
-func NewTLSConfig(ctx context.Context, p TLSParams) (*tls.Config, error) {
+func NewTLSConfig(ctx context.Context, params []TLSParams) (*tls.Config, error) {
 	var tlsParams []tlsconfig.ClientParam
-	if len(p.CAFiles) != 0 {
-		tlsParams = append(tlsParams, tlsconfig.ClientRootCAFiles(p.CAFiles...))
-	}
-	if p.CertFile != "" && p.KeyFile != "" {
-		tlsParams = append(tlsParams, tlsconfig.ClientKeyPairFiles(p.CertFile, p.KeyFile))
-	}
-	if p.InsecureSkipVerify {
-		tlsParams = append(tlsParams, tlsconfig.ClientInsecureSkipVerify())
+	for _, param := range params {
+		tlsParams = append(tlsParams, param()...)
 	}
 	tlsConfig, err := tlsconfig.NewClientConfig(tlsParams...)
 	if err != nil {
