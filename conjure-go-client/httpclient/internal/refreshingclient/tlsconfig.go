@@ -87,8 +87,14 @@ func (r RefreshableTLSConfig) GetTLSConfig(ctx context.Context) *tls.Config {
 func NewTLSConfig(ctx context.Context, potentialStartingTLSConfig *tls.Config, p TLSParams) (*tls.Config, error) {
 	var tlsParams []tlsconfig.ClientParam
 	if len(p.CAFiles) != 0 || len(p.CABytes) != 0 {
-		// TODO
-		tlsParams = append(tlsParams, tlsconfig.ClientRootCAFiles(p.CAFiles...))
+		var certPoolOptions []tlsconfig.CertPoolOption
+		if len(p.CAFiles) > 0 {
+			certPoolOptions = append(certPoolOptions, tlsconfig.CertPoolOptionFromCAFiles(p.CAFiles...))
+		}
+		if len(p.CABytes) > 0 {
+			certPoolOptions = append(certPoolOptions, tlsconfig.CertPoolOptionCABytes(p.CABytes))
+		}
+		tlsParams = append(tlsParams, tlsconfig.ClientRootCAs(tlsconfig.CertPoolFromCertPoolOptions(certPoolOptions)))
 	}
 	if p.CertFile != "" && p.KeyFile != "" {
 		tlsParams = append(tlsParams, tlsconfig.ClientKeyPairFiles(p.CertFile, p.KeyFile))
@@ -107,6 +113,5 @@ func createTLSConfig(ctx context.Context, potentialStartingTLSConfig *tls.Config
 	if potentialStartingTLSConfig == nil {
 		return tlsconfig.NewClientConfig(tlsParams...)
 	}
-	// TODO CHANGE
-	return tlsconfig.NewClientConfig(tlsParams...)
+	return tlsconfig.NewClientConfigWithBaseConfig(potentialStartingTLSConfig, tlsParams...)
 }
