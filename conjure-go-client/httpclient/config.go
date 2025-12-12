@@ -131,7 +131,6 @@ type MetricsConfig struct {
 
 type SecurityConfig struct {
 	CAFiles  []string `json:"ca-files,omitempty" yaml:"ca-files,omitempty"`
-	CABytes  [][]byte `json:"-" yaml:"-"`
 	CertFile string   `json:"cert-file,omitempty" yaml:"cert-file,omitempty"`
 	KeyFile  string   `json:"key-file,omitempty" yaml:"key-file,omitempty"`
 
@@ -245,9 +244,6 @@ func MergeClientConfig(conf, defaults ClientConfig) ClientConfig {
 	}
 	if conf.Security.CAFiles == nil {
 		conf.Security.CAFiles = defaults.Security.CAFiles
-	}
-	if conf.Security.CABytes == nil {
-		conf.Security.CABytes = defaults.Security.CABytes
 	}
 	if conf.Security.CertFile == "" {
 		conf.Security.CertFile = defaults.Security.CertFile
@@ -371,7 +367,6 @@ func configToParams(c ClientConfig) ([]ClientParam, error) {
 	// Security (TLS) Config
 	if tlsConfig, err := refreshingclient.NewTLSConfig(context.TODO(), refreshingclient.TLSParams{
 		CAFiles:            c.Security.CAFiles,
-		CABytes:            c.Security.CABytes,
 		CertFile:           c.Security.CertFile,
 		KeyFile:            c.Security.KeyFile,
 		InsecureSkipVerify: derefPtr(c.Security.InsecureSkipVerify, false),
@@ -403,7 +398,6 @@ func newValidatedClientParamsFromConfig(ctx context.Context, config ClientConfig
 		TLSHandshakeTimeout:   derefPtr(config.TLSHandshakeTimeout, defaultTLSHandshakeTimeout),
 		TLS: refreshingclient.TLSParams{
 			CAFiles:            config.Security.CAFiles,
-			CABytes:            config.Security.CABytes,
 			CertFile:           config.Security.CertFile,
 			KeyFile:            config.Security.KeyFile,
 			InsecureSkipVerify: derefPtr(config.Security.InsecureSkipVerify, false),
