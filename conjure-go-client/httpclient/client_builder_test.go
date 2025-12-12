@@ -16,12 +16,22 @@ package httpclient_test
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
+
+	refreshablev1 "github.com/palantir/pkg/refreshable"
+	"github.com/palantir/pkg/refreshable/v2"
+
 	"testing"
+	"time"
 
 	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient"
-	"github.com/palantir/pkg/refreshable"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -57,9 +67,59 @@ func TestWrapTransport(t *testing.T) {
 	assert.Equal(t, expected, tracker)
 }
 
-func TestNewHTTPClientWithoutURIs(t *testing.T) {
-	cfg := httpclient.ClientConfig{ServiceName: "test-service"}
-	c, err := httpclient.NewHTTPClientFromRefreshableConfig(context.Background(), httpclient.NewRefreshingClientConfig(refreshable.NewDefaultRefreshable(cfg)))
+func TestDoOurClientsWork(t *testing.T) {
+	// Create a temp directory with a CA certificate file
+
+	cfg := httpclient.ClientConfig{
+		ServiceName: "baz",
+		URIs: []string{
+			"https://test-service",
+		},
+	}
+	rrr := refreshable.New(cfg)
+	scopedTokenClient, err := httpclient.NewClientFromRefreshableConfig(
+		context.Background(),
+		httpclient.NewRefreshingClientConfig(refreshablev1.FromV2(rrr)),
+	)
+	assert.NoError(t, err)
+	_, err = scopedTokenClient.Delete(context.Background())
+	assert.ErrorContains(t, err, "test-service")
+	cfg.URIs = []string{
+		"https://foo-service",
+	}
+	rrr.Update(cfg)
+	_, err = scopedTokenClient.Delete(context.Background())
+	assert.ErrorContains(t, err, "foo-service")
+}
+
+func generateTestCACert(t *testing.T) []byte {
+	t.Helper()
+
+	// Generate a private key
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	require.NoError(t, err)
-	require.NotNil(t, c.CurrentHTTPClient())
+
+	// Create a self-signed CA certificate
+	template := x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject: pkix.Name{
+			Organization: []string{"Test CA"},
+		},
+		NotBefore:             time.Now(),
+		NotAfter:              time.Now().Add(24 * time.Hour),
+		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
+		BasicConstraintsValid: true,
+		IsCA:                  true,
+	}
+
+	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, &privateKey.PublicKey, privateKey)
+	require.NoError(t, err)
+
+	// Encode to PEM
+	certPEM := pem.EncodeToMemory(&pem.Block{
+		Type:  "CERTIFICATE",
+		Bytes: certDER,
+	})
+
+	return certPEM
 }
