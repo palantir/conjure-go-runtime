@@ -97,6 +97,25 @@ func (b *httpClientBuilder) Build(ctx context.Context, params ...HTTPClientParam
 		}
 	}
 
+	tlsProvider, err := b.getTLSProvider(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	dialer := refreshingclient.NewRefreshableDialer(ctx, b.DialerParams)
+	transport := refreshingclient.NewRefreshableTransport(ctx, b.TransportParams, tlsProvider, dialer)
+	transport = wrapTransport(transport, newMetricsMiddleware(b.ServiceName, b.MetricsTagProviders, b.DisableMetrics))
+	transport = wrapTransport(transport, newTraceMiddleware(b.ServiceName, b.DisableRequestSpan, b.DisableTraceHeaders))
+	if !b.DisableRecovery {
+		transport = wrapTransport(transport, recoveryMiddleware{})
+	}
+	transport = wrapTransport(transport, b.Middlewares...)
+
+	return refreshingclient.NewRefreshableHTTPClient(transport, b.Timeout), nil
+}
+
+func (b *httpClientBuilder) getTLSProvider(ctx context.Context) (refreshingclient.TLSProvider, error) {
+	// Okay now we should layer on our friends
 	var tlsProvider refreshingclient.TLSProvider
 	if b.TLSConfig != nil {
 		tlsProvider = refreshingclient.NewStaticTLSConfigProvider(b.TLSConfig)
@@ -110,17 +129,7 @@ func (b *httpClientBuilder) Build(ctx context.Context, params ...HTTPClientParam
 		}
 		tlsProvider = refreshableProvider
 	}
-
-	dialer := refreshingclient.NewRefreshableDialer(ctx, b.DialerParams)
-	transport := refreshingclient.NewRefreshableTransport(ctx, b.TransportParams, tlsProvider, dialer)
-	transport = wrapTransport(transport, newMetricsMiddleware(b.ServiceName, b.MetricsTagProviders, b.DisableMetrics))
-	transport = wrapTransport(transport, newTraceMiddleware(b.ServiceName, b.DisableRequestSpan, b.DisableTraceHeaders))
-	if !b.DisableRecovery {
-		transport = wrapTransport(transport, recoveryMiddleware{})
-	}
-	transport = wrapTransport(transport, b.Middlewares...)
-
-	return refreshingclient.NewRefreshableHTTPClient(transport, b.Timeout), nil
+	return tlsProvider, nil
 }
 
 // NewClient returns a configured client ready for use.

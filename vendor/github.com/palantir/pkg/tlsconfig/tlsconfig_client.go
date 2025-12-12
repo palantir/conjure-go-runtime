@@ -15,11 +15,21 @@ type TLSCertProvider func() (tls.Certificate, error)
 // NewClientConfig returns a tls.Config that is suitable to use by a client in 2-way TLS connections configured with
 // the provided parameters.
 func NewClientConfig(params ...ClientParam) (*tls.Config, error) {
+	tlsCfg := &tls.Config{
+		MinVersion:               tls.VersionTLS12,
+		PreferServerCipherSuites: true,
+		CipherSuites:             defaultCipherSuites,
+		Renegotiation:            tls.RenegotiateNever,
+	}
+	return NewClientConfigWithBaseConfig(tlsCfg, params...)
+}
+
+func NewClientConfigWithBaseConfig(b *tls.Config, params ...ClientParam) (*tls.Config, error) {
 	configurers := make([]configurer, len(params))
 	for i, p := range params {
 		configurers[i] = configurer(p.configureClient)
 	}
-	return configureTLSConfig(configurers...)
+	return configureTLSConfig(b, configurers...)
 }
 
 type ClientParam interface {
@@ -31,6 +41,14 @@ type clientParam func(*tls.Config) error
 func (p clientParam) configureClient(cfg *tls.Config) error {
 	return p(cfg)
 }
+
+func BaseTLSConfig(base *tls.Config) ClientParam {
+	return clientParam(func(cfg *tls.Config) error {
+		// Need to copy the world
+		panic("TODO")
+	})
+}
+
 
 // ClientKeyPairFiles configures the client with a static key pair for it to present to servers when communicating using
 // TLS with client authentication (2-way SSL). If neither ClientKeyPairFiles nor ClientKeyPair are provided, the client

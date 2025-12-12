@@ -36,9 +36,6 @@ type TLSParams2 struct {
 // Option is a function to modify the cache config
 type TLSParams = func() []tlsconfig.ClientParam
 
-// WithMaxNumberOfThreads allows users to set maximum number of workers the workerpool will spin up
-// By default this is un-set and an unlimited number of workers may be used
-// Each worker is a single go-routine
 func WithCAFiles(caFiles []string) TLSParams {
 	return func() []tlsconfig.ClientParam {
 		if len(caFiles) != 0 {
@@ -96,8 +93,18 @@ type RefreshableTLSConfig struct {
 //
 // N.B. This subscription only fires when the paths are updated, not when the contents of the files are updated.
 // We could consider adding a file refreshable to watch the key and cert files.
-func NewRefreshableTLSConfig(ctx context.Context, params refreshable.Refreshable[[]TLSParams]) (TLSProvider, error) {
-	r, _, err := refreshable.MapWithError(params, func(p []TLSParams) (*tls.Config, error) {
+func NewRefreshableTLSConfig(
+	ctx context.Context,
+	potentialStartingTLSConfig *tls.Config,
+	params refreshable.Refreshable[TLSParams2]) (TLSProvider, error) {
+	if potentialStartingTLSConfig != nil {
+		r, _, err := refreshable.MapWithError(params, func(p TLSParams2) (*tls.Config, error) {
+			var pp tlsconfig.ClientParam
+			pp
+			return NewTLSConfig(ctx, p)
+		})
+	}
+	r, _, err := refreshable.MapWithError(params, func(p TLSParams2) (*tls.Config, error) {
 		return NewTLSConfig(ctx, p)
 	})
 	if err != nil {
@@ -117,7 +124,7 @@ func (r RefreshableTLSConfig) GetTLSConfig(ctx context.Context) *tls.Config {
 }
 
 // NewTLSConfig returns a *tls.Config built from the provided TLSParams.
-func NewTLSConfig(ctx context.Context, params []TLSParams) (*tls.Config, error) {
+func NewTLSConfig(ctx context.Context, params TLSParams2) (*tls.Config, error) {
 	var tlsParams []tlsconfig.ClientParam
 	for _, param := range params {
 		tlsParams = append(tlsParams, param()...)
@@ -128,3 +135,5 @@ func NewTLSConfig(ctx context.Context, params []TLSParams) (*tls.Config, error) 
 	}
 	return tlsConfig, nil
 }
+
+type whyNotBoth struct{}
