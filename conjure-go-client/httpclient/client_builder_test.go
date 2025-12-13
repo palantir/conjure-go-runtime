@@ -16,9 +16,19 @@ package httpclient_test
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpclient"
 	"github.com/palantir/pkg/refreshable/v2"
@@ -66,11 +76,39 @@ func TestNewHTTPClientWithoutURIs(t *testing.T) {
 
 func TestDoOurClientsWork(t *testing.T) {
 	// Create a temp directory with a CA certificate file
+	tmpDir := t.TempDir()
+	caFile := filepath.Join(tmpDir, "ca.pem")
+
+	// Generate a self-signed CA certificate
+	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+
+	template := x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject: pkix.Name{
+			Organization: []string{"Test CA"},
+		},
+		NotBefore:             time.Now(),
+		NotAfter:              time.Now().Add(time.Hour),
+		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
+		BasicConstraintsValid: true,
+		IsCA:                  true,
+	}
+
+	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, &priv.PublicKey, priv)
+	require.NoError(t, err)
+
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
+	err = os.WriteFile(caFile, certPEM, 0600)
+	require.NoError(t, err)
 
 	cfg := httpclient.ClientConfig{
 		ServiceName: "baz",
 		URIs: []string{
 			"https://test-service",
+		},
+		Security: httpclient.SecurityConfig{
+			CAFiles: []string{caFile},
 		},
 	}
 	rrr := refreshable.New(cfg)
@@ -78,7 +116,7 @@ func TestDoOurClientsWork(t *testing.T) {
 		context.Background(),
 		rrr,
 	)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	_, err = scopedTokenClient.Delete(context.Background())
 	assert.ErrorContains(t, err, "test-service")
 	cfg.URIs = []string{
