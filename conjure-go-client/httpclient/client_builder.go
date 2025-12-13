@@ -104,7 +104,7 @@ func (b *httpClientBuilder) Build(ctx context.Context, params ...HTTPClientParam
 		tlsParams := refreshable.View(b.TransportParams, func(t refreshingclient.TransportParams) refreshingclient.TLSParams {
 			return t.TLS
 		})
-		refreshableProvider, err := refreshingclient.NewRefreshableTLSConfig(ctx, tlsParams)
+		refreshableProvider, err := refreshingclient.NewRefreshableTLSConfig(ctx, nil, tlsParams)
 		if err != nil {
 			return nil, err
 		}
