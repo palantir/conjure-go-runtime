@@ -27,6 +27,7 @@ import (
 // TLSParams contains the parameters needed to build a *tls.Config.
 // Its fields must all be compatible with reflect.DeepEqual.
 type TLSParams struct {
+	CABytes            []byte
 	CAFiles            []string
 	CertFile           string
 	KeyFile            string
@@ -59,9 +60,12 @@ type RefreshableTLSConfig struct {
 //
 // N.B. This subscription only fires when the paths are updated, not when the contents of the files are updated.
 // We could consider adding a file refreshable to watch the key and cert files.
-func NewRefreshableTLSConfig(ctx context.Context, params refreshable.Refreshable[TLSParams]) (TLSProvider, error) {
+func NewRefreshableTLSConfig(
+	ctx context.Context,
+	potentialStartingTLSConfig *tls.Config,
+	params refreshable.Refreshable[TLSParams]) (TLSProvider, error) {
 	r, _, err := refreshable.MapWithError(params, func(p TLSParams) (*tls.Config, error) {
-		return NewTLSConfig(ctx, p)
+		return NewTLSConfig(ctx, potentialStartingTLSConfig, p)
 	})
 	if err != nil {
 		return nil, werror.WrapWithContextParams(ctx, err, "failed to build RefreshableTLSConfig")
@@ -80,10 +84,17 @@ func (r RefreshableTLSConfig) GetTLSConfig(ctx context.Context) *tls.Config {
 }
 
 // NewTLSConfig returns a *tls.Config built from the provided TLSParams.
-func NewTLSConfig(ctx context.Context, p TLSParams) (*tls.Config, error) {
+func NewTLSConfig(ctx context.Context, potentialStartingTLSConfig *tls.Config, p TLSParams) (*tls.Config, error) {
 	var tlsParams []tlsconfig.ClientParam
-	if len(p.CAFiles) != 0 {
-		tlsParams = append(tlsParams, tlsconfig.ClientRootCAFiles(p.CAFiles...))
+	if len(p.CAFiles) != 0 || len(p.CABytes) != 0 {
+		var certPoolOptions []tlsconfig.CertPoolOption
+		if len(p.CAFiles) > 0 {
+			certPoolOptions = append(certPoolOptions, tlsconfig.CertPoolOptionFromCAFiles(p.CAFiles...))
+		}
+		if len(p.CABytes) > 0 {
+			certPoolOptions = append(certPoolOptions, tlsconfig.CertPoolOptionCABytes(p.CABytes))
+		}
+		tlsParams = append(tlsParams, tlsconfig.ClientRootCAs(tlsconfig.CertPoolFromCertPoolOptions(certPoolOptions)))
 	}
 	if p.CertFile != "" && p.KeyFile != "" {
 		tlsParams = append(tlsParams, tlsconfig.ClientKeyPairFiles(p.CertFile, p.KeyFile))
@@ -91,9 +102,16 @@ func NewTLSConfig(ctx context.Context, p TLSParams) (*tls.Config, error) {
 	if p.InsecureSkipVerify {
 		tlsParams = append(tlsParams, tlsconfig.ClientInsecureSkipVerify())
 	}
-	tlsConfig, err := tlsconfig.NewClientConfig(tlsParams...)
+	tlsConfig, err := createTLSConfig(ctx, potentialStartingTLSConfig, tlsParams)
 	if err != nil {
 		return nil, werror.WrapWithContextParams(ctx, err, "failed to build tlsConfig")
 	}
 	return tlsConfig, nil
+}
+
+func createTLSConfig(ctx context.Context, potentialStartingTLSConfig *tls.Config, tlsParams []tlsconfig.ClientParam) (*tls.Config, error) {
+	if potentialStartingTLSConfig == nil {
+		return tlsconfig.NewClientConfig(tlsParams...)
+	}
+	return tlsconfig.NewClientConfigWithBaseConfig(potentialStartingTLSConfig, tlsParams...)
 }

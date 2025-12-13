@@ -63,3 +63,28 @@ func TestNewHTTPClientWithoutURIs(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, c.Current())
 }
+
+func TestDoOurClientsWork(t *testing.T) {
+	// Create a temp directory with a CA certificate file
+
+	cfg := httpclient.ClientConfig{
+		ServiceName: "baz",
+		URIs: []string{
+			"https://test-service",
+		},
+	}
+	rrr := refreshable.New(cfg)
+	scopedTokenClient, err := httpclient.NewClientFromRefreshableConfig(
+		context.Background(),
+		rrr,
+	)
+	assert.NoError(t, err)
+	_, err = scopedTokenClient.Delete(context.Background())
+	assert.ErrorContains(t, err, "test-service")
+	cfg.URIs = []string{
+		"https://foo-service",
+	}
+	rrr.Update(cfg)
+	_, err = scopedTokenClient.Delete(context.Background())
+	assert.ErrorContains(t, err, "foo-service")
+}
