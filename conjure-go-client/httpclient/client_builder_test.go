@@ -125,4 +125,9 @@ func TestDoOurClientsWork(t *testing.T) {
 	rrr.Update(cfg)
 	_, err = scopedTokenClient.Delete(context.Background())
 	assert.ErrorContains(t, err, "foo-service")
+	// Hm
+	cfg.Security.CAFiles = []string{"noop.txt"}
+	rrr.Update(cfg)
+	_, err = scopedTokenClient.Delete(context.Background())
+	assert.ErrorContains(t, err, "noop.txt")
 }

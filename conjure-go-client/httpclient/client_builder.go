@@ -75,6 +75,7 @@ type httpClientBuilder struct {
 	DialerParams    refreshable.Refreshable[refreshingclient.DialerParams]
 	TLSConfig       *tls.Config // If unset, config in TransportParams will be used.
 	TransportParams refreshable.Refreshable[refreshingclient.TransportParams]
+	CAs             refreshable.Refreshable[[]byte]
 	Middlewares     []Middleware
 
 	DisableMetrics      refreshable.Refreshable[bool]
@@ -101,6 +102,15 @@ func (b *httpClientBuilder) Build(ctx context.Context, params ...HTTPClientParam
 	if b.TLSConfig != nil {
 		tlsProvider = refreshingclient.NewStaticTLSConfigProvider(b.TLSConfig)
 	} else {
+		refreshable.Merge(b.TransportParams, b.CAs, func(t1 refreshingclient.TransportParams, t2 []byte) refreshingclient.TLSParams {
+			return refreshingclient.TLSParams{
+				CABytes:            t2,
+				CAFiles:            t1.TLS.CAFiles,
+				CertFile:           "",
+				KeyFile:            "",
+				InsecureSkipVerify: false,
+			}
+		})
 		tlsParams := refreshable.View(b.TransportParams, func(t refreshingclient.TransportParams) refreshingclient.TLSParams {
 			return t.TLS
 		})
@@ -255,7 +265,15 @@ func newClientBuilder() *clientBuilder {
 	}
 }
 
-func newClientBuilderFromRefreshableConfig(ctx context.Context, config refreshable.Refreshable[ClientConfig], b *clientBuilder, reloadErrorSubmitter func(error)) error {
+type refreshableFields struct {
+	CA *refreshable.Refreshable[[]byte]
+}
+
+func newClientBuilderFromRefreshableConfig(
+	ctx context.Context,
+	config refreshable.Refreshable[ClientConfig],
+	refreshableFields refreshableFields,
+	b *clientBuilder, reloadErrorSubmitter func(error)) error {
 	validParams, _, err := refreshable.MapWithError(config, func(c ClientConfig) (refreshingclient.ValidatedClientParams, error) {
 		p, err := newValidatedClientParamsFromConfig(ctx, c)
 		if reloadErrorSubmitter != nil {
@@ -311,5 +329,6 @@ func newClientBuilderFromRefreshableConfig(ctx context.Context, config refreshab
 	b.RetryParams, _ = refreshable.Map(validParams, func(p refreshingclient.ValidatedClientParams) refreshingclient.RetryParams {
 		return p.Retry
 	})
+	b.HTTP.CAs = *refreshableFields.CA
 	return nil
 }
