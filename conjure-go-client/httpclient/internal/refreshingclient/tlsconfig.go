@@ -26,7 +26,7 @@ import (
 
 // TLSParams contains the parameters needed to build a *tls.Config.
 // Its fields must all be compatible with reflect.DeepEqual.
-type TLSParams struct {
+type InternalTLSParams struct {
 	CABytes            []byte
 	CAFiles            []string
 	CertFile           string
@@ -62,10 +62,9 @@ type RefreshableTLSConfig struct {
 // We could consider adding a file refreshable to watch the key and cert files.
 func NewRefreshableTLSConfig(
 	ctx context.Context,
-	potentialStartingTLSConfig *tls.Config,
-	params refreshable.Refreshable[TLSParams]) (TLSProvider, error) {
-	r, _, err := refreshable.MapWithError(params, func(p TLSParams) (*tls.Config, error) {
-		return NewTLSConfig(ctx, potentialStartingTLSConfig, p)
+	params refreshable.Refreshable[InternalTLSParams]) (TLSProvider, error) {
+	r, _, err := refreshable.MapWithError(params, func(p InternalTLSParams) (*tls.Config, error) {
+		return NewTLSConfig(ctx, p)
 	})
 	if err != nil {
 		return nil, werror.WrapWithContextParams(ctx, err, "failed to build RefreshableTLSConfig")
@@ -84,7 +83,7 @@ func (r RefreshableTLSConfig) GetTLSConfig(ctx context.Context) *tls.Config {
 }
 
 // NewTLSConfig returns a *tls.Config built from the provided TLSParams.
-func NewTLSConfig(ctx context.Context, potentialStartingTLSConfig *tls.Config, p TLSParams) (*tls.Config, error) {
+func NewTLSConfig(ctx context.Context, p InternalTLSParams) (*tls.Config, error) {
 	var tlsParams []tlsconfig.ClientParam
 	if len(p.CAFiles) != 0 || len(p.CABytes) != 0 {
 		var certPoolOptions []tlsconfig.CertPoolOption
@@ -102,16 +101,13 @@ func NewTLSConfig(ctx context.Context, potentialStartingTLSConfig *tls.Config, p
 	if p.InsecureSkipVerify {
 		tlsParams = append(tlsParams, tlsconfig.ClientInsecureSkipVerify())
 	}
-	tlsConfig, err := createTLSConfig(ctx, potentialStartingTLSConfig, tlsParams)
+	tlsConfig, err := createTLSConfig(ctx, tlsParams)
 	if err != nil {
 		return nil, werror.WrapWithContextParams(ctx, err, "failed to build tlsConfig")
 	}
 	return tlsConfig, nil
 }
 
-func createTLSConfig(ctx context.Context, potentialStartingTLSConfig *tls.Config, tlsParams []tlsconfig.ClientParam) (*tls.Config, error) {
-	if potentialStartingTLSConfig == nil {
-		return tlsconfig.NewClientConfig(tlsParams...)
-	}
-	return tlsconfig.NewClientConfigWithBaseConfig(potentialStartingTLSConfig, tlsParams...)
+func createTLSConfig(ctx context.Context, tlsParams []tlsconfig.ClientParam) (*tls.Config, error) {
+	return tlsconfig.NewClientConfig(tlsParams...)
 }

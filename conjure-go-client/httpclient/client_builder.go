@@ -102,19 +102,16 @@ func (b *httpClientBuilder) Build(ctx context.Context, params ...HTTPClientParam
 	if b.TLSConfig != nil {
 		tlsProvider = refreshingclient.NewStaticTLSConfigProvider(b.TLSConfig)
 	} else {
-		refreshable.Merge(b.TransportParams, b.CAs, func(t1 refreshingclient.TransportParams, t2 []byte) refreshingclient.TLSParams {
-			return refreshingclient.TLSParams{
+		tlsParams, _ := refreshable.Merge(b.TransportParams, b.CAs, func(t1 refreshingclient.TransportParams, t2 []byte) refreshingclient.InternalTLSParams {
+			return refreshingclient.InternalTLSParams{
 				CABytes:            t2,
 				CAFiles:            t1.TLS.CAFiles,
-				CertFile:           "",
-				KeyFile:            "",
-				InsecureSkipVerify: false,
+				CertFile:           t1.TLS.CertFile,
+				KeyFile:            t1.TLS.KeyFile,
+				InsecureSkipVerify: t1.TLS.InsecureSkipVerify,
 			}
 		})
-		tlsParams := refreshable.View(b.TransportParams, func(t refreshingclient.TransportParams) refreshingclient.TLSParams {
-			return t.TLS
-		})
-		refreshableProvider, err := refreshingclient.NewRefreshableTLSConfig(ctx, nil, tlsParams)
+		refreshableProvider, err := refreshingclient.NewRefreshableTLSConfig(ctx, tlsParams)
 		if err != nil {
 			return nil, err
 		}
@@ -272,7 +269,6 @@ type refreshableFields struct {
 func newClientBuilderFromRefreshableConfig(
 	ctx context.Context,
 	config refreshable.Refreshable[ClientConfig],
-	refreshableFields refreshableFields,
 	b *clientBuilder, reloadErrorSubmitter func(error)) error {
 	validParams, _, err := refreshable.MapWithError(config, func(c ClientConfig) (refreshingclient.ValidatedClientParams, error) {
 		p, err := newValidatedClientParamsFromConfig(ctx, c)
@@ -329,6 +325,6 @@ func newClientBuilderFromRefreshableConfig(
 	b.RetryParams, _ = refreshable.Map(validParams, func(p refreshingclient.ValidatedClientParams) refreshingclient.RetryParams {
 		return p.Retry
 	})
-	b.HTTP.CAs = *refreshableFields.CA
+	// b.HTTP.CAs = *refreshableFields.CA
 	return nil
 }
