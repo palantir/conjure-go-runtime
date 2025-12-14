@@ -104,10 +104,22 @@ func (b *httpClientBuilder) Build(ctx context.Context, params ...HTTPClientParam
 	if b.TLSConfig != nil {
 		tlsProvider = refreshingclient.NewStaticTLSConfigProvider(b.TLSConfig)
 	} else {
-		tlsParams, _ := refreshable.Merge(b.TransportParams, b.CAs, func(t1 refreshingclient.TransportParams, t2 []byte) refreshingclient.InternalTLSParams {
+		fileSlices, _ := refreshable.Map(b.TransportParams, func(t refreshingclient.TransportParams) map[string]struct{} {
+			toReturn := map[string]struct{}{}
+			for _, file := range t.TLS.CAFiles {
+				toReturn[file] = struct{}{}
+			}
+			return toReturn
+		})
+		multiFile := refreshable.NewMultiFileRefreshable(ctx, fileSlices)
+		// This is where we would map
+		tlsParams, _ := refreshable.Merge(b.TransportParams, multiFile, func(t1 refreshingclient.TransportParams, t2 map[string][]byte) refreshingclient.InternalTLSParams {
+			var caBytes [][]byte
+			for _, caSlice := range t2 {
+				caBytes = append(caBytes, caSlice)
+			}
 			return refreshingclient.InternalTLSParams{
-				CABytes:            t2,
-				CAFiles:            t1.TLS.CAFiles,
+				CABytes:            caBytes,
 				CertFile:           t1.TLS.CertFile,
 				KeyFile:            t1.TLS.KeyFile,
 				InsecureSkipVerify: t1.TLS.InsecureSkipVerify,
