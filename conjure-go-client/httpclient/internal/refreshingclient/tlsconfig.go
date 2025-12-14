@@ -101,13 +101,9 @@ func NewTLSConfig(ctx context.Context, p InternalTLSParams) (*tls.Config, error)
 	if p.InsecureSkipVerify {
 		tlsParams = append(tlsParams, tlsconfig.ClientInsecureSkipVerify())
 	}
-	tlsConfig, err := createTLSConfig(ctx, tlsParams)
+	tlsConfig, err := tlsconfig.NewClientConfig(tlsParams...)
 	if err != nil {
 		return nil, werror.WrapWithContextParams(ctx, err, "failed to build tlsConfig")
 	}
 	return tlsConfig, nil
-}
-
-func createTLSConfig(ctx context.Context, tlsParams []tlsconfig.ClientParam) (*tls.Config, error) {
-	return tlsconfig.NewClientConfig(tlsParams...)
 }

@@ -262,14 +262,7 @@ func newClientBuilder() *clientBuilder {
 	}
 }
 
-type refreshableFields struct {
-	CA *refreshable.Refreshable[[]byte]
-}
-
-func newClientBuilderFromRefreshableConfig(
-	ctx context.Context,
-	config refreshable.Refreshable[ClientConfig],
-	b *clientBuilder, reloadErrorSubmitter func(error)) error {
+func newClientBuilderFromRefreshableConfig(ctx context.Context, config refreshable.Refreshable[ClientConfig], b *clientBuilder, reloadErrorSubmitter func(error)) error {
 	validParams, _, err := refreshable.MapWithError(config, func(c ClientConfig) (refreshingclient.ValidatedClientParams, error) {
 		p, err := newValidatedClientParamsFromConfig(ctx, c)
 		if reloadErrorSubmitter != nil {
@@ -325,6 +318,5 @@ func newClientBuilderFromRefreshableConfig(
 	b.RetryParams, _ = refreshable.Map(validParams, func(p refreshingclient.ValidatedClientParams) refreshingclient.RetryParams {
 		return p.Retry
 	})
-	// b.HTTP.CAs = *refreshableFields.CA
 	return nil
 }
