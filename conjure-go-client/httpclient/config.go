@@ -364,9 +364,13 @@ func configToParams(c ClientConfig) ([]ClientParam, error) {
 		params = append(params, WithHTTPTimeout(timeout))
 	}
 
+	caBytes, err := getCABytesFromPaths(c.Security.CAFiles)
+	if err != nil {
+		return nil, err
+	}
 	// Security (TLS) Config
 	if tlsConfig, err := refreshingclient.NewTLSConfig(context.TODO(), refreshingclient.InternalTLSParams{
-		CAFiles:            c.Security.CAFiles,
+		CABytes:            caBytes,
 		CertFile:           c.Security.CertFile,
 		KeyFile:            c.Security.KeyFile,
 		InsecureSkipVerify: derefPtr(c.Security.InsecureSkipVerify, false),
@@ -377,6 +381,18 @@ func configToParams(c ClientConfig) ([]ClientParam, error) {
 	}
 
 	return params, nil
+}
+
+func getCABytesFromPaths(caPaths []string) ([][]byte, error) {
+	var caBytes [][]byte
+	for _, caFile := range caPaths {
+		caByte, err := os.ReadFile(caFile)
+		if err != nil {
+			return nil, werror.Wrap(err, "failed to get CA bytes from paths", werror.SafeParam("path", caFile))
+		}
+		caBytes = append(caBytes, caByte)
+	}
+	return caBytes, nil
 }
 
 func newValidatedClientParamsFromConfig(ctx context.Context, config ClientConfig) (refreshingclient.ValidatedClientParams, error) {
