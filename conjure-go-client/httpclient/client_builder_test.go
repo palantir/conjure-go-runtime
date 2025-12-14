@@ -112,9 +112,32 @@ func TestDoOurClientsWork(t *testing.T) {
 		},
 	}
 	rrr := refreshable.New(cfg)
+
+	// Generate a second self-signed CA certificate for WithCAs
+	priv2, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+
+	template2 := x509.Certificate{
+		SerialNumber: big.NewInt(2),
+		Subject: pkix.Name{
+			Organization: []string{"Test CA 2"},
+		},
+		NotBefore:             time.Now(),
+		NotAfter:              time.Now().Add(time.Hour),
+		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
+		BasicConstraintsValid: true,
+		IsCA:                  true,
+	}
+
+	certDER2, err := x509.CreateCertificate(rand.Reader, &template2, &template2, &priv2.PublicKey, priv2)
+	require.NoError(t, err)
+
+	caValue := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER2})
+	caValueRef := refreshable.New(caValue)
 	scopedTokenClient, err := httpclient.NewClientFromRefreshableConfig(
 		context.Background(),
 		rrr,
+		httpclient.WithCAs(caValueRef),
 	)
 	require.NoError(t, err)
 	_, err = scopedTokenClient.Delete(context.Background())
@@ -130,4 +153,6 @@ func TestDoOurClientsWork(t *testing.T) {
 	rrr.Update(cfg)
 	_, err = scopedTokenClient.Delete(context.Background())
 	assert.ErrorContains(t, err, "noop.txt")
+
+	caValueRef.Update([]byte("haha"))
 }

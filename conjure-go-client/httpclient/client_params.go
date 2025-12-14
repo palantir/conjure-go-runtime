@@ -112,6 +112,13 @@ func WithServiceName(serviceName string) ClientOrHTTPClientParam {
 	})
 }
 
+func WithCAs(cas refreshable.Refreshable[[]byte]) ClientOrHTTPClientParam {
+	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
+		b.CAs = cas
+		return nil
+	})
+}
+
 // WithMiddleware will be invoked for custom HTTP behavior after the
 // underlying transport is initialized. Each handler added "wraps" the previous
 // round trip, so it will see the request first and the response last.
