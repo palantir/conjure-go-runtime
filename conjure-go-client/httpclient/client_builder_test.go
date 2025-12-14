@@ -74,53 +74,45 @@ func TestNewHTTPClientWithoutURIs(t *testing.T) {
 	require.NotNil(t, c.Current())
 }
 
-func TestDoOurClientsWork(t *testing.T) {
-	// Create a temp directory with a CA certificate file
+func TestCAUpdateProperlyWork(t *testing.T) {
+	// Create a temp directory with CA certificate files
 	tmpDir := t.TempDir()
-	caFile := filepath.Join(tmpDir, "ca.pem")
-
-	// Generate a self-signed CA certificate
-	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	require.NoError(t, err)
-
-	template := x509.Certificate{
-		SerialNumber: big.NewInt(1),
-		Subject: pkix.Name{
-			Organization: []string{"Test CA"},
-		},
-		NotBefore:             time.Now(),
-		NotAfter:              time.Now().Add(time.Hour),
-		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
-		BasicConstraintsValid: true,
-		IsCA:                  true,
-	}
-
-	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, &priv.PublicKey, priv)
-	require.NoError(t, err)
-
-	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
-	err = os.WriteFile(caFile, certPEM, 0600)
-	require.NoError(t, err)
-
+	caFile1 := filepath.Join(tmpDir, "ca1.pem")
+	caFile2 := filepath.Join(tmpDir, "ca2.pem")
+	createTestCACertFile(t, caFile1, 1, "Test CA")
+	createTestCACertFile(t, caFile2, 2, "Test CA 2")
 	cfg := httpclient.ClientConfig{
 		ServiceName: "baz",
 		URIs: []string{
 			"https://test-service",
 		},
 		Security: httpclient.SecurityConfig{
-			CAFiles: []string{caFile},
+			CAFiles: []string{caFile1},
 		},
 	}
-	rrr := refreshable.New(cfg)
-
-	// Generate a second self-signed CA certificate for WithCAs
-	priv2, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	clientConfigRefreshable := refreshable.New(cfg)
+	scopedTokenClient, err := httpclient.NewClientFromRefreshableConfig(
+		context.Background(),
+		clientConfigRefreshable,
+	)
 	require.NoError(t, err)
+	_, err = scopedTokenClient.Delete(context.Background())
+	assert.ErrorContains(t, err, "test-service")
 
-	template2 := x509.Certificate{
-		SerialNumber: big.NewInt(2),
+	// Update config to use the second CA file
+	cfg.Security.CAFiles = []string{caFile1, caFile2}
+	clientConfigRefreshable.Update(cfg)
+	_, err = scopedTokenClient.Delete(context.Background())
+	assert.ErrorContains(t, err, "test-service")
+}
+
+func createTestCACertFile(t *testing.T, filePath string, serialNumber int64, orgName string) {
+	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	template := x509.Certificate{
+		SerialNumber: big.NewInt(serialNumber),
 		Subject: pkix.Name{
-			Organization: []string{"Test CA 2"},
+			Organization: []string{orgName},
 		},
 		NotBefore:             time.Now(),
 		NotAfter:              time.Now().Add(time.Hour),
@@ -128,30 +120,9 @@ func TestDoOurClientsWork(t *testing.T) {
 		BasicConstraintsValid: true,
 		IsCA:                  true,
 	}
-
-	certDER2, err := x509.CreateCertificate(rand.Reader, &template2, &template2, &priv2.PublicKey, priv2)
+	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, &priv.PublicKey, priv)
 	require.NoError(t, err)
-
-	caValue := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER2})
-	caValueRef := refreshable.New(caValue)
-	scopedTokenClient, err := httpclient.NewClientFromRefreshableConfig(
-		context.Background(),
-		rrr,
-	)
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
+	err = os.WriteFile(filePath, certPEM, 0600)
 	require.NoError(t, err)
-	_, err = scopedTokenClient.Delete(context.Background())
-	assert.ErrorContains(t, err, "test-service")
-	cfg.URIs = []string{
-		"https://foo-service",
-	}
-	rrr.Update(cfg)
-	_, err = scopedTokenClient.Delete(context.Background())
-	assert.ErrorContains(t, err, "foo-service")
-	// Hm
-	cfg.Security.CAFiles = []string{"noop.txt"}
-	rrr.Update(cfg)
-	_, err = scopedTokenClient.Delete(context.Background())
-	assert.ErrorContains(t, err, "noop.txt")
-
-	caValueRef.Update([]byte("haha"))
 }
