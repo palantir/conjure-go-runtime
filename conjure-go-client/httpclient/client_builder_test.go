@@ -122,20 +122,27 @@ func TestCAUpdateProperlyWork(t *testing.T) {
 	assert.Equal(t, capturedSubjects, map[string]struct{}{
 		"Test CA": {},
 	})
-	capturedSubjects = map[string]struct{}{}
 
 	// Update config to use both CA files
+	capturedSubjects = map[string]struct{}{}
 	cfg.Security.CAFiles = []string{caFile1, caFile2}
 	clientConfigRefreshable.Update(cfg)
 	_, err = scopedTokenClient.Delete(context.Background())
 	assert.ErrorContains(t, err, "test-service")
-
-	// Verify we captured both CA subjects
-	assert.Len(t, capturedSubjects, 2, "should have captured 2 unique CA subjects")
-	assert.Equal(t, capturedSubjects, map[string]struct{}{
-		"Test CA 2": {},
+	assert.Equal(t, map[string]struct{}{
 		"Test CA":   {},
-	})
+		"Test CA 2": {},
+	}, capturedSubjects)
+	// Append a file and see the newest CA
+	capturedSubjects = map[string]struct{}{}
+	appendTestCACertFile(t, caFile2, 3, "Test CA 3")
+	_, err = scopedTokenClient.Delete(context.Background())
+	assert.ErrorContains(t, err, "test-service")
+	assert.Equal(t, map[string]struct{}{
+		"Test CA":   {},
+		"Test CA 2": {},
+		"Test CA 3": {},
+	}, capturedSubjects)
 }
 
 // unwrapTransport traverses the RoundTripper chain to find the underlying *http.Transport.
@@ -172,6 +179,21 @@ func getUnexportedBaseTransport(rt http.RoundTripper) http.RoundTripper {
 }
 
 func createTestCACertFile(t *testing.T, filePath string, serialNumber int64, orgName string) {
+	certPEM := generateTestCACertPEM(t, serialNumber, orgName)
+	err := os.WriteFile(filePath, certPEM, 0600)
+	require.NoError(t, err)
+}
+
+func appendTestCACertFile(t *testing.T, filePath string, serialNumber int64, orgName string) {
+	certPEM := generateTestCACertPEM(t, serialNumber, orgName)
+	f, err := os.OpenFile(filePath, os.O_APPEND|os.O_WRONLY, 0600)
+	require.NoError(t, err)
+	defer f.Close()
+	_, err = f.Write(certPEM)
+	require.NoError(t, err)
+}
+
+func generateTestCACertPEM(t *testing.T, serialNumber int64, orgName string) []byte {
 	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	require.NoError(t, err)
 	template := x509.Certificate{
@@ -187,7 +209,5 @@ func createTestCACertFile(t *testing.T, filePath string, serialNumber int64, org
 	}
 	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, &priv.PublicKey, priv)
 	require.NoError(t, err)
-	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
-	err = os.WriteFile(filePath, certPEM, 0600)
-	require.NoError(t, err)
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
 }
