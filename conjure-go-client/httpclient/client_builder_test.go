@@ -77,6 +77,62 @@ func TestNewHTTPClientWithoutURIs(t *testing.T) {
 	require.NotNil(t, c.Current())
 }
 
+func TestCAUpdatesToTheSameFileProperlyWorks(t *testing.T) {
+	// Create a temp directory with CA certificate files
+	tmpDir := t.TempDir()
+	caFile1 := filepath.Join(tmpDir, "ca1.pem")
+	createTestCACertFile(t, caFile1, 1, "Test CA")
+
+	// Track unique CA subjects captured during requests
+	capturedSubjects := make(map[string]struct{})
+	tlsCapturingMiddleware := httpclient.MiddlewareFunc(
+		func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+			transport := unwrapTransport(next)
+			for _, subject := range transport.TLSClientConfig.RootCAs.Subjects() {
+				results := strings.Split(strings.TrimSpace(string(subject)), "\a")
+				last := results[len(results)-1]
+				results = strings.Split(last, "\t")
+				last = results[len(results)-1]
+				capturedSubjects[last] = struct{}{}
+			}
+			return next.RoundTrip(req)
+		},
+	)
+
+	cfg := httpclient.ClientConfig{
+		ServiceName: "baz",
+		URIs: []string{
+			"https://test-service",
+		},
+		Security: httpclient.SecurityConfig{
+			CAFiles: []string{caFile1},
+		},
+	}
+	clientConfigRefreshable := refreshable.New(cfg)
+	scopedTokenClient, err := httpclient.NewClientFromRefreshableConfig(
+		context.Background(),
+		clientConfigRefreshable,
+		httpclient.WithMiddleware(tlsCapturingMiddleware),
+	)
+	require.NoError(t, err)
+	_, err = scopedTokenClient.Delete(context.Background())
+	assert.ErrorContains(t, err, "test-service")
+	assert.Equal(t, capturedSubjects, map[string]struct{}{
+		"Test CA": {},
+	})
+	// Append a file and see the newest CA
+	capturedSubjects = map[string]struct{}{}
+	appendTestCACertFile(t, caFile1, 3, "Test CA 3")
+	// Ensure the underlying refreshable can sync
+	time.Sleep(time.Second * 2)
+	_, err = scopedTokenClient.Delete(context.Background())
+	assert.ErrorContains(t, err, "test-service")
+	assert.Equal(t, map[string]struct{}{
+		"Test CA":   {},
+		"Test CA 3": {},
+	}, capturedSubjects)
+}
+
 func TestCAUpdateProperlyWork(t *testing.T) {
 	// Create a temp directory with CA certificate files
 	tmpDir := t.TempDir()
@@ -136,6 +192,8 @@ func TestCAUpdateProperlyWork(t *testing.T) {
 	// Append a file and see the newest CA
 	capturedSubjects = map[string]struct{}{}
 	appendTestCACertFile(t, caFile2, 3, "Test CA 3")
+	// Ensure the underlying refreshable can sync
+	time.Sleep(time.Second * 2)
 	_, err = scopedTokenClient.Delete(context.Background())
 	assert.ErrorContains(t, err, "test-service")
 	assert.Equal(t, map[string]struct{}{
