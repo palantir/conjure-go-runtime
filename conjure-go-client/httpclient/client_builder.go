@@ -80,9 +80,6 @@ type httpClientBuilder struct {
 	DisableMetrics      refreshable.Refreshable[bool]
 	MetricsTagProviders []TagsProvider
 
-	// These options can be refreshed, however they are not in ClientConfig
-	// There are merged during build time with a final refreshable
-	CAs refreshable.Refreshable[[]byte]
 	// These middleware options are not refreshed anywhere because they are not in ClientConfig,
 	// but they could be made refreshable if ever needed.
 	DisableRequestSpan  bool
