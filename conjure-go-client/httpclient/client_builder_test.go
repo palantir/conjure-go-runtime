@@ -27,8 +27,11 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
+	"strings"
 	"testing"
 	"time"
+	"unsafe"
 
 	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpclient"
 	"github.com/palantir/pkg/refreshable/v2"
@@ -81,6 +84,23 @@ func TestCAUpdateProperlyWork(t *testing.T) {
 	caFile2 := filepath.Join(tmpDir, "ca2.pem")
 	createTestCACertFile(t, caFile1, 1, "Test CA")
 	createTestCACertFile(t, caFile2, 2, "Test CA 2")
+
+	// Track unique CA subjects captured during requests
+	capturedSubjects := make(map[string]struct{})
+	tlsCapturingMiddleware := httpclient.MiddlewareFunc(
+		func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+			transport := unwrapTransport(next)
+			for _, subject := range transport.TLSClientConfig.RootCAs.Subjects() {
+				results := strings.Split(strings.TrimSpace(string(subject)), "\a")
+				last := results[len(results)-1]
+				results = strings.Split(last, "\t")
+				last = results[len(results)-1]
+				capturedSubjects[last] = struct{}{}
+			}
+			return next.RoundTrip(req)
+		},
+	)
+
 	cfg := httpclient.ClientConfig{
 		ServiceName: "baz",
 		URIs: []string{
@@ -94,16 +114,61 @@ func TestCAUpdateProperlyWork(t *testing.T) {
 	scopedTokenClient, err := httpclient.NewClientFromRefreshableConfig(
 		context.Background(),
 		clientConfigRefreshable,
+		httpclient.WithMiddleware(tlsCapturingMiddleware),
 	)
 	require.NoError(t, err)
 	_, err = scopedTokenClient.Delete(context.Background())
 	assert.ErrorContains(t, err, "test-service")
+	assert.Equal(t, capturedSubjects, map[string]struct{}{
+		"Test CA": {},
+	})
+	capturedSubjects = map[string]struct{}{}
 
-	// Update config to use the second CA file
+	// Update config to use both CA files
 	cfg.Security.CAFiles = []string{caFile1, caFile2}
 	clientConfigRefreshable.Update(cfg)
 	_, err = scopedTokenClient.Delete(context.Background())
 	assert.ErrorContains(t, err, "test-service")
+
+	// Verify we captured both CA subjects
+	assert.Len(t, capturedSubjects, 2, "should have captured 2 unique CA subjects")
+	assert.Equal(t, capturedSubjects, map[string]struct{}{
+		"Test CA 2": {},
+		"Test CA":   {},
+	})
+}
+
+// unwrapTransport traverses the RoundTripper chain to find the underlying *http.Transport.
+func unwrapTransport(rt http.RoundTripper) *http.Transport {
+	for rt != nil {
+		switch t := rt.(type) {
+		case *http.Transport:
+			return t
+		case interface{ Current() *http.Transport }:
+			// RefreshableTransport has a Current() method that returns the underlying transport
+			return t.Current()
+		default:
+			rt = getUnexportedBaseTransport(rt)
+		}
+	}
+	return nil
+}
+
+// getUnexportedBaseTransport uses unsafe reflection to access the unexported baseTransport
+// field from httpclient.wrappedClient middleware wrappers.
+func getUnexportedBaseTransport(rt http.RoundTripper) http.RoundTripper {
+	val := reflect.ValueOf(rt)
+	if val.Kind() == reflect.Pointer {
+		val = val.Elem()
+	}
+	if val.Kind() != reflect.Struct {
+		return nil
+	}
+	field := val.FieldByName("baseTransport")
+	if !field.IsValid() || !field.CanAddr() {
+		return nil
+	}
+	return *(*http.RoundTripper)(unsafe.Pointer(field.UnsafeAddr()))
 }
 
 func createTestCACertFile(t *testing.T, filePath string, serialNumber int64, orgName string) {
