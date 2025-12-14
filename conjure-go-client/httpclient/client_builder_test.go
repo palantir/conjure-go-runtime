@@ -137,7 +137,6 @@ func TestDoOurClientsWork(t *testing.T) {
 	scopedTokenClient, err := httpclient.NewClientFromRefreshableConfig(
 		context.Background(),
 		rrr,
-		httpclient.WithCAs(caValueRef),
 	)
 	require.NoError(t, err)
 	_, err = scopedTokenClient.Delete(context.Background())
