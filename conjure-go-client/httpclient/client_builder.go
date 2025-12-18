@@ -97,9 +97,9 @@ func (b *httpClientBuilder) Build(ctx context.Context, params ...HTTPClientParam
 		}
 	}
 
-	var tlsProvider refreshingclient.TLSProvider
+	var refreshableConfig refreshable.Refreshable[*tls.Config]
 	if b.TLSConfig != nil {
-		tlsProvider = refreshingclient.NewStaticTLSConfigProvider(b.TLSConfig)
+		refreshableConfig = refreshable.New(b.TLSConfig)
 	} else {
 		fileSlices, _ := refreshable.Map(b.TransportParams, func(t refreshingclient.TransportParams) map[string]struct{} {
 			toReturn := map[string]struct{}{}
@@ -122,15 +122,15 @@ func (b *httpClientBuilder) Build(ctx context.Context, params ...HTTPClientParam
 				InsecureSkipVerify: t1.TLS.InsecureSkipVerify,
 			}
 		})
-		refreshableProvider, err := refreshingclient.NewRefreshableTLSConfig(ctx, tlsParams)
+		refreshableProviderFromParams, err := refreshingclient.NewRefreshableTLSConfig(ctx, tlsParams)
 		if err != nil {
 			return nil, err
 		}
-		tlsProvider = refreshableProvider
+		refreshableConfig = refreshableProviderFromParams
 	}
 
 	dialer := refreshingclient.NewRefreshableDialer(ctx, b.DialerParams)
-	transport := refreshingclient.NewRefreshableTransport(ctx, b.TransportParams, tlsProvider, dialer)
+	transport := refreshingclient.NewRefreshableTransport(ctx, b.TransportParams, refreshableConfig, dialer)
 	transport = wrapTransport(transport, newMetricsMiddleware(b.ServiceName, b.MetricsTagProviders, b.DisableMetrics))
 	transport = wrapTransport(transport, newTraceMiddleware(b.ServiceName, b.DisableRequestSpan, b.DisableTraceHeaders))
 	if !b.DisableRecovery {
