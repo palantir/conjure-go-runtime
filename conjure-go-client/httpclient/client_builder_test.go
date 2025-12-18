@@ -104,6 +104,7 @@ func TestCAUpdatesToTheSameFileProperlyWorks(t *testing.T) {
 		URIs: []string{
 			"https://test-service",
 		},
+		MaxNumRetries: toPointer(0),
 		Security: httpclient.SecurityConfig{
 			CAFiles: []string{caFile1},
 		},
@@ -133,6 +134,10 @@ func TestCAUpdatesToTheSameFileProperlyWorks(t *testing.T) {
 	}, capturedSubjects)
 }
 
+func toPointer[T any](timeArg T) *T {
+	return &timeArg
+}
+
 func TestCAUpdateProperlyWork(t *testing.T) {
 	// Create a temp directory with CA certificate files
 	tmpDir := t.TempDir()
@@ -158,7 +163,8 @@ func TestCAUpdateProperlyWork(t *testing.T) {
 	)
 
 	cfg := httpclient.ClientConfig{
-		ServiceName: "baz",
+		ServiceName:   "baz",
+		MaxNumRetries: toPointer(0),
 		URIs: []string{
 			"https://test-service",
 		},
