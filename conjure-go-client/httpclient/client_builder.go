@@ -109,7 +109,7 @@ func (b *httpClientBuilder) Build(ctx context.Context, params ...HTTPClientParam
 			return toReturn
 		})
 		multiFile := refreshable.NewMultiFileRefreshable(ctx, fileSlices)
-		// This is where we would map
+		// This is where we would map in more CAs
 		tlsParams, _ := refreshable.Merge(b.TransportParams, multiFile, func(t1 refreshingclient.TransportParams, t2 map[string][]byte) refreshingclient.InternalTLSParams {
 			var caBytes [][]byte
 			for _, caSlice := range t2 {
