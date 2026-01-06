@@ -60,6 +60,8 @@ const (
 	CustomClient
 	// CustomServer has status code 500 InternalServerError.
 	CustomServer
+	// TooManyRequests has status code 429 TooManyRequests.
+	TooManyRequests
 )
 
 // StatusCode returns HTTP status code associated with this error code.
@@ -87,6 +89,8 @@ func (ec ErrorCode) StatusCode() int {
 		return http.StatusBadRequest
 	case CustomServer:
 		return http.StatusInternalServerError
+	case TooManyRequests:
+		return http.StatusTooManyRequests
 	}
 	return http.StatusInternalServerError
 }
@@ -118,6 +122,8 @@ func (ec ErrorCode) String() string {
 		return "CUSTOM_CLIENT"
 	case CustomServer:
 		return "CUSTOM_SERVER"
+	case TooManyRequests:
+		return "TOO_MANY_REQUESTS"
 	}
 	return fmt.Sprintf("<invalid error code: %d>", ec)
 }
@@ -152,6 +158,8 @@ func (ec *ErrorCode) UnmarshalText(data []byte) error {
 		*ec = CustomClient
 	case "CUSTOM_SERVER":
 		*ec = CustomServer
+	case "TOO_MANY_REQUESTS":
+		*ec = TooManyRequests
 	default:
 		return fmt.Errorf(`errors: unknown error code string`)
 	}

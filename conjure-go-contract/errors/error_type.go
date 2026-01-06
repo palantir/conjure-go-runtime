@@ -34,6 +34,7 @@ var (
 	DefaultFailedPrecondition    = ErrorType{FailedPrecondition, errorNameFailedPrecondition}
 	DefaultInternal              = ErrorType{Internal, errorNameInternal}
 	DefaultTimeout               = ErrorType{Timeout, errorNameTimeout}
+	DefaultTooManyRequests       = ErrorType{TooManyRequests, errorNameTooManyRequests}
 )
 
 // ErrorType represents certain class of errors. Each error type is uniquely identified by an error name
@@ -120,6 +121,7 @@ const (
 	errorNameFailedPrecondition    = "Default:FailedPrecondition"
 	errorNameInternal              = "Default:Internal"
 	errorNameTimeout               = "Default:Timeout"
+	errorNameTooManyRequests       = "Default:TooManyRequests"
 )
 
 func verifyErrorNameString(name string) error {
@@ -137,6 +139,7 @@ func verifyErrorNameString(name string) error {
 		case errorNameFailedPrecondition:
 		case errorNameInternal:
 		case errorNameTimeout:
+		case errorNameTooManyRequests:
 		default:
 			return fmt.Errorf("errors: error name with default namespace cannot use custom cause")
 		}
@@ -157,6 +160,7 @@ func verifyErrorCodeErrorNameCombination(code ErrorCode, name string) error {
 		case DefaultFailedPrecondition:
 		case DefaultInternal:
 		case DefaultTimeout:
+		case DefaultTooManyRequests:
 		default:
 			return fmt.Errorf("errors: invalid combination of default error name and error code")
 		}

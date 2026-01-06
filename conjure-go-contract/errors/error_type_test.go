@@ -56,6 +56,7 @@ var defaultErrorTypes = []errors.ErrorType{
 	errors.DefaultFailedPrecondition,
 	errors.DefaultInternal,
 	errors.DefaultTimeout,
+	errors.DefaultTooManyRequests,
 }
 
 func TestNewErrorType_ForDefaultErrorNames(t *testing.T) {

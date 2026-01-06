@@ -98,6 +98,18 @@ func TestUnmarshalError(t *testing.T) {
 			},
 		},
 		{
+			name: "too many requests",
+			in: errors.SerializableError{
+				ErrorCode:       errors.TooManyRequests,
+				ErrorName:       "MyApplication:TooManyRequests",
+				ErrorInstanceID: uuid.NewUUID(),
+			},
+			verify: func(t *testing.T, actual errors.Error) {
+				assert.Equal(t, map[string]interface{}{"errorInstanceId": actual.InstanceID(), "errorName": actual.Name()}, actual.SafeParams())
+				assert.Equal(t, map[string]interface{}{}, actual.UnsafeParams())
+			},
+		},
+		{
 			name: "registered error type",
 			in: errors.SerializableError{
 				ErrorCode:       errors.CustomClient,

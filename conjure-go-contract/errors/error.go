@@ -179,3 +179,18 @@ func WrapWithTimeout(cause error, parameters ...wparams.ParamStorer) Error {
 func IsTimeout(err error) bool {
 	return isErrorOfType(err, DefaultTimeout)
 }
+
+// NewTooManyRequests returns new error instance of default tooManyRequests type.
+func NewTooManyRequests(parameters ...wparams.ParamStorer) Error {
+	return newGenericError(nil, DefaultTooManyRequests, wparams.NewParamStorer(parameters...))
+}
+
+// WrapWithTooManyRequests returns new error instance of default tooManyRequests type wrapping an existing error.
+func WrapWithTooManyRequests(cause error, parameters ...wparams.ParamStorer) Error {
+	return newGenericError(cause, DefaultTooManyRequests, wparams.NewParamStorer(parameters...))
+}
+
+// IsTooManyRequests returns true if an error is an instance of default tooManyRequests type.
+func IsTooManyRequests(err error) bool {
+	return isErrorOfType(err, DefaultTooManyRequests)
+}
