@@ -43,7 +43,7 @@ type TransportParams struct {
 	TLS TLSParams
 }
 
-func NewRefreshableTransport(ctx context.Context, p refreshable.Refreshable[TransportParams], refreshableConfig refreshable.Refreshable[*tls.Config], dialer ContextDialer) http.RoundTripper {
+func NewRefreshableTransport(ctx context.Context, p refreshable.Refreshable[TransportParams], refreshableConfig refreshable.Validated[*tls.Config], dialer ContextDialer) http.RoundTripper {
 	mapped, _ := refreshable.Merge(p, refreshableConfig, func(p TransportParams, t *tls.Config) *http.Transport {
 		return newTransport(ctx, p, t, dialer)
 	})
