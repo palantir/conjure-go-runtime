@@ -186,17 +186,18 @@ func TestCAUpdatesToTheSameCAFileIsCaptured(t *testing.T) {
 		"Test CA": {},
 	})
 	// Append a file and see the newest CA
-	capturedSubjects = map[string]struct{}{}
+
 	appendTestCACertFile(t, caFile1, 3, "Test CA 3")
-	// Ensure the underlying refreshable can sync
-	_, err = scopedTokenClient.Delete(context.Background())
-	assert.ErrorContains(t, err, "test-service")
+	// Poll until the file refreshable picks up the change and transport rebuilds
 	assert.Eventually(t, func() bool {
+		capturedSubjects = map[string]struct{}{}
+		_, err = scopedTokenClient.Delete(context.Background())
+		assert.ErrorContains(t, err, "test-service")
 		return reflect.DeepEqual(map[string]struct{}{
 			"Test CA":   {},
 			"Test CA 3": {},
 		}, capturedSubjects)
-	}, time.Second*2, time.Millisecond*100)
+	}, time.Second*5, time.Millisecond*100)
 }
 
 // unwrapTransport traverses the RoundTripper chain to find the underlying *http.Transport.
@@ -242,7 +243,7 @@ func appendTestCACertFile(t *testing.T, filePath string, serialNumber int64, org
 	certPEM := generateTestCACertPEM(t, serialNumber, orgName)
 	f, err := os.OpenFile(filePath, os.O_APPEND|os.O_WRONLY, 0600)
 	require.NoError(t, err)
-	defer assert.NoError(t, f.Close())
+	defer func() { assert.NoError(t, f.Close()) }()
 	_, err = f.Write(certPEM)
 	require.NoError(t, err)
 }
