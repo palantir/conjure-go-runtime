@@ -252,7 +252,7 @@ func appendTestCACertFile(t *testing.T, filePath string, serialNumber int64, org
 	certPEM := generateTestCACertPEM(t, serialNumber, orgName)
 	f, err := os.OpenFile(filePath, os.O_APPEND|os.O_WRONLY, 0600)
 	require.NoError(t, err)
-	defer f.Close()
+	defer assert.NoError(t, f.Close())
 	_, err = f.Write(certPEM)
 	require.NoError(t, err)
 }
