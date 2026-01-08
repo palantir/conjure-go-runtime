@@ -142,7 +142,6 @@ func TestAddingCAFileIsCaptured(t *testing.T) {
 }
 
 func TestCAUpdatesToTheSameCAFileIsCaptured(t *testing.T) {
-	t.Skip("skipping test until feature complete")
 	// Create a temp directory with CA certificate files
 	tmpDir := t.TempDir()
 	caFile1 := filepath.Join(tmpDir, "ca1.pem")
