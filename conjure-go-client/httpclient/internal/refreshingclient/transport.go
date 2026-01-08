@@ -50,7 +50,7 @@ type TransportParams struct {
 	TLS ExternalTLSParams
 }
 
-func NewRefreshableTransport(ctx context.Context, p refreshable.Refreshable[TransportParams], t refreshable.Refreshable[*tls.Config], dialer ContextDialer) http.RoundTripper {
+func NewRefreshableTransport(ctx context.Context, p refreshable.Refreshable[TransportParams], t refreshable.Validated[*tls.Config], dialer ContextDialer) http.RoundTripper {
 	mapped, _ := refreshable.Merge(p, t, func(p TransportParams, t *tls.Config) *http.Transport {
 		return newTransport(ctx, p, t, dialer)
 	})
@@ -76,6 +76,7 @@ func newTransport(ctx context.Context, p TransportParams, tlsConfig *tls.Config,
 	} else if p.ProxyFromEnvironment {
 		transportProxy = http.ProxyFromEnvironment
 	}
+
 	transport := &http.Transport{
 		Proxy:                 transportProxy,
 		DialContext:           dialer.DialContext,
