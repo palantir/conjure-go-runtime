@@ -75,6 +75,7 @@ type httpClientBuilder struct {
 	DialerParams    refreshable.Refreshable[refreshingclient.DialerParams]
 	TLSConfig       *tls.Config // If unset, config in TransportParams will be used.
 	TransportParams refreshable.Refreshable[refreshingclient.TransportParams]
+	TLSCABytes      refreshable.Refreshable[[][]byte] // Optional refreshable CA bytes to combine with TLSParams.
 	Middlewares     []Middleware
 
 	DisableMetrics      refreshable.Refreshable[bool]
@@ -97,9 +98,17 @@ func (b *httpClientBuilder) Build(ctx context.Context, params ...HTTPClientParam
 		}
 	}
 
-	var refreshableConfig refreshable.Refreshable[*tls.Config]
+	var refreshableConfig refreshable.Validated[*tls.Config]
 	if b.TLSConfig != nil {
-		refreshableConfig = refreshable.New(b.TLSConfig)
+		refreshableOfStaticTLSConfig := refreshable.New(b.TLSConfig)
+		validatedStaticTLSConfig, _, err := refreshable.Validate(refreshableOfStaticTLSConfig, func(cfg *tls.Config) error {
+			// No validation needed given validation is done when setting config
+			return nil
+		})
+		if err != nil {
+			return nil, err
+		}
+		refreshableConfig = validatedStaticTLSConfig
 	} else {
 		fileSlices, _ := refreshable.Map(b.TransportParams, func(t refreshingclient.TransportParams) map[string]struct{} {
 			toReturn := map[string]struct{}{}

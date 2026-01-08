@@ -39,7 +39,7 @@ type InternalTLSParams struct {
 //
 // N.B. This subscription only fires when the paths are updated, not when the contents of the files are updated.
 // We could consider adding a file refreshable to watch the key and cert files.
-func NewRefreshableTLSConfig(ctx context.Context, params refreshable.Refreshable[InternalTLSParams]) (refreshable.Refreshable[*tls.Config], error) {
+func NewRefreshableTLSConfig(ctx context.Context, params refreshable.Refreshable[InternalTLSParams]) (refreshable.Validated[*tls.Config], error) {
 	r, _, err := refreshable.MapWithError(params, func(p InternalTLSParams) (*tls.Config, error) {
 		return NewTLSConfig(ctx, p)
 	})
