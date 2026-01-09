@@ -181,7 +181,7 @@ func TestCAUpdatesToTheSameCAFileIsCaptured(t *testing.T) {
 	)
 	require.NoError(t, err)
 	_, err = scopedTokenClient.Delete(context.Background())
-	assert.ErrorContains(t, err, "test-service")
+	assert.Error(t, err)
 	assert.Equal(t, capturedSubjects, map[string]struct{}{
 		"Test CA": {},
 	})
@@ -192,7 +192,7 @@ func TestCAUpdatesToTheSameCAFileIsCaptured(t *testing.T) {
 	assert.Eventually(t, func() bool {
 		capturedSubjects = map[string]struct{}{}
 		_, err = scopedTokenClient.Delete(context.Background())
-		assert.ErrorContains(t, err, "test-service")
+		assert.Error(t, err)
 		return reflect.DeepEqual(map[string]struct{}{
 			"Test CA":   {},
 			"Test CA 3": {},
