@@ -412,7 +412,7 @@ func newValidatedClientParamsFromConfig(ctx context.Context, config ClientConfig
 		HTTP2ReadIdleTimeout:  derefPtr(config.HTTP2ReadIdleTimeout, defaultHTTP2ReadIdleTimeout),
 		ProxyFromEnvironment:  derefPtr(config.ProxyFromEnvironment, true),
 		TLSHandshakeTimeout:   derefPtr(config.TLSHandshakeTimeout, defaultTLSHandshakeTimeout),
-		TLS: refreshingclient.ExternalTLSParams{
+		TLS: refreshingclient.TLSParamsFromClientConfig{
 			CAFiles:            config.Security.CAFiles,
 			CertFile:           config.Security.CertFile,
 			KeyFile:            config.Security.KeyFile,

@@ -26,7 +26,7 @@ import (
 	"golang.org/x/net/http2"
 )
 
-type ExternalTLSParams struct {
+type TLSParamsFromClientConfig struct {
 	CAFiles            []string
 	CertFile           string
 	KeyFile            string
@@ -47,7 +47,7 @@ type TransportParams struct {
 	HTTP2ReadIdleTimeout  time.Duration
 	HTTP2PingTimeout      time.Duration
 
-	TLS ExternalTLSParams
+	TLS TLSParamsFromClientConfig
 }
 
 func NewRefreshableTransport(ctx context.Context, p refreshable.Refreshable[TransportParams], refreshableConfig refreshable.Validated[*tls.Config], dialer ContextDialer) http.RoundTripper {
