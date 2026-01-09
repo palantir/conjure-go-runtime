@@ -363,14 +363,9 @@ func configToParams(c ClientConfig) ([]ClientParam, error) {
 	if timeout != 0 {
 		params = append(params, WithHTTPTimeout(timeout))
 	}
-
-	caBytes, err := getCABytesFromPaths(c.Security.CAFiles)
-	if err != nil {
-		return nil, err
-	}
 	// Security (TLS) Config
-	if tlsConfig, err := refreshingclient.NewTLSConfig(context.TODO(), refreshingclient.InternalTLSParams{
-		CABytes:            caBytes,
+	if tlsConfig, err := refreshingclient.NewTLSConfig(context.TODO(), refreshingclient.TLSParams{
+		CAFiles:            c.Security.CAFiles,
 		CertFile:           c.Security.CertFile,
 		KeyFile:            c.Security.KeyFile,
 		InsecureSkipVerify: derefPtr(c.Security.InsecureSkipVerify, false),

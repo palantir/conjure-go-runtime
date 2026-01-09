@@ -53,7 +53,7 @@ func NewRefreshableTLSConfig(ctx context.Context, params refreshable.Refreshable
 // NewTLSConfig returns a *tls.Config built from the provided TLSParams.
 func NewTLSConfig(ctx context.Context, p TLSParams) (*tls.Config, error) {
 	var tlsParams []tlsconfig.ClientParam
-	tlsParams = append(tlsParams, getCAClientParam(ctx, p)...)
+	tlsParams = append(tlsParams, getCAClientParam(p)...)
 	if p.CertFile != "" && p.KeyFile != "" {
 		tlsParams = append(tlsParams, tlsconfig.ClientKeyPairFiles(p.CertFile, p.KeyFile))
 	}
@@ -67,7 +67,7 @@ func NewTLSConfig(ctx context.Context, p TLSParams) (*tls.Config, error) {
 	return tlsConfig, nil
 }
 
-func getCAClientParam(ctx context.Context, p TLSParams) []tlsconfig.ClientParam {
+func getCAClientParam(p TLSParams) []tlsconfig.ClientParam {
 	if len(p.CAFiles) == 0 && len(p.CABytes) == 0 {
 		return nil
 	}
