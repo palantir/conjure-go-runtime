@@ -124,8 +124,26 @@ func (b *httpClientBuilder) getRefreshableTLSConfig(ctx context.Context) (refres
 		}
 		return validatedStaticTLSConfig, nil
 	}
-	tlsParams := refreshable.View(b.TransportParams, func(t refreshingclient.TransportParams) refreshingclient.TLSParams {
-		return t.TLS
+	fileSlices, _ := refreshable.Map(b.TransportParams, func(t refreshingclient.TransportParams) map[string]struct{} {
+		toReturn := map[string]struct{}{}
+		for _, file := range t.TLS.CAFiles {
+			toReturn[file] = struct{}{}
+		}
+		return toReturn
+	})
+	multiFileRefreshable := refreshable.NewMultiFileRefreshable(ctx, fileSlices)
+	tlsParams, _ := refreshable.Merge(b.TransportParams, multiFileRefreshable, func(t1 refreshingclient.TransportParams, t2 map[string][]byte) refreshingclient.TLSParams {
+		var caBytes [][]byte
+		for _, caSlice := range t2 {
+			caBytes = append(caBytes, caSlice)
+		}
+		return refreshingclient.TLSParams{
+			CABytes:            caBytes,
+			CAFiles:            t1.TLS.CAFiles,
+			CertFile:           t1.TLS.CertFile,
+			KeyFile:            t1.TLS.KeyFile,
+			InsecureSkipVerify: t1.TLS.InsecureSkipVerify,
+		}
 	})
 	return refreshingclient.NewRefreshableTLSConfig(ctx, tlsParams)
 }
