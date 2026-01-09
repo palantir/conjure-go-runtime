@@ -21,6 +21,7 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/asn1"
 	"encoding/pem"
 	"math/big"
 	"net/http"
@@ -265,4 +266,70 @@ func generateTestCACertPEM(t *testing.T, serialNumber int64, orgName string) []b
 	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, &priv.PublicKey, priv)
 	require.NoError(t, err)
 	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
+}
+
+func TestCABytesAndCAFileCombined(t *testing.T) {
+	// Create a CA file on disk
+	tmpDir := t.TempDir()
+	caFile := filepath.Join(tmpDir, "ca.pem")
+	createTestCACertFile(t, caFile, 1, "Disk CA")
+	// Create CA bytes for the dynamic provider
+	dynamicCABytes := generateTestCACertPEM(t, 2, "Dynamic CA")
+	caBytesRefreshable := refreshable.New([][]byte{dynamicCABytes})
+	// Track unique CA subjects captured during requests
+	capturedSubjects := make(map[string]struct{})
+	tlsCapturingMiddleware := httpclient.MiddlewareFunc(
+		func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+			transport := unwrapTransport(next)
+			for _, subject := range transport.TLSClientConfig.RootCAs.Subjects() {
+				// Parse the ASN.1 subject to extract the organization name
+				var rdnSeq pkix.RDNSequence
+				if _, err := asn1.Unmarshal(subject, &rdnSeq); err == nil {
+					var name pkix.Name
+					name.FillFromRDNSequence(&rdnSeq)
+					for _, org := range name.Organization {
+						capturedSubjects[org] = struct{}{}
+					}
+				}
+			}
+			return next.RoundTrip(req)
+		},
+	)
+	cfg := httpclient.ClientConfig{
+		ServiceName:   "test-service",
+		MaxNumRetries: toPointer(0),
+		URIs:          []string{"https://test-service"},
+		Security: httpclient.SecurityConfig{
+			CAFiles: []string{caFile},
+		},
+	}
+	clientConfigRefreshable := refreshable.New(cfg)
+	client, err := httpclient.NewClientFromRefreshableConfig(
+		context.Background(),
+		clientConfigRefreshable,
+		httpclient.WithMiddleware(tlsCapturingMiddleware),
+		httpclient.WithTLSCABytes(caBytesRefreshable),
+	)
+	require.NoError(t, err)
+	// Make a request to trigger TLS config capture
+	_, err = client.Delete(context.Background())
+	assert.Error(t, err)
+	// Verify both CA sources are present
+	assert.Equal(t, map[string]struct{}{
+		"Disk CA":    {},
+		"Dynamic CA": {},
+	}, capturedSubjects)
+	// Update dynamic CA bytes and verify it refreshes
+	capturedSubjects = make(map[string]struct{})
+	newDynamicCABytes := generateTestCACertPEM(t, 3, "New Dynamic CA")
+	caBytesRefreshable.Update([][]byte{newDynamicCABytes})
+	assert.Eventually(t, func() bool {
+		capturedSubjects = make(map[string]struct{})
+		_, err = client.Delete(context.Background())
+		assert.Error(t, err)
+		return reflect.DeepEqual(map[string]struct{}{
+			"Disk CA":        {},
+			"New Dynamic CA": {},
+		}, capturedSubjects)
+	}, time.Second*2, time.Millisecond*100)
 }
