@@ -379,18 +379,6 @@ func configToParams(c ClientConfig) ([]ClientParam, error) {
 	return params, nil
 }
 
-func getCABytesFromPaths(caPaths []string) ([][]byte, error) {
-	var caBytes [][]byte
-	for _, caFile := range caPaths {
-		caByte, err := os.ReadFile(caFile)
-		if err != nil {
-			return nil, werror.Wrap(err, "failed to get CA bytes from paths", werror.SafeParam("path", caFile))
-		}
-		caBytes = append(caBytes, caByte)
-	}
-	return caBytes, nil
-}
-
 func newValidatedClientParamsFromConfig(ctx context.Context, config ClientConfig) (refreshingclient.ValidatedClientParams, error) {
 	dialer := refreshingclient.DialerParams{
 		DialTimeout: derefPtr(config.ConnectTimeout, defaultDialTimeout),
