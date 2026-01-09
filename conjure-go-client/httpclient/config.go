@@ -363,6 +363,7 @@ func configToParams(c ClientConfig) ([]ClientParam, error) {
 	if timeout != 0 {
 		params = append(params, WithHTTPTimeout(timeout))
 	}
+
 	// Security (TLS) Config
 	if tlsConfig, err := refreshingclient.NewTLSConfig(context.TODO(), refreshingclient.TLSParams{
 		CAFiles:            c.Security.CAFiles,
