@@ -75,10 +75,8 @@ func getCAClientParam(p TLSParams) []tlsconfig.ClientParam {
 	if len(p.CAFiles) > 0 {
 		certPoolOptions = append(certPoolOptions, tlsconfig.CertPoolOptionFromCAFiles(p.CAFiles...))
 	}
-	if len(p.CABytes) > 0 {
-		for _, ca := range p.CABytes {
-			certPoolOptions = append(certPoolOptions, tlsconfig.CertPoolOptionCABytes(ca))
-		}
+	for _, ca := range p.CABytes {
+		certPoolOptions = append(certPoolOptions, tlsconfig.CertPoolOptionCABytes(ca))
 	}
 	return []tlsconfig.ClientParam{
 		tlsconfig.ClientRootCAs(tlsconfig.CertPoolFromCertPoolOptions(certPoolOptions)),
