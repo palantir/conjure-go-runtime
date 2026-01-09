@@ -96,29 +96,10 @@ func (b *httpClientBuilder) Build(ctx context.Context, params ...HTTPClientParam
 			return nil, err
 		}
 	}
-
-	var refreshableConfig refreshable.Validated[*tls.Config]
-	if b.TLSConfig != nil {
-		refreshableOfStaticTLSConfig := refreshable.New(b.TLSConfig)
-		validatedStaticTLSConfig, _, err := refreshable.Validate(refreshableOfStaticTLSConfig, func(cfg *tls.Config) error {
-			// No validation needed given validation is done when setting config
-			return nil
-		})
-		if err != nil {
-			return nil, err
-		}
-		refreshableConfig = validatedStaticTLSConfig
-	} else {
-		tlsParams := refreshable.View(b.TransportParams, func(t refreshingclient.TransportParams) refreshingclient.TLSParams {
-			return t.TLS
-		})
-		refreshableTLSConfig, err := refreshingclient.NewRefreshableTLSConfig(ctx, tlsParams)
-		if err != nil {
-			return nil, err
-		}
-		refreshableConfig = refreshableTLSConfig
+	refreshableConfig, err := b.getRefreshableTLSConfig(ctx)
+	if err != nil {
+		return nil, err
 	}
-
 	dialer := refreshingclient.NewRefreshableDialer(ctx, b.DialerParams)
 	transport := refreshingclient.NewRefreshableTransport(ctx, b.TransportParams, refreshableConfig, dialer)
 	transport = wrapTransport(transport, newMetricsMiddleware(b.ServiceName, b.MetricsTagProviders, b.DisableMetrics))
@@ -129,6 +110,24 @@ func (b *httpClientBuilder) Build(ctx context.Context, params ...HTTPClientParam
 	transport = wrapTransport(transport, b.Middlewares...)
 
 	return refreshingclient.NewRefreshableHTTPClient(transport, b.Timeout), nil
+}
+
+func (b *httpClientBuilder) getRefreshableTLSConfig(ctx context.Context) (refreshable.Validated[*tls.Config], error) {
+	if b.TLSConfig != nil {
+		refreshableOfStaticTLSConfig := refreshable.New(b.TLSConfig)
+		validatedStaticTLSConfig, _, err := refreshable.Validate(refreshableOfStaticTLSConfig, func(cfg *tls.Config) error {
+			// No validation needed given validation is done when setting config
+			return nil
+		})
+		if err != nil {
+			return nil, err
+		}
+		return validatedStaticTLSConfig, nil
+	}
+	tlsParams := refreshable.View(b.TransportParams, func(t refreshingclient.TransportParams) refreshingclient.TLSParams {
+		return t.TLS
+	})
+	return refreshingclient.NewRefreshableTLSConfig(ctx, tlsParams)
 }
 
 // NewClient returns a configured client ready for use.
