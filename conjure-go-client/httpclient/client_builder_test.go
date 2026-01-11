@@ -232,13 +232,12 @@ func TestCAUpdatesToTheSameCAFileIsCaptured(t *testing.T) {
 // TestMissingCAFilesCausesError ensures that we can't create clients that start broken
 func TestMissingCAFilesCausesError(t *testing.T) {
 	// Create a temp directory with CA certificate files
-	caFile1 := filepath.Join("fakedir/", "ca1.pem")
 	cfg := httpclient.ClientConfig{
 		URIs: []string{
 			"https://test-service",
 		},
 		Security: httpclient.SecurityConfig{
-			CAFiles: []string{caFile1},
+			CAFiles: []string{filepath.Join("fakedir/", "ca1.pem")},
 		},
 	}
 	clientConfigRefreshable := refreshable.New(cfg)
@@ -251,6 +250,73 @@ func TestMissingCAFilesCausesError(t *testing.T) {
 		httpclient.WithConfig(cfg),
 	)
 	assert.ErrorContains(t, err, "open fakedir/ca1.pem: no such file or directory")
+}
+
+func TestMissingCertAndKeyFileErrors(t *testing.T) {
+	// Create a temp directory with CA certificate files
+	cfg := httpclient.ClientConfig{
+		URIs: []string{
+			"https://test-service",
+		},
+		Security: httpclient.SecurityConfig{
+			KeyFile:  filepath.Join("fakedir/", "key"),
+			CertFile: filepath.Join("fakedir/", "cert"),
+		},
+	}
+	clientConfigRefreshable := refreshable.New(cfg)
+	_, err := httpclient.NewClientFromRefreshableConfig(
+		context.Background(),
+		clientConfigRefreshable,
+	)
+	assert.ErrorContains(t, err, "open fakedir/cert: no such file or directory")
+	_, err = httpclient.NewClient(
+		httpclient.WithConfig(cfg),
+	)
+	assert.ErrorContains(t, err, "open fakedir/cert: no such file or directory")
+}
+
+func TestJustMissingCertDoesntError(t *testing.T) {
+	// Create a temp directory with CA certificate files
+	cfg := httpclient.ClientConfig{
+		URIs: []string{
+			"https://test-service",
+		},
+		Security: httpclient.SecurityConfig{
+			CertFile: filepath.Join("fakedir/", "cert"),
+		},
+	}
+	clientConfigRefreshable := refreshable.New(cfg)
+	_, err := httpclient.NewClientFromRefreshableConfig(
+		context.Background(),
+		clientConfigRefreshable,
+	)
+	assert.NoError(t, err)
+	_, err = httpclient.NewClient(
+		httpclient.WithConfig(cfg),
+	)
+	assert.NoError(t, err)
+}
+
+func TestJustMissingKeyDoesntError(t *testing.T) {
+	// Create a temp directory with CA certificate files
+	cfg := httpclient.ClientConfig{
+		URIs: []string{
+			"https://test-service",
+		},
+		Security: httpclient.SecurityConfig{
+			KeyFile: filepath.Join("fakedir/", "key"),
+		},
+	}
+	clientConfigRefreshable := refreshable.New(cfg)
+	_, err := httpclient.NewClientFromRefreshableConfig(
+		context.Background(),
+		clientConfigRefreshable,
+	)
+	assert.NoError(t, err)
+	_, err = httpclient.NewClient(
+		httpclient.WithConfig(cfg),
+	)
+	assert.NoError(t, err)
 }
 
 // unwrapTransport traverses the RoundTripper chain to find the underlying *http.Transport.
