@@ -141,6 +141,7 @@ func TestAddingCAFileIsCaptured(t *testing.T) {
 	}, time.Second*2, time.Millisecond*100)
 }
 
+// TestCAUpdatesToTheSameCAFileIsCaptured ensures that refreshable and non-refreshable clients still respect on disk CA refreshes
 func TestCAUpdatesToTheSameCAFileIsCaptured(t *testing.T) {
 	// Create a temp directory with CA certificate files
 	tmpDir := t.TempDir()
@@ -174,81 +175,52 @@ func TestCAUpdatesToTheSameCAFileIsCaptured(t *testing.T) {
 		},
 	}
 	clientConfigRefreshable := refreshable.New(cfg)
-	scopedTokenClient, err := httpclient.NewClientFromRefreshableConfig(
+	client1, err := httpclient.NewClientFromRefreshableConfig(
 		context.Background(),
 		clientConfigRefreshable,
 		httpclient.WithMiddleware(tlsCapturingMiddleware),
 	)
 	require.NoError(t, err)
-	_, err = scopedTokenClient.Delete(context.Background())
-	assert.Error(t, err)
-	assert.Equal(t, capturedSubjects, map[string]struct{}{
-		"Test CA": {},
-	})
+	client2, err := httpclient.NewClient(
+		httpclient.WithConfig(cfg),
+		httpclient.WithMiddleware(tlsCapturingMiddleware),
+	)
+	require.NoError(t, err)
+	// Client 1
+	assert.Eventually(t, func() bool {
+		capturedSubjects = map[string]struct{}{}
+		_, err = client1.Delete(context.Background())
+		assert.Error(t, err)
+		return reflect.DeepEqual(map[string]struct{}{
+			"Test CA": {},
+		}, capturedSubjects)
+	}, time.Second*5, time.Millisecond*100)
+	// Client 2
+	assert.Eventually(t, func() bool {
+		capturedSubjects = map[string]struct{}{}
+		_, err = client2.Delete(context.Background())
+		assert.Error(t, err)
+		return reflect.DeepEqual(map[string]struct{}{
+			"Test CA": {},
+		}, capturedSubjects)
+	}, time.Second*5, time.Millisecond*100)
 	// Append a file and see the newest CA
 
 	appendTestCACertFile(t, caFile1, 3, "Test CA 3")
-	// Poll until the file refreshable picks up the change and transport rebuilds
+	// Client 1
 	assert.Eventually(t, func() bool {
 		capturedSubjects = map[string]struct{}{}
-		_, err = scopedTokenClient.Delete(context.Background())
+		_, err = client1.Delete(context.Background())
 		assert.Error(t, err)
 		return reflect.DeepEqual(map[string]struct{}{
 			"Test CA":   {},
 			"Test CA 3": {},
 		}, capturedSubjects)
 	}, time.Second*5, time.Millisecond*100)
-}
-
-func TestCAUpdatesToTheSameCAFileIsCapturedForConfigClient(t *testing.T) {
-	// Create a temp directory with CA certificate files
-	tmpDir := t.TempDir()
-	caFile1 := filepath.Join(tmpDir, "ca1.pem")
-	createTestCACertFile(t, caFile1, 1, "Test CA")
-
-	// Track unique CA subjects captured during requests
-	capturedSubjects := make(map[string]struct{})
-	tlsCapturingMiddleware := httpclient.MiddlewareFunc(
-		func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
-			transport := unwrapTransport(next)
-			for _, subject := range transport.TLSClientConfig.RootCAs.Subjects() {
-				results := strings.Split(strings.TrimSpace(string(subject)), "\a")
-				last := results[len(results)-1]
-				results = strings.Split(last, "\t")
-				last = results[len(results)-1]
-				capturedSubjects[last] = struct{}{}
-			}
-			return next.RoundTrip(req)
-		},
-	)
-
-	cfg := httpclient.ClientConfig{
-		ServiceName: "baz",
-		URIs: []string{
-			"https://test-service",
-		},
-		MaxNumRetries: toPointer(0),
-		Security: httpclient.SecurityConfig{
-			CAFiles: []string{caFile1},
-		},
-	}
-	scopedTokenClient, err := httpclient.NewClient(
-		httpclient.WithConfig(cfg),
-		httpclient.WithMiddleware(tlsCapturingMiddleware),
-	)
-	require.NoError(t, err)
-	_, err = scopedTokenClient.Delete(context.Background())
-	assert.Error(t, err)
-	assert.Equal(t, capturedSubjects, map[string]struct{}{
-		"Test CA": {},
-	})
-	// Append a file and see the newest CA
-
-	appendTestCACertFile(t, caFile1, 3, "Test CA 3")
-	// Poll until the file refreshable picks up the change and transport rebuilds
+	// Client 2
 	assert.Eventually(t, func() bool {
 		capturedSubjects = map[string]struct{}{}
-		_, err = scopedTokenClient.Delete(context.Background())
+		_, err = client2.Delete(context.Background())
 		assert.Error(t, err)
 		return reflect.DeepEqual(map[string]struct{}{
 			"Test CA":   {},
