@@ -52,7 +52,13 @@ func NewRefreshableTLSConfig(ctx context.Context, params refreshable.Refreshable
 // NewTLSConfig returns a *tls.Config built from the provided TLSParams.
 func NewTLSConfig(ctx context.Context, p TLSParams) (*tls.Config, error) {
 	var tlsParams []tlsconfig.ClientParam
-	tlsParams = append(tlsParams, getCAClientParam(p)...)
+	if len(p.CABytes) > 0 {
+		var certPoolOptions []tlsconfig.CertPoolOption
+		for _, ca := range p.CABytes {
+			certPoolOptions = append(certPoolOptions, tlsconfig.CertPoolOptionCABytes(ca))
+		}
+		tlsParams = append(tlsParams, tlsconfig.ClientRootCAs(tlsconfig.CertPoolFromCertPoolOptions(certPoolOptions)))
+	}
 	if p.CertFile != "" && p.KeyFile != "" {
 		tlsParams = append(tlsParams, tlsconfig.ClientKeyPairFiles(p.CertFile, p.KeyFile))
 	}
@@ -69,17 +75,4 @@ func NewTLSConfig(ctx context.Context, p TLSParams) (*tls.Config, error) {
 func ValidateTLSParams(ctx context.Context, p TLSParams) error {
 	_, err := NewTLSConfig(ctx, p)
 	return err
-}
-
-func getCAClientParam(p TLSParams) []tlsconfig.ClientParam {
-	if len(p.CABytes) == 0 {
-		return nil
-	}
-	var certPoolOptions []tlsconfig.CertPoolOption
-	for _, ca := range p.CABytes {
-		certPoolOptions = append(certPoolOptions, tlsconfig.CertPoolOptionCABytes(ca))
-	}
-	return []tlsconfig.ClientParam{
-		tlsconfig.ClientRootCAs(tlsconfig.CertPoolFromCertPoolOptions(certPoolOptions)),
-	}
 }
