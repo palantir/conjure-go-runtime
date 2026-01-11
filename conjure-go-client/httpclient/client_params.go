@@ -398,19 +398,12 @@ func WithTLSInsecureSkipVerify() ClientOrHTTPClientParam {
 	})
 }
 
-func WithKeyFile(keyFile string) ClientOrHTTPClientParam {
+// WithKeyAndCertFile sets the client TLS certificate and key file paths.
+// The files are read when the client is created and on each request to support certificate rotation.
+func WithKeyAndCertFile(keyFile string, certFile string) ClientOrHTTPClientParam {
 	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
 		b.TransportParams = refreshable.View(b.TransportParams, func(p refreshingclient.TransportParams) refreshingclient.TransportParams {
 			p.TLSConfigurationParams.KeyFile = keyFile
-			return p
-		})
-		return nil
-	})
-}
-
-func WithCertFile(certFile string) ClientOrHTTPClientParam {
-	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
-		b.TransportParams = refreshable.View(b.TransportParams, func(p refreshingclient.TransportParams) refreshingclient.TransportParams {
 			p.TLSConfigurationParams.CertFile = certFile
 			return p
 		})
@@ -418,6 +411,8 @@ func WithCertFile(certFile string) ClientOrHTTPClientParam {
 	})
 }
 
+// WithCAFiles sets the CA certificate file paths for the client's TLS configuration.
+// The files are read when the client is created and periodically refreshed to support certificate rotation.
 func WithCAFiles(CAFiles []string) ClientOrHTTPClientParam {
 	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
 		b.TransportParams = refreshable.View(b.TransportParams, func(p refreshingclient.TransportParams) refreshingclient.TransportParams {

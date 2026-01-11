@@ -370,8 +370,7 @@ func configToParams(c ClientConfig) ([]ClientParam, error) {
 func getClientTLSParams(c ClientConfig) []ClientParam {
 	params := []ClientParam{
 		WithCAFiles(c.Security.CAFiles),
-		WithCertFile(c.Security.CertFile),
-		WithKeyFile(c.Security.KeyFile),
+		WithKeyAndCertFile(c.Security.KeyFile, c.Security.CertFile),
 	}
 	if derefPtr(c.Security.InsecureSkipVerify, false) {
 		params = append(params, WithTLSInsecureSkipVerify())
