@@ -100,6 +100,8 @@ func (b *httpClientBuilder) Build(ctx context.Context, params ...HTTPClientParam
 	if err != nil {
 		return nil, err
 	}
+
+	// Create dialer and transport
 	dialer := refreshingclient.NewRefreshableDialer(ctx, b.DialerParams)
 	transport := refreshingclient.NewRefreshableTransport(ctx, b.TransportParams, refreshableConfig, dialer)
 	transport = wrapTransport(transport, newMetricsMiddleware(b.ServiceName, b.MetricsTagProviders, b.DisableMetrics))
