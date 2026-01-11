@@ -246,12 +246,11 @@ func TestMissingCAFilesCausesError(t *testing.T) {
 		context.Background(),
 		clientConfigRefreshable,
 	)
-	assert.EqualError(t, err, "fdsafasd")
-	require.NoError(t, err)
+	assert.ErrorContains(t, err, "open fakedir/ca1.pem: no such file or directory")
 	_, err = httpclient.NewClient(
 		httpclient.WithConfig(cfg),
 	)
-	assert.EqualError(t, err, "fdsafasd")
+	assert.ErrorContains(t, err, "open fakedir/ca1.pem: no such file or directory")
 }
 
 // unwrapTransport traverses the RoundTripper chain to find the underlying *http.Transport.

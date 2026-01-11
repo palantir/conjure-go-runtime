@@ -132,6 +132,9 @@ func (b *httpClientBuilder) getRefreshableTLSConfig(ctx context.Context) (refres
 		return toReturn
 	})
 	multiFileRefreshable := refreshable.NewMultiFileRefreshable(ctx, fileSlices)
+	if _, err := multiFileRefreshable.Validation(); err != nil {
+		return nil, werror.WrapWithContextParams(ctx, err, "failed to read CA files")
+	}
 	tlsParams, _ := refreshable.Merge(b.TransportParams, multiFileRefreshable, func(t1 refreshingclient.TransportParams, t2 map[string][]byte) refreshingclient.TLSParams {
 		var caBytes [][]byte
 		for _, caSlice := range t2 {
