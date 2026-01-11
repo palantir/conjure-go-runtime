@@ -364,22 +364,62 @@ func configToParams(c ClientConfig) ([]ClientParam, error) {
 		params = append(params, WithHTTPTimeout(timeout))
 	}
 
-	err := refreshingclient.ValidateTLSParams(context.TODO(), refreshingclient.TLSParams{
-		// CAFiles:            c.Security.CAFiles, TODO how to map for validation
-		CertFile:           c.Security.CertFile,
-		KeyFile:            c.Security.KeyFile,
-		InsecureSkipVerify: derefPtr(c.Security.InsecureSkipVerify, false),
+	tlsParams, err := getClientTLSParams(c)
+	if err != nil {
+		return nil, err
+	}
+	params = append(params, tlsParams...)
+	return params, nil
+}
+
+func getClientTLSParams(c ClientConfig) ([]ClientParam, error) {
+	var params []ClientParam
+	if len(c.Security.CAFiles) > 0 {
+		params = append(params, WithCAFiles(c.Security.CAFiles))
+	}
+	if len(c.Security.CertFile) > 0 {
+		params = append(params, WithCertFile(c.Security.CertFile))
+	}
+	if len(c.Security.KeyFile) > 0 {
+		params = append(params, WithKeyFile(c.Security.KeyFile))
+	}
+	if derefPtr(c.Security.InsecureSkipVerify, false) {
+		params = append(params, WithTLSInsecureSkipVerify())
+	}
+	clientBuilderArg := &clientBuilder{}
+	for _, p := range params {
+		err := p.apply(clientBuilderArg)
+		if err != nil {
+			return nil, err
+		}
+	}
+	tlsConfigurationParams := clientBuilderArg.HTTP.TransportParams.Current().TLSConfigurationParams
+	caBytes, err := getCABytes(tlsConfigurationParams.CAFiles)
+	if err != nil {
+		return nil, err
+	}
+	err = refreshingclient.ValidateTLSParams(context.TODO(), refreshingclient.TLSParams{
+		CABytes:            caBytes,
+		CertFile:           tlsConfigurationParams.CertFile,
+		KeyFile:            tlsConfigurationParams.KeyFile,
+		InsecureSkipVerify: tlsConfigurationParams.InsecureSkipVerify,
 	})
 	if err != nil {
 		return nil, err
 	}
-	params = append(params, WithCAFiles(c.Security.CAFiles))
-	params = append(params, WithCertFile(c.Security.CertFile))
-	params = append(params, WithKeyFile(c.Security.KeyFile))
-	if derefPtr(c.Security.InsecureSkipVerify, false) {
-		params = append(params, WithTLSInsecureSkipVerify())
-	}
 	return params, nil
+}
+
+func getCABytes(files []string) ([][]byte, error) {
+	var caBytes [][]byte
+	for _, file := range files {
+		pemBytes, err := os.ReadFile(file)
+		if err != nil {
+			return nil, werror.Wrap(err, "failed to read CA file")
+		}
+		caBytes = append(caBytes, pemBytes)
+	}
+	return caBytes, nil
 }
 
 func newValidatedClientParamsFromConfig(ctx context.Context, config ClientConfig) (refreshingclient.ValidatedClientParams, error) {
