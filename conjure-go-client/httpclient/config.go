@@ -386,7 +386,7 @@ func getClientTLSParams(c ClientConfig) ([]ClientParam, error) {
 	if derefPtr(c.Security.InsecureSkipVerify, false) {
 		params = append(params, WithTLSInsecureSkipVerify())
 	}
-	clientBuilderArg := &clientBuilder{}
+	clientBuilderArg := newClientBuilder()
 	for _, p := range params {
 		err := p.apply(clientBuilderArg)
 		if err != nil {
