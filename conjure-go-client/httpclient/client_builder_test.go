@@ -200,6 +200,63 @@ func TestCAUpdatesToTheSameCAFileIsCaptured(t *testing.T) {
 	}, time.Second*5, time.Millisecond*100)
 }
 
+func TestCAUpdatesToTheSameCAFileIsCapturedForConfigClient(t *testing.T) {
+	// Create a temp directory with CA certificate files
+	tmpDir := t.TempDir()
+	caFile1 := filepath.Join(tmpDir, "ca1.pem")
+	createTestCACertFile(t, caFile1, 1, "Test CA")
+
+	// Track unique CA subjects captured during requests
+	capturedSubjects := make(map[string]struct{})
+	tlsCapturingMiddleware := httpclient.MiddlewareFunc(
+		func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+			transport := unwrapTransport(next)
+			for _, subject := range transport.TLSClientConfig.RootCAs.Subjects() {
+				results := strings.Split(strings.TrimSpace(string(subject)), "\a")
+				last := results[len(results)-1]
+				results = strings.Split(last, "\t")
+				last = results[len(results)-1]
+				capturedSubjects[last] = struct{}{}
+			}
+			return next.RoundTrip(req)
+		},
+	)
+
+	cfg := httpclient.ClientConfig{
+		ServiceName: "baz",
+		URIs: []string{
+			"https://test-service",
+		},
+		MaxNumRetries: toPointer(0),
+		Security: httpclient.SecurityConfig{
+			CAFiles: []string{caFile1},
+		},
+	}
+	scopedTokenClient, err := httpclient.NewClient(
+		httpclient.WithConfig(cfg),
+		httpclient.WithMiddleware(tlsCapturingMiddleware),
+	)
+	require.NoError(t, err)
+	_, err = scopedTokenClient.Delete(context.Background())
+	assert.Error(t, err)
+	assert.Equal(t, capturedSubjects, map[string]struct{}{
+		"Test CA": {},
+	})
+	// Append a file and see the newest CA
+
+	appendTestCACertFile(t, caFile1, 3, "Test CA 3")
+	// Poll until the file refreshable picks up the change and transport rebuilds
+	assert.Eventually(t, func() bool {
+		capturedSubjects = map[string]struct{}{}
+		_, err = scopedTokenClient.Delete(context.Background())
+		assert.Error(t, err)
+		return reflect.DeepEqual(map[string]struct{}{
+			"Test CA":   {},
+			"Test CA 3": {},
+		}, capturedSubjects)
+	}, time.Second*5, time.Millisecond*100)
+}
+
 // unwrapTransport traverses the RoundTripper chain to find the underlying *http.Transport.
 func unwrapTransport(rt http.RoundTripper) *http.Transport {
 	for rt != nil {
