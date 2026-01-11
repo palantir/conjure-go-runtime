@@ -229,6 +229,31 @@ func TestCAUpdatesToTheSameCAFileIsCaptured(t *testing.T) {
 	}, time.Second*5, time.Millisecond*100)
 }
 
+// TestMissingCAFilesCausesError ensures that we can't create clients that start broken
+func TestMissingCAFilesCausesError(t *testing.T) {
+	// Create a temp directory with CA certificate files
+	caFile1 := filepath.Join("fakedir/", "ca1.pem")
+	cfg := httpclient.ClientConfig{
+		URIs: []string{
+			"https://test-service",
+		},
+		Security: httpclient.SecurityConfig{
+			CAFiles: []string{caFile1},
+		},
+	}
+	clientConfigRefreshable := refreshable.New(cfg)
+	_, err := httpclient.NewClientFromRefreshableConfig(
+		context.Background(),
+		clientConfigRefreshable,
+	)
+	assert.EqualError(t, err, "fdsafasd")
+	require.NoError(t, err)
+	_, err = httpclient.NewClient(
+		httpclient.WithConfig(cfg),
+	)
+	assert.EqualError(t, err, "fdsafasd")
+}
+
 // unwrapTransport traverses the RoundTripper chain to find the underlying *http.Transport.
 func unwrapTransport(rt http.RoundTripper) *http.Transport {
 	for rt != nil {
