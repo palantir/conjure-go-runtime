@@ -71,8 +71,3 @@ func NewTLSConfig(ctx context.Context, p TLSParams) (*tls.Config, error) {
 	}
 	return tlsConfig, nil
 }
-
-func ValidateTLSParams(ctx context.Context, p TLSParams) error {
-	_, err := NewTLSConfig(ctx, p)
-	return err
-}
