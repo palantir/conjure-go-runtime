@@ -391,7 +391,37 @@ func WithTLSInsecureSkipVerify() ClientOrHTTPClientParam {
 			b.TLSConfig.InsecureSkipVerify = true
 		}
 		b.TransportParams = refreshable.View(b.TransportParams, func(p refreshingclient.TransportParams) refreshingclient.TransportParams {
-			p.TLS.InsecureSkipVerify = true
+			p.TLSConfigurationParams.InsecureSkipVerify = true
+			return p
+		})
+		return nil
+	})
+}
+
+func WithKeyFile(keyFile string) ClientOrHTTPClientParam {
+	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
+		b.TransportParams = refreshable.View(b.TransportParams, func(p refreshingclient.TransportParams) refreshingclient.TransportParams {
+			p.TLSConfigurationParams.KeyFile = keyFile
+			return p
+		})
+		return nil
+	})
+}
+
+func WithCertFile(certFile string) ClientOrHTTPClientParam {
+	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
+		b.TransportParams = refreshable.View(b.TransportParams, func(p refreshingclient.TransportParams) refreshingclient.TransportParams {
+			p.TLSConfigurationParams.CertFile = certFile
+			return p
+		})
+		return nil
+	})
+}
+
+func WithCAFiles(CAFiles []string) ClientOrHTTPClientParam {
+	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
+		b.TransportParams = refreshable.View(b.TransportParams, func(p refreshingclient.TransportParams) refreshingclient.TransportParams {
+			p.TLSConfigurationParams.CAFiles = CAFiles
 			return p
 		})
 		return nil

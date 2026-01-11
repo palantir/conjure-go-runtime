@@ -26,7 +26,6 @@ import (
 // TLSParams contains the parameters needed to build a *tls.Config.
 // Its fields must all be compatible with reflect.DeepEqual.
 type TLSParams struct {
-	CAFiles            []string
 	CABytes            [][]byte
 	CertFile           string
 	KeyFile            string
@@ -67,14 +66,16 @@ func NewTLSConfig(ctx context.Context, p TLSParams) (*tls.Config, error) {
 	return tlsConfig, nil
 }
 
+func ValidateTLSParams(ctx context.Context, p TLSParams) error {
+	_, err := NewTLSConfig(ctx, p)
+	return err
+}
+
 func getCAClientParam(p TLSParams) []tlsconfig.ClientParam {
-	if len(p.CAFiles) == 0 && len(p.CABytes) == 0 {
+	if len(p.CABytes) == 0 {
 		return nil
 	}
 	var certPoolOptions []tlsconfig.CertPoolOption
-	if len(p.CAFiles) > 0 {
-		certPoolOptions = append(certPoolOptions, tlsconfig.CertPoolOptionFromCAFiles(p.CAFiles...))
-	}
 	for _, ca := range p.CABytes {
 		certPoolOptions = append(certPoolOptions, tlsconfig.CertPoolOptionCABytes(ca))
 	}

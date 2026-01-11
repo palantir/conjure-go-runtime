@@ -364,18 +364,21 @@ func configToParams(c ClientConfig) ([]ClientParam, error) {
 		params = append(params, WithHTTPTimeout(timeout))
 	}
 
-	// Security (TLS) Config
-	if tlsConfig, err := refreshingclient.NewTLSConfig(context.TODO(), refreshingclient.TLSParams{
-		CAFiles:            c.Security.CAFiles,
+	err := refreshingclient.ValidateTLSParams(context.TODO(), refreshingclient.TLSParams{
+		// CAFiles:            c.Security.CAFiles, TODO how to map for validation
 		CertFile:           c.Security.CertFile,
 		KeyFile:            c.Security.KeyFile,
 		InsecureSkipVerify: derefPtr(c.Security.InsecureSkipVerify, false),
-	}); err != nil {
+	})
+	if err != nil {
 		return nil, err
-	} else if tlsConfig != nil {
-		params = append(params, WithTLSConfig(tlsConfig))
 	}
-
+	params = append(params, WithCAFiles(c.Security.CAFiles))
+	params = append(params, WithCertFile(c.Security.CertFile))
+	params = append(params, WithKeyFile(c.Security.KeyFile))
+	if derefPtr(c.Security.InsecureSkipVerify, false) {
+		params = append(params, WithTLSInsecureSkipVerify())
+	}
 	return params, nil
 }
 
@@ -396,7 +399,7 @@ func newValidatedClientParamsFromConfig(ctx context.Context, config ClientConfig
 		HTTP2ReadIdleTimeout:  derefPtr(config.HTTP2ReadIdleTimeout, defaultHTTP2ReadIdleTimeout),
 		ProxyFromEnvironment:  derefPtr(config.ProxyFromEnvironment, true),
 		TLSHandshakeTimeout:   derefPtr(config.TLSHandshakeTimeout, defaultTLSHandshakeTimeout),
-		TLS: refreshingclient.TLSParams{
+		TLSConfigurationParams: refreshingclient.TLSConfigurationParams{
 			CAFiles:            config.Security.CAFiles,
 			CertFile:           config.Security.CertFile,
 			KeyFile:            config.Security.KeyFile,

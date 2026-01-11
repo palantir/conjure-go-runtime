@@ -126,7 +126,7 @@ func (b *httpClientBuilder) getRefreshableTLSConfig(ctx context.Context) (refres
 	}
 	fileSlices, _ := refreshable.Map(b.TransportParams, func(t refreshingclient.TransportParams) map[string]struct{} {
 		toReturn := map[string]struct{}{}
-		for _, file := range t.TLS.CAFiles {
+		for _, file := range t.TLSConfigurationParams.CAFiles {
 			toReturn[file] = struct{}{}
 		}
 		return toReturn
@@ -139,10 +139,9 @@ func (b *httpClientBuilder) getRefreshableTLSConfig(ctx context.Context) (refres
 		}
 		return refreshingclient.TLSParams{
 			CABytes:            caBytes,
-			CAFiles:            t1.TLS.CAFiles,
-			CertFile:           t1.TLS.CertFile,
-			KeyFile:            t1.TLS.KeyFile,
-			InsecureSkipVerify: t1.TLS.InsecureSkipVerify,
+			CertFile:           t1.TLSConfigurationParams.CertFile,
+			KeyFile:            t1.TLSConfigurationParams.KeyFile,
+			InsecureSkipVerify: t1.TLSConfigurationParams.InsecureSkipVerify,
 		}
 	})
 	return refreshingclient.NewRefreshableTLSConfig(ctx, tlsParams)
