@@ -26,13 +26,6 @@ import (
 	"golang.org/x/net/http2"
 )
 
-type TLSParamsFromClientConfig struct {
-	CAFiles            []string
-	CertFile           string
-	KeyFile            string
-	InsecureSkipVerify bool
-}
-
 type TransportParams struct {
 	MaxIdleConns          int
 	MaxIdleConnsPerHost   int
@@ -47,7 +40,14 @@ type TransportParams struct {
 	HTTP2ReadIdleTimeout  time.Duration
 	HTTP2PingTimeout      time.Duration
 
-	TLS TLSParamsFromClientConfig
+	TLSConfigurationParams TLSConfigurationParams
+}
+
+type TLSConfigurationParams struct {
+	CAFiles            []string
+	CertFile           string
+	KeyFile            string
+	InsecureSkipVerify bool
 }
 
 func NewRefreshableTransport(ctx context.Context, p refreshable.Refreshable[TransportParams], refreshableConfig refreshable.Validated[*tls.Config], dialer ContextDialer) http.RoundTripper {

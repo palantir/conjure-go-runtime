@@ -142,6 +142,7 @@ func TestAddingCAFileIsCaptured(t *testing.T) {
 	}, time.Second*2, time.Millisecond*100)
 }
 
+// TestCAUpdatesToTheSameCAFileIsCaptured ensures that refreshable and non-refreshable clients still respect on disk CA refreshes
 func TestCAUpdatesToTheSameCAFileIsCaptured(t *testing.T) {
 	// Create a temp directory with CA certificate files
 	tmpDir := t.TempDir()
@@ -175,30 +176,214 @@ func TestCAUpdatesToTheSameCAFileIsCaptured(t *testing.T) {
 		},
 	}
 	clientConfigRefreshable := refreshable.New(cfg)
-	scopedTokenClient, err := httpclient.NewClientFromRefreshableConfig(
+	client1, err := httpclient.NewClientFromRefreshableConfig(
 		context.Background(),
 		clientConfigRefreshable,
 		httpclient.WithMiddleware(tlsCapturingMiddleware),
 	)
 	require.NoError(t, err)
-	_, err = scopedTokenClient.Delete(context.Background())
-	assert.Error(t, err)
-	assert.Equal(t, capturedSubjects, map[string]struct{}{
-		"Test CA": {},
-	})
+	client2, err := httpclient.NewClient(
+		httpclient.WithConfig(cfg),
+		httpclient.WithMiddleware(tlsCapturingMiddleware),
+	)
+	require.NoError(t, err)
+	// Client 1
+	assert.Eventually(t, func() bool {
+		capturedSubjects = map[string]struct{}{}
+		_, err = client1.Delete(context.Background())
+		assert.Error(t, err)
+		return reflect.DeepEqual(map[string]struct{}{
+			"Test CA": {},
+		}, capturedSubjects)
+	}, time.Second*5, time.Millisecond*100)
+	// Client 2
+	assert.Eventually(t, func() bool {
+		capturedSubjects = map[string]struct{}{}
+		_, err = client2.Delete(context.Background())
+		assert.Error(t, err)
+		return reflect.DeepEqual(map[string]struct{}{
+			"Test CA": {},
+		}, capturedSubjects)
+	}, time.Second*5, time.Millisecond*100)
 	// Append a file and see the newest CA
 
 	appendTestCACertFile(t, caFile1, 3, "Test CA 3")
-	// Poll until the file refreshable picks up the change and transport rebuilds
+	// Client 1
 	assert.Eventually(t, func() bool {
 		capturedSubjects = map[string]struct{}{}
-		_, err = scopedTokenClient.Delete(context.Background())
+		_, err = client1.Delete(context.Background())
 		assert.Error(t, err)
 		return reflect.DeepEqual(map[string]struct{}{
 			"Test CA":   {},
 			"Test CA 3": {},
 		}, capturedSubjects)
 	}, time.Second*5, time.Millisecond*100)
+	// Client 2
+	assert.Eventually(t, func() bool {
+		capturedSubjects = map[string]struct{}{}
+		_, err = client2.Delete(context.Background())
+		assert.Error(t, err)
+		return reflect.DeepEqual(map[string]struct{}{
+			"Test CA":   {},
+			"Test CA 3": {},
+		}, capturedSubjects)
+	}, time.Second*5, time.Millisecond*100)
+}
+
+// TestMissingCAFilesCausesError ensures that we can't create clients that start broken
+func TestMissingCAFilesCausesError(t *testing.T) {
+	// Create a temp directory with CA certificate files
+	cfg := httpclient.ClientConfig{
+		URIs: []string{
+			"https://test-service",
+		},
+		Security: httpclient.SecurityConfig{
+			CAFiles: []string{filepath.Join("fakedir/", "ca1.pem")},
+		},
+	}
+	clientConfigRefreshable := refreshable.New(cfg)
+	_, err := httpclient.NewClientFromRefreshableConfig(
+		context.Background(),
+		clientConfigRefreshable,
+	)
+	assert.ErrorContains(t, err, "open fakedir/ca1.pem: no such file or directory")
+	_, err = httpclient.NewClient(
+		httpclient.WithConfig(cfg),
+	)
+	assert.ErrorContains(t, err, "open fakedir/ca1.pem: no such file or directory")
+}
+
+func TestMissingCertAndKeyFileErrors(t *testing.T) {
+	// Create a temp directory with CA certificate files
+	cfg := httpclient.ClientConfig{
+		URIs: []string{
+			"https://test-service",
+		},
+		Security: httpclient.SecurityConfig{
+			KeyFile:  filepath.Join("fakedir/", "key"),
+			CertFile: filepath.Join("fakedir/", "cert"),
+		},
+	}
+	clientConfigRefreshable := refreshable.New(cfg)
+	_, err := httpclient.NewClientFromRefreshableConfig(
+		context.Background(),
+		clientConfigRefreshable,
+	)
+	assert.ErrorContains(t, err, "open fakedir/cert: no such file or directory")
+	_, err = httpclient.NewClient(
+		httpclient.WithConfig(cfg),
+	)
+	assert.ErrorContains(t, err, "open fakedir/cert: no such file or directory")
+}
+
+func TestJustMissingCertDoesntError(t *testing.T) {
+	// Create a temp directory with CA certificate files
+	cfg := httpclient.ClientConfig{
+		URIs: []string{
+			"https://test-service",
+		},
+		Security: httpclient.SecurityConfig{
+			CertFile: filepath.Join("fakedir/", "cert"),
+		},
+	}
+	clientConfigRefreshable := refreshable.New(cfg)
+	_, err := httpclient.NewClientFromRefreshableConfig(
+		context.Background(),
+		clientConfigRefreshable,
+	)
+	assert.NoError(t, err)
+	_, err = httpclient.NewClient(
+		httpclient.WithConfig(cfg),
+	)
+	assert.NoError(t, err)
+}
+
+func TestJustMissingKeyDoesntError(t *testing.T) {
+	// Create a temp directory with CA certificate files
+	cfg := httpclient.ClientConfig{
+		URIs: []string{
+			"https://test-service",
+		},
+		Security: httpclient.SecurityConfig{
+			KeyFile: filepath.Join("fakedir/", "key"),
+		},
+	}
+	clientConfigRefreshable := refreshable.New(cfg)
+	_, err := httpclient.NewClientFromRefreshableConfig(
+		context.Background(),
+		clientConfigRefreshable,
+	)
+	assert.NoError(t, err)
+	_, err = httpclient.NewClient(
+		httpclient.WithConfig(cfg),
+	)
+	assert.NoError(t, err)
+}
+
+func TestCABytesAndCAFileCombined(t *testing.T) {
+	// Create a CA file on disk
+	tmpDir := t.TempDir()
+	caFile := filepath.Join(tmpDir, "ca.pem")
+	createTestCACertFile(t, caFile, 1, "Disk CA")
+	// Create CA bytes for the dynamic provider
+	dynamicCABytes := generateTestCACertPEM(t, 2, "Dynamic CA")
+	caBytesRefreshable := refreshable.New([][]byte{dynamicCABytes})
+	// Track unique CA subjects captured during requests
+	capturedSubjects := make(map[string]struct{})
+	tlsCapturingMiddleware := httpclient.MiddlewareFunc(
+		func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+			transport := unwrapTransport(next)
+			for _, subject := range transport.TLSClientConfig.RootCAs.Subjects() {
+				// Parse the ASN.1 subject to extract the organization name
+				var rdnSeq pkix.RDNSequence
+				if _, err := asn1.Unmarshal(subject, &rdnSeq); err == nil {
+					var name pkix.Name
+					name.FillFromRDNSequence(&rdnSeq)
+					for _, org := range name.Organization {
+						capturedSubjects[org] = struct{}{}
+					}
+				}
+			}
+			return next.RoundTrip(req)
+		},
+	)
+	cfg := httpclient.ClientConfig{
+		ServiceName:   "test-service",
+		MaxNumRetries: toPointer(0),
+		URIs:          []string{"https://test-service"},
+		Security: httpclient.SecurityConfig{
+			CAFiles: []string{caFile},
+		},
+	}
+	clientConfigRefreshable := refreshable.New(cfg)
+	client, err := httpclient.NewClientFromRefreshableConfig(
+		context.Background(),
+		clientConfigRefreshable,
+		httpclient.WithMiddleware(tlsCapturingMiddleware),
+		httpclient.WithTLSCABytes(caBytesRefreshable),
+	)
+	require.NoError(t, err)
+	// Make a request to trigger TLS config capture
+	_, err = client.Delete(context.Background())
+	assert.Error(t, err)
+	// Verify both CA sources are present
+	assert.Equal(t, map[string]struct{}{
+		"Disk CA":    {},
+		"Dynamic CA": {},
+	}, capturedSubjects)
+	// Update dynamic CA bytes and verify it refreshes
+	capturedSubjects = make(map[string]struct{})
+	newDynamicCABytes := generateTestCACertPEM(t, 3, "New Dynamic CA")
+	caBytesRefreshable.Update([][]byte{newDynamicCABytes})
+	assert.Eventually(t, func() bool {
+		capturedSubjects = make(map[string]struct{})
+		_, err = client.Delete(context.Background())
+		assert.Error(t, err)
+		return reflect.DeepEqual(map[string]struct{}{
+			"Disk CA":        {},
+			"New Dynamic CA": {},
+		}, capturedSubjects)
+	}, time.Second*2, time.Millisecond*100)
 }
 
 // unwrapTransport traverses the RoundTripper chain to find the underlying *http.Transport.
@@ -266,70 +451,4 @@ func generateTestCACertPEM(t *testing.T, serialNumber int64, orgName string) []b
 	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, &priv.PublicKey, priv)
 	require.NoError(t, err)
 	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
-}
-
-func TestCABytesAndCAFileCombined(t *testing.T) {
-	// Create a CA file on disk
-	tmpDir := t.TempDir()
-	caFile := filepath.Join(tmpDir, "ca.pem")
-	createTestCACertFile(t, caFile, 1, "Disk CA")
-	// Create CA bytes for the dynamic provider
-	dynamicCABytes := generateTestCACertPEM(t, 2, "Dynamic CA")
-	caBytesRefreshable := refreshable.New([][]byte{dynamicCABytes})
-	// Track unique CA subjects captured during requests
-	capturedSubjects := make(map[string]struct{})
-	tlsCapturingMiddleware := httpclient.MiddlewareFunc(
-		func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
-			transport := unwrapTransport(next)
-			for _, subject := range transport.TLSClientConfig.RootCAs.Subjects() {
-				// Parse the ASN.1 subject to extract the organization name
-				var rdnSeq pkix.RDNSequence
-				if _, err := asn1.Unmarshal(subject, &rdnSeq); err == nil {
-					var name pkix.Name
-					name.FillFromRDNSequence(&rdnSeq)
-					for _, org := range name.Organization {
-						capturedSubjects[org] = struct{}{}
-					}
-				}
-			}
-			return next.RoundTrip(req)
-		},
-	)
-	cfg := httpclient.ClientConfig{
-		ServiceName:   "test-service",
-		MaxNumRetries: toPointer(0),
-		URIs:          []string{"https://test-service"},
-		Security: httpclient.SecurityConfig{
-			CAFiles: []string{caFile},
-		},
-	}
-	clientConfigRefreshable := refreshable.New(cfg)
-	client, err := httpclient.NewClientFromRefreshableConfig(
-		context.Background(),
-		clientConfigRefreshable,
-		httpclient.WithMiddleware(tlsCapturingMiddleware),
-		httpclient.WithTLSCABytes(caBytesRefreshable),
-	)
-	require.NoError(t, err)
-	// Make a request to trigger TLS config capture
-	_, err = client.Delete(context.Background())
-	assert.Error(t, err)
-	// Verify both CA sources are present
-	assert.Equal(t, map[string]struct{}{
-		"Disk CA":    {},
-		"Dynamic CA": {},
-	}, capturedSubjects)
-	// Update dynamic CA bytes and verify it refreshes
-	capturedSubjects = make(map[string]struct{})
-	newDynamicCABytes := generateTestCACertPEM(t, 3, "New Dynamic CA")
-	caBytesRefreshable.Update([][]byte{newDynamicCABytes})
-	assert.Eventually(t, func() bool {
-		capturedSubjects = make(map[string]struct{})
-		_, err = client.Delete(context.Background())
-		assert.Error(t, err)
-		return reflect.DeepEqual(map[string]struct{}{
-			"Disk CA":        {},
-			"New Dynamic CA": {},
-		}, capturedSubjects)
-	}, time.Second*2, time.Millisecond*100)
 }

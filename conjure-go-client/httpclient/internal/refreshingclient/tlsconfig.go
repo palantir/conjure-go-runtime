@@ -26,7 +26,6 @@ import (
 // TLSParams contains the parameters needed to build a *tls.Config.
 // Its fields must all be compatible with reflect.DeepEqual.
 type TLSParams struct {
-	CAFiles            []string
 	CABytes            [][]byte
 	CertFile           string
 	KeyFile            string
@@ -53,7 +52,13 @@ func NewRefreshableTLSConfig(ctx context.Context, params refreshable.Refreshable
 // NewTLSConfig returns a *tls.Config built from the provided TLSParams.
 func NewTLSConfig(ctx context.Context, p TLSParams) (*tls.Config, error) {
 	var tlsParams []tlsconfig.ClientParam
-	tlsParams = append(tlsParams, getCAClientParam(p)...)
+	if len(p.CABytes) > 0 {
+		var certPoolOptions []tlsconfig.CertPoolOption
+		for _, ca := range p.CABytes {
+			certPoolOptions = append(certPoolOptions, tlsconfig.CertPoolOptionCABytes(ca))
+		}
+		tlsParams = append(tlsParams, tlsconfig.ClientRootCAs(tlsconfig.CertPoolFromCertPoolOptions(certPoolOptions)))
+	}
 	if p.CertFile != "" && p.KeyFile != "" {
 		tlsParams = append(tlsParams, tlsconfig.ClientKeyPairFiles(p.CertFile, p.KeyFile))
 	}
@@ -65,22 +70,4 @@ func NewTLSConfig(ctx context.Context, p TLSParams) (*tls.Config, error) {
 		return nil, werror.WrapWithContextParams(ctx, err, "failed to build tlsConfig")
 	}
 	return tlsConfig, nil
-}
-
-func getCAClientParam(p TLSParams) []tlsconfig.ClientParam {
-	if len(p.CAFiles) == 0 && len(p.CABytes) == 0 {
-		return nil
-	}
-	var certPoolOptions []tlsconfig.CertPoolOption
-	if len(p.CAFiles) > 0 {
-		certPoolOptions = append(certPoolOptions, tlsconfig.CertPoolOptionFromCAFiles(p.CAFiles...))
-	}
-	if len(p.CABytes) > 0 {
-		for _, ca := range p.CABytes {
-			certPoolOptions = append(certPoolOptions, tlsconfig.CertPoolOptionCABytes(ca))
-		}
-	}
-	return []tlsconfig.ClientParam{
-		tlsconfig.ClientRootCAs(tlsconfig.CertPoolFromCertPoolOptions(certPoolOptions)),
-	}
 }
