@@ -29,7 +29,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"strings"
 	"testing"
 	"time"
 	"unsafe"
@@ -82,6 +81,23 @@ func toPointer[T any](timeArg T) *T {
 	return &timeArg
 }
 
+func newTLSCapturingMiddleware(capturedSubjects *map[string]struct{}) httpclient.MiddlewareFunc {
+	return func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+		transport := unwrapTransport(next)
+		for _, subject := range transport.TLSClientConfig.RootCAs.Subjects() {
+			var rdnSeq pkix.RDNSequence
+			if _, err := asn1.Unmarshal(subject, &rdnSeq); err == nil {
+				var name pkix.Name
+				name.FillFromRDNSequence(&rdnSeq)
+				for _, org := range name.Organization {
+					(*capturedSubjects)[org] = struct{}{}
+				}
+			}
+		}
+		return next.RoundTrip(req)
+	}
+}
+
 func TestAddingCAFileIsCaptured(t *testing.T) {
 	// Create a temp directory with CA certificate files
 	tmpDir := t.TempDir()
@@ -91,19 +107,7 @@ func TestAddingCAFileIsCaptured(t *testing.T) {
 	createTestCACertFile(t, caFile2, 2, "Test CA 2")
 	// Track unique CA subjects captured during requests
 	capturedSubjects := make(map[string]struct{})
-	tlsCapturingMiddleware := httpclient.MiddlewareFunc(
-		func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
-			transport := unwrapTransport(next)
-			for _, subject := range transport.TLSClientConfig.RootCAs.Subjects() {
-				results := strings.Split(strings.TrimSpace(string(subject)), "\a")
-				last := results[len(results)-1]
-				results = strings.Split(last, "\t")
-				last = results[len(results)-1]
-				capturedSubjects[last] = struct{}{}
-			}
-			return next.RoundTrip(req)
-		},
-	)
+	tlsCapturingMiddleware := newTLSCapturingMiddleware(&capturedSubjects)
 	cfg := httpclient.ClientConfig{
 		ServiceName:   "baz",
 		MaxNumRetries: toPointer(0),
@@ -151,20 +155,7 @@ func TestCAUpdatesToTheSameCAFileIsCaptured(t *testing.T) {
 
 	// Track unique CA subjects captured during requests
 	capturedSubjects := make(map[string]struct{})
-	tlsCapturingMiddleware := httpclient.MiddlewareFunc(
-		func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
-			transport := unwrapTransport(next)
-			for _, subject := range transport.TLSClientConfig.RootCAs.Subjects() {
-				results := strings.Split(strings.TrimSpace(string(subject)), "\a")
-				last := results[len(results)-1]
-				results = strings.Split(last, "\t")
-				last = results[len(results)-1]
-				capturedSubjects[last] = struct{}{}
-			}
-			return next.RoundTrip(req)
-		},
-	)
-
+	tlsCapturingMiddleware := newTLSCapturingMiddleware(&capturedSubjects)
 	cfg := httpclient.ClientConfig{
 		ServiceName: "baz",
 		URIs: []string{
@@ -330,23 +321,7 @@ func TestCABytesAndCAFileCombined(t *testing.T) {
 	caBytesRefreshable := refreshable.New([][]byte{dynamicCABytes})
 	// Track unique CA subjects captured during requests
 	capturedSubjects := make(map[string]struct{})
-	tlsCapturingMiddleware := httpclient.MiddlewareFunc(
-		func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
-			transport := unwrapTransport(next)
-			for _, subject := range transport.TLSClientConfig.RootCAs.Subjects() {
-				// Parse the ASN.1 subject to extract the organization name
-				var rdnSeq pkix.RDNSequence
-				if _, err := asn1.Unmarshal(subject, &rdnSeq); err == nil {
-					var name pkix.Name
-					name.FillFromRDNSequence(&rdnSeq)
-					for _, org := range name.Organization {
-						capturedSubjects[org] = struct{}{}
-					}
-				}
-			}
-			return next.RoundTrip(req)
-		},
-	)
+	tlsCapturingMiddleware := newTLSCapturingMiddleware(&capturedSubjects)
 	cfg := httpclient.ClientConfig{
 		ServiceName:   "test-service",
 		MaxNumRetries: toPointer(0),
