@@ -150,13 +150,12 @@ func (b *httpClientBuilder) getRefreshableTLSConfig(ctx context.Context) (refres
 			InsecureSkipVerify: t1.TLSConfigurationParams.InsecureSkipVerify,
 		}
 	})
-	// This is where we would map in more CAs
 	if b.TLSCABytes != nil {
-		tlsParams, _ = refreshable.Merge(tlsParams, b.TLSCABytes, func(t1 refreshingclient.TLSParams, a [][]byte) refreshingclient.TLSParams {
-			for _, v := range a {
-				t1.CABytes = append(t1.CABytes, v)
+		tlsParams, _ = refreshable.Merge(tlsParams, b.TLSCABytes, func(tlsParams refreshingclient.TLSParams, caByteSlices [][]byte) refreshingclient.TLSParams {
+			for _, caByteSlice := range caByteSlices {
+				tlsParams.CABytes = append(tlsParams.CABytes, caByteSlice)
 			}
-			return t1
+			return tlsParams
 		})
 	}
 	return refreshingclient.NewRefreshableTLSConfig(ctx, tlsParams)
