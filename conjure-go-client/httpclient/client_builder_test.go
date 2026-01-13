@@ -141,8 +141,8 @@ func TestAddingCAFileIsCaptured(t *testing.T) {
 	}, time.Second*2, time.Millisecond*100)
 }
 
+// TestCAUpdatesToTheSameCAFileIsCaptured ensures that refreshable and non-refreshable clients still respect on disk CA refreshes
 func TestCAUpdatesToTheSameCAFileIsCaptured(t *testing.T) {
-	t.Skip("skipping test until feature complete")
 	// Create a temp directory with CA certificate files
 	tmpDir := t.TempDir()
 	caFile1 := filepath.Join(tmpDir, "ca1.pem")
@@ -175,29 +175,148 @@ func TestCAUpdatesToTheSameCAFileIsCaptured(t *testing.T) {
 		},
 	}
 	clientConfigRefreshable := refreshable.New(cfg)
-	scopedTokenClient, err := httpclient.NewClientFromRefreshableConfig(
+	client1, err := httpclient.NewClientFromRefreshableConfig(
 		context.Background(),
 		clientConfigRefreshable,
 		httpclient.WithMiddleware(tlsCapturingMiddleware),
 	)
 	require.NoError(t, err)
-	_, err = scopedTokenClient.Delete(context.Background())
-	assert.ErrorContains(t, err, "test-service")
-	assert.Equal(t, capturedSubjects, map[string]struct{}{
-		"Test CA": {},
-	})
-	// Append a file and see the newest CA
-	capturedSubjects = map[string]struct{}{}
-	appendTestCACertFile(t, caFile1, 3, "Test CA 3")
-	// Ensure the underlying refreshable can sync
-	_, err = scopedTokenClient.Delete(context.Background())
-	assert.ErrorContains(t, err, "test-service")
+	client2, err := httpclient.NewClient(
+		httpclient.WithConfig(cfg),
+		httpclient.WithMiddleware(tlsCapturingMiddleware),
+	)
+	require.NoError(t, err)
+	// Client 1
 	assert.Eventually(t, func() bool {
+		capturedSubjects = map[string]struct{}{}
+		_, err = client1.Delete(context.Background())
+		assert.Error(t, err)
+		return reflect.DeepEqual(map[string]struct{}{
+			"Test CA": {},
+		}, capturedSubjects)
+	}, time.Second*5, time.Millisecond*100)
+	// Client 2
+	assert.Eventually(t, func() bool {
+		capturedSubjects = map[string]struct{}{}
+		_, err = client2.Delete(context.Background())
+		assert.Error(t, err)
+		return reflect.DeepEqual(map[string]struct{}{
+			"Test CA": {},
+		}, capturedSubjects)
+	}, time.Second*5, time.Millisecond*100)
+	// Append a file and see the newest CA
+
+	appendTestCACertFile(t, caFile1, 3, "Test CA 3")
+	// Client 1
+	assert.Eventually(t, func() bool {
+		capturedSubjects = map[string]struct{}{}
+		_, err = client1.Delete(context.Background())
+		assert.Error(t, err)
 		return reflect.DeepEqual(map[string]struct{}{
 			"Test CA":   {},
 			"Test CA 3": {},
 		}, capturedSubjects)
-	}, time.Second*2, time.Millisecond*100)
+	}, time.Second*5, time.Millisecond*100)
+	// Client 2
+	assert.Eventually(t, func() bool {
+		capturedSubjects = map[string]struct{}{}
+		_, err = client2.Delete(context.Background())
+		assert.Error(t, err)
+		return reflect.DeepEqual(map[string]struct{}{
+			"Test CA":   {},
+			"Test CA 3": {},
+		}, capturedSubjects)
+	}, time.Second*5, time.Millisecond*100)
+}
+
+// TestMissingCAFilesCausesError ensures that we can't create clients that start broken
+func TestMissingCAFilesCausesError(t *testing.T) {
+	// Create a temp directory with CA certificate files
+	cfg := httpclient.ClientConfig{
+		URIs: []string{
+			"https://test-service",
+		},
+		Security: httpclient.SecurityConfig{
+			CAFiles: []string{filepath.Join("fakedir/", "ca1.pem")},
+		},
+	}
+	clientConfigRefreshable := refreshable.New(cfg)
+	_, err := httpclient.NewClientFromRefreshableConfig(
+		context.Background(),
+		clientConfigRefreshable,
+	)
+	assert.ErrorContains(t, err, "open fakedir/ca1.pem: no such file or directory")
+	_, err = httpclient.NewClient(
+		httpclient.WithConfig(cfg),
+	)
+	assert.ErrorContains(t, err, "open fakedir/ca1.pem: no such file or directory")
+}
+
+func TestMissingCertAndKeyFileErrors(t *testing.T) {
+	// Create a temp directory with CA certificate files
+	cfg := httpclient.ClientConfig{
+		URIs: []string{
+			"https://test-service",
+		},
+		Security: httpclient.SecurityConfig{
+			KeyFile:  filepath.Join("fakedir/", "key"),
+			CertFile: filepath.Join("fakedir/", "cert"),
+		},
+	}
+	clientConfigRefreshable := refreshable.New(cfg)
+	_, err := httpclient.NewClientFromRefreshableConfig(
+		context.Background(),
+		clientConfigRefreshable,
+	)
+	assert.ErrorContains(t, err, "open fakedir/cert: no such file or directory")
+	_, err = httpclient.NewClient(
+		httpclient.WithConfig(cfg),
+	)
+	assert.ErrorContains(t, err, "open fakedir/cert: no such file or directory")
+}
+
+func TestJustMissingCertDoesntError(t *testing.T) {
+	// Create a temp directory with CA certificate files
+	cfg := httpclient.ClientConfig{
+		URIs: []string{
+			"https://test-service",
+		},
+		Security: httpclient.SecurityConfig{
+			CertFile: filepath.Join("fakedir/", "cert"),
+		},
+	}
+	clientConfigRefreshable := refreshable.New(cfg)
+	_, err := httpclient.NewClientFromRefreshableConfig(
+		context.Background(),
+		clientConfigRefreshable,
+	)
+	assert.NoError(t, err)
+	_, err = httpclient.NewClient(
+		httpclient.WithConfig(cfg),
+	)
+	assert.NoError(t, err)
+}
+
+func TestJustMissingKeyDoesntError(t *testing.T) {
+	// Create a temp directory with CA certificate files
+	cfg := httpclient.ClientConfig{
+		URIs: []string{
+			"https://test-service",
+		},
+		Security: httpclient.SecurityConfig{
+			KeyFile: filepath.Join("fakedir/", "key"),
+		},
+	}
+	clientConfigRefreshable := refreshable.New(cfg)
+	_, err := httpclient.NewClientFromRefreshableConfig(
+		context.Background(),
+		clientConfigRefreshable,
+	)
+	assert.NoError(t, err)
+	_, err = httpclient.NewClient(
+		httpclient.WithConfig(cfg),
+	)
+	assert.NoError(t, err)
 }
 
 // unwrapTransport traverses the RoundTripper chain to find the underlying *http.Transport.
@@ -243,7 +362,7 @@ func appendTestCACertFile(t *testing.T, filePath string, serialNumber int64, org
 	certPEM := generateTestCACertPEM(t, serialNumber, orgName)
 	f, err := os.OpenFile(filePath, os.O_APPEND|os.O_WRONLY, 0600)
 	require.NoError(t, err)
-	defer assert.NoError(t, f.Close())
+	defer func() { assert.NoError(t, f.Close()) }()
 	_, err = f.Write(certPEM)
 	require.NoError(t, err)
 }
