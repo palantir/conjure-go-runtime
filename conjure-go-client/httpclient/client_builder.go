@@ -75,6 +75,7 @@ type httpClientBuilder struct {
 	DialerParams    refreshable.Refreshable[refreshingclient.DialerParams]
 	TLSConfig       *tls.Config // If unset, config in TransportParams will be used.
 	TransportParams refreshable.Refreshable[refreshingclient.TransportParams]
+	TLSCABytes      refreshable.Refreshable[[][]byte] // Optional refreshable CA bytes to combine with TLSParams.
 	Middlewares     []Middleware
 
 	DisableMetrics      refreshable.Refreshable[bool]
@@ -149,6 +150,14 @@ func (b *httpClientBuilder) getRefreshableTLSConfig(ctx context.Context) (refres
 			InsecureSkipVerify: t1.TLSConfigurationParams.InsecureSkipVerify,
 		}
 	})
+	if b.TLSCABytes != nil {
+		tlsParams, _ = refreshable.Merge(tlsParams, b.TLSCABytes, func(tlsParams refreshingclient.TLSParams, caByteSlices [][]byte) refreshingclient.TLSParams {
+			for _, caByteSlice := range caByteSlices {
+				tlsParams.CABytes = append(tlsParams.CABytes, caByteSlice)
+			}
+			return tlsParams
+		})
+	}
 	return refreshingclient.NewRefreshableTLSConfig(ctx, tlsParams)
 }
 
