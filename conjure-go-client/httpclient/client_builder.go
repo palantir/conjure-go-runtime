@@ -138,10 +138,7 @@ func (b *httpClientBuilder) getRefreshableTLSConfig(ctx context.Context) (refres
 	if _, err := multiFileRefreshable.Validation(); err != nil {
 		return nil, werror.WrapWithContextParams(ctx, err, "failed to read CA files")
 	}
-	transportParams, _, _ := refreshable.Validate(ctx, b.TransportParams, func(ctx context.Context, params refreshingclient.TransportParams) error {
-		return nil
-	})
-	tlsParams, _ := refreshable.MergeValidated(transportParams, multiFileRefreshable, func(t1 refreshingclient.TransportParams, t2 map[string][]byte) refreshingclient.TLSParams {
+	tlsParams, _ := MergeValidatedAndRefreshable(ctx, multiFileRefreshable, b.TransportParams, func(t1 refreshingclient.TransportParams, t2 map[string][]byte) refreshingclient.TLSParams {
 		var caBytes [][]byte
 		for _, caSlice := range t2 {
 			caBytes = append(caBytes, caSlice)
@@ -154,10 +151,7 @@ func (b *httpClientBuilder) getRefreshableTLSConfig(ctx context.Context) (refres
 		}
 	})
 	if b.TLSCABytes != nil {
-		tlsCABytes, _, _ := refreshable.Validate(ctx, b.TLSCABytes, func(ctx context.Context, i [][]byte) error {
-			return nil
-		})
-		tlsParams, _ = refreshable.MergeValidated(tlsParams, tlsCABytes, func(tlsParams refreshingclient.TLSParams, caByteSlices [][]byte) refreshingclient.TLSParams {
+		tlsParams, _ = MergeValidatedAndRefreshable(ctx, tlsParams, b.TLSCABytes, func(tlsParams refreshingclient.TLSParams, caByteSlices [][]byte) refreshingclient.TLSParams {
 			for _, caByteSlice := range caByteSlices {
 				tlsParams.CABytes = append(tlsParams.CABytes, caByteSlice)
 			}
@@ -165,6 +159,18 @@ func (b *httpClientBuilder) getRefreshableTLSConfig(ctx context.Context) (refres
 		})
 	}
 	return refreshingclient.NewRefreshableTLSConfig(ctx, tlsParams)
+}
+
+func MapFromValidated[T any, M any](original refreshable.Validated[T], mapFn func(T) M) (refreshable.Refreshable[M], refreshable.UnsubscribeFunc) {
+	panic("unvalidate cannot be called on refreshable.Validated[T]")
+}
+
+func MergeValidatedAndRefreshable[T1 any, T2 any, R any](
+	ctx context.Context,
+	original1 refreshable.Validated[T1],
+	refreshable1 refreshable.Refreshable[T2],
+	mergeFn func(T1, T2) R) (refreshable.Validated[R], refreshable.UnsubscribeFunc) {
+	panic("unvalidate cannot be called on refreshable.Validated[T1]")
 }
 
 // NewClient returns a configured client ready for use.
@@ -300,7 +306,7 @@ func newClientBuilder() *clientBuilder {
 }
 
 func newClientBuilderFromRefreshableConfig(ctx context.Context, config refreshable.Refreshable[ClientConfig], b *clientBuilder, reloadErrorSubmitter func(error)) error {
-	validParams, _, err := refreshable.MapWithError(ctx, config, func(ctx2 context.Context, c ClientConfig) (refreshingclient.ValidatedClientParams, error) {
+	validParams, _, err := refreshable.MapWithError(ctx, config, func(ctx context.Context, c ClientConfig) (refreshingclient.ValidatedClientParams, error) {
 		p, err := newValidatedClientParamsFromConfig(ctx, c)
 		if reloadErrorSubmitter != nil {
 			reloadErrorSubmitter(err)
@@ -313,30 +319,30 @@ func newClientBuilderFromRefreshableConfig(ctx context.Context, config refreshab
 
 	// Extract individual fields from ValidatedClientParams using Map.
 	// We discard the unsubscribe callbacks since these subscriptions persist for the HTTP client's lifetime.
-	b.HTTP.ServiceName, _ = refreshable.Map(validParams, func(p refreshingclient.ValidatedClientParams) string {
+	b.HTTP.ServiceName, _ = MapFromValidated(validParams, func(p refreshingclient.ValidatedClientParams) string {
 		return p.ServiceName
 	})
-	b.HTTP.DialerParams, _ = refreshable.Map(validParams, func(p refreshingclient.ValidatedClientParams) refreshingclient.DialerParams {
+	b.HTTP.DialerParams, _ = MapFromValidated(validParams, func(p refreshingclient.ValidatedClientParams) refreshingclient.DialerParams {
 		return p.Dialer
 	})
-	b.HTTP.TransportParams, _ = refreshable.Map(validParams, func(p refreshingclient.ValidatedClientParams) refreshingclient.TransportParams {
+	b.HTTP.TransportParams, _ = MapFromValidated(validParams, func(p refreshingclient.ValidatedClientParams) refreshingclient.TransportParams {
 		return p.Transport
 	})
-	b.HTTP.Timeout, _ = refreshable.Map(validParams, func(p refreshingclient.ValidatedClientParams) time.Duration {
+	b.HTTP.Timeout, _ = MapFromValidated(validParams, func(p refreshingclient.ValidatedClientParams) time.Duration {
 		return p.Timeout
 	})
-	b.HTTP.DisableMetrics, _ = refreshable.Map(validParams, func(p refreshingclient.ValidatedClientParams) bool {
+	b.HTTP.DisableMetrics, _ = MapFromValidated(validParams, func(p refreshingclient.ValidatedClientParams) bool {
 		return p.DisableMetrics
 	})
 	b.HTTP.MetricsTagProviders = append(b.HTTP.MetricsTagProviders,
 		TagsProviderFunc(func(*http.Request, *http.Response, error) metrics.Tags {
-			return validParams.Current().MetricsTags
+			return validParams.Unvalidated().MetricsTags
 		}))
 
-	apiToken, _ := refreshable.Map(validParams, func(p refreshingclient.ValidatedClientParams) *string {
+	apiToken, _ := MapFromValidated(validParams, func(p refreshingclient.ValidatedClientParams) *string {
 		return p.APIToken
 	})
-	basicAuth, _ := refreshable.Map(validParams, func(p refreshingclient.ValidatedClientParams) *BasicAuth {
+	basicAuth, _ := MapFromValidated(validParams, func(p refreshingclient.ValidatedClientParams) *BasicAuth {
 		if p.BasicAuth == nil {
 			return nil
 		}
@@ -346,13 +352,13 @@ func newClientBuilderFromRefreshableConfig(ctx context.Context, config refreshab
 		newAuthTokenMiddlewareFromRefreshable(apiToken),
 		newBasicAuthMiddlewareFromRefreshable(basicAuth))
 
-	b.URIs, _ = refreshable.Map(validParams, func(p refreshingclient.ValidatedClientParams) []string {
+	b.URIs, _ = MapFromValidated(validParams, func(p refreshingclient.ValidatedClientParams) []string {
 		return p.URIs
 	})
-	b.MaxAttempts, _ = refreshable.Map(validParams, func(p refreshingclient.ValidatedClientParams) *int {
+	b.MaxAttempts, _ = MapFromValidated(validParams, func(p refreshingclient.ValidatedClientParams) *int {
 		return p.MaxAttempts
 	})
-	b.RetryParams, _ = refreshable.Map(validParams, func(p refreshingclient.ValidatedClientParams) refreshingclient.RetryParams {
+	b.RetryParams, _ = MapFromValidated(validParams, func(p refreshingclient.ValidatedClientParams) refreshingclient.RetryParams {
 		return p.Retry
 	})
 	return nil
