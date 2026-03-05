@@ -118,7 +118,7 @@ func (b *httpClientBuilder) Build(ctx context.Context, params ...HTTPClientParam
 func (b *httpClientBuilder) getRefreshableTLSConfig(ctx context.Context) (refreshable.Validated[*tls.Config], error) {
 	if b.TLSConfig != nil {
 		refreshableOfStaticTLSConfig := refreshable.New(b.TLSConfig)
-		validatedStaticTLSConfig, _, err := refreshable.Validate(refreshableOfStaticTLSConfig, func(cfg *tls.Config) error {
+		validatedStaticTLSConfig, _, err := refreshable.Validate(ctx, refreshableOfStaticTLSConfig, func(ctx context.Context, cfg *tls.Config) error {
 			// No validation needed given validation is done when setting config
 			return nil
 		})
@@ -138,7 +138,10 @@ func (b *httpClientBuilder) getRefreshableTLSConfig(ctx context.Context) (refres
 	if _, err := multiFileRefreshable.Validation(); err != nil {
 		return nil, werror.WrapWithContextParams(ctx, err, "failed to read CA files")
 	}
-	tlsParams, _ := refreshable.Merge(b.TransportParams, multiFileRefreshable, func(t1 refreshingclient.TransportParams, t2 map[string][]byte) refreshingclient.TLSParams {
+	transportParams, _, _ := refreshable.Validate(ctx, b.TransportParams, func(ctx context.Context, params refreshingclient.TransportParams) error {
+		return nil
+	})
+	tlsParams, _ := refreshable.MergeValidated(transportParams, multiFileRefreshable, func(t1 refreshingclient.TransportParams, t2 map[string][]byte) refreshingclient.TLSParams {
 		var caBytes [][]byte
 		for _, caSlice := range t2 {
 			caBytes = append(caBytes, caSlice)
@@ -151,7 +154,10 @@ func (b *httpClientBuilder) getRefreshableTLSConfig(ctx context.Context) (refres
 		}
 	})
 	if b.TLSCABytes != nil {
-		tlsParams, _ = refreshable.Merge(tlsParams, b.TLSCABytes, func(tlsParams refreshingclient.TLSParams, caByteSlices [][]byte) refreshingclient.TLSParams {
+		tlsCABytes, _, _ := refreshable.Validate(ctx, b.TLSCABytes, func(ctx context.Context, i [][]byte) error {
+			return nil
+		})
+		tlsParams, _ = refreshable.MergeValidated(tlsParams, tlsCABytes, func(tlsParams refreshingclient.TLSParams, caByteSlices [][]byte) refreshingclient.TLSParams {
 			for _, caByteSlice := range caByteSlices {
 				tlsParams.CABytes = append(tlsParams.CABytes, caByteSlice)
 			}
@@ -294,7 +300,7 @@ func newClientBuilder() *clientBuilder {
 }
 
 func newClientBuilderFromRefreshableConfig(ctx context.Context, config refreshable.Refreshable[ClientConfig], b *clientBuilder, reloadErrorSubmitter func(error)) error {
-	validParams, _, err := refreshable.MapWithError(config, func(c ClientConfig) (refreshingclient.ValidatedClientParams, error) {
+	validParams, _, err := refreshable.MapWithError(ctx, config, func(ctx2 context.Context, c ClientConfig) (refreshingclient.ValidatedClientParams, error) {
 		p, err := newValidatedClientParamsFromConfig(ctx, c)
 		if reloadErrorSubmitter != nil {
 			reloadErrorSubmitter(err)
