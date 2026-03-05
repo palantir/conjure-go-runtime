@@ -51,18 +51,10 @@ type TLSConfigurationParams struct {
 }
 
 func NewRefreshableTransport(ctx context.Context, pArg refreshable.Refreshable[TransportParams], refreshableConfig refreshable.Validated[*tls.Config], dialer ContextDialer) http.RoundTripper {
-	mapped, _ := MergeValidatedAndRefreshable(ctx, refreshableConfig, pArg, func(t *tls.Config, p TransportParams) *http.Transport {
+	mapped, _ := refreshable.MergeValidatedAndRefreshable(ctx, refreshableConfig, pArg, func(t *tls.Config, p TransportParams) *http.Transport {
 		return newTransport(ctx, p, t, dialer)
 	})
 	return &RefreshableTransport{Refreshable: mapped}
-}
-
-func MergeValidatedAndRefreshable[T1 any, T2 any, R any](
-	ctx context.Context,
-	original1 refreshable.Validated[T1],
-	refreshable1 refreshable.Refreshable[T2],
-	mergeFn func(T1, T2) R) (refreshable.Validated[R], refreshable.UnsubscribeFunc) {
-	panic("unvalidate cannot be called on refreshable.Validated[T1]")
 }
 
 // RefreshableTransport implements http.RoundTripper backed by a refreshable *http.Transport.
