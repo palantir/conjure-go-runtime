@@ -40,7 +40,7 @@ type TLSParams struct {
 // N.B. This subscription only fires when the paths are updated, not when the contents of the files are updated.
 // We could consider adding a file refreshable to watch the key and cert files.
 func NewRefreshableTLSConfig(ctx context.Context, params refreshable.Refreshable[TLSParams]) (refreshable.Validated[*tls.Config], error) {
-	r, _, err := refreshable.MapWithError(params, func(p TLSParams) (*tls.Config, error) {
+	r, _, err := refreshable.MapWithError(ctx, params, func(ctx context.Context, p TLSParams) (*tls.Config, error) {
 		return NewTLSConfig(ctx, p)
 	})
 	if err != nil {
