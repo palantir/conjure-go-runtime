@@ -50,8 +50,8 @@ type TLSConfigurationParams struct {
 	InsecureSkipVerify bool
 }
 
-func NewRefreshableTransport(ctx context.Context, pArg refreshable.Refreshable[TransportParams], refreshableConfig refreshable.Validated[*tls.Config], dialer ContextDialer) http.RoundTripper {
-	mapped, _ := refreshable.MergeValidatedAndRefreshable(ctx, refreshableConfig, pArg, func(t *tls.Config, p TransportParams) *http.Transport {
+func NewRefreshableTransport(ctx context.Context, p refreshable.Refreshable[TransportParams], refreshableConfig refreshable.Validated[*tls.Config], dialer ContextDialer) http.RoundTripper {
+	mapped, _ := refreshable.MergeValidatedAndRefreshable(ctx, refreshableConfig, p, func(t *tls.Config, p TransportParams) *http.Transport {
 		return newTransport(ctx, p, t, dialer)
 	})
 	return &RefreshableTransport{Refreshable: mapped}
