@@ -391,17 +391,44 @@ func newTLSCapturingMiddleware(capturedSubjects *map[string]struct{}) httpclient
 // unwrapTransport traverses the RoundTripper chain to find the underlying *http.Transport.
 func unwrapTransport(rt http.RoundTripper) *http.Transport {
 	for rt != nil {
-		switch t := rt.(type) {
+		switch rt.(type) {
 		case *http.Transport:
-			return t
-		case interface{ Current() *http.Transport }:
-			// RefreshableTransport has a Current() method that returns the underlying transport
-			return t.Current()
+			return rt.(*http.Transport)
 		default:
+			if transport := unwrapRefreshableValidatedTransport(rt); transport != nil {
+				return transport
+			}
 			rt = getUnexportedBaseTransport(rt)
 		}
 	}
 	return nil
+}
+
+func unwrapRefreshableValidatedTransport(rt http.RoundTripper) *http.Transport {
+	val := reflect.ValueOf(rt)
+	if val.Kind() == reflect.Pointer {
+		val = val.Elem()
+	}
+	if val.Kind() != reflect.Struct {
+		return nil
+	}
+	field := val.FieldByName("Refreshable")
+	if !field.IsValid() {
+		return nil
+	}
+	method := field.MethodByName("Unvalidated")
+	if !method.IsValid() {
+		return nil
+	}
+	result := method.Call(nil)
+	if len(result) == 0 {
+		return nil
+	}
+	transport, ok := result[0].Interface().(*http.Transport)
+	if !ok {
+		return nil
+	}
+	return transport
 }
 
 // getUnexportedBaseTransport uses unsafe reflection to access the unexported baseTransport
