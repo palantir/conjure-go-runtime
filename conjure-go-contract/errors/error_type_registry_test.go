@@ -49,3 +49,69 @@ func TestRegisterErrorType_types(t *testing.T) {
 			})
 	})
 }
+
+func TestMustRegisterErrorTypes(t *testing.T) {
+	t.Run("registers multiple error types", func(t *testing.T) {
+		r := NewReflectTypeConjureErrorDecoder().MustRegisterErrorTypes(&error1{}, &error2{}, &error3{})
+		assert.Equal(t, reflect.TypeOf(error1{}), r.registry["Error1"])
+		assert.Equal(t, reflect.TypeOf(error2{}), r.registry["Error2"])
+		assert.Equal(t, reflect.TypeOf(error3{}), r.registry["Error3"])
+	})
+	t.Run("returns same decoder for chaining", func(t *testing.T) {
+		d := NewReflectTypeConjureErrorDecoder()
+		r := d.MustRegisterErrorTypes(&error1{})
+		assert.Same(t, d, r)
+	})
+	t.Run("chained calls register all types", func(t *testing.T) {
+		r := NewReflectTypeConjureErrorDecoder().
+			MustRegisterErrorTypes(&error1{}).
+			MustRegisterErrorTypes(&error2{}, &error3{})
+		assert.Equal(t, reflect.TypeOf(error1{}), r.registry["Error1"])
+		assert.Equal(t, reflect.TypeOf(error2{}), r.registry["Error2"])
+		assert.Equal(t, reflect.TypeOf(error3{}), r.registry["Error3"])
+	})
+	t.Run("no args is a no-op", func(t *testing.T) {
+		r := NewReflectTypeConjureErrorDecoder().MustRegisterErrorTypes()
+		assert.Empty(t, r.registry)
+	})
+	t.Run("duplicate name panics", func(t *testing.T) {
+		assert.PanicsWithError(t,
+			"ErrorName Error1 already registered as errors.error1",
+			func() {
+				NewReflectTypeConjureErrorDecoder().MustRegisterErrorTypes(&error1{}, &error1{})
+			})
+	})
+	t.Run("duplicate name across chained calls panics", func(t *testing.T) {
+		assert.PanicsWithError(t,
+			"ErrorName Error1 already registered as errors.error1",
+			func() {
+				NewReflectTypeConjureErrorDecoder().
+					MustRegisterErrorTypes(&error1{}).
+					MustRegisterErrorTypes(&error1{})
+			})
+	})
+}
+
+type error1 struct {
+	genericError
+}
+
+func (e *error1) Name() string {
+	return "Error1"
+}
+
+type error2 struct {
+	genericError
+}
+
+func (e *error2) Name() string {
+	return "Error2"
+}
+
+type error3 struct {
+	genericError
+}
+
+func (e *error3) Name() string {
+	return "Error3"
+}
