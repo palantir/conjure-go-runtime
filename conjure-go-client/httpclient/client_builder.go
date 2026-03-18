@@ -257,7 +257,6 @@ func newClient(ctx context.Context, b *clientBuilder, params ...ClientParam) (*c
 // Sane defaults are applied to the builder before applying the provided params.
 func NewHTTPClientWithContext(ctx context.Context, params ...HTTPClientParam) (*http.Client, error) {
 	b := newClientBuilder()
-
 	provider, err := b.HTTP.Build(ctx, params...)
 	if err != nil {
 		return nil, err
