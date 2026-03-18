@@ -168,9 +168,9 @@ func (b *httpClientBuilder) getRefreshableTLSConfig(ctx context.Context) (refres
 // The builder used to build this client is provided with a Context that is associated with the lifetime of the returned
 // struct that implements Client, and may be canceled when the pointer to the struct is no longer reachable.
 func NewClient(params ...ClientParam) (Client, error) {
-	b := newClientBuilder()
 	ctx, cancelFn := context.WithCancel(context.Background())
-	client, err := newClient(ctx, b, params...)
+	// note: does not delegate to NewClientWithContext because runtime.AddCleanup needs the actual pointer
+	client, err := newClient(ctx, newClientBuilder(), params...)
 	if client == nil {
 		cancelFn()
 	} else {
@@ -271,21 +271,14 @@ func NewHTTPClientWithContext(ctx context.Context, params ...HTTPClientParam) (*
 // The builder used to build this client is provided with a Context that is associated with the lifetime of the returned
 // *http.Client, and may be canceled when the pointer is no longer reachable.
 func NewHTTPClient(params ...HTTPClientParam) (*http.Client, error) {
-	b := newClientBuilder()
-
 	ctx, cancelFn := context.WithCancel(context.Background())
-	provider, err := b.HTTP.Build(ctx, params...)
-	if err != nil {
-		cancelFn()
-		return nil, err
-	}
-	client := provider.Current()
+	client, err := NewHTTPClientWithContext(ctx, params...)
 	if client == nil {
 		cancelFn()
 	} else {
 		runtime.AddCleanup(client, func(cancel context.CancelFunc) { cancel() }, cancelFn)
 	}
-	return client, nil
+	return client, err
 }
 
 // NewHTTPClientFromRefreshableConfig returns a configured http client ready for use.
