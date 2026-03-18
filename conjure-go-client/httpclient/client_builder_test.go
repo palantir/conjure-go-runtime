@@ -483,6 +483,8 @@ func generateTestCACertPEM(t *testing.T, serialNumber int64, orgName string) []b
 	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
 }
 
+// Test_NewClientDoesNotLeakGoroutines verifies that the clients returned by httpclient.NewClient and
+// httpclient.NewHTTPClient do not leak goroutines.
 func Test_NewClientDoesNotLeakGoroutines(t *testing.T) {
 	const numClients = 1000
 	mostClients := int(numClients * .9)
@@ -493,7 +495,7 @@ func Test_NewClientDoesNotLeakGoroutines(t *testing.T) {
 	}{
 		{
 			name:   "httpclient.NewClient doesn't leak goroutines",
-			argVal: false,
+			argVal: true,
 		},
 		{
 			name:   "httpclient.NewHTTPClient doesn't leak goroutines",
