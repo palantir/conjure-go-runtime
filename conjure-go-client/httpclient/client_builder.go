@@ -243,11 +243,22 @@ func newClient(ctx context.Context, b *clientBuilder, params ...ClientParam) (Cl
 // We apply "sane defaults" before applying the provided params.
 func NewHTTPClient(params ...HTTPClientParam) (*http.Client, error) {
 	b := newClientBuilder()
-	provider, err := b.HTTP.Build(context.TODO(), params...)
+
+	// NewHTTPClient is not provided with a context.Context, so create a new Context to use for the builder. The
+	// lifetime of the Context is tied to the returned *Client: when the returned *Client is no longer reachable, the
+	// Context is canceled as part of cleanup.
+	ctx, cancel := context.WithCancel(context.Background())
+	provider, err := b.HTTP.Build(ctx, params...)
 	if err != nil {
+		// if returning nil, cancel the context
+		cancel()
 		return nil, err
 	}
-	return provider.Current(), nil
+
+	client := provider.Current()
+	runtime.AddCleanup(client, func(_ struct{}) { cancel() }, struct{}{})
+
+	return client, nil
 }
 
 // NewHTTPClientFromRefreshableConfig returns a configured http client ready for use.
