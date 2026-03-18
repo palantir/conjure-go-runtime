@@ -20,6 +20,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net/http"
+	"runtime"
 	"time"
 
 	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpclient/internal"
@@ -165,7 +166,15 @@ func (b *httpClientBuilder) getRefreshableTLSConfig(ctx context.Context) (refres
 // We apply "sane defaults" before applying the provided params.
 func NewClient(params ...ClientParam) (Client, error) {
 	b := newClientBuilder()
-	return newClient(context.TODO(), b, params...)
+
+	// NewClient is not provided with a context.Context, so create a new Context to use for the builder. The lifetime of
+	// the Context is tied to the returned Client: when the returned Client is no longer reachable, the Context is
+	// canceled as part of cleanup.
+	ctx, cancel := context.WithCancel(context.Background())
+	client, err := newClient(ctx, b, params...)
+	runtime.AddCleanup(&client, func(_ struct{}) { cancel() }, struct{}{})
+
+	return client, err
 }
 
 // NewClientFromRefreshableConfig returns a configured client ready for use.
