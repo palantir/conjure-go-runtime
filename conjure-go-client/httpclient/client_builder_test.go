@@ -29,6 +29,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"testing"
 	"time"
 	"unsafe"
@@ -480,4 +481,75 @@ func generateTestCACertPEM(t *testing.T, serialNumber int64, orgName string) []b
 	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, &priv.PublicKey, priv)
 	require.NoError(t, err)
 	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
+}
+
+func Test_NewClientDoesNotLeakGoroutines(t *testing.T) {
+	const numClients = 1000
+	mostClients := int(numClients * .9)
+
+	for _, tc := range []struct {
+		name   string
+		argVal bool
+	}{
+		{
+			name:   "httpclient.NewClient doesn't leak goroutines",
+			argVal: false,
+		},
+		{
+			name:   "httpclient.NewHTTPClient doesn't leak goroutines",
+			argVal: false,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			startNumGoroutines := runtime.NumGoroutine()
+			t.Log("Goroutines at start:", startNumGoroutines)
+
+			clients := createNewClients(t, numClients, tc.argVal)
+			afterCreateClientsNumGoroutines := runtime.NumGoroutine()
+			t.Log("Goroutines after createNewClients, before GC:", afterCreateClientsNumGoroutines)
+			// add in some slack in case goroutines other than client ones stopped since startNumGoroutines was recorded
+			assert.True(t, afterCreateClientsNumGoroutines > startNumGoroutines+mostClients)
+
+			// make clients unreferenced, run GC, and briefly sleep
+			_ = clients
+			clients = nil
+			_ = clients
+
+			runtime.GC()
+			time.Sleep(50 * time.Millisecond)
+
+			afterGCNumGoroutines := runtime.NumGoroutine()
+			t.Log("Goroutines after GC:", afterGCNumGoroutines)
+			assert.True(t, afterGCNumGoroutines < startNumGoroutines+mostClients)
+		})
+	}
+}
+
+func createNewClients(t *testing.T, nClients int, httpClient bool) []any {
+	uris := []string{"https://test-service"}
+
+	tmpDir := t.TempDir()
+	caFile := filepath.Join(tmpDir, "ca.pem")
+	createTestCACertFile(t, caFile, 1, "Test CA")
+
+	var out []any
+	for range nClients {
+		var (
+			client any
+			err    error
+		)
+		if httpClient {
+			client, err = httpclient.NewHTTPClient(
+				httpclient.WithCAFiles([]string{caFile}),
+			)
+		} else {
+			client, err = httpclient.NewClient(
+				httpclient.WithBaseURLs(uris),
+				httpclient.WithCAFiles([]string{caFile}),
+			)
+		}
+		require.NoError(t, err)
+		out = append(out, client)
+	}
+	return out
 }
