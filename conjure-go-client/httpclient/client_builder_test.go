@@ -495,11 +495,11 @@ func Test_NewClientDoesNotLeakGoroutines(t *testing.T) {
 	}{
 		{
 			name:   "httpclient.NewClient doesn't leak goroutines",
-			argVal: true,
+			argVal: false,
 		},
 		{
 			name:   "httpclient.NewHTTPClient doesn't leak goroutines",
-			argVal: false,
+			argVal: true,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -510,7 +510,7 @@ func Test_NewClientDoesNotLeakGoroutines(t *testing.T) {
 			afterCreateClientsNumGoroutines := runtime.NumGoroutine()
 			t.Log("Goroutines after createNewClients, before GC:", afterCreateClientsNumGoroutines)
 			// add in some slack in case goroutines other than client ones stopped since startNumGoroutines was recorded
-			assert.True(t, afterCreateClientsNumGoroutines > startNumGoroutines+mostClients)
+			assert.Greater(t, afterCreateClientsNumGoroutines, startNumGoroutines+mostClients)
 
 			// make clients unreferenced, run GC, and briefly sleep
 			_ = clients
@@ -522,7 +522,7 @@ func Test_NewClientDoesNotLeakGoroutines(t *testing.T) {
 
 			afterGCNumGoroutines := runtime.NumGoroutine()
 			t.Log("Goroutines after GC:", afterGCNumGoroutines)
-			assert.True(t, afterGCNumGoroutines < startNumGoroutines+mostClients)
+			assert.LessOrEqual(t, afterGCNumGoroutines, startNumGoroutines+int(numClients*0.1))
 		})
 	}
 }
