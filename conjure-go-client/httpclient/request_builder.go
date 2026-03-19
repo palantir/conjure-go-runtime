@@ -29,6 +29,7 @@ type requestBuilder struct {
 	bodyMiddleware *bodyMiddleware
 
 	errorDecoderMiddleware Middleware
+	requestMiddlewares     []Middleware
 	configureCtx           []func(context.Context) context.Context
 	requestTimeout         *time.Duration
 }

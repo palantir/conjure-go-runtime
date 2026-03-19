@@ -228,6 +228,16 @@ func WithRequestTimeout(timeout time.Duration) RequestParam {
 	})
 }
 
+// withRequestMiddleware adds a per-request middleware to the transport chain.
+// It is unexported because callers should use the generic WithAdditionalMiddleware
+// helper via the ServiceClient interface.
+func withRequestMiddleware(m Middleware) RequestParam {
+	return requestParamFunc(func(b *requestBuilder) error {
+		b.requestMiddlewares = append(b.requestMiddlewares, m)
+		return nil
+	})
+}
+
 func WithRequestConjureErrorDecoder(ced errors.ConjureErrorDecoder) RequestParam {
 	return requestParamFunc(func(b *requestBuilder) error {
 		b.errorDecoderMiddleware = errorDecoderMiddleware{

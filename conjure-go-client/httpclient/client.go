@@ -177,6 +177,8 @@ func (c *clientImpl) doOnce(
 	transport = wrapTransport(transport, b.errorDecoderMiddleware, c.errorDecoderMiddleware)
 	// must precede the body middleware to read the request body
 	transport = wrapTransport(transport, c.middlewares...)
+	// per-request middlewares run after client-scoped middlewares
+	transport = wrapTransport(transport, b.requestMiddlewares...)
 	// must wrap inner middlewares to mutate the return values
 	transport = wrapTransport(transport, b.bodyMiddleware)
 	// must be the outermost middleware to recover panics in the rest of the request flow

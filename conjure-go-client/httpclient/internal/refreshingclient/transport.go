@@ -26,6 +26,116 @@ import (
 	"golang.org/x/net/http2"
 )
 
+//const (
+//	defaultDialTimeout           = 10 * time.Second
+//	defaultHTTPTimeout           = 60 * time.Second
+//	defaultKeepAlive             = 30 * time.Second
+//	defaultIdleConnTimeout       = 90 * time.Second
+//	defaultTLSHandshakeTimeout   = 10 * time.Second
+//	defaultExpectContinueTimeout = 1 * time.Second
+//	defaultMaxIdleConns          = 200
+//	defaultMaxIdleConnsPerHost   = 100
+//	defaultHTTP2ReadIdleTimeout  = 30 * time.Second
+//	defaultHTTP2PingTimeout      = 15 * time.Second
+//	defaultInitialBackoff        = 250 * time.Millisecond
+//	defaultMaxBackoff            = 2 * time.Second
+//)
+//
+//type TransportBuilder struct {
+//	internal atomic.Pointer[http.Transport]
+//}
+//
+//var DefaultTransport http.RoundTripper = &http.Transport{
+//	Proxy: http.ProxyFromEnvironment,
+//	DialContext: (&net.Dialer{
+//		Timeout:   30 * time.Second,
+//		KeepAlive: 30 * time.Second,
+//	}).DialContext,
+//	ForceAttemptHTTP2:     true,
+//	MaxIdleConns:          100,
+//	IdleConnTimeout:       90 * time.Second,
+//	TLSHandshakeTimeout:   10 * time.Second,
+//	ExpectContinueTimeout: 1 * time.Second,
+//}
+//
+//func NewTransportBuilder(ctx context.Context, dialerParams refreshable.Refreshable[DialerParams], tlsConfig refreshable.Validated[*tls.Config]) *TransportBuilder {
+//	b := new(TransportBuilder)
+//	dialer, tlsDialer := NewRefreshableDialers(ctx, dialerParams, tlsConfig)
+//	b.internal.Store(&http.Transport{
+//		Proxy:                  http.ProxyFromEnvironment,
+//		OnProxyConnectResponse: nil,
+//		DialContext:            dialer.DialContext,
+//		Dial:                   nil,
+//		DialTLSContext:         tlsDialer.DialTLSContext,
+//		DialTLS:                nil,
+//		TLSClientConfig:        nil,
+//		TLSHandshakeTimeout:    defaultTLSHandshakeTimeout,
+//		DisableKeepAlives:      false,
+//		DisableCompression:     false,
+//		MaxIdleConns:           defaultMaxIdleConns,
+//		MaxIdleConnsPerHost:    defaultMaxIdleConnsPerHost,
+//		MaxConnsPerHost:        0,
+//		IdleConnTimeout:        defaultIdleConnTimeout,
+//		ResponseHeaderTimeout:  0,
+//		ExpectContinueTimeout:  defaultExpectContinueTimeout,
+//		TLSNextProto:           nil,
+//		ProxyConnectHeader:     nil,
+//		GetProxyConnectHeader:  nil,
+//		MaxResponseHeaderBytes: 0,
+//		WriteBufferSize:        0,
+//		ReadBufferSize:         0,
+//		ForceAttemptHTTP2:      false,
+//		HTTP2:                  nil,
+//		Protocols:              nil,
+//	})
+//	return b
+//}
+//
+//func (b *TransportBuilder) SetStaticHTTPProxyURL(proxy *url.URL) *TransportBuilder {
+//	return b.WithParams(TransportWithProxyURL(proxy))
+//}
+//
+//func (b *TransportBuilder) WithParams(params ...func(transport *http.Transport)) *TransportBuilder {
+//	clone := b.internal.Load().Clone()
+//	for _, param := range params {
+//		if param != nil {
+//			param(clone)
+//		}
+//	}
+//	t := new(TransportBuilder)
+//	t.internal.Store(clone)
+//	return t
+//}
+//
+//func TransportWithProxyURL(proxy *url.URL) func(transport *http.Transport) {
+//	return func(transport *http.Transport) { transport.Proxy = http.ProxyURL(proxy) }
+//}
+//
+//type Builder[S Builder[S, T], T any] interface {
+//	WithParams(params ...func(T)) S
+//}
+//
+//var _ Builder[*TransportBuilder, *http.Transport] = &TransportBuilder{}
+//
+//func (b *TransportBuilder) RoundTrip(req *http.Request) (*http.Response, error) {
+//	return b.internal.Load().RoundTrip(req)
+//}
+//
+//var defaults = TransportParams{
+//	MaxIdleConns:          defaultMaxIdleConns,
+//	MaxIdleConnsPerHost:   defaultMaxIdleConnsPerHost,
+//	DisableHTTP2:          false,
+//	DisableKeepAlives:     false,
+//	IdleConnTimeout:       defaultIdleConnTimeout,
+//	ExpectContinueTimeout: defaultExpectContinueTimeout,
+//	ResponseHeaderTimeout: 0,
+//	TLSHandshakeTimeout:   defaultTLSHandshakeTimeout,
+//	HTTPProxyURL:          nil,
+//	ProxyFromEnvironment:  true,
+//	HTTP2ReadIdleTimeout:  defaultHTTP2ReadIdleTimeout,
+//	HTTP2PingTimeout:      defaultHTTP2PingTimeout,
+//}
+
 type TransportParams struct {
 	MaxIdleConns          int
 	MaxIdleConnsPerHost   int
