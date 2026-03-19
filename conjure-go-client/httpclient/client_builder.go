@@ -29,7 +29,14 @@ import (
 	"github.com/palantir/pkg/metrics"
 	"github.com/palantir/pkg/refreshable/v2"
 	werror "github.com/palantir/witchcraft-go-error"
+	"github.com/palantir/witchcraft-go-logging/wlog/svclog/svc1log"
 )
+
+// GetTLSConfigCallCount returns the number of times NewTLSConfig has been called.
+// This is exported for debugging/testing purposes.
+func GetTLSConfigCallCount() int64 {
+	return refreshingclient.NewTLSConfigCallCount.Load()
+}
 
 const (
 	defaultDialTimeout           = 10 * time.Second
@@ -89,6 +96,11 @@ type httpClientBuilder struct {
 	DisableTraceHeaders bool
 }
 
+// GlobalFallbackContext is the context used when one is not provided.
+// FOR DEBUGGING ONLY. Can be set once to be a global known-good value.
+// This can be helpful if the global context has loggers set up.
+var GlobalFallbackContext = context.Background()
+
 func (b *httpClientBuilder) Build(ctx context.Context, params ...HTTPClientParam) (refreshable.Refreshable[*http.Client], error) {
 	for _, p := range params {
 		if p == nil {
@@ -135,6 +147,15 @@ func (b *httpClientBuilder) getRefreshableTLSConfig(ctx context.Context) (refres
 		}
 		return toReturn
 	})
+	// Debug output for CA files being watched
+	currentFiles := fileSlices.Current()
+	fileList := make([]string, 0, len(currentFiles))
+	for file := range currentFiles {
+		fileList = append(fileList, file)
+	}
+	svc1log.FromContext(ctx).Debug("Calling refreshable.NewMultiFileRefreshable",
+		svc1log.SafeParam("caFileCount", len(fileList)),
+		svc1log.SafeParam("caFiles", fileList))
 	multiFileRefreshable := refreshable.NewMultiFileRefreshable(ctx, fileSlices)
 	if _, err := multiFileRefreshable.Validation(); err != nil {
 		return nil, werror.WrapWithContextParams(ctx, err, "failed to read CA files")
@@ -168,7 +189,7 @@ func (b *httpClientBuilder) getRefreshableTLSConfig(ctx context.Context) (refres
 // The builder used to build this client is provided with a Context that is associated with the lifetime of the returned
 // struct that implements Client, and may be canceled when the pointer to the struct is no longer reachable.
 func NewClient(params ...ClientParam) (Client, error) {
-	ctx, cancelFn := context.WithCancel(context.Background())
+	ctx, cancelFn := context.WithCancel(GlobalFallbackContext)
 	// note: does not delegate to NewClientWithContext because runtime.AddCleanup needs the actual pointer
 	client, err := newClient(ctx, newClientBuilder(), params...)
 	if client == nil {
@@ -270,7 +291,7 @@ func NewHTTPClientWithContext(ctx context.Context, params ...HTTPClientParam) (*
 // The builder used to build this client is provided with a Context that is associated with the lifetime of the returned
 // *http.Client, and may be canceled when the pointer is no longer reachable.
 func NewHTTPClient(params ...HTTPClientParam) (*http.Client, error) {
-	ctx, cancelFn := context.WithCancel(context.Background())
+	ctx, cancelFn := context.WithCancel(GlobalFallbackContext)
 	client, err := NewHTTPClientWithContext(ctx, params...)
 	if client == nil {
 		cancelFn()

@@ -17,10 +17,18 @@ package refreshingclient
 import (
 	"context"
 	"crypto/tls"
+	"sync/atomic"
 
 	"github.com/palantir/pkg/refreshable/v2"
 	"github.com/palantir/pkg/tlsconfig"
 	werror "github.com/palantir/witchcraft-go-error"
+	"github.com/palantir/witchcraft-go-logging/wlog/svclog/svc1log"
+)
+
+// Global atomic counter for debugging
+var (
+	// NewTLSConfigCallCount tracks the number of times NewTLSConfig is called
+	NewTLSConfigCallCount atomic.Int64
 )
 
 // TLSParams contains the parameters needed to build a *tls.Config.
@@ -51,6 +59,13 @@ func NewRefreshableTLSConfig(ctx context.Context, params refreshable.Validated[T
 
 // NewTLSConfig returns a *tls.Config built from the provided TLSParams.
 func NewTLSConfig(ctx context.Context, p TLSParams) (*tls.Config, error) {
+	callCount := NewTLSConfigCallCount.Add(1)
+	svc1log.FromContext(ctx).Debug("NewTLSConfig called",
+		svc1log.SafeParam("callNumber", callCount),
+		svc1log.SafeParam("caByteCount", len(p.CABytes)),
+		svc1log.SafeParam("certFile", p.CertFile),
+		svc1log.SafeParam("keyFile", p.KeyFile),
+		svc1log.SafeParam("insecureSkipVerify", p.InsecureSkipVerify))
 	var tlsParams []tlsconfig.ClientParam
 	if len(p.CABytes) > 0 {
 		var certPoolOptions []tlsconfig.CertPoolOption
@@ -69,7 +84,9 @@ func NewTLSConfig(ctx context.Context, p TLSParams) (*tls.Config, error) {
 	}
 	tlsConfig, err := tlsconfig.NewClientConfig(tlsParams...)
 	if err != nil {
+		svc1log.FromContext(ctx).Debug("Error building tlsConfig", svc1log.Stacktrace(err))
 		return nil, werror.WrapWithContextParams(ctx, err, "failed to build tlsConfig")
 	}
+	svc1log.FromContext(ctx).Debug("NewTLSConfig completed successfully")
 	return tlsConfig, nil
 }
