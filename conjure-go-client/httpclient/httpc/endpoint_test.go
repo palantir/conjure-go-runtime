@@ -1,10 +1,13 @@
 package httpc_test
 
 import (
+	"bytes"
+	"compress/zlib"
 	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -25,8 +28,16 @@ func (c *httpTestClient) Do(req *http.Request) (*http.Response, error) {
 	return c.server.Client().Do(req)
 }
 
+// newTestServer creates an httptest.Server and registers cleanup.
+func newTestServer(t *testing.T, handler http.HandlerFunc) *httptest.Server {
+	t.Helper()
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+	return server
+}
+
 func TestEndpointExecute_JSONRoundTrip(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, http.MethodPost, r.Method)
 		assert.Equal(t, "/api/v1/items", r.URL.Path)
 		assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
@@ -38,8 +49,7 @@ func TestEndpointExecute_JSONRoundTrip(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"name":"response","value":2}`))
-	}))
-	defer server.Close()
+	})
 
 	ep := httpc.NewEndpoint[testPayload, testPayload](http.MethodPost, "/api/v1/items", "CreateItem").
 		SetEncoder(httpc.JSONEncoder[testPayload]()).
@@ -53,12 +63,11 @@ func TestEndpointExecute_JSONRoundTrip(t *testing.T) {
 }
 
 func TestEndpointExecute_Headers(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "val1", r.Header.Get("X-Custom"))
 		assert.Equal(t, "val2", r.Header.Get("X-Other"))
 		w.WriteHeader(http.StatusNoContent)
-	}))
-	defer server.Close()
+	})
 
 	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "/test", "Test").
 		SetDecoder(httpc.VoidDecoder()).
@@ -71,12 +80,11 @@ func TestEndpointExecute_Headers(t *testing.T) {
 }
 
 func TestEndpointExecute_QueryParams(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "bar", r.URL.Query().Get("foo"))
 		assert.Equal(t, "2", r.URL.Query().Get("page"))
 		w.WriteHeader(http.StatusNoContent)
-	}))
-	defer server.Close()
+	})
 
 	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "/search", "Search").
 		SetDecoder(httpc.VoidDecoder()).
@@ -89,14 +97,13 @@ func TestEndpointExecute_QueryParams(t *testing.T) {
 }
 
 func TestEndpointExecute_BasicAuth(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		user, pass, ok := r.BasicAuth()
 		assert.True(t, ok)
 		assert.Equal(t, "myuser", user)
 		assert.Equal(t, "mypass", pass)
 		w.WriteHeader(http.StatusNoContent)
-	}))
-	defer server.Close()
+	})
 
 	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "/auth", "Auth").
 		SetDecoder(httpc.VoidDecoder()).
@@ -109,11 +116,10 @@ func TestEndpointExecute_BasicAuth(t *testing.T) {
 
 func TestEndpointExecute_Timeout(t *testing.T) {
 	// Verify the timeout is set by checking that a slow server causes an error.
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(200 * time.Millisecond)
 		w.WriteHeader(http.StatusNoContent)
-	}))
-	defer server.Close()
+	})
 
 	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "/slow", "Slow").
 		SetDecoder(httpc.VoidDecoder()).
@@ -126,11 +132,10 @@ func TestEndpointExecute_Timeout(t *testing.T) {
 }
 
 func TestEndpointExecute_ErrorDecoder(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
 		_, _ = w.Write([]byte("forbidden"))
-	}))
-	defer server.Close()
+	})
 
 	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "/err", "Err").
 		SetDecoder(httpc.VoidDecoder()).
@@ -164,11 +169,10 @@ func (e *testError) Error() string {
 
 func TestEndpointExecute_Middleware(t *testing.T) {
 	var middlewareCalled bool
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "middleware-value", r.Header.Get("X-Middleware"))
 		w.WriteHeader(http.StatusNoContent)
-	}))
-	defer server.Close()
+	})
 
 	mw := httpc.MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
 		middlewareCalled = true
@@ -187,11 +191,10 @@ func TestEndpointExecute_Middleware(t *testing.T) {
 }
 
 func TestExecuteVoid(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, http.MethodDelete, r.Method)
 		w.WriteHeader(http.StatusNoContent)
-	}))
-	defer server.Close()
+	})
 
 	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodDelete, "/item/1", "DeleteItem").
 		SetDecoder(httpc.VoidDecoder())
@@ -202,10 +205,9 @@ func TestExecuteVoid(t *testing.T) {
 }
 
 func TestEndpointExecute_RPCMethodName(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
-	}))
-	defer server.Close()
+	})
 
 	var capturedCtx context.Context
 	mw := httpc.MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
@@ -227,11 +229,10 @@ func TestEndpointExecute_RPCMethodName(t *testing.T) {
 }
 
 func TestEndpointExecute_CopyOnWrite(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"name":"ok","value":0}`))
-	}))
-	defer server.Close()
+	})
 
 	base := httpc.NewEndpoint[struct{}, testPayload](http.MethodGet, "/items", "GetItems").
 		SetDecoder(httpc.JSONDecoder[testPayload]()).
@@ -251,11 +252,10 @@ func TestEndpointExecute_CopyOnWrite(t *testing.T) {
 }
 
 func TestEndpointExecute_NoDecoder(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ignored"))
-	}))
-	defer server.Close()
+	})
 
 	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "/nodec", "NoDec")
 
@@ -267,11 +267,10 @@ func TestEndpointExecute_NoDecoder(t *testing.T) {
 
 func TestEndpointExecute_BinaryDecoder(t *testing.T) {
 	expected := "binary content stream"
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/octet-stream")
 		_, _ = w.Write([]byte(expected))
-	}))
-	defer server.Close()
+	})
 
 	ep := httpc.NewEndpoint[struct{}, io.ReadCloser](http.MethodGet, "/download", "Download").
 		SetDecoder(httpc.BinaryDecoder()).
@@ -292,4 +291,294 @@ func TestEndpointExecute_BinaryDecoder(t *testing.T) {
 func TestTestError(t *testing.T) {
 	err := &testError{statusCode: 403, body: "forbidden"}
 	assert.Contains(t, err.Error(), "Forbidden")
+}
+
+// Tests for void constructors (NewGET, NewDELETE, etc.)
+
+func TestNewGET(t *testing.T) {
+	server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodGet, r.Method)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"name":"get","value":1}`))
+	})
+
+	ep := httpc.NewGET[testPayload]("/items", "GetItems").
+		SetDecoder(httpc.JSONDecoder[testPayload]()).
+		SetAccept("application/json")
+
+	client := &httpTestClient{server: server}
+	result, err := httpc.ExecuteVoid(context.Background(), client, ep)
+	require.NoError(t, err)
+	assert.Equal(t, testPayload{Name: "get", Value: 1}, result)
+}
+
+func TestNewDELETE(t *testing.T) {
+	server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodDelete, r.Method)
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	ep := httpc.NewDELETE[struct{}]("/item/1", "DeleteItem").
+		SetDecoder(httpc.VoidDecoder())
+
+	client := &httpTestClient{server: server}
+	_, err := httpc.ExecuteVoid(context.Background(), client, ep)
+	require.NoError(t, err)
+}
+
+func TestNewHEAD(t *testing.T) {
+	server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodHead, r.Method)
+		w.WriteHeader(http.StatusOK)
+	})
+
+	ep := httpc.NewHEAD[struct{}]("/health", "Health").
+		SetDecoder(httpc.VoidDecoder())
+
+	client := &httpTestClient{server: server}
+	_, err := httpc.ExecuteVoid(context.Background(), client, ep)
+	require.NoError(t, err)
+}
+
+func TestNewPOST(t *testing.T) {
+	server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodPost, r.Method)
+		body, _ := io.ReadAll(r.Body)
+		assert.JSONEq(t, `{"name":"post","value":1}`, string(body))
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"name":"created","value":2}`))
+	})
+
+	ep := httpc.NewPOST[testPayload, testPayload]("/items", "CreateItem").
+		SetEncoder(httpc.JSONEncoder[testPayload]()).
+		SetDecoder(httpc.JSONDecoder[testPayload]()).
+		SetAccept("application/json")
+
+	client := &httpTestClient{server: server}
+	result, err := ep.Execute(context.Background(), client, testPayload{Name: "post", Value: 1})
+	require.NoError(t, err)
+	assert.Equal(t, testPayload{Name: "created", Value: 2}, result)
+}
+
+func TestNewPUT(t *testing.T) {
+	server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodPut, r.Method)
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	ep := httpc.NewPUT[testPayload, struct{}]("/item/1", "UpdateItem").
+		SetEncoder(httpc.JSONEncoder[testPayload]()).
+		SetDecoder(httpc.VoidDecoder())
+
+	client := &httpTestClient{server: server}
+	_, err := ep.Execute(context.Background(), client, testPayload{Name: "put", Value: 1})
+	require.NoError(t, err)
+}
+
+func TestNewPATCH(t *testing.T) {
+	server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodPatch, r.Method)
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	ep := httpc.NewPATCH[testPayload, struct{}]("/item/1", "PatchItem").
+		SetEncoder(httpc.JSONEncoder[testPayload]()).
+		SetDecoder(httpc.VoidDecoder())
+
+	client := &httpTestClient{server: server}
+	_, err := ep.Execute(context.Background(), client, testPayload{Name: "patch", Value: 1})
+	require.NoError(t, err)
+}
+
+// Tests for compression round-trips through endpoints
+
+func TestEndpointExecute_CompressionRoundTrip(t *testing.T) {
+	server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "deflate", r.Header.Get("Content-Encoding"))
+		assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
+
+		// Decompress the request body.
+		reader, err := zlib.NewReader(r.Body)
+		require.NoError(t, err)
+		defer reader.Close()
+		body, err := io.ReadAll(reader)
+		require.NoError(t, err)
+		assert.JSONEq(t, `{"name":"compressed","value":42}`, string(body))
+
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"name":"ok","value":0}`))
+	})
+
+	ep := httpc.NewPOST[testPayload, testPayload]("/test", "Compressed").
+		SetEncoder(httpc.ZLIBEncoder(httpc.JSONEncoder[testPayload]())).
+		SetDecoder(httpc.JSONDecoder[testPayload]()).
+		SetAccept("application/json")
+
+	client := &httpTestClient{server: server}
+	result, err := ep.Execute(context.Background(), client, testPayload{Name: "compressed", Value: 42})
+	require.NoError(t, err)
+	assert.Equal(t, testPayload{Name: "ok", Value: 0}, result)
+}
+
+// Test response body draining
+
+func TestEndpointExecute_ResponseBodyDrained(t *testing.T) {
+	server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"name":"ok","value":1}`))
+	})
+
+	ep := httpc.NewGET[testPayload]("/test", "DrainTest").
+		SetDecoder(httpc.JSONDecoder[testPayload]()).
+		SetAccept("application/json")
+
+	client := &httpTestClient{server: server}
+	result, err := httpc.ExecuteVoid(context.Background(), client, ep)
+	require.NoError(t, err)
+	assert.Equal(t, testPayload{Name: "ok", Value: 1}, result)
+}
+
+// Test BinaryEncoder through endpoint (non-retryable stream)
+
+func TestEndpointExecute_BinaryEncoderOnce(t *testing.T) {
+	server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "application/octet-stream", r.Header.Get("Content-Type"))
+		body, err := io.ReadAll(r.Body)
+		require.NoError(t, err)
+		assert.Equal(t, "stream data", string(body))
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	ep := httpc.NewEndpoint[io.ReadCloser, struct{}](http.MethodPost, "/upload", "Upload").
+		SetEncoder(httpc.BinaryEncoder("application/octet-stream")).
+		SetDecoder(httpc.VoidDecoder())
+
+	client := &httpTestClient{server: server}
+	body := io.NopCloser(strings.NewReader("stream data"))
+	_, err := ep.Execute(context.Background(), client, body)
+	require.NoError(t, err)
+}
+
+// Test buffer pool from client using the full builder path.
+
+func TestEndpointExecute_BufferPoolFromClient(t *testing.T) {
+	pool := newTrackingPool()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		assert.JSONEq(t, `{"name":"pooled","value":7}`, string(body))
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"name":"ok","value":0}`))
+	}))
+	t.Cleanup(server.Close)
+
+	client, err := httpc.NewStandardClientBuilder().
+		SetBaseURLs(server.URL).
+		SetServiceName("pool-test").
+		SetBytesBufferPool(pool).
+		DisableTracing().
+		DisablePanicRecovery().
+		DisableRestErrors().
+		Build(t.Context())
+	require.NoError(t, err)
+
+	ep := httpc.NewPOST[testPayload, testPayload]("/test", "PoolTest").
+		SetEncoder(httpc.JSONEncoder[testPayload]()).
+		SetDecoder(httpc.JSONDecoder[testPayload]()).
+		SetAccept("application/json")
+
+	result, err := ep.Execute(t.Context(), client, testPayload{Name: "pooled", Value: 7})
+	require.NoError(t, err)
+	assert.Equal(t, testPayload{Name: "ok", Value: 0}, result)
+	assert.Equal(t, 1, pool.gets, "pool should have been used for encoding")
+	assert.Equal(t, 1, pool.puts, "buffer should have been returned to pool after body close")
+}
+
+// Verify JSONEncoder without pool still works (no context pool).
+func TestEndpointExecute_NoBufferPool(t *testing.T) {
+	server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		assert.JSONEq(t, `{"name":"nop","value":0}`, string(body))
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"name":"ok","value":0}`))
+	})
+
+	ep := httpc.NewPOST[testPayload, testPayload]("/test", "NoPool").
+		SetEncoder(httpc.JSONEncoder[testPayload]()).
+		SetDecoder(httpc.JSONDecoder[testPayload]()).
+		SetAccept("application/json")
+
+	client := &httpTestClient{server: server}
+	result, err := ep.Execute(context.Background(), client, testPayload{Name: "nop", Value: 0})
+	require.NoError(t, err)
+	assert.Equal(t, testPayload{Name: "ok", Value: 0}, result)
+}
+
+// Ensure BinaryDecoder body is not drained (rawBodyDecoder)
+func TestEndpointExecute_BinaryDecoderNotDrained(t *testing.T) {
+	expected := "binary stream"
+	server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/octet-stream")
+		_, _ = w.Write([]byte(expected))
+	})
+
+	ep := httpc.NewGET[io.ReadCloser]("/dl", "Download").
+		SetDecoder(httpc.BinaryDecoder()).
+		SetAccept("application/octet-stream")
+
+	client := &httpTestClient{server: server}
+	result, err := httpc.ExecuteVoid(context.Background(), client, ep)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	// Body should still be readable.
+	data, err := io.ReadAll(result)
+	require.NoError(t, err)
+	_ = result.Close()
+	assert.Equal(t, expected, string(data))
+}
+
+// Test buffer pool with compression encoding through the builder.
+func TestEndpointExecute_PoolWithCompression(t *testing.T) {
+	pool := newTrackingPool()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "deflate", r.Header.Get("Content-Encoding"))
+
+		compressed, err := io.ReadAll(r.Body)
+		require.NoError(t, err)
+
+		// Decompress and verify.
+		reader, err := zlib.NewReader(bytes.NewReader(compressed))
+		require.NoError(t, err)
+		defer reader.Close()
+		body, err := io.ReadAll(reader)
+		require.NoError(t, err)
+		assert.JSONEq(t, `{"name":"pool-zlib","value":9}`, string(body))
+
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"name":"ok","value":0}`))
+	}))
+	t.Cleanup(server.Close)
+
+	client, err := httpc.NewStandardClientBuilder().
+		SetBaseURLs(server.URL).
+		SetServiceName("pool-zlib-test").
+		SetBytesBufferPool(pool).
+		DisableTracing().
+		DisablePanicRecovery().
+		DisableRestErrors().
+		Build(t.Context())
+	require.NoError(t, err)
+
+	ep := httpc.NewPOST[testPayload, testPayload]("/test", "PoolZlib").
+		SetEncoder(httpc.ZLIBEncoder(httpc.JSONEncoder[testPayload]())).
+		SetDecoder(httpc.JSONDecoder[testPayload]()).
+		SetAccept("application/json")
+
+	result, err := ep.Execute(t.Context(), client, testPayload{Name: "pool-zlib", Value: 9})
+	require.NoError(t, err)
+	assert.Equal(t, testPayload{Name: "ok", Value: 0}, result)
+	// Pool was used by JSONEncoder, and buffer was returned when compression read the body.
+	assert.Equal(t, 1, pool.gets)
+	assert.Equal(t, 1, pool.puts)
 }

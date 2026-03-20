@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpclient/internal"
+	"github.com/palantir/pkg/bytesbuffers"
 	"github.com/palantir/pkg/refreshable/v2"
 	"github.com/palantir/pkg/retry"
 	werror "github.com/palantir/witchcraft-go-error"
@@ -15,7 +16,7 @@ import (
 // fluentClient implements Client by wrapping a standard *http.Client with
 // retry and URI scoring logic.
 type fluentClient struct {
-	serviceName    refreshable.Refreshable[string]
+	serviceName    string
 	httpClient     refreshable.Refreshable[*http.Client]
 	middlewares    []Middleware
 	errorDecoderMW Middleware // client-level error decoder as middleware
@@ -24,6 +25,12 @@ type fluentClient struct {
 	maxAttempts    refreshable.Refreshable[*int]
 	initialBackoff refreshable.Refreshable[time.Duration]
 	maxBackoff     refreshable.Refreshable[time.Duration]
+	bufferPool     bytesbuffers.Pool
+}
+
+// getBufferPool returns the client's buffer pool, implementing poolProvider.
+func (c *fluentClient) getBufferPool() bytesbuffers.Pool {
+	return c.bufferPool
 }
 
 func (c *fluentClient) Do(req *http.Request) (*http.Response, error) {
@@ -31,7 +38,7 @@ func (c *fluentClient) Do(req *http.Request) (*http.Response, error) {
 
 	uris := c.uriScorer.GetURIsInOrderOfIncreasingScore()
 	if len(uris) == 0 {
-		return nil, werror.WrapWithContextParams(ctx, errEmptyURIs, "", werror.SafeParam("serviceName", c.serviceName.Current()))
+		return nil, werror.WrapWithContextParams(ctx, ErrEmptyURIs{}, "", werror.SafeParam("serviceName", c.serviceName))
 	}
 
 	attempts := 2 * len(uris)
@@ -99,21 +106,18 @@ func (c *fluentClient) doOnce(
 		req.Body = body
 	}
 
-	// Compose middleware stack.
+	// Compose middleware stack using an iterative chain for flat stack traces.
 	// Shallow copy the http.Client so we can override Transport.
 	clientCopy := *c.httpClient.Current()
 
-	transport := clientCopy.Transport
-	// Innermost: URI scoring middleware
-	transport = wrapTransport(transport, c.uriScorer)
-	// Error decoder middleware
-	transport = wrapTransport(transport, c.errorDecoderMW)
-	// Client middlewares
-	transport = wrapTransport(transport, c.middlewares...)
-	// Recovery middleware (outermost)
-	transport = wrapTransport(transport, c.recoveryMW)
+	// Build middleware slice: outermost (recovery) first, innermost (URI scorer) last.
+	mws := make([]Middleware, 0, 3+len(c.middlewares))
+	mws = append(mws, c.recoveryMW)
+	mws = append(mws, c.middlewares...)
+	mws = append(mws, c.errorDecoderMW)
+	mws = append(mws, c.uriScorer)
 
-	clientCopy.Transport = transport
+	clientCopy.Transport = &middlewareChain{middlewares: mws, base: clientCopy.Transport}
 
 	// Execute the request.
 	resp, respErr := clientCopy.Do(req)

@@ -3,6 +3,7 @@ package httpc
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -194,7 +195,7 @@ type ServiceBuilder[B ServiceBuilder[B]] interface {
 }
 
 func (b *StandardClientBuilder) SetServiceName(s string) *StandardClientBuilder {
-	b.serviceName = refreshable.New(s)
+	b.serviceName = s
 	return b
 }
 
@@ -426,15 +427,16 @@ func (b *StandardClientBuilder) SetBytesBufferPool(pool bytesbuffers.Pool) *Stan
 // Build constructs a Client from the current builder configuration.
 func (b *StandardClientBuilder) Build(ctx context.Context) (ConfigurableClient[*StandardClientBuilder], error) {
 	if len(b.errs) > 0 {
-		return nil, werror.Error("builder configuration errors", werror.UnsafeParam("errors", b.errs))
+		if len(b.errs) == 1 {
+			return nil, werror.WrapWithContextParams(ctx, b.errs[0], "builder configuration errors")
+		}
+		return nil, werror.WrapWithContextParams(ctx, errors.Join(b.errs...), "builder configuration errors")
 	}
 	if b.uris == nil {
-		return nil, werror.ErrorWithContextParams(ctx, "httpclient URLs must be set in configuration or by constructor param",
-			werror.SafeParam("serviceName", b.serviceName.Current()))
+		return nil, werror.ErrorWithContextParams(ctx, "httpclient URLs must be set in configuration or by constructor param", werror.SafeParam("serviceName", b.serviceName))
 	}
 	if !b.allowEmptyURIs && len(b.uris.Current()) == 0 {
-		return nil, werror.WrapWithContextParams(ctx, errEmptyURIs, "",
-			werror.SafeParam("serviceName", b.serviceName.Current()))
+		return nil, werror.WrapWithContextParams(ctx, ErrEmptyURIs{}, "", werror.SafeParam("serviceName", b.serviceName))
 	}
 
 	// Build the http.Client.
@@ -473,6 +475,7 @@ func (b *StandardClientBuilder) Build(ctx context.Context) (ConfigurableClient[*
 		maxAttempts:    b.maxAttempts,
 		initialBackoff: b.initialBackoff,
 		maxBackoff:     b.maxBackoff,
+		bufferPool:     b.bytesBufferPool,
 	}
 
 	return &configurableFluentClient{
@@ -499,7 +502,7 @@ func (b *StandardClientBuilder) BuildHTTPClient(ctx context.Context) (refreshabl
 		tags:        b.metricsTagProviders,
 	})
 	// Tracing middleware.
-	transport = wrapTransport(transport, traceMiddleware{
+	transport = wrapTransport(transport, &traceMiddleware{
 		serviceName:         b.serviceName,
 		disableRequestSpan:  b.disableRequestSpan,
 		disableTraceHeaders: b.disableTraceHeaders,

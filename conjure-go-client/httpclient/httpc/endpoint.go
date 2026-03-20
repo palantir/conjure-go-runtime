@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"net/url"
 	"time"
+
+	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpclient/internal"
 )
 
 // rpcMethodNameKey is the context key for the RPC method name set by Endpoint.Execute.
@@ -14,6 +16,11 @@ type rpcMethodNameKey struct{}
 func RPCMethodName(ctx context.Context) (string, bool) {
 	v, ok := ctx.Value(rpcMethodNameKey{}).(string)
 	return v, ok
+}
+
+// ContextWithRPCMethodName returns a new context with the RPC method name set for use in logging and metrics.
+func ContextWithRPCMethodName(ctx context.Context, name string) context.Context {
+	return context.WithValue(ctx, rpcMethodNameKey{}, name)
 }
 
 // roundTripperFunc adapts a function to http.RoundTripper.
@@ -152,6 +159,36 @@ func NewEndpoint[Req, Resp any](method, path, name string) Endpoint[Req, Resp] {
 	}
 }
 
+// NewGET creates a GET endpoint with no request body.
+func NewGET[Resp any](path, name string) Endpoint[struct{}, Resp] {
+	return NewEndpoint[struct{}, Resp](http.MethodGet, path, name)
+}
+
+// NewDELETE creates a DELETE endpoint with no request body.
+func NewDELETE[Resp any](path, name string) Endpoint[struct{}, Resp] {
+	return NewEndpoint[struct{}, Resp](http.MethodDelete, path, name)
+}
+
+// NewHEAD creates a HEAD endpoint with no request body.
+func NewHEAD[Resp any](path, name string) Endpoint[struct{}, Resp] {
+	return NewEndpoint[struct{}, Resp](http.MethodHead, path, name)
+}
+
+// NewPOST creates a POST endpoint with a typed request body.
+func NewPOST[Req, Resp any](path, name string) Endpoint[Req, Resp] {
+	return NewEndpoint[Req, Resp](http.MethodPost, path, name)
+}
+
+// NewPUT creates a PUT endpoint with a typed request body.
+func NewPUT[Req, Resp any](path, name string) Endpoint[Req, Resp] {
+	return NewEndpoint[Req, Resp](http.MethodPut, path, name)
+}
+
+// NewPATCH creates a PATCH endpoint with a typed request body.
+func NewPATCH[Req, Resp any](path, name string) Endpoint[Req, Resp] {
+	return NewEndpoint[Req, Resp](http.MethodPatch, path, name)
+}
+
 // SetEncoder sets the body encoder for the request. Returns a new Endpoint value.
 func (e Endpoint[Req, Resp]) SetEncoder(enc BodyEncoder[Req]) Endpoint[Req, Resp] {
 	e.encoder = enc
@@ -233,6 +270,13 @@ func (e Endpoint[Req, Resp]) Execute(ctx context.Context, client Client, body Re
 		ctx = context.WithValue(ctx, rpcMethodNameKey{}, e.name)
 	}
 
+	// Inject buffer pool from client into context for use by encoders/decoders.
+	if pp, ok := client.(poolProvider); ok {
+		if pool := pp.getBufferPool(); pool != nil {
+			ctx = context.WithValue(ctx, bufferPoolKey{}, pool)
+		}
+	}
+
 	// Build request with path-only URL; Client prepends base URI.
 	req, err := http.NewRequestWithContext(ctx, e.method, e.path, nil)
 	if err != nil {
@@ -276,10 +320,12 @@ func (e Endpoint[Req, Resp]) Execute(ctx context.Context, client Client, body Re
 		req = req.WithContext(ctx)
 	}
 
-	// Wrap client with per-endpoint middleware (outermost first).
+	// Wrap client with per-endpoint middleware (last added is outermost).
 	c := client
 	for _, mw := range e.config.middlewares {
-		c = wrapClientMiddleware(c, mw)
+		if mw != nil {
+			c = wrapClientMiddleware(c, mw)
+		}
 	}
 
 	// Execute.
@@ -290,13 +336,25 @@ func (e Endpoint[Req, Resp]) Execute(ctx context.Context, client Client, body Re
 
 	// Per-endpoint error decoding (before response decode).
 	if e.config.errorDecoder != nil && e.config.errorDecoder.Handles(resp) {
+		internal.DrainBody(ctx, resp)
 		return zero, e.config.errorDecoder.DecodeError(resp)
 	}
 
 	// Decode response.
 	if e.decoder != nil {
-		return e.decoder.Decode(ctx, resp)
+		result, err := e.decoder.Decode(ctx, resp)
+		if err != nil {
+			internal.DrainBody(ctx, resp)
+			return zero, err
+		}
+		// Skip draining for decoders that return the body directly to the caller.
+		if _, raw := e.decoder.(rawBodyDecoder); !raw {
+			internal.DrainBody(ctx, resp)
+		}
+		return result, nil
 	}
+	// No decoder: drain body.
+	internal.DrainBody(ctx, resp)
 	return zero, nil
 }
 

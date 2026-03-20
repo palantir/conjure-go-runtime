@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
+	"errors"
 
 	"github.com/palantir/pkg/refreshable/v2"
 	"github.com/palantir/pkg/tlsconfig"
@@ -234,7 +235,10 @@ func newTLSConfig(ctx context.Context, p tlsParams) (*tls.Config, error) {
 // BuildTLSConfig returns an error if CA files cannot be read or system CAs cannot be loaded.
 func (b *StandardClientBuilder) BuildTLSConfig(ctx context.Context) (refreshable.Validated[*tls.Config], error) {
 	if len(b.errs) > 0 {
-		return nil, werror.Error("builder configuration errors", werror.UnsafeParam("errors", b.errs))
+		if len(b.errs) == 1 {
+			return nil, werror.WrapWithContextParams(ctx, b.errs[0], "builder configuration errors")
+		}
+		return nil, werror.WrapWithContextParams(ctx, errors.Join(b.errs...), "builder configuration errors")
 	}
 
 	// Path 1: Escape hatch — use the provided *tls.Config directly.

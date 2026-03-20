@@ -2,6 +2,7 @@ package httpc
 
 import (
 	"context"
+	"errors"
 	"net"
 	"net/url"
 	"time"
@@ -112,7 +113,10 @@ func (r *refreshableDialer) Dial(network, address string) (net.Conn, error) {
 // or SOCKS proxy settings change via their refreshable sources.
 func (b *StandardClientBuilder) BuildDialer(ctx context.Context) (ContextDialer, error) {
 	if len(b.errs) > 0 {
-		return nil, werror.Error("builder configuration errors", werror.UnsafeParam("errors", b.errs))
+		if len(b.errs) == 1 {
+			return nil, werror.WrapWithContextParams(ctx, b.errs[0], "builder configuration errors")
+		}
+		return nil, werror.WrapWithContextParams(ctx, errors.Join(b.errs...), "builder configuration errors")
 	}
 	mapped, _ := refreshable.Map(b.dialerParams, func(p dialerParams) ContextDialer {
 		svc1log.FromContext(ctx).Debug("Reconstructing HTTP Dialer")

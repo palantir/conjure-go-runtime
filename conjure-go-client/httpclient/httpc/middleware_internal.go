@@ -5,7 +5,6 @@ import (
 	"net/http"
 
 	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpclient/internal"
-	"github.com/palantir/pkg/refreshable/v2"
 	werror "github.com/palantir/witchcraft-go-error"
 	"github.com/palantir/witchcraft-go-tracing/wtracing"
 	"github.com/palantir/witchcraft-go-tracing/wtracing/propagation/b3"
@@ -73,14 +72,14 @@ func (e errorDecoderMiddleware) RoundTrip(req *http.Request, next http.RoundTrip
 
 // traceMiddleware injects tracing information into request headers.
 type traceMiddleware struct {
-	serviceName         refreshable.Refreshable[string]
+	serviceName         string
 	disableRequestSpan  bool
 	disableTraceHeaders bool
 }
 
 const traceIDHeaderKey = "X-B3-TraceId"
 
-func (t traceMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+func (t *traceMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (*http.Response, error) {
 	ctx := req.Context()
 	span := wtracing.SpanFromContext(ctx)
 
@@ -88,7 +87,7 @@ func (t traceMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (*
 		if method, ok := RPCMethodName(ctx); ok && method != "" {
 			span, ctx = wtracing.StartSpanFromContext(ctx, wtracing.TracerFromContext(ctx), method,
 				wtracing.WithKind(wtracing.Client),
-				wtracing.WithRemoteEndpoint(&wtracing.Endpoint{ServiceName: t.serviceName.Current()}))
+				wtracing.WithRemoteEndpoint(&wtracing.Endpoint{ServiceName: t.serviceName}))
 			if span != nil {
 				defer span.Finish()
 			}
@@ -105,4 +104,29 @@ func (t traceMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (*
 	}
 
 	return next.RoundTrip(req)
+}
+
+// middlewareChain applies a slice of middleware around a base RoundTripper
+// using iterative delegation rather than nested wrapping. This produces
+// flatter stack traces compared to deeply nested wrappedTransport structs.
+// nil middleware values in the slice are skipped.
+type middlewareChain struct {
+	middlewares []Middleware
+	base        http.RoundTripper
+}
+
+func (c *middlewareChain) RoundTrip(req *http.Request) (*http.Response, error) {
+	// Build the chain from innermost (last) to outermost (first).
+	rt := c.base
+	for i := len(c.middlewares) - 1; i >= 0; i-- {
+		if c.middlewares[i] == nil {
+			continue
+		}
+		mw := c.middlewares[i]
+		next := rt
+		rt = roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+			return mw.RoundTrip(r, next)
+		})
+	}
+	return rt.RoundTrip(req)
 }

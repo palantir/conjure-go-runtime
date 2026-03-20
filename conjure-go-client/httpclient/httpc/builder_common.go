@@ -3,19 +3,69 @@ package httpc
 import (
 	"bytes"
 	"crypto/tls"
-	"io"
 	"net/http"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpclient/internal"
-	"github.com/palantir/conjure-go-runtime/v3/conjure-go-contract/codecs"
-	"github.com/palantir/conjure-go-runtime/v3/conjure-go-contract/errors"
 	"github.com/palantir/pkg/bytesbuffers"
 	"github.com/palantir/pkg/refreshable/v2"
-	werror "github.com/palantir/witchcraft-go-error"
 )
+
+// baseBuilder is the shared contract for all builder interfaces in this package.
+//
+// Builders are mutable: setter methods modify the receiver and return it for fluent
+// chaining. Clone returns an independent deep copy for forking a configuration;
+// mutations to the clone do not affect the original, and vice versa.
+//
+// Apply applies Param functions to the builder in sequence. Because builders are
+// mutable, Apply modifies the receiver in place and returns it. This means that
+// after b2 := b1.Apply(p), b1 and b2 refer to the same (now-modified) builder.
+// To create a genuinely independent variant, clone first: b2 := b1.Clone().Apply(p).
+type baseBuilder[B baseBuilder[B]] interface {
+	Clone() B
+	Apply(...Param[B]) B
+}
+
+// Param is a reusable, composable configuration function for a builder or service client.
+// Params are applied via the Apply method and typically wrap one or more setter calls:
+//
+//	func WithDefaults[B httpc.ClientBuilder[B]]() httpc.Param[B] {
+//	    return func(b B) B {
+//	        return b.SetTimeout(30 * time.Second).SetMaxRetries(3)
+//	    }
+//	}
+//
+// Param is also the option type for ServiceClient, where it wraps copy-on-write
+// RequestOverrides methods rather than mutating setters. See ServiceClient for details.
+type Param[Self baseBuilder[Self]] func(Self) Self
+
+// ClientBuilder is the top-level builder interface for constructing HTTP clients.
+// It composes DialerBuilder, TLSConfigBuilder, TransportBuilder, and ServiceBuilder
+// into a single unified builder covering all layers of the HTTP stack.
+//
+// Like all builders in this package, ClientBuilder is mutable: setter methods modify
+// the receiver and return it for chaining. Use Clone to fork an independent copy.
+//
+// The Build method (inherited from ServiceBuilder) constructs the client by:
+//  1. Building a net.Dialer from DialerBuilder settings
+//  2. Building a *tls.Config from TLSConfigBuilder settings
+//  3. Building an *http.Transport from TransportBuilder settings + dialer + TLS
+//  4. Injecting the transport via SetTransport
+//  5. Wrapping with the middleware stack and returning a Client
+//
+// Generic configuration functions can accept any ClientBuilder and return the
+// same concrete type, enabling reusable configuration libraries:
+//
+//	func ApplyDefaults[B ClientBuilder[B]](b B) B {
+//	    return b.SetTimeout(30 * time.Second).SetMaxRetries(3)
+//	}
+type ClientBuilder[B ClientBuilder[B]] interface {
+	DialerBuilder[B]
+	TLSConfigBuilder[B]
+	TransportBuilder[B]
+	ServiceBuilder[B]
+}
 
 const (
 	defaultDialTimeout           = 10 * time.Second
@@ -35,7 +85,7 @@ const (
 // StandardClientBuilder implements ClientBuilder by directly managing
 // transport, dialer, TLS, and service-level configuration.
 type StandardClientBuilder struct {
-	serviceName     refreshable.Refreshable[string]
+	serviceName     string
 	timeout         refreshable.Refreshable[time.Duration]
 	dialerParams    refreshable.Refreshable[dialerParams]
 	tlsConfig       *tls.Config // escape hatch: replaces all other TLS settings
@@ -76,7 +126,7 @@ var _ ClientBuilder[*StandardClientBuilder] = (*StandardClientBuilder)(nil)
 // NewStandardClientBuilder creates a new StandardClientBuilder with sane defaults.
 func NewStandardClientBuilder() *StandardClientBuilder {
 	return &StandardClientBuilder{
-		serviceName: refreshable.New(""),
+		serviceName: "",
 		timeout:     refreshable.New(defaultHTTPTimeout),
 		dialerParams: refreshable.New(dialerParams{
 			DialTimeout: defaultDialTimeout,
@@ -145,61 +195,6 @@ func (b *StandardClientBuilder) Apply(params ...Param[*StandardClientBuilder]) *
 		p(b)
 	}
 	return b
-}
-
-// defaultRestErrorDecoder handles responses with status code >= 307.
-// For JSON responses, it attempts to unmarshal the body as a Conjure error.
-// For non-JSON responses or failed unmarshal, it includes the raw body as an
-// unsafe parameter. For 3xx responses, it extracts the Location header.
-//
-// Use StatusCodeFromError(err) to retrieve the code from the error,
-// and DisableRestErrors() to disable this decoder on your client.
-type defaultRestErrorDecoder struct {
-	conjureErrorDecoder errors.ConjureErrorDecoder
-}
-
-func (defaultRestErrorDecoder) Handles(resp *http.Response) bool {
-	return resp.StatusCode >= http.StatusTemporaryRedirect
-}
-
-func (d defaultRestErrorDecoder) DecodeError(resp *http.Response) error {
-	safeParams := map[string]interface{}{
-		"statusCode": resp.StatusCode,
-	}
-	unsafeParams := map[string]interface{}{}
-	if resp.StatusCode >= http.StatusTemporaryRedirect &&
-		resp.StatusCode < http.StatusBadRequest {
-		location, err := resp.Location()
-		if err == nil {
-			unsafeParams["location"] = location.String()
-		}
-	}
-	wSafeParams := werror.SafeParams(safeParams)
-	wUnsafeParams := werror.UnsafeParams(unsafeParams)
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return werror.Wrap(err, "server returned an error and failed to read body", wSafeParams, wUnsafeParams)
-	}
-	if len(body) == 0 {
-		return werror.Error(resp.Status, wSafeParams, wUnsafeParams)
-	}
-
-	// If JSON, try to unmarshal as Conjure error.
-	if isJSON := strings.Contains(resp.Header.Get("Content-Type"), codecs.JSON.ContentType()); !isJSON {
-		return werror.Error(resp.Status, wSafeParams, wUnsafeParams, werror.UnsafeParam("responseBody", string(body)))
-	}
-	var conjureErr errors.Error
-	var jsonErr error
-	if d.conjureErrorDecoder != nil {
-		conjureErr, jsonErr = errors.UnmarshalErrorWithDecoder(d.conjureErrorDecoder, body)
-	} else {
-		conjureErr, jsonErr = errors.UnmarshalError(body)
-	}
-	if jsonErr != nil {
-		return werror.Error(resp.Status, wSafeParams, wUnsafeParams, werror.UnsafeParam("responseBody", string(body)))
-	}
-	return werror.Wrap(conjureErr, "", wSafeParams, wUnsafeParams)
 }
 
 // StatusCodeFromError retrieves the 'statusCode' parameter from the provided error.

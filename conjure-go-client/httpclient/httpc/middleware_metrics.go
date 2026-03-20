@@ -17,7 +17,7 @@ import (
 // metricsMiddleware emits client.response timer metrics.
 type metricsMiddleware struct {
 	disabled    refreshable.Refreshable[bool]
-	serviceName refreshable.Refreshable[string]
+	serviceName string
 	tags        []TagsProvider
 }
 
@@ -57,7 +57,7 @@ func (m *metricsMiddleware) RoundTrip(req *http.Request, next http.RoundTripper)
 	if m.disabled != nil && m.disabled.Current() {
 		return next.RoundTrip(req)
 	}
-	serviceNameTag := metrics.NewTagWithFallbackValue(metricTagServiceName, m.serviceName.Current(), "unknown")
+	serviceNameTag := metrics.NewTagWithFallbackValue(metricTagServiceName, m.serviceName, "unknown")
 	registry := metrics.FromContext(req.Context())
 
 	registry.Counter(metricRequestInFlight, serviceNameTag).Inc(1)
@@ -67,7 +67,12 @@ func (m *metricsMiddleware) RoundTrip(req *http.Request, next http.RoundTripper)
 	duration := time.Since(start)
 	registry.Counter(metricRequestInFlight, serviceNameTag).Dec(1)
 
-	tags := []metrics.Tag{serviceNameTag}
+	tags := m.appendTags([]metrics.Tag{serviceNameTag}, req, resp, err)
+	registry.Timer(metricClientResponse, tags...).Update(duration / time.Microsecond)
+	return resp, err
+}
+
+func (m *metricsMiddleware) appendTags(tags metrics.Tags, req *http.Request, resp *http.Response, err error) metrics.Tags {
 	// status family
 	tags = append(tags, tagStatusFamily(resp, err)...)
 	// method
@@ -90,9 +95,7 @@ func (m *metricsMiddleware) RoundTrip(req *http.Request, next http.RoundTripper)
 			}
 		}
 	}
-
-	registry.Timer(metricClientResponse, tags...).Update(duration / time.Microsecond)
-	return resp, err
+	return tags
 }
 
 func (m *metricsMiddleware) tlsTraceContext(ctx context.Context, registry metrics.Registry, serviceNameTag metrics.Tag) context.Context {
