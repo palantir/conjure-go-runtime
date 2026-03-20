@@ -112,9 +112,7 @@ func TestAddingCAFileIsCaptured(t *testing.T) {
 	_, err = scopedTokenClient.Delete(context.Background())
 	assert.Error(t, err)
 	assert.Eventually(t, func() bool {
-		return reflect.DeepEqual(map[string]struct{}{
-			"Test CA": {},
-		}, capturedSubjects)
+		return containsAllKeys(capturedSubjects, []string{"Test CA"})
 	}, time.Second*2, time.Millisecond*100)
 	// Update config to use both CA files
 	capturedSubjects = map[string]struct{}{}
@@ -123,10 +121,7 @@ func TestAddingCAFileIsCaptured(t *testing.T) {
 	_, err = scopedTokenClient.Delete(context.Background())
 	assert.Error(t, err)
 	assert.Eventually(t, func() bool {
-		return reflect.DeepEqual(map[string]struct{}{
-			"Test CA":   {},
-			"Test CA 2": {},
-		}, capturedSubjects)
+		return containsAllKeys(capturedSubjects, []string{"Test CA", "Test CA 2"})
 	}, time.Second*2, time.Millisecond*100)
 }
 
@@ -169,41 +164,30 @@ func TestCAUpdatesToTheSameCAFileIsCaptured(t *testing.T) {
 		capturedSubjects1 = map[string]struct{}{}
 		_, err = client1.Delete(context.Background())
 		assert.Error(t, err)
-		return reflect.DeepEqual(map[string]struct{}{
-			"Test CA": {},
-		}, capturedSubjects1)
+		return containsAllKeys(capturedSubjects1, []string{"Test CA"})
 	}, time.Second*5, time.Millisecond*100)
 	// Client 2
 	assert.Eventually(t, func() bool {
 		capturedSubjects2 = map[string]struct{}{}
 		_, err = client2.Delete(context.Background())
 		assert.Error(t, err)
-		return reflect.DeepEqual(map[string]struct{}{
-			"Test CA": {},
-		}, capturedSubjects2)
+		return containsAllKeys(capturedSubjects2, []string{"Test CA"})
 	}, time.Second*5, time.Millisecond*100)
 	// Append a file and see the newest CA
-
 	appendTestCACertFile(t, caFile1, 3, "Test CA 3")
 	// Client 1
 	assert.Eventually(t, func() bool {
 		capturedSubjects1 = map[string]struct{}{}
 		_, err = client1.Delete(context.Background())
 		assert.Error(t, err)
-		return reflect.DeepEqual(map[string]struct{}{
-			"Test CA":   {},
-			"Test CA 3": {},
-		}, capturedSubjects1)
+		return containsAllKeys(capturedSubjects1, []string{"Test CA", "Test CA 3"})
 	}, time.Second*5, time.Millisecond*100)
 	// Client 2
 	assert.Eventually(t, func() bool {
 		capturedSubjects2 = map[string]struct{}{}
 		_, err = client2.Delete(context.Background())
 		assert.Error(t, err)
-		return reflect.DeepEqual(map[string]struct{}{
-			"Test CA":   {},
-			"Test CA 3": {},
-		}, capturedSubjects2)
+		return containsAllKeys(capturedSubjects2, []string{"Test CA", "Test CA 3"})
 	}, time.Second*5, time.Millisecond*100)
 }
 
@@ -335,16 +319,10 @@ func TestCABytesAndCAFileCombined(t *testing.T) {
 	// Ensure the initial CA bundle is loaded
 	_, err = client1.Delete(context.Background())
 	assert.Error(t, err)
-	assert.Equal(t, map[string]struct{}{
-		"Disk CA":    {},
-		"Dynamic CA": {},
-	}, capturedSubjects1)
+	assert.True(t, containsAllKeys(capturedSubjects1, []string{"Disk CA", "Dynamic CA"}))
 	_, err = client2.Delete(context.Background())
 	assert.Error(t, err)
-	assert.Equal(t, map[string]struct{}{
-		"Disk CA":    {},
-		"Dynamic CA": {},
-	}, capturedSubjects2)
+	assert.True(t, containsAllKeys(capturedSubjects2, []string{"Disk CA", "Dynamic CA"}))
 
 	// Update dynamic CA bytes and verify it refreshes
 	capturedSubjects1 = make(map[string]struct{})
@@ -356,19 +334,13 @@ func TestCABytesAndCAFileCombined(t *testing.T) {
 		capturedSubjects1 = make(map[string]struct{})
 		_, err = client1.Delete(context.Background())
 		assert.Error(t, err)
-		return reflect.DeepEqual(map[string]struct{}{
-			"Disk CA":        {},
-			"New Dynamic CA": {},
-		}, capturedSubjects1)
+		return containsAllKeys(capturedSubjects1, []string{"Disk CA", "New Dynamic CA"})
 	}, time.Second*2, time.Millisecond*100)
 	assert.Eventually(t, func() bool {
 		capturedSubjects2 = make(map[string]struct{})
 		_, err = client2.Delete(context.Background())
 		assert.Error(t, err)
-		return reflect.DeepEqual(map[string]struct{}{
-			"Disk CA":        {},
-			"New Dynamic CA": {},
-		}, capturedSubjects2)
+		return containsAllKeys(capturedSubjects2, []string{"Disk CA", "New Dynamic CA"})
 	}, time.Second*2, time.Millisecond*100)
 }
 
@@ -447,6 +419,18 @@ func getUnexportedBaseTransport(rt http.RoundTripper) http.RoundTripper {
 		return nil
 	}
 	return *(*http.RoundTripper)(unsafe.Pointer(field.UnsafeAddr()))
+}
+
+// containsAllKeys checks that all keys in expected are present in actual.
+// This is used instead of reflect.DeepEqual because SystemCertPool() includes system CAs
+// which vary by OS and are included in Subjects() on Linux but not macOS.
+func containsAllKeys(actual map[string]struct{}, expected []string) bool {
+	for _, k := range expected {
+		if _, ok := actual[k]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 func createTestCACertFile(t *testing.T, filePath string, serialNumber int64, orgName string) {
