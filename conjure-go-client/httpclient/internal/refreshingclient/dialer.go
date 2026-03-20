@@ -79,39 +79,3 @@ func (r *RefreshableDialer) DialContext(ctx context.Context, network, address st
 func (r *RefreshableDialer) Dial(network, address string) (net.Conn, error) {
 	return r.Current().DialContext(context.TODO(), network, address)
 }
-
-type validatedDialer struct {
-	refreshable.Validated[ContextDialer]
-}
-
-func (r *validatedDialer) DialTLSContext(ctx context.Context, network, address string) (net.Conn, error) {
-	current, err := r.current()
-	if err != nil {
-		return nil, err
-	}
-	return current.DialContext(ctx, network, address)
-}
-
-func (r *validatedDialer) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
-	current, err := r.current()
-	if err != nil {
-		return nil, err
-	}
-	return current.DialContext(ctx, network, address)
-}
-
-func (r *validatedDialer) Dial(network, address string) (net.Conn, error) {
-	return r.DialContext(context.Background(), network, address)
-}
-
-func (r *validatedDialer) current() (ContextDialer, error) {
-	unvalidated := r.Unvalidated()
-	validated, err := r.Validation()
-	if err != nil {
-		if unvalidated == nil {
-			return nil, err
-		}
-		return unvalidated, nil
-	}
-	return validated, nil
-}

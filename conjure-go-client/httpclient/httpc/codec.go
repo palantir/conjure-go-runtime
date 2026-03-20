@@ -1,9 +1,13 @@
 package httpc
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
+
+	"github.com/palantir/pkg/bytesbuffers"
 )
 
 // BodyEncoder encodes a request body of type Req into an HTTP request.
@@ -66,36 +70,115 @@ func (f BodyDecoderFunc[Resp]) Decode(ctx context.Context, resp *http.Response) 
 // JSONEncoder returns a BodyEncoder that serializes the request body as JSON
 // and sets Content-Type to "application/json".
 func JSONEncoder[Req any]() BodyEncoder[Req] {
-	panic("not implemented")
+	return NewBodyEncoderFunc[Req]("application/json", func(req *http.Request, body Req) error {
+		data, err := json.Marshal(body)
+		if err != nil {
+			return err
+		}
+		req.Body = io.NopCloser(bytes.NewReader(data))
+		req.ContentLength = int64(len(data))
+		req.GetBody = func() (io.ReadCloser, error) {
+			return io.NopCloser(bytes.NewReader(data)), nil
+		}
+		return nil
+	})
+}
+
+// JSONEncoderWithPool returns a BodyEncoder that serializes the request body as JSON
+// using a buffer from the provided pool. The buffer is returned to the pool when the
+// request body is closed. This avoids per-request allocations in high-throughput scenarios.
+// Content-Type is set to "application/json".
+func JSONEncoderWithPool[Req any](pool bytesbuffers.Pool) BodyEncoder[Req] {
+	return NewBodyEncoderFunc[Req]("application/json", func(req *http.Request, body Req) error {
+		buf := pool.Get()
+		buf.Reset()
+		if err := json.NewEncoder(buf).Encode(body); err != nil {
+			pool.Put(buf)
+			return err
+		}
+		// json.Encoder.Encode appends a trailing newline; trim it for consistency with json.Marshal.
+		data := bytes.TrimRight(buf.Bytes(), "\n")
+		req.ContentLength = int64(len(data))
+		req.Body = &poolReturnCloser{Reader: bytes.NewReader(data), buf: buf, pool: pool}
+		req.GetBody = func() (io.ReadCloser, error) {
+			return io.NopCloser(bytes.NewReader(data)), nil
+		}
+		return nil
+	})
+}
+
+// poolReturnCloser wraps a bytes.Reader and returns the underlying buffer to the pool on Close.
+type poolReturnCloser struct {
+	*bytes.Reader
+	buf  *bytes.Buffer
+	pool bytesbuffers.Pool
+}
+
+func (p *poolReturnCloser) Close() error {
+	if p.buf != nil {
+		p.pool.Put(p.buf)
+		p.buf = nil
+	}
+	return nil
 }
 
 // JSONDecoder returns a BodyDecoder that deserializes the response body from JSON.
 // Use SetAccept("application/json") on the Endpoint to set the Accept header.
 func JSONDecoder[Resp any]() BodyDecoder[Resp] {
-	panic("not implemented")
+	return NewBodyDecoderFunc[Resp](func(_ context.Context, resp *http.Response) (Resp, error) {
+		// TODO Accept headers, bytesbuffer
+		var result Resp
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			return result, err
+		}
+		return result, nil
+	})
 }
 
 // OptionalJSONDecoder returns a BodyDecoder that deserializes the response body from JSON,
 // returning nil when the response has no content.
 // Use SetAccept("application/json") on the Endpoint to set the Accept header.
 func OptionalJSONDecoder[Resp any]() BodyDecoder[*Resp] {
-	panic("not implemented")
+	return NewBodyDecoderFunc[*Resp](func(_ context.Context, resp *http.Response) (*Resp, error) {
+		if resp.ContentLength == 0 || resp.StatusCode == http.StatusNoContent {
+			return nil, nil
+		}
+		// TODO Accept headers, bytesbuffer
+		var result Resp
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			return nil, err
+		}
+		return &result, nil
+	})
 }
 
 // VoidDecoder returns a BodyDecoder that discards the response body.
 func VoidDecoder() BodyDecoder[struct{}] {
-	panic("not implemented")
+	return NewBodyDecoderFunc[struct{}](func(_ context.Context, resp *http.Response) (struct{}, error) {
+		if resp.Body != nil {
+			_, _ = io.Copy(io.Discard, resp.Body)
+			_ = resp.Body.Close()
+		}
+		return struct{}{}, nil
+	})
 }
 
 // BinaryDecoder returns a BodyDecoder that returns the response body as an io.ReadCloser.
 // Use SetAccept("application/octet-stream") on the Endpoint to set the Accept header.
 func BinaryDecoder() BodyDecoder[io.ReadCloser] {
-	panic("not implemented")
+	return NewBodyDecoderFunc[io.ReadCloser](func(_ context.Context, resp *http.Response) (io.ReadCloser, error) {
+		return resp.Body, nil
+	})
 }
 
 // OptionalBinaryDecoder returns a BodyDecoder that returns the response body as an io.ReadCloser,
 // returning nil when the response has no content.
 // Use SetAccept("application/octet-stream") on the Endpoint to set the Accept header.
 func OptionalBinaryDecoder() BodyDecoder[io.ReadCloser] {
-	panic("not implemented")
+	return NewBodyDecoderFunc[io.ReadCloser](func(_ context.Context, resp *http.Response) (io.ReadCloser, error) {
+		if resp.ContentLength == 0 || resp.StatusCode == http.StatusNoContent {
+			return nil, nil
+		}
+		return resp.Body, nil
+	})
 }

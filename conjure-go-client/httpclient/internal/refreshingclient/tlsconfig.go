@@ -30,6 +30,8 @@ type TLSParams struct {
 	CABytes            [][]byte
 	CertFile           string
 	KeyFile            string
+	CertBytes          []byte // PEM client cert bytes; preferred over CertFile when non-nil.
+	KeyBytes           []byte // PEM client key bytes; preferred over KeyFile when non-nil.
 	InsecureSkipVerify bool
 	DynamicCertReload  bool
 }
@@ -41,6 +43,8 @@ type TLSParams struct {
 //
 // N.B. This subscription only fires when the paths are updated, not when the contents of the files are updated.
 // When DynamicCertReload is enabled, the cert/key files are re-read on each TLS handshake via GetClientCertificate.
+// Callers that need content-based refresh for cert/key files should watch those files externally
+// (e.g. via NewMultiFileRefreshable) and trigger updates to the TLSParams refreshable.
 func NewRefreshableTLSConfig(ctx context.Context, params refreshable.Validated[TLSParams]) (refreshable.Validated[*tls.Config], error) {
 	r, _, err := refreshable.MapValidated(ctx, params, func(ctx context.Context, p TLSParams) (*tls.Config, error) {
 		return NewTLSConfig(ctx, p)
@@ -67,7 +71,12 @@ func NewTLSConfig(ctx context.Context, p TLSParams) (*tls.Config, error) {
 		}
 		tlsParams = append(tlsParams, tlsconfig.ClientRootCAs(tlsconfig.AugmentCertPoolWithCertPoolOptions(certPool, certPoolOptions)))
 	}
-	if p.CertFile != "" && p.KeyFile != "" {
+	if len(p.CertBytes) > 0 && len(p.KeyBytes) > 0 {
+		certBytes, keyBytes := p.CertBytes, p.KeyBytes
+		tlsParams = append(tlsParams, tlsconfig.ClientKeyPair(func() (tls.Certificate, error) {
+			return tls.X509KeyPair(certBytes, keyBytes)
+		}))
+	} else if p.CertFile != "" && p.KeyFile != "" {
 		if p.DynamicCertReload {
 			tlsParams = append(tlsParams, tlsconfig.ClientKeyPair(tlsconfig.TLSCertFromFiles(p.CertFile, p.KeyFile)))
 		} else {

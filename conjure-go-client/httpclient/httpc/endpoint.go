@@ -7,6 +7,31 @@ import (
 	"time"
 )
 
+// rpcMethodNameKey is the context key for the RPC method name set by Endpoint.Execute.
+type rpcMethodNameKey struct{}
+
+// RPCMethodName extracts the RPC method name from the context, if set by Endpoint.Execute.
+func RPCMethodName(ctx context.Context) (string, bool) {
+	v, ok := ctx.Value(rpcMethodNameKey{}).(string)
+	return v, ok
+}
+
+// roundTripperFunc adapts a function to http.RoundTripper.
+type roundTripperFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
+
+// wrapClientMiddleware wraps a Client with a Middleware.
+func wrapClientMiddleware(c Client, mw Middleware) Client {
+	return clientFunc(func(req *http.Request) (*http.Response, error) {
+		return mw.RoundTrip(req, roundTripperFunc(c.Do))
+	})
+}
+
+type clientFunc func(*http.Request) (*http.Response, error)
+
+func (f clientFunc) Do(req *http.Request) (*http.Response, error) { return f(req) }
+
 // RequestOverrides defines per-request configuration methods shared by Endpoint and
 // ServiceClient. Unlike builder interfaces, all methods use copy-on-write semantics:
 // they return a new value with the override applied, leaving the original unchanged.
@@ -201,7 +226,78 @@ func (e Endpoint[Req, Resp]) WithMiddleware(m Middleware) Endpoint[Req, Resp] {
 // configured BodyDecoder. Per-request overrides (timeout, error decoder, basic auth,
 // middleware) are applied on top of the client's defaults.
 func (e Endpoint[Req, Resp]) Execute(ctx context.Context, client Client, body Req) (Resp, error) {
-	panic("not implemented")
+	var zero Resp
+
+	// Store RPC method name on context for tracing/metrics middleware.
+	if e.name != "" {
+		ctx = context.WithValue(ctx, rpcMethodNameKey{}, e.name)
+	}
+
+	// Build request with path-only URL; Client prepends base URI.
+	req, err := http.NewRequestWithContext(ctx, e.method, e.path, nil)
+	if err != nil {
+		return zero, err
+	}
+
+	// Encode body (sets Content-Type, Body, GetBody, ContentLength).
+	if e.encoder != nil {
+		if err := e.encoder.Encode(req, body); err != nil {
+			return zero, err
+		}
+	}
+
+	// Set Accept header.
+	if e.accept != "" {
+		req.Header.Set("Accept", e.accept)
+	}
+
+	// Apply per-endpoint headers (additive, after Accept/Content-Type).
+	for k, vs := range e.config.headers {
+		for _, v := range vs {
+			req.Header.Add(k, v)
+		}
+	}
+
+	// Apply query params.
+	if len(e.config.queryParams) > 0 {
+		req.URL.RawQuery = e.config.queryParams.Encode()
+	}
+
+	// Apply basic auth.
+	if e.config.basicAuth != nil {
+		req.SetBasicAuth(e.config.basicAuth.user, e.config.basicAuth.password)
+	}
+
+	// Apply timeout via context.
+	if e.config.timeout != nil {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, *e.config.timeout)
+		defer cancel()
+		req = req.WithContext(ctx)
+	}
+
+	// Wrap client with per-endpoint middleware (outermost first).
+	c := client
+	for _, mw := range e.config.middlewares {
+		c = wrapClientMiddleware(c, mw)
+	}
+
+	// Execute.
+	resp, err := c.Do(req)
+	if err != nil {
+		return zero, err
+	}
+
+	// Per-endpoint error decoding (before response decode).
+	if e.config.errorDecoder != nil && e.config.errorDecoder.Handles(resp) {
+		return zero, e.config.errorDecoder.DecodeError(resp)
+	}
+
+	// Decode response.
+	if e.decoder != nil {
+		return e.decoder.Decode(ctx, resp)
+	}
+	return zero, nil
 }
 
 // ExecuteVoid is a convenience wrapper for executing endpoints with no request body

@@ -15,14 +15,16 @@
 package internal
 
 import (
+	"net/http"
+
 	"github.com/palantir/pkg/refreshable/v2"
 )
 
 type RefreshableURIScoringMiddleware interface {
-	CurrentURIScoringMiddleware() URIScoringMiddleware
+	URIScoringMiddleware
 }
 
-func NewRefreshableURIScoringMiddleware(uris refreshable.Refreshable[[]string], constructor func([]string) URIScoringMiddleware) RefreshableURIScoringMiddleware {
+func NewRefreshableURIScoringMiddleware(uris refreshable.Refreshable[[]string], constructor func([]string) URIScoringMiddleware) URIScoringMiddleware {
 	mapped, _ := refreshable.Map(uris, constructor)
 	return refreshableURIScoringMiddleware{mapped}
 }
@@ -31,6 +33,10 @@ type refreshableURIScoringMiddleware struct {
 	refreshable.Refreshable[URIScoringMiddleware]
 }
 
-func (r refreshableURIScoringMiddleware) CurrentURIScoringMiddleware() URIScoringMiddleware {
-	return r.Current()
+func (r refreshableURIScoringMiddleware) GetURIsInOrderOfIncreasingScore() []string {
+	return r.Current().GetURIsInOrderOfIncreasingScore()
+}
+
+func (r refreshableURIScoringMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+	return r.Current().RoundTrip(req, next)
 }

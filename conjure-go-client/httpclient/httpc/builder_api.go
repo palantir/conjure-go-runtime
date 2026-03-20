@@ -10,9 +10,9 @@ package httpc
 // mutable, Apply modifies the receiver in place and returns it. This means that
 // after b2 := b1.Apply(p), b1 and b2 refer to the same (now-modified) builder.
 // To create a genuinely independent variant, clone first: b2 := b1.Clone().Apply(p).
-type baseBuilder[Self baseBuilder[Self]] interface {
-	Clone() Self
-	Apply(...Param[Self]) Self
+type baseBuilder[B baseBuilder[B]] interface {
+	Clone() B
+	Apply(...Param[B]) B
 }
 
 // Param is a reusable, composable configuration function for a builder or service client.
@@ -45,7 +45,7 @@ type Param[Self baseBuilder[Self]] func(Self) Self
 // Generic configuration functions can accept any ClientBuilder and return the
 // same concrete type, enabling reusable configuration libraries:
 //
-//	func ApplyDefaults[Self ClientBuilder[Self]](b Self) Self {
+//	func ApplyDefaults[B ClientBuilder[B]](b B) B {
 //	    return b.SetTimeout(30 * time.Second).SetMaxRetries(3)
 //	}
 type ClientBuilder[B ClientBuilder[B]] interface {
