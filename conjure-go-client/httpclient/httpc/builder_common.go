@@ -12,7 +12,7 @@ import (
 	"github.com/palantir/pkg/refreshable/v2"
 )
 
-// baseBuilder is the shared contract for all builder interfaces in this package.
+// baseB is the shared contract for all builder interfaces in this package.
 //
 // Builders are mutable: setter methods modify the receiver and return it for fluent
 // chaining. Clone returns an independent deep copy for forking a configuration;
@@ -22,7 +22,7 @@ import (
 // mutable, Apply modifies the receiver in place and returns it. This means that
 // after b2 := b1.Apply(p), b1 and b2 refer to the same (now-modified) builder.
 // To create a genuinely independent variant, clone first: b2 := b1.Clone().Apply(p).
-type baseBuilder[B baseBuilder[B]] interface {
+type baseB[B baseB[B]] interface {
 	Clone() B
 	Apply(...Param[B]) B
 }
@@ -38,7 +38,23 @@ type baseBuilder[B baseBuilder[B]] interface {
 //
 // Param is also the option type for ServiceClient, where it wraps copy-on-write
 // RequestOverrides methods rather than mutating setters. See ServiceClient for details.
-type Param[Self baseBuilder[Self]] func(Self) Self
+type Param[B baseB[B]] func(B) B
+
+func Param0[B baseB[B]](p func(B) B) Param[B] {
+	return func(b B) B {
+		return p(b)
+	}
+}
+
+func Param1[B baseB[B], X any](p func(B, X) B, x X) Param[B] {
+	return func(b B) B {
+		return p(b, x)
+	}
+}
+
+func Param2[B baseB[B], X any, Y any](p func(B, X, Y) B, x X, y Y) Param[B] {
+	return func(b B) B { return p(b, x, y) }
+}
 
 // ClientBuilder is the top-level builder interface for constructing HTTP clients.
 // It composes DialerBuilder, TLSConfigBuilder, TransportBuilder, and ServiceBuilder
@@ -85,7 +101,7 @@ const (
 // StandardClientBuilder implements ClientBuilder by directly managing
 // transport, dialer, TLS, and service-level configuration.
 type StandardClientBuilder struct {
-	serviceName     string
+	serviceName     refreshable.Refreshable[string]
 	timeout         refreshable.Refreshable[time.Duration]
 	dialerParams    refreshable.Refreshable[dialerParams]
 	tlsConfig       *tls.Config // escape hatch: replaces all other TLS settings
@@ -126,7 +142,7 @@ var _ ClientBuilder[*StandardClientBuilder] = (*StandardClientBuilder)(nil)
 // NewStandardClientBuilder creates a new StandardClientBuilder with sane defaults.
 func NewStandardClientBuilder() *StandardClientBuilder {
 	return &StandardClientBuilder{
-		serviceName: "",
+		serviceName: refreshable.New(""),
 		timeout:     refreshable.New(defaultHTTPTimeout),
 		dialerParams: refreshable.New(dialerParams{
 			DialTimeout: defaultDialTimeout,
@@ -157,7 +173,7 @@ func (b *StandardClientBuilder) Clone() *StandardClientBuilder {
 		clonedTLSConfig = b.tlsConfig.Clone()
 	}
 	clone := &StandardClientBuilder{
-		serviceName:         b.serviceName,
+		serviceName:         b.serviceName, // shared refreshable reference
 		timeout:             b.timeout,
 		dialerParams:        b.dialerParams,
 		transportParams:     b.transportParams,

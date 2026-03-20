@@ -81,6 +81,14 @@ type Tags map[string]string
 // Tags implements TagsProvider by returning itself, ignoring the request, response, and error.
 func (t Tags) Tags(*http.Request, *http.Response, error) Tags { return t }
 
+// TagsProviderFunc is a function adapter for the TagsProvider interface.
+type TagsProviderFunc func(req *http.Request, resp *http.Response, err error) Tags
+
+// Tags implements TagsProvider.
+func (f TagsProviderFunc) Tags(req *http.Request, resp *http.Response, err error) Tags {
+	return f(req, resp, err)
+}
+
 // TokenProvider returns a bearer token for request authentication.
 type TokenProvider func(ctx context.Context) (string, error)
 

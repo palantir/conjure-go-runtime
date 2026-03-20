@@ -54,6 +54,9 @@ type ServiceBuilder[B ServiceBuilder[B]] interface {
 	// SetServiceName sets the logical service name used in metrics and logging.
 	SetServiceName(string) B
 
+	// SetServiceNameRefreshable sets a refreshable logical service name used in metrics and logging.
+	SetServiceNameRefreshable(refreshable.Refreshable[string]) B
+
 	// Base URLs
 
 	// SetBaseURLs sets the static list of base URLs for the service.
@@ -195,7 +198,12 @@ type ServiceBuilder[B ServiceBuilder[B]] interface {
 }
 
 func (b *StandardClientBuilder) SetServiceName(s string) *StandardClientBuilder {
-	b.serviceName = s
+	b.serviceName = refreshable.New(s)
+	return b
+}
+
+func (b *StandardClientBuilder) SetServiceNameRefreshable(r refreshable.Refreshable[string]) *StandardClientBuilder {
+	b.serviceName = r
 	return b
 }
 
@@ -433,10 +441,10 @@ func (b *StandardClientBuilder) Build(ctx context.Context) (ConfigurableClient[*
 		return nil, werror.WrapWithContextParams(ctx, errors.Join(b.errs...), "builder configuration errors")
 	}
 	if b.uris == nil {
-		return nil, werror.ErrorWithContextParams(ctx, "httpclient URLs must be set in configuration or by constructor param", werror.SafeParam("serviceName", b.serviceName))
+		return nil, werror.ErrorWithContextParams(ctx, "httpclient URLs must be set in configuration or by constructor param", werror.SafeParam("serviceName", b.serviceName.Current()))
 	}
 	if !b.allowEmptyURIs && len(b.uris.Current()) == 0 {
-		return nil, werror.WrapWithContextParams(ctx, ErrEmptyURIs{}, "", werror.SafeParam("serviceName", b.serviceName))
+		return nil, werror.WrapWithContextParams(ctx, ErrEmptyURIs{}, "", werror.SafeParam("serviceName", b.serviceName.Current()))
 	}
 
 	// Build the http.Client.
@@ -465,7 +473,7 @@ func (b *StandardClientBuilder) Build(ctx context.Context) (ConfigurableClient[*
 		return b.uriScorerBuilder(uris)
 	})
 
-	fc := &fluentClient{
+	return &fluentClient[*StandardClientBuilder]{
 		serviceName:    b.serviceName,
 		httpClient:     httpClient,
 		middlewares:    b.middlewares,
@@ -476,11 +484,7 @@ func (b *StandardClientBuilder) Build(ctx context.Context) (ConfigurableClient[*
 		initialBackoff: b.initialBackoff,
 		maxBackoff:     b.maxBackoff,
 		bufferPool:     b.bytesBufferPool,
-	}
-
-	return &configurableFluentClient{
-		fluentClient: fc,
-		builder:      b,
+		builder:        b.Clone(),
 	}, nil
 }
 

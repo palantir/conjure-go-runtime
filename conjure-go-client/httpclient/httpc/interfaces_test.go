@@ -18,8 +18,7 @@ var _ BodyEncoder[string] = BodyEncoderFunc[string]{}
 var _ BodyDecoder[string] = BodyDecoderFunc[string]{}
 
 // fluentClient satisfies Client.
-var _ Client = (*fluentClient)(nil)
+var _ Client = (*fluentClient[*StandardClientBuilder])(nil)
 
-// configurableFluentClient satisfies ConfigurableClient.
-var _ ConfigurableClient[*StandardClientBuilder] = (*configurableFluentClient)(nil)
-
+// fluentClient satisfies ConfigurableClient.
+var _ ConfigurableClient[*StandardClientBuilder] = (*fluentClient[*StandardClientBuilder])(nil)

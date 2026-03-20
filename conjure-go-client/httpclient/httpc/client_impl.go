@@ -15,8 +15,8 @@ import (
 
 // fluentClient implements Client by wrapping a standard *http.Client with
 // retry and URI scoring logic.
-type fluentClient struct {
-	serviceName    string
+type fluentClient[B ServiceBuilder[B]] struct {
+	serviceName    refreshable.Refreshable[string]
 	httpClient     refreshable.Refreshable[*http.Client]
 	middlewares    []Middleware
 	errorDecoderMW Middleware // client-level error decoder as middleware
@@ -26,19 +26,22 @@ type fluentClient struct {
 	initialBackoff refreshable.Refreshable[time.Duration]
 	maxBackoff     refreshable.Refreshable[time.Duration]
 	bufferPool     bytesbuffers.Pool
+
+	// retains a reference to the builder for ConfigurableClient.Builder().
+	builder B
 }
 
 // getBufferPool returns the client's buffer pool, implementing poolProvider.
-func (c *fluentClient) getBufferPool() bytesbuffers.Pool {
+func (c *fluentClient[B]) getBufferPool() bytesbuffers.Pool {
 	return c.bufferPool
 }
 
-func (c *fluentClient) Do(req *http.Request) (*http.Response, error) {
+func (c *fluentClient[B]) Do(req *http.Request) (*http.Response, error) {
 	ctx := req.Context()
 
 	uris := c.uriScorer.GetURIsInOrderOfIncreasingScore()
 	if len(uris) == 0 {
-		return nil, werror.WrapWithContextParams(ctx, ErrEmptyURIs{}, "", werror.SafeParam("serviceName", c.serviceName))
+		return nil, werror.WrapWithContextParams(ctx, ErrEmptyURIs{}, "", werror.SafeParam("serviceName", c.serviceName.Current()))
 	}
 
 	attempts := 2 * len(uris)
@@ -66,7 +69,7 @@ func (c *fluentClient) Do(req *http.Request) (*http.Response, error) {
 	}
 }
 
-func (c *fluentClient) doOnce(
+func (c *fluentClient[B]) doOnce(
 	origReq *http.Request,
 	baseURI string,
 	useBaseURIOnly bool,
@@ -132,13 +135,6 @@ func (c *fluentClient) doOnce(
 	return resp, false, nil
 }
 
-// configurableFluentClient wraps fluentClient and retains a reference to the
-// builder for ConfigurableClient.Builder().
-type configurableFluentClient struct {
-	*fluentClient
-	builder *StandardClientBuilder
-}
-
-func (c *configurableFluentClient) Builder() *StandardClientBuilder {
+func (c *fluentClient[B]) Builder() B {
 	return c.builder.Clone()
 }

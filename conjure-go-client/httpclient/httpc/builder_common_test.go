@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpclient/httpc"
+	"github.com/palantir/pkg/refreshable/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -105,6 +106,30 @@ func TestStandardClientBuilder_ConfigurableClient(t *testing.T) {
 	result, err := ep.Execute(context.Background(), client2, struct{}{})
 	require.NoError(t, err)
 	assert.Equal(t, "reconfigured", result.Message)
+}
+
+// TestStandardClientBuilder_BuilderSnapshotsAtBuildTime verifies that
+// client.Builder() returns a clone of the builder as it was at Build time,
+// not the current (potentially mutated) builder.
+func TestStandardClientBuilder_BuilderSnapshotsAtBuildTime(t *testing.T) {
+	b := httpc.NewStandardClientBuilder().
+		SetServiceName("original").
+		SetBaseURLs("http://localhost:1234").
+		SetTimeout(5 * time.Second).
+		DisableRestErrors()
+
+	client, err := b.Build(context.Background())
+	require.NoError(t, err)
+
+	// Mutate the builder after Build.
+	b.SetTimeout(99 * time.Second)
+
+	// Builder() should return a snapshot from Build time (5s), not the
+	// current builder state (99s).
+	rebuilder := client.Builder()
+	httpClient, err := rebuilder.BuildHTTPClient(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, 5*time.Second, httpClient.Current().Timeout)
 }
 
 func TestStandardClientBuilder_Middleware(t *testing.T) {
@@ -464,4 +489,60 @@ func TestStandardClientBuilder_BuildTLSConfig(t *testing.T) {
 	validated, validErr := tlsConfig.Validation()
 	require.NoError(t, validErr)
 	assert.True(t, validated.InsecureSkipVerify)
+}
+
+// TestRefreshable_TimeoutPropagation verifies that updating a refreshable timeout
+// propagates to the *http.Client produced by BuildHTTPClient.
+func TestRefreshable_TimeoutPropagation(t *testing.T) {
+	timeout := refreshable.New(5 * time.Second)
+	httpClient, err := httpc.NewStandardClientBuilder().
+		SetTimeoutRefreshable(timeout).
+		BuildHTTPClient(context.Background())
+	require.NoError(t, err)
+
+	assert.Equal(t, 5*time.Second, httpClient.Current().Timeout)
+
+	// Update timeout — the refreshable.Map in BuildHTTPClient should
+	// produce a new *http.Client with the updated timeout.
+	timeout.Update(10 * time.Second)
+	assert.Equal(t, 10*time.Second, httpClient.Current().Timeout)
+}
+
+// TestRefreshable_URIPropagation verifies that updating a refreshable URI list
+// causes the built client to route requests to the new server.
+func TestRefreshable_URIPropagation(t *testing.T) {
+	var server1Hits, server2Hits int
+	server1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		server1Hits++
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server1.Close()
+	server2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		server2Hits++
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server2.Close()
+
+	uris := refreshable.New([]string{server1.URL})
+	client, err := httpc.NewStandardClientBuilder().
+		SetBaseURLsRefreshable(uris).
+		DisableRestErrors().
+		Build(context.Background())
+	require.NoError(t, err)
+
+	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "/test", "Test").
+		SetDecoder(httpc.VoidDecoder())
+
+	_, err = ep.Execute(context.Background(), client, struct{}{})
+	require.NoError(t, err)
+	assert.Equal(t, 1, server1Hits)
+	assert.Equal(t, 0, server2Hits)
+
+	// Update URIs to point to server2.
+	uris.Update([]string{server2.URL})
+
+	_, err = ep.Execute(context.Background(), client, struct{}{})
+	require.NoError(t, err)
+	assert.Equal(t, 1, server1Hits)
+	assert.Equal(t, 1, server2Hits)
 }

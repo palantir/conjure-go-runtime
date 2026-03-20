@@ -17,23 +17,66 @@ import (
 // metricsMiddleware emits client.response timer metrics.
 type metricsMiddleware struct {
 	disabled    refreshable.Refreshable[bool]
-	serviceName string
+	serviceName refreshable.Refreshable[string]
 	tags        []TagsProvider
 }
 
 const (
-	metricClientResponse  = "client_response"
+	// metricClientResponse is a Timer (microseconds) measuring the total round-trip duration of each HTTP request.
+	// Tags: service_name, family (1xx-5xx/timeout/other), method, method_name.
+	metricClientResponse = "client_response"
+	// metricRequestInFlight is a Counter tracking the number of HTTP requests currently in progress.
+	// Tags: service_name.
 	metricRequestInFlight = "client_request_in_flight"
-	metricConnCreate      = "client_connection_create"
+	// metricConnCreate is a Counter incremented each time a connection is obtained for a request.
+	// Tags: service_name, reused (true/false).
+	metricConnCreate = "client_connection_create"
+	// metricConnAcquire is a Timer (microseconds) measuring the time from requesting a connection (GetConn)
+	// to obtaining one (GotConn). This includes pool wait time, and for new connections: DNS, TCP dial, and TLS.
+	// Tags: service_name, reused (true/false).
+	metricConnAcquire = "client_conn_acquire"
+	// metricConnIdleReturnError is a Meter counting connections that failed to return to the idle pool.
+	// A spike indicates connection pool saturation or broken connections.
+	// Tags: service_name.
+	metricConnIdleReturnError = "client_conn_idle_return_error"
+
+	// metricDNSLookup is a Timer (microseconds) measuring DNS resolution duration.
+	// Tags: service_name.
+	metricDNSLookup = "client_dns_lookup"
+	// metricDNSLookupError is a Meter counting DNS resolution failures.
+	// Tags: service_name.
+	metricDNSLookupError = "client_dns_lookup_error"
+
+	// metricTCPConnect is a Timer (microseconds) measuring TCP dial duration (ConnectStart to ConnectDone).
+	// Tags: service_name, network (e.g. "tcp", "tcp4", "tcp6").
+	metricTCPConnect = "client_tcp_connect"
+	// metricTCPConnectError is a Meter counting TCP connection failures.
+	// Tags: service_name, network.
+	metricTCPConnectError = "client_tcp_connect_error"
+
+	// metricTLSHandshakeAttempt is a Meter counting TLS handshake attempts.
+	// Tags: service_name.
+	metricTLSHandshakeAttempt = "tls_handshake_attempt"
+	// metricTLSHandshakeFailure is a Meter counting TLS handshake failures.
+	// Tags: service_name, cipher, next_protocol, tls_version (when available).
+	metricTLSHandshakeFailure = "tls_handshake_failure"
+	// metricTLSHandshake is a Meter counting successful TLS handshakes.
+	// Tags: service_name, cipher, next_protocol, tls_version.
+	metricTLSHandshake = "tls_handshake"
+
+	// metricTimeToFirstByte is a Timer (microseconds) measuring the interval from request fully written (WroteRequest)
+	// to the first response byte received (GotFirstResponseByte). Approximates server-side processing time.
+	// Tags: service_name.
+	metricTimeToFirstByte = "client_time_to_first_byte"
+	// metricRequestWriteError is a Meter counting failures when writing the request to the connection.
+	// Tags: service_name.
+	metricRequestWriteError = "client_request_write_error"
 
 	metricTagServiceName = "service_name"
 	metricTagFamily      = "family"
 	metricTagMethod      = "method"
 	metricTagMethodName  = "method_name"
-
-	metricTLSHandshakeAttempt = "tls_handshake_attempt"
-	metricTLSHandshakeFailure = "tls_handshake_failure"
-	metricTLSHandshake        = "tls_handshake"
+	metricTagNetwork     = "network"
 
 	metricTagCipher       = "cipher"
 	metricTagNextProtocol = "next_protocol"
@@ -57,7 +100,7 @@ func (m *metricsMiddleware) RoundTrip(req *http.Request, next http.RoundTripper)
 	if m.disabled != nil && m.disabled.Current() {
 		return next.RoundTrip(req)
 	}
-	serviceNameTag := metrics.NewTagWithFallbackValue(metricTagServiceName, m.serviceName, "unknown")
+	serviceNameTag := metrics.NewTagWithFallbackValue(metricTagServiceName, m.serviceName.Current(), "unknown")
 	registry := metrics.FromContext(req.Context())
 
 	registry.Counter(metricRequestInFlight, serviceNameTag).Inc(1)
@@ -99,12 +142,59 @@ func (m *metricsMiddleware) appendTags(tags metrics.Tags, req *http.Request, res
 }
 
 func (m *metricsMiddleware) tlsTraceContext(ctx context.Context, registry metrics.Registry, serviceNameTag metrics.Tag) context.Context {
+	// Local timing variables shared across closures. ClientTrace callbacks are invoked
+	// sequentially on the goroutine that owns the request, so no synchronization is needed.
+	var (
+		getConnStart   time.Time
+		dnsStart       time.Time
+		connectStart   time.Time
+		wroteRequestAt time.Time
+	)
 	return httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{
+		GetConn: func(hostPort string) {
+			getConnStart = time.Now()
+		},
 		GotConn: func(info httptrace.GotConnInfo) {
+			reuseTag := metricTagConnectionNew
 			if info.Reused {
-				registry.Counter(metricConnCreate, serviceNameTag, metricTagConnectionReused).Inc(1)
-			} else {
-				registry.Counter(metricConnCreate, serviceNameTag, metricTagConnectionNew).Inc(1)
+				reuseTag = metricTagConnectionReused
+			}
+			registry.Counter(metricConnCreate, serviceNameTag, reuseTag).Inc(1)
+			if !getConnStart.IsZero() {
+				registry.Timer(metricConnAcquire, serviceNameTag, reuseTag).Update(time.Since(getConnStart) / time.Microsecond)
+			}
+		},
+		PutIdleConn: func(err error) {
+			if err != nil {
+				registry.Meter(metricConnIdleReturnError, serviceNameTag).Mark(1)
+			}
+		},
+		GotFirstResponseByte: func() {
+			if !wroteRequestAt.IsZero() {
+				registry.Timer(metricTimeToFirstByte, serviceNameTag).Update(time.Since(wroteRequestAt) / time.Microsecond)
+			}
+		},
+		DNSStart: func(info httptrace.DNSStartInfo) {
+			dnsStart = time.Now()
+		},
+		DNSDone: func(info httptrace.DNSDoneInfo) {
+			if !dnsStart.IsZero() {
+				registry.Timer(metricDNSLookup, serviceNameTag).Update(time.Since(dnsStart) / time.Microsecond)
+			}
+			if info.Err != nil {
+				registry.Meter(metricDNSLookupError, serviceNameTag).Mark(1)
+			}
+		},
+		ConnectStart: func(network, addr string) {
+			connectStart = time.Now()
+		},
+		ConnectDone: func(network, addr string, err error) {
+			networkTag := metrics.NewTagWithFallbackValue(metricTagNetwork, network, "unknown")
+			if !connectStart.IsZero() {
+				registry.Timer(metricTCPConnect, serviceNameTag, networkTag).Update(time.Since(connectStart) / time.Microsecond)
+			}
+			if err != nil {
+				registry.Meter(metricTCPConnectError, serviceNameTag, networkTag).Mark(1)
 			}
 		},
 		TLSHandshakeStart: func() {
@@ -126,6 +216,12 @@ func (m *metricsMiddleware) tlsTraceContext(ctx context.Context, registry metric
 				registry.Meter(metricTLSHandshakeFailure, tags...).Mark(1)
 			} else {
 				registry.Meter(metricTLSHandshake, tags...).Mark(1)
+			}
+		},
+		WroteRequest: func(info httptrace.WroteRequestInfo) {
+			wroteRequestAt = time.Now()
+			if info.Err != nil {
+				registry.Meter(metricRequestWriteError, serviceNameTag).Mark(1)
 			}
 		},
 	})

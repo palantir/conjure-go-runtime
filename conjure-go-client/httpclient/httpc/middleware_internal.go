@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpclient/internal"
+	"github.com/palantir/pkg/refreshable/v2"
 	werror "github.com/palantir/witchcraft-go-error"
 	"github.com/palantir/witchcraft-go-tracing/wtracing"
 	"github.com/palantir/witchcraft-go-tracing/wtracing/propagation/b3"
@@ -72,7 +73,7 @@ func (e errorDecoderMiddleware) RoundTrip(req *http.Request, next http.RoundTrip
 
 // traceMiddleware injects tracing information into request headers.
 type traceMiddleware struct {
-	serviceName         string
+	serviceName         refreshable.Refreshable[string]
 	disableRequestSpan  bool
 	disableTraceHeaders bool
 }
@@ -87,7 +88,7 @@ func (t *traceMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (
 		if method, ok := RPCMethodName(ctx); ok && method != "" {
 			span, ctx = wtracing.StartSpanFromContext(ctx, wtracing.TracerFromContext(ctx), method,
 				wtracing.WithKind(wtracing.Client),
-				wtracing.WithRemoteEndpoint(&wtracing.Endpoint{ServiceName: t.serviceName}))
+				wtracing.WithRemoteEndpoint(&wtracing.Endpoint{ServiceName: t.serviceName.Current()}))
 			if span != nil {
 				defer span.Finish()
 			}
