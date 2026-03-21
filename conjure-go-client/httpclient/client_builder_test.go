@@ -78,8 +78,9 @@ func TestNewHTTPClientWithoutURIs(t *testing.T) {
 	require.NotNil(t, c.Current())
 }
 
+//go:fix inline
 func toPointer[T any](timeArg T) *T {
-	return &timeArg
+	return new(timeArg)
 }
 
 func TestAddingCAFileIsCaptured(t *testing.T) {
@@ -94,7 +95,7 @@ func TestAddingCAFileIsCaptured(t *testing.T) {
 	tlsCapturingMiddleware := newTLSCapturingMiddleware(&capturedSubjects)
 	cfg := httpclient.ClientConfig{
 		ServiceName:   "baz",
-		MaxNumRetries: toPointer(0),
+		MaxNumRetries: new(0),
 		URIs: []string{
 			"https://test-service",
 		},
@@ -142,7 +143,7 @@ func TestCAUpdatesToTheSameCAFileIsCaptured(t *testing.T) {
 		URIs: []string{
 			"https://test-service",
 		},
-		MaxNumRetries: toPointer(0),
+		MaxNumRetries: new(0),
 		Security: httpclient.SecurityConfig{
 			CAFiles: []string{caFile1},
 		},
@@ -296,7 +297,7 @@ func TestCABytesAndCAFileCombined(t *testing.T) {
 	tlsCapturingMiddleware2 := newTLSCapturingMiddleware(&capturedSubjects2)
 	cfg := httpclient.ClientConfig{
 		ServiceName:   "test-service",
-		MaxNumRetries: toPointer(0),
+		MaxNumRetries: new(0),
 		URIs:          []string{"https://test-service"},
 		Security: httpclient.SecurityConfig{
 			CAFiles: []string{caFile},

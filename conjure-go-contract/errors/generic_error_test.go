@@ -31,7 +31,7 @@ import (
 func TestError_Error(t *testing.T) {
 	err := NewError(
 		MustErrorType(Timeout, "MyApplication:DatabaseTimeout"),
-		wparams.NewSafeParamStorer(map[string]interface{}{"ttl": "10s"}),
+		wparams.NewSafeParamStorer(map[string]any{"ttl": "10s"}),
 	)
 	assert.EqualError(t, err, fmt.Sprintf("TIMEOUT MyApplication:DatabaseTimeout (%s)", err.InstanceID()))
 }
@@ -39,7 +39,7 @@ func TestError_Error(t *testing.T) {
 func TestError_CodecsJSONEscapesHTML(t *testing.T) {
 	e := NewError(
 		MustErrorType(Timeout, "MyApplication:Timeout"),
-		wparams.NewSafeParamStorer(map[string]interface{}{"htmlKey": "something&something"}),
+		wparams.NewSafeParamStorer(map[string]any{"htmlKey": "something&something"}),
 	)
 
 	marshaledError, err := codecs.JSON.Marshal(e)
@@ -51,8 +51,8 @@ func TestError_NewError_Then_MarshalJSON_Then_UnmarshalJSON_And_Unpack(t *testin
 	e := NewError(
 		MustErrorType(Timeout, "MyApplication:Timeout"),
 		wparams.NewSafeAndUnsafeParamStorer(
-			map[string]interface{}{"safeKey": "safeValue"},
-			map[string]interface{}{"unsafeKey": "unsafeValue"},
+			map[string]any{"safeKey": "safeValue"},
+			map[string]any{"unsafeKey": "unsafeValue"},
 		),
 	)
 	expectedJSON := fmt.Sprintf(`{

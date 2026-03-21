@@ -30,7 +30,7 @@ func TestPlainCodec(t *testing.T) {
 	for _, test := range []struct {
 		Name  string
 		Data  string
-		Value interface{}
+		Value any
 	}{
 		{
 			Name:  "string",

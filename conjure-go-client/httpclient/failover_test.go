@@ -177,7 +177,7 @@ func TestFailoverDistribution(t *testing.T) {
 	serverHits := make([]int, serverCount)
 	servers := make([]*httptest.Server, serverCount)
 	urls := make([]string, serverCount)
-	for i := 0; i < serverCount; i++ {
+	for i := range serverCount {
 		serverIndex := i
 		servers[serverIndex] = httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
 			serverHits[serverIndex]++
@@ -191,12 +191,12 @@ func TestFailoverDistribution(t *testing.T) {
 
 	// Disable one server
 	servers[0].Close()
-	for i := 0; i < requests; i++ {
+	for range requests {
 		_, err = cli.Do(context.Background(), WithRequestMethod("GET"))
 		assert.NoError(t, err)
 	}
 	assert.Equal(t, requests, totalHits)
-	for i := 0; i < serverCount; i++ {
+	for i := range serverCount {
 		// Validate that requests are evenly distributed across servers
 		assert.True(t, serverHits[i] < 2*requests/serverCount)
 	}

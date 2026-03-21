@@ -24,28 +24,28 @@ import (
 func TestRegisterErrorType_types(t *testing.T) {
 	t.Run("error type should not panic", func(t *testing.T) {
 		assert.NotPanics(t, func() {
-			RegisterErrorType("name1", reflect.TypeOf(genericError{}))
+			RegisterErrorType("name1", reflect.TypeFor[genericError]())
 		})
 	})
 	t.Run("reused error name should panic", func(t *testing.T) {
 		assert.PanicsWithValue(t,
 			"ErrorName name1 already registered as errors.genericError",
 			func() {
-				RegisterErrorType("name1", reflect.TypeOf(genericError{}))
+				RegisterErrorType("name1", reflect.TypeFor[genericError]())
 			})
 	})
 	t.Run("pointer type should panic", func(t *testing.T) {
 		assert.PanicsWithValue(t,
 			"Error type **errors.genericError does not implement errors.Error interface",
 			func() {
-				RegisterErrorType("name2", reflect.TypeOf(&genericError{}))
+				RegisterErrorType("name2", reflect.TypeFor[*genericError]())
 			})
 	})
 	t.Run("non-error type should panic", func(t *testing.T) {
 		assert.PanicsWithValue(t,
 			"Error type *string does not implement errors.Error interface",
 			func() {
-				RegisterErrorType("name3", reflect.TypeOf("string"))
+				RegisterErrorType("name3", reflect.TypeFor[string]())
 			})
 	})
 }
@@ -53,9 +53,9 @@ func TestRegisterErrorType_types(t *testing.T) {
 func TestMustRegisterErrorTypes(t *testing.T) {
 	t.Run("registers multiple error types", func(t *testing.T) {
 		r := NewReflectTypeConjureErrorDecoder().MustRegisterErrorTypes(&error1{}, &error2{}, &error3{})
-		assert.Equal(t, reflect.TypeOf(error1{}), r.registry["Error1"])
-		assert.Equal(t, reflect.TypeOf(error2{}), r.registry["Error2"])
-		assert.Equal(t, reflect.TypeOf(error3{}), r.registry["Error3"])
+		assert.Equal(t, reflect.TypeFor[error1](), r.registry["Error1"])
+		assert.Equal(t, reflect.TypeFor[error2](), r.registry["Error2"])
+		assert.Equal(t, reflect.TypeFor[error3](), r.registry["Error3"])
 	})
 	t.Run("returns same decoder for chaining", func(t *testing.T) {
 		d := NewReflectTypeConjureErrorDecoder()
@@ -66,9 +66,9 @@ func TestMustRegisterErrorTypes(t *testing.T) {
 		r := NewReflectTypeConjureErrorDecoder().
 			MustRegisterErrorTypes(&error1{}).
 			MustRegisterErrorTypes(&error2{}, &error3{})
-		assert.Equal(t, reflect.TypeOf(error1{}), r.registry["Error1"])
-		assert.Equal(t, reflect.TypeOf(error2{}), r.registry["Error2"])
-		assert.Equal(t, reflect.TypeOf(error3{}), r.registry["Error3"])
+		assert.Equal(t, reflect.TypeFor[error1](), r.registry["Error1"])
+		assert.Equal(t, reflect.TypeFor[error2](), r.registry["Error2"])
+		assert.Equal(t, reflect.TypeFor[error3](), r.registry["Error3"])
 	})
 	t.Run("no args is a no-op", func(t *testing.T) {
 		r := NewReflectTypeConjureErrorDecoder().MustRegisterErrorTypes()

@@ -27,7 +27,7 @@ import (
 )
 
 func TestUnmarshalError(t *testing.T) {
-	errors.RegisterErrorType(testErrorName, reflect.TypeOf(testErrorType{}))
+	errors.RegisterErrorType(testErrorName, reflect.TypeFor[testErrorType]())
 	for _, test := range []struct {
 		name      string
 		in        errors.SerializableError
@@ -44,8 +44,8 @@ func TestUnmarshalError(t *testing.T) {
 				Parameters:      json.RawMessage(`{"ttl":"10s"}`),
 			},
 			verify: func(t *testing.T, actual errors.Error) {
-				assert.Equal(t, map[string]interface{}{"errorInstanceId": actual.InstanceID(), "errorName": actual.Name()}, actual.SafeParams())
-				assert.Equal(t, map[string]interface{}{"ttl": "10s"}, actual.UnsafeParams())
+				assert.Equal(t, map[string]any{"errorInstanceId": actual.InstanceID(), "errorName": actual.Name()}, actual.SafeParams())
+				assert.Equal(t, map[string]any{"ttl": "10s"}, actual.UnsafeParams())
 			},
 		},
 		{
@@ -57,8 +57,8 @@ func TestUnmarshalError(t *testing.T) {
 				Parameters:      json.RawMessage(`{"ttl":"10s"}`),
 			},
 			verify: func(t *testing.T, actual errors.Error) {
-				assert.Equal(t, map[string]interface{}{"errorInstanceId": actual.InstanceID(), "errorName": actual.Name()}, actual.SafeParams())
-				assert.Equal(t, map[string]interface{}{"ttl": "10s"}, actual.UnsafeParams())
+				assert.Equal(t, map[string]any{"errorInstanceId": actual.InstanceID(), "errorName": actual.Name()}, actual.SafeParams())
+				assert.Equal(t, map[string]any{"ttl": "10s"}, actual.UnsafeParams())
 			},
 		},
 		{
@@ -69,8 +69,8 @@ func TestUnmarshalError(t *testing.T) {
 				ErrorInstanceID: uuid.NewUUID(),
 			},
 			verify: func(t *testing.T, actual errors.Error) {
-				assert.Equal(t, map[string]interface{}{"errorInstanceId": actual.InstanceID(), "errorName": actual.Name()}, actual.SafeParams())
-				assert.Equal(t, map[string]interface{}{}, actual.UnsafeParams())
+				assert.Equal(t, map[string]any{"errorInstanceId": actual.InstanceID(), "errorName": actual.Name()}, actual.SafeParams())
+				assert.Equal(t, map[string]any{}, actual.UnsafeParams())
 			},
 		},
 		{
@@ -81,8 +81,8 @@ func TestUnmarshalError(t *testing.T) {
 				ErrorInstanceID: uuid.NewUUID(),
 			},
 			verify: func(t *testing.T, actual errors.Error) {
-				assert.Equal(t, map[string]interface{}{"errorInstanceId": actual.InstanceID(), "errorName": actual.Name()}, actual.SafeParams())
-				assert.Equal(t, map[string]interface{}{}, actual.UnsafeParams())
+				assert.Equal(t, map[string]any{"errorInstanceId": actual.InstanceID(), "errorName": actual.Name()}, actual.SafeParams())
+				assert.Equal(t, map[string]any{}, actual.UnsafeParams())
 			},
 		},
 		{
@@ -93,8 +93,8 @@ func TestUnmarshalError(t *testing.T) {
 				ErrorInstanceID: uuid.NewUUID(),
 			},
 			verify: func(t *testing.T, actual errors.Error) {
-				assert.Equal(t, map[string]interface{}{"errorInstanceId": actual.InstanceID(), "errorName": actual.Name()}, actual.SafeParams())
-				assert.Equal(t, map[string]interface{}{}, actual.UnsafeParams())
+				assert.Equal(t, map[string]any{"errorInstanceId": actual.InstanceID(), "errorName": actual.Name()}, actual.SafeParams())
+				assert.Equal(t, map[string]any{}, actual.UnsafeParams())
 			},
 		},
 		{
@@ -107,8 +107,8 @@ func TestUnmarshalError(t *testing.T) {
 			},
 			verify: func(t *testing.T, actual errors.Error) {
 				assert.Equal(t, testErrorTypeParams{IntArg: 3, StringArg: "foo"}, actual.(*testErrorType).Parameters)
-				assert.Equal(t, map[string]interface{}{"intArg": 3, "errorInstanceId": actual.InstanceID(), "errorName": actual.Name()}, actual.SafeParams())
-				assert.Equal(t, map[string]interface{}{"stringArg": "foo"}, actual.UnsafeParams())
+				assert.Equal(t, map[string]any{"intArg": 3, "errorInstanceId": actual.InstanceID(), "errorName": actual.Name()}, actual.SafeParams())
+				assert.Equal(t, map[string]any{"stringArg": "foo"}, actual.UnsafeParams())
 			},
 		},
 		{
@@ -120,8 +120,8 @@ func TestUnmarshalError(t *testing.T) {
 				Parameters:      json.RawMessage(`{"intArg": 3, "stringArg": "foo"}`),
 			},
 			verify: func(t *testing.T, actual errors.Error) {
-				assert.Equal(t, map[string]interface{}{"errorInstanceId": actual.InstanceID(), "errorName": actual.Name()}, actual.SafeParams())
-				assert.Equal(t, map[string]interface{}{"intArg": json.Number("3"), "stringArg": "foo"}, actual.UnsafeParams())
+				assert.Equal(t, map[string]any{"errorInstanceId": actual.InstanceID(), "errorName": actual.Name()}, actual.SafeParams())
+				assert.Equal(t, map[string]any{"intArg": json.Number("3"), "stringArg": "foo"}, actual.UnsafeParams())
 			},
 		},
 		{
@@ -171,7 +171,7 @@ type testErrorType struct {
 	ErrorCode       errors.ErrorCode    `json:"errorCode"`
 	ErrorName       string              `json:"errorName"`
 	ErrorInstanceID uuid.UUID           `json:"errorInstanceId"`
-	Parameters      testErrorTypeParams `json:"parameters,omitempty"`
+	Parameters      testErrorTypeParams `json:"parameters"`
 }
 
 type testErrorTypeParams struct {
@@ -195,10 +195,10 @@ func (e *testErrorType) InstanceID() uuid.UUID {
 	return e.ErrorInstanceID
 }
 
-func (e *testErrorType) SafeParams() map[string]interface{} {
-	return map[string]interface{}{"intArg": e.Parameters.IntArg, "errorInstanceId": e.InstanceID(), "errorName": e.Name()}
+func (e *testErrorType) SafeParams() map[string]any {
+	return map[string]any{"intArg": e.Parameters.IntArg, "errorInstanceId": e.InstanceID(), "errorName": e.Name()}
 }
 
-func (e *testErrorType) UnsafeParams() map[string]interface{} {
-	return map[string]interface{}{"stringArg": e.Parameters.StringArg}
+func (e *testErrorType) UnsafeParams() map[string]any {
+	return map[string]any{"stringArg": e.Parameters.StringArg}
 }

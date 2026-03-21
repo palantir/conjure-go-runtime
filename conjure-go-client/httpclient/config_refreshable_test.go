@@ -285,6 +285,7 @@ func TestRefreshableClientConfig(t *testing.T) {
 	})
 }
 
+//go:fix inline
 func newDurationPtr(dur time.Duration) *time.Duration {
-	return &dur
+	return new(dur)
 }
