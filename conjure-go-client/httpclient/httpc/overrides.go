@@ -13,12 +13,21 @@ type basicAuthOverride struct {
 }
 
 // Overrides holds per-request configuration that can be applied to an Endpoint
-// or embedded in a generated service client struct. All With* methods use
+// or embedded in a generated service client struct. All methods use
 // copy-on-write semantics: they return a new Overrides value without modifying
 // the original.
+//
+// Headers and query parameters have both Set and Add variants:
+//   - SetHeader/SetQuery replaces all values for a key (last-wins semantics).
+//   - AddHeader/AddQuery accumulates values for a key.
+//
+// When both Set and Add are used for the same key, Set takes precedence:
+// calling SetHeader after AddHeader for the same key discards the Add values.
 type Overrides struct {
-	headers      http.Header
-	queryParams  url.Values
+	setHeaders   http.Header
+	addHeaders   http.Header
+	setQuery     url.Values
+	addQuery     url.Values
 	timeout      *time.Duration
 	errorDecoder ErrorDecoder
 	basicAuth    *basicAuthOverride
@@ -28,15 +37,25 @@ type Overrides struct {
 // Clone returns a deep copy of the Overrides value.
 func (c Overrides) Clone() Overrides {
 	out := c
-	if c.headers != nil {
-		out.headers = c.headers.Clone()
+	if c.setHeaders != nil {
+		out.setHeaders = c.setHeaders.Clone()
 	}
-	if c.queryParams != nil {
-		cp := make(url.Values, len(c.queryParams))
-		for k, v := range c.queryParams {
+	if c.addHeaders != nil {
+		out.addHeaders = c.addHeaders.Clone()
+	}
+	if c.setQuery != nil {
+		cp := make(url.Values, len(c.setQuery))
+		for k, v := range c.setQuery {
 			cp[k] = append([]string(nil), v...)
 		}
-		out.queryParams = cp
+		out.setQuery = cp
+	}
+	if c.addQuery != nil {
+		cp := make(url.Values, len(c.addQuery))
+		for k, v := range c.addQuery {
+			cp[k] = append([]string(nil), v...)
+		}
+		out.addQuery = cp
 	}
 	if c.middlewares != nil {
 		out.middlewares = make([]Middleware, len(c.middlewares))
@@ -53,25 +72,55 @@ func (c Overrides) Clone() Overrides {
 	return out
 }
 
-// WithHeader adds a request header. Multiple calls with the same key accumulate values.
+// AddHeader adds a request header. Multiple calls with the same key accumulate values.
 // Returns a new Overrides value; the original is unchanged.
-func (c Overrides) WithHeader(key, value string) Overrides {
+func (c Overrides) AddHeader(key, value string) Overrides {
 	c = c.Clone()
-	if c.headers == nil {
-		c.headers = make(http.Header)
+	if c.addHeaders == nil {
+		c.addHeaders = make(http.Header)
 	}
-	c.headers.Add(key, value)
+	c.addHeaders.Add(key, value)
 	return c
 }
 
-// WithQueryParam adds a query parameter. Multiple calls with the same key accumulate values.
+// SetHeader sets a request header, replacing any previously added or set values for the key.
 // Returns a new Overrides value; the original is unchanged.
-func (c Overrides) WithQueryParam(key, value string) Overrides {
+func (c Overrides) SetHeader(key, value string) Overrides {
 	c = c.Clone()
-	if c.queryParams == nil {
-		c.queryParams = make(url.Values)
+	if c.setHeaders == nil {
+		c.setHeaders = make(http.Header)
 	}
-	c.queryParams.Add(key, value)
+	c.setHeaders.Set(key, value)
+	// Set wins over prior Add for the same key.
+	if c.addHeaders != nil {
+		delete(c.addHeaders, http.CanonicalHeaderKey(key))
+	}
+	return c
+}
+
+// AddQuery adds a query parameter. Multiple calls with the same key accumulate values.
+// Returns a new Overrides value; the original is unchanged.
+func (c Overrides) AddQuery(key, value string) Overrides {
+	c = c.Clone()
+	if c.addQuery == nil {
+		c.addQuery = make(url.Values)
+	}
+	c.addQuery.Add(key, value)
+	return c
+}
+
+// SetQuery sets a query parameter, replacing any previously added or set values for the key.
+// Returns a new Overrides value; the original is unchanged.
+func (c Overrides) SetQuery(key, value string) Overrides {
+	c = c.Clone()
+	if c.setQuery == nil {
+		c.setQuery = make(url.Values)
+	}
+	c.setQuery.Set(key, value)
+	// Set wins over prior Add for the same key.
+	if c.addQuery != nil {
+		delete(c.addQuery, key)
+	}
 	return c
 }
 
@@ -108,26 +157,58 @@ func (c Overrides) WithMiddleware(m Middleware) Overrides {
 }
 
 // merge returns a new Overrides that combines the receiver with o.
-// Headers and query params are additive. Timeout, error decoder, and basic auth
-// use last-wins (o takes precedence if set). Middlewares are appended.
+//
+// Set headers/query from o replace the receiver's values for matching keys and
+// delete those keys from the receiver's add maps. Add headers/query from o
+// accumulate into the receiver's add maps.
+//
+// Timeout, error decoder, and basic auth use last-wins (o takes precedence if set).
+// Middlewares are appended.
 func (c Overrides) merge(o Overrides) Overrides {
 	out := c.Clone()
-	for k, vs := range o.headers {
-		for _, v := range vs {
-			if out.headers == nil {
-				out.headers = make(http.Header)
-			}
-			out.headers.Add(k, v)
+
+	// Merge set headers: o's set headers replace receiver's set headers and clear add headers for those keys.
+	for k, vs := range o.setHeaders {
+		if out.setHeaders == nil {
+			out.setHeaders = make(http.Header)
+		}
+		out.setHeaders[k] = append([]string(nil), vs...)
+		if out.addHeaders != nil {
+			delete(out.addHeaders, k)
 		}
 	}
-	for k, vs := range o.queryParams {
+
+	// Merge add headers: accumulate into receiver's add headers.
+	for k, vs := range o.addHeaders {
 		for _, v := range vs {
-			if out.queryParams == nil {
-				out.queryParams = make(url.Values)
+			if out.addHeaders == nil {
+				out.addHeaders = make(http.Header)
 			}
-			out.queryParams.Add(k, v)
+			out.addHeaders.Add(k, v)
 		}
 	}
+
+	// Merge set query: o's set query replaces receiver's set query and clears add query for those keys.
+	for k, vs := range o.setQuery {
+		if out.setQuery == nil {
+			out.setQuery = make(url.Values)
+		}
+		out.setQuery[k] = append([]string(nil), vs...)
+		if out.addQuery != nil {
+			delete(out.addQuery, k)
+		}
+	}
+
+	// Merge add query: accumulate into receiver's add query.
+	for k, vs := range o.addQuery {
+		for _, v := range vs {
+			if out.addQuery == nil {
+				out.addQuery = make(url.Values)
+			}
+			out.addQuery.Add(k, v)
+		}
+	}
+
 	if o.timeout != nil {
 		out.timeout = o.timeout
 	}

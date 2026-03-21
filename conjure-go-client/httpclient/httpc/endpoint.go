@@ -46,18 +46,22 @@ func (f clientFunc) Do(req *http.Request) (*http.Response, error) { return f(req
 // they return a new value with the override applied, leaving the original unchanged.
 // This makes it safe to derive multiple specialized configurations from a shared base:
 //
-//	base := ep.WithHeader("X-Tenant", "acme")
-//	v1 := base.WithHeader("Api-Version", "1")
-//	v2 := base.WithHeader("Api-Version", "2") // base and v1 are unaffected
+//	base := ep.AddHeader("X-Tenant", "acme")
+//	v1 := base.AddHeader("Api-Version", "1")
+//	v2 := base.AddHeader("Api-Version", "2") // base and v1 are unaffected
 //
 // The type parameter D is the concrete implementing type (F-bounded polymorphism),
 // ensuring that methods on Endpoint return Endpoint and methods on Overrides
 // return Overrides.
 type RequestOverrides[D any] interface {
-	// WithHeader adds a request header. Multiple calls with the same key accumulate values.
-	WithHeader(key, value string) D
-	// WithQueryParam adds a query parameter. Multiple calls with the same key accumulate values.
-	WithQueryParam(key, value string) D
+	// AddHeader adds a request header. Multiple calls with the same key accumulate values.
+	AddHeader(key, value string) D
+	// SetHeader sets a request header, replacing any previously added or set values for the key.
+	SetHeader(key, value string) D
+	// AddQuery adds a query parameter. Multiple calls with the same key accumulate values.
+	AddQuery(key, value string) D
+	// SetQuery sets a query parameter, replacing any previously added or set values for the key.
+	SetQuery(key, value string) D
 	// WithTimeout sets a per-request timeout that overrides the client-level timeout.
 	WithTimeout(time.Duration) D
 	// WithErrorDecoder sets a per-request error decoder that overrides the client-level decoder.
@@ -70,7 +74,7 @@ type RequestOverrides[D any] interface {
 
 // Endpoint is a copy-on-write request descriptor that pairs an HTTP method and path
 // with a typed encoder and decoder. All methods (SetEncoder, SetDecoder, SetAccept,
-// and the RequestOverrides With* methods) return a new Endpoint value without modifying
+// and the RequestOverrides methods) return a new Endpoint value without modifying
 // the original. This makes Endpoint safe to store as a package-level base configuration
 // and derive per-call variants from it concurrently:
 //
@@ -81,7 +85,7 @@ type RequestOverrides[D any] interface {
 //	    SetAccept("application/json")
 //
 //	// Per-call customization (does not modify createItem).
-//	resp, err := createItem.WithHeader("Idempotency-Key", key).Execute(ctx, client, req)
+//	resp, _, err := createItem.AddHeader("Idempotency-Key", key).Execute(ctx, client, req)
 //
 // Additional examples:
 //
@@ -149,6 +153,38 @@ func NewPATCH[Req, Resp any](path, name string) Endpoint[Req, Resp] {
 	return NewEndpoint[Req, Resp](http.MethodPatch, path, name)
 }
 
+// NewJSONGET creates a GET endpoint pre-configured with a JSON decoder and Accept header.
+// This is a convenience for the common case of a GET returning a JSON response:
+//
+//	result, _, err := httpc.ExecuteVoid(ctx, client,
+//	    httpc.NewJSONGET[MyResp]("/items/123", "GetItem"))
+func NewJSONGET[Resp any](path, name string) Endpoint[struct{}, Resp] {
+	return NewGET[Resp](path, name).
+		SetDecoder(JSONDecoder[Resp]()).
+		SetAccept("application/json")
+}
+
+// NewJSONPOST creates a POST endpoint pre-configured with a JSON encoder, JSON decoder,
+// and Accept header. This is a convenience for the common case of a JSON request/response POST:
+//
+//	result, _, err := httpc.NewJSONPOST[CreateReq, CreateResp]("/items", "CreateItem").
+//	    Execute(ctx, client, body)
+func NewJSONPOST[Req, Resp any](path, name string) Endpoint[Req, Resp] {
+	return NewPOST[Req, Resp](path, name).
+		SetEncoder(JSONEncoder[Req]()).
+		SetDecoder(JSONDecoder[Resp]()).
+		SetAccept("application/json")
+}
+
+// NewJSONPUT creates a PUT endpoint pre-configured with a JSON encoder, JSON decoder,
+// and Accept header.
+func NewJSONPUT[Req, Resp any](path, name string) Endpoint[Req, Resp] {
+	return NewPUT[Req, Resp](path, name).
+		SetEncoder(JSONEncoder[Req]()).
+		SetDecoder(JSONDecoder[Resp]()).
+		SetAccept("application/json")
+}
+
 // SetEncoder sets the body encoder for the request. Returns a new Endpoint value.
 func (e Endpoint[Req, Resp]) SetEncoder(enc BodyEncoder[Req]) Endpoint[Req, Resp] {
 	e.encoder = enc
@@ -163,7 +199,7 @@ func (e Endpoint[Req, Resp]) SetDecoder(dec BodyDecoder[Resp]) Endpoint[Req, Res
 
 // SetAccept sets the Accept header value sent with the request. Returns a new Endpoint value.
 // Pass "" to send no Accept header (the default). The Accept header can still be
-// overridden per-request via WithHeader("Accept", ...).
+// overridden per-request via SetHeader("Accept", ...).
 func (e Endpoint[Req, Resp]) SetAccept(accept string) Endpoint[Req, Resp] {
 	e.accept = accept
 	return e
@@ -204,15 +240,31 @@ func (e Endpoint[Req, Resp]) WithPathParam(key string, value any) Endpoint[Req, 
 	return e
 }
 
-// WithHeader adds a header to the request. Returns a new Endpoint value.
-func (e Endpoint[Req, Resp]) WithHeader(key, value string) Endpoint[Req, Resp] {
-	e.overrides = e.overrides.WithHeader(key, value)
+// AddHeader adds a header to the request. Multiple calls with the same key accumulate values.
+// Returns a new Endpoint value.
+func (e Endpoint[Req, Resp]) AddHeader(key, value string) Endpoint[Req, Resp] {
+	e.overrides = e.overrides.AddHeader(key, value)
 	return e
 }
 
-// WithQueryParam adds a query parameter to the request. Returns a new Endpoint value.
-func (e Endpoint[Req, Resp]) WithQueryParam(key, value string) Endpoint[Req, Resp] {
-	e.overrides = e.overrides.WithQueryParam(key, value)
+// SetHeader sets a header on the request, replacing any previously added or set values for the key.
+// Returns a new Endpoint value.
+func (e Endpoint[Req, Resp]) SetHeader(key, value string) Endpoint[Req, Resp] {
+	e.overrides = e.overrides.SetHeader(key, value)
+	return e
+}
+
+// AddQuery adds a query parameter to the request. Multiple calls with the same key accumulate values.
+// Returns a new Endpoint value.
+func (e Endpoint[Req, Resp]) AddQuery(key, value string) Endpoint[Req, Resp] {
+	e.overrides = e.overrides.AddQuery(key, value)
+	return e
+}
+
+// SetQuery sets a query parameter on the request, replacing any previously added or set values for the key.
+// Returns a new Endpoint value.
+func (e Endpoint[Req, Resp]) SetQuery(key, value string) Endpoint[Req, Resp] {
+	e.overrides = e.overrides.SetQuery(key, value)
 	return e
 }
 
@@ -240,8 +292,9 @@ func (e Endpoint[Req, Resp]) WithMiddleware(m Middleware) Endpoint[Req, Resp] {
 	return e
 }
 
-// WithOverrides merges the given Overrides into the endpoint. Headers and query params
-// are additive; timeout, error decoder, and basic auth use last-wins; middlewares are appended.
+// WithOverrides merges the given Overrides into the endpoint. Set headers/query replace
+// matching keys and clear adds; add headers/query accumulate. Timeout, error decoder,
+// and basic auth use last-wins; middlewares are appended.
 // Returns a new Endpoint value; the original is unchanged.
 func (e Endpoint[Req, Resp]) WithOverrides(o Overrides) Endpoint[Req, Resp] {
 	e.overrides = e.overrides.merge(o)
@@ -253,14 +306,19 @@ func (e Endpoint[Req, Resp]) WithOverrides(o Overrides) Endpoint[Req, Resp] {
 // and encoded body, then delegates to client.Do. The response is decoded using the
 // configured BodyDecoder. Per-request overrides (timeout, error decoder, basic auth,
 // middleware) are applied on top of the client's defaults.
-func (e Endpoint[Req, Resp]) Execute(ctx context.Context, client Client, body Req) (Resp, error) {
+//
+// The returned *http.Response is the raw HTTP response with its body already consumed
+// (drained or decoded). It is useful for inspecting response headers, status codes,
+// and trailers. On error, the *http.Response may be nil (e.g. transport errors) or
+// non-nil (e.g. error decoder errors where the response was received).
+func (e Endpoint[Req, Resp]) Execute(ctx context.Context, client Client, body Req) (Resp, *http.Response, error) {
 	var zero Resp
 
 	// Verify all path template parameters have been filled in.
 	if i := strings.IndexByte(e.path, '{'); i != -1 {
 		if j := strings.IndexByte(e.path[i:], '}'); j != -1 {
 			param := e.path[i : i+j+1]
-			return zero, fmt.Errorf("httpc: path parameter %s not populated in %s %s", param, e.method, e.path)
+			return zero, nil, fmt.Errorf("httpc: path parameter %s not populated in %s %s", param, e.method, e.path)
 		}
 	}
 
@@ -279,13 +337,13 @@ func (e Endpoint[Req, Resp]) Execute(ctx context.Context, client Client, body Re
 	// Build request with path-only URL; Client prepends base URI.
 	req, err := http.NewRequestWithContext(ctx, e.method, e.path, nil)
 	if err != nil {
-		return zero, err
+		return zero, nil, err
 	}
 
 	// Encode body (sets Content-Type, Body, GetBody, ContentLength).
 	if e.encoder != nil {
 		if err := e.encoder.Encode(req, body); err != nil {
-			return zero, err
+			return zero, nil, err
 		}
 	}
 
@@ -294,16 +352,29 @@ func (e Endpoint[Req, Resp]) Execute(ctx context.Context, client Client, body Re
 		req.Header.Set("Accept", e.accept)
 	}
 
-	// Apply per-endpoint headers (additive, after Accept/Content-Type).
-	for k, vs := range e.overrides.headers {
+	// Apply set headers first (replaces, including Accept/Content-Type).
+	for k, vs := range e.overrides.setHeaders {
+		req.Header[k] = append([]string(nil), vs...)
+	}
+	// Apply add headers (accumulates on top).
+	for k, vs := range e.overrides.addHeaders {
 		for _, v := range vs {
 			req.Header.Add(k, v)
 		}
 	}
 
-	// Apply query params.
-	if len(e.overrides.queryParams) > 0 {
-		req.URL.RawQuery = e.overrides.queryParams.Encode()
+	// Build query from set + add.
+	if len(e.overrides.setQuery) > 0 || len(e.overrides.addQuery) > 0 {
+		q := make(url.Values)
+		for k, vs := range e.overrides.setQuery {
+			q[k] = append([]string(nil), vs...)
+		}
+		for k, vs := range e.overrides.addQuery {
+			for _, v := range vs {
+				q.Add(k, v)
+			}
+		}
+		req.URL.RawQuery = q.Encode()
 	}
 
 	// Apply basic auth.
@@ -330,13 +401,13 @@ func (e Endpoint[Req, Resp]) Execute(ctx context.Context, client Client, body Re
 	// Execute.
 	resp, err := c.Do(req)
 	if err != nil {
-		return zero, err
+		return zero, nil, err
 	}
 
 	// Per-endpoint error decoding (before response decode).
 	if e.overrides.errorDecoder != nil && e.overrides.errorDecoder.Handles(resp) {
 		internal.DrainBody(ctx, resp)
-		return zero, e.overrides.errorDecoder.DecodeError(resp)
+		return zero, resp, e.overrides.errorDecoder.DecodeError(resp)
 	}
 
 	// Decode response.
@@ -344,37 +415,36 @@ func (e Endpoint[Req, Resp]) Execute(ctx context.Context, client Client, body Re
 		result, err := e.decoder.Decode(ctx, resp)
 		if err != nil {
 			internal.DrainBody(ctx, resp)
-			return zero, err
+			return zero, resp, err
 		}
 		// Skip draining for decoders that return the body directly to the caller.
 		if _, raw := e.decoder.(rawBodyDecoder); !raw {
 			internal.DrainBody(ctx, resp)
 		}
-		return result, nil
+		return result, resp, nil
 	}
 	// No decoder: drain body.
 	internal.DrainBody(ctx, resp)
-	return zero, nil
+	return zero, resp, nil
 }
 
 // ExecuteVoid is a convenience wrapper for executing endpoints with no request body
 // (Req = struct{}), avoiding the need to pass an explicit struct{}{} at every call site.
-func ExecuteVoid[Resp any](ctx context.Context, client Client, ep Endpoint[struct{}, Resp]) (Resp, error) {
+func ExecuteVoid[Resp any](ctx context.Context, client Client, ep Endpoint[struct{}, Resp]) (Resp, *http.Response, error) {
 	return ep.Execute(ctx, client, struct{}{})
 }
 
 // WithTraceHeader sets the X-B3-TraceId header on any RequestOverrides value.
 // It works with both Endpoint and Overrides implementations.
 func WithTraceHeader[D RequestOverrides[D]](d D, traceID string) D {
-	return d.WithHeader("X-B3-TraceId", traceID)
+	return d.SetHeader("X-B3-TraceId", traceID)
 }
 
 // WithStandardHeaders sets all key-value pairs from headers on any RequestOverrides value.
-// Iteration order over the map is non-deterministic, but since each WithHeader call
-// adds (rather than replaces) headers, the final set of headers is always the same.
+// Each header is set (not added), so calling this multiple times replaces previous values.
 func WithStandardHeaders[D RequestOverrides[D]](d D, headers map[string]string) D {
 	for k, v := range headers {
-		d = d.WithHeader(k, v)
+		d = d.SetHeader(k, v)
 	}
 	return d
 }

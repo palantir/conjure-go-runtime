@@ -173,7 +173,7 @@ func newValidatedClientParams(ctx context.Context, config ClientConfig) (validat
 // applyValidatedParams calls builder setter methods only for fields that the
 // config explicitly specified. Unset fields are left at whatever the builder
 // already has, preserving composability with other builder calls.
-func applyValidatedParams(b *StandardClientBuilder, p validatedClientParams) {
+func applyValidatedParams(b *Builder, p validatedClientParams) {
 	if p.serviceName != "" {
 		b.SetServiceName(p.serviceName)
 	}
@@ -278,10 +278,10 @@ func applyValidatedParams(b *StandardClientBuilder, p validatedClientParams) {
 
 // ApplyConfig validates the config and calls builder setter methods for each
 // field the config explicitly specifies. Fields not present in the config are
-// left at whatever the builder already has (from NewStandardClientBuilder
+// left at whatever the builder already has (from NewBuilder
 // defaults or prior setter calls), preserving composability.
 // Validation errors are deferred to b.errs (surfaced at Build time).
-func (b *StandardClientBuilder) ApplyConfig(ctx context.Context, config ClientConfig) *StandardClientBuilder {
+func (b *Builder) ApplyConfig(ctx context.Context, config ClientConfig) *Builder {
 	params, err := newValidatedClientParams(ctx, config)
 	if err != nil {
 		b.errs = append(b.errs, err)
@@ -295,7 +295,7 @@ func (b *StandardClientBuilder) ApplyConfig(ctx context.Context, config ClientCo
 // overlays for each field the config specifies. When a config field is unset,
 // the builder's existing value (captured at call time) is used as the fallback.
 // Validation errors are deferred to b.errs (surfaced at Build time).
-func (b *StandardClientBuilder) ApplyConfigRefreshable(ctx context.Context, config refreshable.Refreshable[ClientConfig]) *StandardClientBuilder {
+func (b *Builder) ApplyConfigRefreshable(ctx context.Context, config refreshable.Refreshable[ClientConfig]) *Builder {
 	// Stage 1: Validate initial config and create validated refreshable.
 	validParams, _, err := refreshable.MapWithError(ctx, config, newValidatedClientParams)
 	if err != nil {

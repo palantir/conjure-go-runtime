@@ -13,15 +13,15 @@ import (
 
 func TestOverrides_Clone_Independence(t *testing.T) {
 	original := httpc.Overrides{}.
-		WithHeader("X-A", "1").
-		WithQueryParam("q", "v").
+		AddHeader("X-A", "1").
+		AddQuery("q", "v").
 		WithTimeout(5 * time.Second)
 
 	clone := original.Clone()
 
 	// Modify the clone.
-	clone = clone.WithHeader("X-B", "2")
-	clone = clone.WithQueryParam("q2", "v2")
+	clone = clone.AddHeader("X-B", "2")
+	clone = clone.AddQuery("q2", "v2")
 
 	// Verify original is unaffected by verifying through an endpoint execution.
 	server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
@@ -37,13 +37,13 @@ func TestOverrides_Clone_Independence(t *testing.T) {
 		WithOverrides(original)
 
 	client := &httpTestClient{server: server}
-	_, err := ep.Execute(context.Background(), client, struct{}{})
+	_, _, err := ep.Execute(context.Background(), client, struct{}{})
 	require.NoError(t, err)
 }
 
 func TestOverrides_CopyOnWrite(t *testing.T) {
-	base := httpc.Overrides{}.WithHeader("X-Base", "base")
-	derived := base.WithHeader("X-Derived", "derived")
+	base := httpc.Overrides{}.AddHeader("X-Base", "base")
+	derived := base.AddHeader("X-Derived", "derived")
 
 	// Verify base does not have derived header.
 	server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
@@ -57,7 +57,7 @@ func TestOverrides_CopyOnWrite(t *testing.T) {
 		WithOverrides(base)
 
 	client := &httpTestClient{server: server}
-	_, err := ep.Execute(context.Background(), client, struct{}{})
+	_, _, err := ep.Execute(context.Background(), client, struct{}{})
 	require.NoError(t, err)
 
 	// Verify derived has both headers.
@@ -72,7 +72,7 @@ func TestOverrides_CopyOnWrite(t *testing.T) {
 		WithOverrides(derived)
 
 	client2 := &httpTestClient{server: server2}
-	_, err = ep2.Execute(context.Background(), client2, struct{}{})
+	_, _, err = ep2.Execute(context.Background(), client2, struct{}{})
 	require.NoError(t, err)
 }
 
@@ -86,13 +86,13 @@ func TestOverrides_WithOverrides_Merge(t *testing.T) {
 
 		base := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "/test", "Test").
 			SetDecoder(httpc.VoidDecoder()).
-			WithHeader("X-A", "v1")
+			AddHeader("X-A", "v1")
 
-		overrides := httpc.Overrides{}.WithHeader("X-B", "v2")
+		overrides := httpc.Overrides{}.AddHeader("X-B", "v2")
 		merged := base.WithOverrides(overrides)
 
 		client := &httpTestClient{server: server}
-		_, err := merged.Execute(context.Background(), client, struct{}{})
+		_, _, err := merged.Execute(context.Background(), client, struct{}{})
 		require.NoError(t, err)
 	})
 
@@ -105,13 +105,13 @@ func TestOverrides_WithOverrides_Merge(t *testing.T) {
 
 		base := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "/test", "Test").
 			SetDecoder(httpc.VoidDecoder()).
-			WithQueryParam("p1", "a")
+			AddQuery("p1", "a")
 
-		overrides := httpc.Overrides{}.WithQueryParam("p2", "b")
+		overrides := httpc.Overrides{}.AddQuery("p2", "b")
 		merged := base.WithOverrides(overrides)
 
 		client := &httpTestClient{server: server}
-		_, err := merged.Execute(context.Background(), client, struct{}{})
+		_, _, err := merged.Execute(context.Background(), client, struct{}{})
 		require.NoError(t, err)
 	})
 
@@ -130,7 +130,7 @@ func TestOverrides_WithOverrides_Merge(t *testing.T) {
 		merged := base.WithOverrides(overrides)
 
 		client := &httpTestClient{server: server}
-		_, err := merged.Execute(context.Background(), client, struct{}{})
+		_, _, err := merged.Execute(context.Background(), client, struct{}{})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "context deadline exceeded")
 	})
@@ -152,7 +152,7 @@ func TestOverrides_WithOverrides_Merge(t *testing.T) {
 		merged := base.WithOverrides(overrides)
 
 		client := &httpTestClient{server: server}
-		_, err := merged.Execute(context.Background(), client, struct{}{})
+		_, _, err := merged.Execute(context.Background(), client, struct{}{})
 		require.NoError(t, err)
 	})
 
@@ -179,7 +179,7 @@ func TestOverrides_WithOverrides_Merge(t *testing.T) {
 		merged := base.WithOverrides(overrides)
 
 		client := &httpTestClient{server: server}
-		_, err := merged.Execute(context.Background(), client, struct{}{})
+		_, _, err := merged.Execute(context.Background(), client, struct{}{})
 		require.NoError(t, err)
 		// Middlewares wrap from outside in: last added (mw2) wraps mw1,
 		// so mw2 executes first.
@@ -202,7 +202,7 @@ func TestOverrides_WithOverrides_Merge(t *testing.T) {
 		merged := base.WithOverrides(overrides)
 
 		client := &httpTestClient{server: server}
-		_, err := merged.Execute(context.Background(), client, struct{}{})
+		_, _, err := merged.Execute(context.Background(), client, struct{}{})
 		require.Error(t, err)
 		assert.Equal(t, 1, overrideDecoder.called, "override decoder should have been called")
 	})
@@ -221,15 +221,15 @@ func TestOverrides_EmptyMergeIsIdentity(t *testing.T) {
 
 	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "/test", "Test").
 		SetDecoder(httpc.VoidDecoder()).
-		WithHeader("X-Custom", "v1").
-		WithQueryParam("foo", "bar").
+		AddHeader("X-Custom", "v1").
+		AddQuery("foo", "bar").
 		WithBasicAuth("user", "pass")
 
 	// Merge empty overrides — should produce identical behavior.
 	merged := ep.WithOverrides(httpc.Overrides{})
 
 	client := &httpTestClient{server: server}
-	_, err := merged.Execute(context.Background(), client, struct{}{})
+	_, _, err := merged.Execute(context.Background(), client, struct{}{})
 	require.NoError(t, err)
 }
 
@@ -245,4 +245,86 @@ func (d *countingErrorDecoder) Handles(resp *http.Response) bool {
 func (d *countingErrorDecoder) DecodeError(resp *http.Response) error {
 	d.called++
 	return &testError{statusCode: resp.StatusCode, body: "override"}
+}
+
+func TestOverrides_SetHeader(t *testing.T) {
+	server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, []string{"only-value"}, r.Header.Values("X-Single"))
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "/test", "Test").
+		SetDecoder(httpc.VoidDecoder()).
+		SetHeader("X-Single", "only-value")
+
+	client := &httpTestClient{server: server}
+	_, _, err := ep.Execute(context.Background(), client, struct{}{})
+	require.NoError(t, err)
+}
+
+func TestOverrides_SetQuery(t *testing.T) {
+	server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, []string{"final"}, r.URL.Query()["key"])
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "/test", "Test").
+		SetDecoder(httpc.VoidDecoder()).
+		SetQuery("key", "final")
+
+	client := &httpTestClient{server: server}
+	_, _, err := ep.Execute(context.Background(), client, struct{}{})
+	require.NoError(t, err)
+}
+
+func TestOverrides_SetHeaderClearsAdd(t *testing.T) {
+	server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		// SetHeader after AddHeader for the same key should only produce the Set value.
+		assert.Equal(t, []string{"2"}, r.Header.Values("X-Key"))
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "/test", "Test").
+		SetDecoder(httpc.VoidDecoder()).
+		AddHeader("X-Key", "1").
+		SetHeader("X-Key", "2")
+
+	client := &httpTestClient{server: server}
+	_, _, err := ep.Execute(context.Background(), client, struct{}{})
+	require.NoError(t, err)
+}
+
+func TestOverrides_SetQueryClearsAdd(t *testing.T) {
+	server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, []string{"final"}, r.URL.Query()["q"])
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "/test", "Test").
+		SetDecoder(httpc.VoidDecoder()).
+		AddQuery("q", "first").
+		SetQuery("q", "final")
+
+	client := &httpTestClient{server: server}
+	_, _, err := ep.Execute(context.Background(), client, struct{}{})
+	require.NoError(t, err)
+}
+
+func TestOverrides_Merge_SetHeaderClearsAdd(t *testing.T) {
+	server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		// Merging SetHeader from overrides should replace receiver's AddHeader.
+		assert.Equal(t, []string{"replaced"}, r.Header.Values("X-Key"))
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	base := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "/test", "Test").
+		SetDecoder(httpc.VoidDecoder()).
+		AddHeader("X-Key", "original")
+
+	overrides := httpc.Overrides{}.SetHeader("X-Key", "replaced")
+	merged := base.WithOverrides(overrides)
+
+	client := &httpTestClient{server: server}
+	_, _, err := merged.Execute(context.Background(), client, struct{}{})
+	require.NoError(t, err)
 }

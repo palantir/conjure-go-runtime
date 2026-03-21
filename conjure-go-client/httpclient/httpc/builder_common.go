@@ -98,9 +98,9 @@ const (
 	defaultMaxBackoff            = 2 * time.Second
 )
 
-// StandardClientBuilder implements ClientBuilder by directly managing
+// Builder implements ClientBuilder by directly managing
 // transport, dialer, TLS, and service-level configuration.
-type StandardClientBuilder struct {
+type Builder struct {
 	serviceName     refreshable.Refreshable[string]
 	timeout         refreshable.Refreshable[time.Duration]
 	dialerParams    refreshable.Refreshable[dialerParams]
@@ -137,11 +137,11 @@ type StandardClientBuilder struct {
 }
 
 // Compile-time interface check.
-var _ ClientBuilder[*StandardClientBuilder] = (*StandardClientBuilder)(nil)
+var _ ClientBuilder[*Builder] = (*Builder)(nil)
 
-// NewStandardClientBuilder creates a new StandardClientBuilder with sane defaults.
-func NewStandardClientBuilder() *StandardClientBuilder {
-	return &StandardClientBuilder{
+// NewBuilder creates a new Builder with sane defaults.
+func NewBuilder() *Builder {
+	return &Builder{
 		serviceName: refreshable.New(""),
 		timeout:     refreshable.New(defaultHTTPTimeout),
 		dialerParams: refreshable.New(dialerParams{
@@ -158,21 +158,22 @@ func NewStandardClientBuilder() *StandardClientBuilder {
 			HTTP2ReadIdleTimeout:  defaultHTTP2ReadIdleTimeout,
 			HTTP2PingTimeout:      defaultHTTP2PingTimeout,
 		}),
-		tlsFileParams:  refreshable.New(tlsFileParams{}),
-		disableMetrics: refreshable.New(false),
-		errorDecoder:   defaultRestErrorDecoder{},
-		initialBackoff: refreshable.New(defaultInitialBackoff),
-		maxBackoff:     refreshable.New(defaultMaxBackoff),
+		tlsFileParams:    refreshable.New(tlsFileParams{}),
+		disableMetrics:   refreshable.New(false),
+		errorDecoder:     defaultRestErrorDecoder{},
+		initialBackoff:   refreshable.New(defaultInitialBackoff),
+		maxBackoff:       refreshable.New(defaultMaxBackoff),
+		includeSystemCAs: true,
 	}
 }
 
 // Clone returns a deep copy of the builder.
-func (b *StandardClientBuilder) Clone() *StandardClientBuilder {
+func (b *Builder) Clone() *Builder {
 	var clonedTLSConfig *tls.Config
 	if b.tlsConfig != nil {
 		clonedTLSConfig = b.tlsConfig.Clone()
 	}
-	clone := &StandardClientBuilder{
+	clone := &Builder{
 		serviceName:         b.serviceName, // shared refreshable reference
 		timeout:             b.timeout,
 		dialerParams:        b.dialerParams,
@@ -206,7 +207,7 @@ func (b *StandardClientBuilder) Clone() *StandardClientBuilder {
 }
 
 // Apply applies the given Param functions to the builder in sequence.
-func (b *StandardClientBuilder) Apply(params ...Param[*StandardClientBuilder]) *StandardClientBuilder {
+func (b *Builder) Apply(params ...Param[*Builder]) *Builder {
 	for _, p := range params {
 		p(b)
 	}

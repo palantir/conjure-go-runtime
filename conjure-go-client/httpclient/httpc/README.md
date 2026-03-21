@@ -10,7 +10,7 @@ If you are migrating from the `httpclient` parent package, see [MIGRATION.md](MI
 
 ```go
 // 1. Build a client.
-client, err := httpc.NewStandardClientBuilder().
+client, err := httpc.NewBuilder().
     SetServiceName("item-service").
     SetBaseURLs("https://item-service.example.com").
     SetAuthToken(token).
@@ -22,7 +22,7 @@ var getItem = httpc.NewGET[GetItemResponse]("/api/v1/items/{itemId}", "GetItem")
     SetAccept("application/json")
 
 // 3. Execute.
-resp, err := httpc.ExecuteVoid(ctx, client,
+resp, _, err := httpc.ExecuteVoid(ctx, client,
     getItem.WithPathParam("itemId", "item-42"))
 ```
 
@@ -39,7 +39,7 @@ type Client interface {
 }
 ```
 
-A `Client` built via `StandardClientBuilder` handles base-URL selection, retries with
+A `Client` built via `Builder` handles base-URL selection, retries with
 backoff, middleware, timeout enforcement, and URI scoring transparently.
 
 `ConfigurableClient[B]` extends `Client` with a `Builder()` method that returns a
@@ -97,10 +97,10 @@ ep.WithPathParam("filePath", "dir/sub dir/file.txt")
 
 ```go
 // With a request body:
-resp, err := endpoint.Execute(ctx, client, requestBody)
+resp, httpResp, err := endpoint.Execute(ctx, client, requestBody)
 
 // Without a request body (Req = struct{}):
-resp, err := httpc.ExecuteVoid(ctx, client, endpoint)
+resp, httpResp, err := httpc.ExecuteVoid(ctx, client, endpoint)
 ```
 
 ### Overrides
@@ -117,16 +117,17 @@ type myServiceClient struct {
 }
 
 func (c *myServiceClient) GetItem(ctx context.Context, id string) (Resp, error) {
-    return httpc.ExecuteVoid(ctx, c.client,
+    resp, _, err := httpc.ExecuteVoid(ctx, c.client,
         getItemEndpoint.
             WithPathParam("itemId", id).
             WithOverrides(c.overrides))
+    return resp, err
 }
 ```
 
 Both `Endpoint` and `Overrides` implement the `RequestOverrides[D]` interface,
-which provides: `WithHeader`, `WithQueryParam`, `WithTimeout`, `WithErrorDecoder`,
-`WithBasicAuth`, and `WithMiddleware`.
+which provides: `AddHeader`, `SetHeader`, `AddQuery`, `SetQuery`, `WithTimeout`,
+`WithErrorDecoder`, `WithBasicAuth`, and `WithMiddleware`.
 
 When an `Overrides` is merged into an `Endpoint`:
 - Headers and query params are **additive**
@@ -162,15 +163,15 @@ Custom encoders and decoders can be created via `NewBodyEncoderFunc` and `NewBod
 
 ## Building clients
 
-### StandardClientBuilder
+### Builder
 
-`StandardClientBuilder` is the concrete builder implementing `ClientBuilder[B]`,
+`Builder` is the concrete builder implementing `ClientBuilder[B]`,
 which composes `DialerBuilder`, `TLSConfigBuilder`, `TransportBuilder`, and
 `ServiceBuilder`. All setters are mutable (modify the receiver) and return the
 builder for chaining. Use `Clone()` to fork an independent copy.
 
 ```go
-client, err := httpc.NewStandardClientBuilder().
+client, err := httpc.NewBuilder().
     SetServiceName("my-service").
     SetBaseURLs("https://host1.example.com", "https://host2.example.com").
     SetAuthToken(bearerToken).
@@ -216,7 +217,7 @@ func WithMyDefaults[B httpc.ServiceBuilder[B]]() httpc.Param[B] {
     }
 }
 
-builder.Apply(WithMyDefaults[*httpc.StandardClientBuilder]())
+builder.Apply(WithMyDefaults[*httpc.Builder]())
 ```
 
 Convenience constructors `Param0`, `Param1`, `Param2` help build `Param` values
@@ -232,7 +233,7 @@ The builder is decomposed into focused interfaces for use in generic code:
 - **`ServiceBuilder[B]`** -- Everything above plus auth, middleware, retry, metrics, tracing
 - **`ClientBuilder[B]`** -- Composes all of the above
 
-`StandardClientBuilder` implements `ClientBuilder` and exposes additional methods for
+`Builder` implements `ClientBuilder` and exposes additional methods for
 building intermediate artifacts: `BuildDialer`, `BuildTLSConfig`, `BuildTransport`,
 and `BuildHTTPClient`.
 
@@ -364,20 +365,22 @@ func NewItemServiceClient(client httpc.Client, params ...httpc.Param[*itemServic
 
 // Each method fills path params, merges overrides, and executes.
 func (c *itemServiceClient) CreateItem(ctx context.Context, req CreateReq) (CreateResp, error) {
-    return createItem.
+    resp, _, err := createItem.
         WithOverrides(c.overrides).
         Execute(ctx, c.client, req)
+    return resp, err
 }
 
 func (c *itemServiceClient) GetItem(ctx context.Context, id string) (GetItemResp, error) {
-    return httpc.ExecuteVoid(ctx, c.client,
+    resp, _, err := httpc.ExecuteVoid(ctx, c.client,
         getItem.
             WithPathParam("itemId", id).
             WithOverrides(c.overrides))
+    return resp, err
 }
 
 func (c *itemServiceClient) DeleteItem(ctx context.Context, id string) error {
-    _, err := httpc.ExecuteVoid(ctx, c.client,
+    _, _, err := httpc.ExecuteVoid(ctx, c.client,
         deleteItem.
             WithPathParam("itemId", id).
             WithOverrides(c.overrides))

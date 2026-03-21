@@ -86,7 +86,7 @@ type TransportBuilder[B TransportBuilder[B]] interface {
 	SetProxyFromEnvironment() B
 }
 
-func (b *StandardClientBuilder) SetMaxIdleConns(n int) *StandardClientBuilder {
+func (b *Builder) SetMaxIdleConns(n int) *Builder {
 	b.transportParams = refreshable.View(b.transportParams, func(p transportParams) transportParams {
 		p.MaxIdleConns = n
 		return p
@@ -94,7 +94,7 @@ func (b *StandardClientBuilder) SetMaxIdleConns(n int) *StandardClientBuilder {
 	return b
 }
 
-func (b *StandardClientBuilder) SetMaxIdleConnsPerHost(n int) *StandardClientBuilder {
+func (b *Builder) SetMaxIdleConnsPerHost(n int) *Builder {
 	b.transportParams = refreshable.View(b.transportParams, func(p transportParams) transportParams {
 		p.MaxIdleConnsPerHost = n
 		return p
@@ -102,7 +102,7 @@ func (b *StandardClientBuilder) SetMaxIdleConnsPerHost(n int) *StandardClientBui
 	return b
 }
 
-func (b *StandardClientBuilder) DisableKeepAlives() *StandardClientBuilder {
+func (b *Builder) DisableKeepAlives() *Builder {
 	b.transportParams = refreshable.View(b.transportParams, func(p transportParams) transportParams {
 		p.DisableKeepAlives = true
 		return p
@@ -110,7 +110,7 @@ func (b *StandardClientBuilder) DisableKeepAlives() *StandardClientBuilder {
 	return b
 }
 
-func (b *StandardClientBuilder) SetIdleConnTimeout(d time.Duration) *StandardClientBuilder {
+func (b *Builder) SetIdleConnTimeout(d time.Duration) *Builder {
 	b.transportParams = refreshable.View(b.transportParams, func(p transportParams) transportParams {
 		p.IdleConnTimeout = d
 		return p
@@ -118,7 +118,7 @@ func (b *StandardClientBuilder) SetIdleConnTimeout(d time.Duration) *StandardCli
 	return b
 }
 
-func (b *StandardClientBuilder) SetExpectContinueTimeout(d time.Duration) *StandardClientBuilder {
+func (b *Builder) SetExpectContinueTimeout(d time.Duration) *Builder {
 	b.transportParams = refreshable.View(b.transportParams, func(p transportParams) transportParams {
 		p.ExpectContinueTimeout = d
 		return p
@@ -126,7 +126,7 @@ func (b *StandardClientBuilder) SetExpectContinueTimeout(d time.Duration) *Stand
 	return b
 }
 
-func (b *StandardClientBuilder) SetResponseHeaderTimeout(d time.Duration) *StandardClientBuilder {
+func (b *Builder) SetResponseHeaderTimeout(d time.Duration) *Builder {
 	b.transportParams = refreshable.View(b.transportParams, func(p transportParams) transportParams {
 		p.ResponseHeaderTimeout = d
 		return p
@@ -134,7 +134,7 @@ func (b *StandardClientBuilder) SetResponseHeaderTimeout(d time.Duration) *Stand
 	return b
 }
 
-func (b *StandardClientBuilder) SetTLSHandshakeTimeout(d time.Duration) *StandardClientBuilder {
+func (b *Builder) SetTLSHandshakeTimeout(d time.Duration) *Builder {
 	b.transportParams = refreshable.View(b.transportParams, func(p transportParams) transportParams {
 		p.TLSHandshakeTimeout = d
 		return p
@@ -142,7 +142,7 @@ func (b *StandardClientBuilder) SetTLSHandshakeTimeout(d time.Duration) *Standar
 	return b
 }
 
-func (b *StandardClientBuilder) DisableHTTP2() *StandardClientBuilder {
+func (b *Builder) DisableHTTP2() *Builder {
 	b.transportParams = refreshable.View(b.transportParams, func(p transportParams) transportParams {
 		p.DisableHTTP2 = true
 		return p
@@ -150,7 +150,7 @@ func (b *StandardClientBuilder) DisableHTTP2() *StandardClientBuilder {
 	return b
 }
 
-func (b *StandardClientBuilder) SetHTTP2ReadIdleTimeout(d time.Duration) *StandardClientBuilder {
+func (b *Builder) SetHTTP2ReadIdleTimeout(d time.Duration) *Builder {
 	b.transportParams = refreshable.View(b.transportParams, func(p transportParams) transportParams {
 		p.HTTP2ReadIdleTimeout = d
 		return p
@@ -158,7 +158,7 @@ func (b *StandardClientBuilder) SetHTTP2ReadIdleTimeout(d time.Duration) *Standa
 	return b
 }
 
-func (b *StandardClientBuilder) SetHTTP2PingTimeout(d time.Duration) *StandardClientBuilder {
+func (b *Builder) SetHTTP2PingTimeout(d time.Duration) *Builder {
 	b.transportParams = refreshable.View(b.transportParams, func(p transportParams) transportParams {
 		p.HTTP2PingTimeout = d
 		return p
@@ -166,7 +166,7 @@ func (b *StandardClientBuilder) SetHTTP2PingTimeout(d time.Duration) *StandardCl
 	return b
 }
 
-func (b *StandardClientBuilder) SetHTTPProxyURL(s string) *StandardClientBuilder {
+func (b *Builder) SetHTTPProxyURL(s string) *Builder {
 	if s == "" {
 		b.transportParams = refreshable.View(b.transportParams, func(p transportParams) transportParams {
 			p.HTTPProxyURL = nil
@@ -186,7 +186,7 @@ func (b *StandardClientBuilder) SetHTTPProxyURL(s string) *StandardClientBuilder
 	return b
 }
 
-func (b *StandardClientBuilder) SetNoProxy() *StandardClientBuilder {
+func (b *Builder) SetNoProxy() *Builder {
 	b.dialerParams = refreshable.View(b.dialerParams, func(p dialerParams) dialerParams {
 		p.SocksProxyURL = nil
 		return p
@@ -199,7 +199,7 @@ func (b *StandardClientBuilder) SetNoProxy() *StandardClientBuilder {
 	return b
 }
 
-func (b *StandardClientBuilder) SetProxyFromEnvironment() *StandardClientBuilder {
+func (b *Builder) SetProxyFromEnvironment() *Builder {
 	b.transportParams = refreshable.View(b.transportParams, func(p transportParams) transportParams {
 		p.ProxyFromEnvironment = true
 		return p
@@ -288,7 +288,7 @@ func newTransport(ctx context.Context, p transportParams, tlsConfig *tls.Config,
 // If SetTransport was called, the injected transport is returned directly.
 // BuildTransport does NOT wrap the transport with middleware — use BuildHTTPClient
 // or Build for the full middleware stack.
-func (b *StandardClientBuilder) BuildTransport(ctx context.Context) (http.RoundTripper, error) {
+func (b *Builder) BuildTransport(ctx context.Context) (http.RoundTripper, error) {
 	if len(b.errs) > 0 {
 		if len(b.errs) == 1 {
 			return nil, werror.WrapWithContextParams(ctx, b.errs[0], "builder configuration errors")

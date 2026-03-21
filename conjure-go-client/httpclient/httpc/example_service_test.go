@@ -13,8 +13,10 @@ package httpc_test
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -111,20 +113,22 @@ func (b *itemServiceClientBuilder) Apply(params ...httpc.Param[*itemServiceClien
 }
 
 func (c *itemServiceClient) CreateItem(ctx context.Context, req CreateItemRequest) (CreateItemResponse, error) {
-	return createItemEndpoint.
+	resp, _, err := createItemEndpoint.
 		WithOverrides(c.overrides).
 		Execute(ctx, c.client, req)
+	return resp, err
 }
 
 func (c *itemServiceClient) GetItem(ctx context.Context, itemId string) (GetItemResponse, error) {
-	return httpc.ExecuteVoid(ctx, c.client,
+	resp, _, err := httpc.ExecuteVoid(ctx, c.client,
 		getItemEndpoint.
 			WithPathParam("itemId", itemId).
 			WithOverrides(c.overrides))
+	return resp, err
 }
 
 func (c *itemServiceClient) DeleteItem(ctx context.Context, itemId string) error {
-	_, err := httpc.ExecuteVoid(ctx, c.client,
+	_, _, err := httpc.ExecuteVoid(ctx, c.client,
 		deleteItemEndpoint.
 			WithPathParam("itemId", itemId).
 			WithOverrides(c.overrides))
@@ -132,10 +136,11 @@ func (c *itemServiceClient) DeleteItem(ctx context.Context, itemId string) error
 }
 
 func (c *itemServiceClient) DownloadItem(ctx context.Context, itemId string) (io.ReadCloser, error) {
-	return httpc.ExecuteVoid(ctx, c.client,
+	resp, _, err := httpc.ExecuteVoid(ctx, c.client,
 		downloadItemEndpoint.
 			WithPathParam("itemId", itemId).
 			WithOverrides(c.overrides))
+	return resp, err
 }
 
 // ---------------------------------------------------------------------------
@@ -261,7 +266,7 @@ func TestExampleService_MultiplePathParams(t *testing.T) {
 	client := &httpTestClient{server: server}
 
 	// Fill in params in reverse order — should still work because replacement is by name.
-	resp, err := httpc.ExecuteVoid(context.Background(), client,
+	resp, _, err := httpc.ExecuteVoid(context.Background(), client,
 		ep.WithPathParam("itemId", "widget-1").WithPathParam("orgId", "acme"))
 	require.NoError(t, err)
 	assert.Equal(t, "widget-1", resp.ID)
@@ -283,7 +288,7 @@ func TestExampleService_GreedyPathParam(t *testing.T) {
 		t.Cleanup(server.Close)
 		client := &httpTestClient{server: server}
 
-		resp, err := httpc.ExecuteVoid(context.Background(), client,
+		resp, _, err := httpc.ExecuteVoid(context.Background(), client,
 			ep.WithPathParam("filePath", "dir/subdir/file.txt"))
 		require.NoError(t, err)
 		assert.Equal(t, "file.txt", resp.ID)
@@ -300,7 +305,7 @@ func TestExampleService_GreedyPathParam(t *testing.T) {
 		t.Cleanup(server.Close)
 		client := &httpTestClient{server: server}
 
-		resp, err := httpc.ExecuteVoid(context.Background(), client,
+		resp, _, err := httpc.ExecuteVoid(context.Background(), client,
 			ep.WithPathParam("filePath", "my docs/sub dir/file.txt"))
 		require.NoError(t, err)
 		assert.Equal(t, "file.txt", resp.ID)
@@ -319,7 +324,7 @@ func TestExampleService_GreedyPathParam(t *testing.T) {
 		t.Cleanup(server.Close)
 		client := &httpTestClient{server: server}
 
-		resp, err := httpc.ExecuteVoid(context.Background(), client,
+		resp, _, err := httpc.ExecuteVoid(context.Background(), client,
 			ep2.WithPathParam("repoId", "my-repo").WithPathParam("filePath", "src/main/app.go"))
 		require.NoError(t, err)
 		assert.Equal(t, "app.go", resp.ID)
@@ -334,7 +339,7 @@ func TestExampleService_GreedyPathParam(t *testing.T) {
 		t.Cleanup(server.Close)
 		client := &httpTestClient{server: server}
 
-		resp, err := httpc.ExecuteVoid(context.Background(), client,
+		resp, _, err := httpc.ExecuteVoid(context.Background(), client,
 			ep.WithPathParam("filePath", "simple.txt"))
 		require.NoError(t, err)
 		assert.Equal(t, "simple.txt", resp.ID)
@@ -355,8 +360,8 @@ func TestExampleService_OverridesApplied(t *testing.T) {
 
 	client := &httpTestClient{server: server}
 	overrides := httpc.Overrides{}.
-		WithHeader("X-Tenant", "acme-corp").
-		WithHeader("Authorization", "token-abc")
+		AddHeader("X-Tenant", "acme-corp").
+		AddHeader("Authorization", "token-abc")
 
 	svc := &itemServiceClient{client: client, overrides: overrides}
 
@@ -378,7 +383,7 @@ func TestExampleService_PerCallOverride(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	client := &httpTestClient{server: server}
-	overrides := httpc.Overrides{}.WithHeader("X-Tenant", "acme-corp")
+	overrides := httpc.Overrides{}.AddHeader("X-Tenant", "acme-corp")
 	svc := &itemServiceClient{client: client, overrides: overrides}
 
 	// Two calls; both should carry the tenant header.
@@ -408,10 +413,10 @@ func TestExampleService_WithOverridesOnEndpoint(t *testing.T) {
 
 	// Build overrides externally and apply to an endpoint.
 	overrides := httpc.Overrides{}.
-		WithHeader("X-Custom", "custom-value").
+		AddHeader("X-Custom", "custom-value").
 		WithBasicAuth("admin", "secret")
 
-	resp, err := httpc.ExecuteVoid(context.Background(), client,
+	resp, _, err := httpc.ExecuteVoid(context.Background(), client,
 		getItemEndpoint.
 			WithPathParam("itemId", "1").
 			WithOverrides(overrides))
@@ -461,4 +466,192 @@ func TestExampleService_MiddlewareOverride(t *testing.T) {
 	_, err := svc.GetItem(context.Background(), "1")
 	require.NoError(t, err)
 	assert.True(t, middlewareCalled)
+}
+
+// ---------------------------------------------------------------------------
+// Builder: intermediate component examples
+// ---------------------------------------------------------------------------
+
+// TestExample_BuildDialer shows how to build a custom dialer from the builder
+// and use it independently (e.g. to probe connectivity before building a client).
+func TestExample_BuildDialer(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(server.Close)
+
+	dialer, err := httpc.NewBuilder().
+		SetDialTimeout(5 * time.Second).
+		SetKeepAlive(15 * time.Second).
+		BuildDialer(context.Background())
+	require.NoError(t, err)
+
+	conn, err := dialer.DialContext(context.Background(), "tcp", server.Listener.Addr().String())
+	require.NoError(t, err)
+	_ = conn.Close()
+}
+
+// TestExample_BuildDialer_CustomSocksProxy shows configuring a SOCKS proxy on the dialer.
+// We verify the builder accepts the setting without error (actual proxying requires a
+// running SOCKS server, so we only verify the dialer builds successfully).
+func TestExample_BuildDialer_CustomSocksProxy(t *testing.T) {
+	// Start a TCP listener to act as a fake SOCKS proxy endpoint.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ln.Close() })
+
+	dialer, err := httpc.NewBuilder().
+		SetSocksProxyURL("socks5://" + ln.Addr().String()).
+		BuildDialer(context.Background())
+	require.NoError(t, err)
+	require.NotNil(t, dialer)
+}
+
+// TestExample_BuildTLSConfig shows building a TLS configuration from the builder
+// and inspecting the result.
+func TestExample_BuildTLSConfig(t *testing.T) {
+	tlsConfig, err := httpc.NewBuilder().
+		SetInsecureSkipVerify(true).
+		BuildTLSConfig(context.Background())
+	require.NoError(t, err)
+
+	cfg, validErr := tlsConfig.Validation()
+	require.NoError(t, validErr)
+	assert.True(t, cfg.InsecureSkipVerify)
+}
+
+// TestExample_SetTLSConfig shows injecting a caller-managed *tls.Config as an escape hatch,
+// bypassing CA file/bytes and other TLS builder settings. The builder clones the
+// provided config so mutations to the original do not affect the builder.
+func TestExample_SetTLSConfig(t *testing.T) {
+	customTLS := &tls.Config{
+		MinVersion: tls.VersionTLS13,
+	}
+
+	tlsConfig, err := httpc.NewBuilder().
+		SetTLSConfig(customTLS).
+		// CA settings are ignored when SetTLSConfig is used.
+		AddCACertBytes([]byte("not-real-pem")).
+		BuildTLSConfig(context.Background())
+	require.NoError(t, err)
+
+	cfg, validErr := tlsConfig.Validation()
+	require.NoError(t, validErr)
+	assert.Equal(t, uint16(tls.VersionTLS13), cfg.MinVersion)
+
+	// The builder cloned the config, so mutating the original has no effect.
+	customTLS.MinVersion = tls.VersionTLS12
+	cfg2, _ := tlsConfig.Validation()
+	assert.Equal(t, uint16(tls.VersionTLS13), cfg2.MinVersion)
+}
+
+// TestExample_BuildTransport shows building a transport from the builder and
+// using it directly in a plain *http.Client.
+func TestExample_BuildTransport(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"1","name":"widget"}`))
+	}))
+	t.Cleanup(server.Close)
+
+	transport, err := httpc.NewBuilder().
+		SetMaxIdleConnsPerHost(50).
+		SetIdleConnTimeout(60 * time.Second).
+		BuildTransport(context.Background())
+	require.NoError(t, err)
+
+	client := &http.Client{Transport: transport}
+	resp, err := client.Get(server.URL + "/test")
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+}
+
+// TestExample_SetTransport shows injecting a custom http.RoundTripper as an
+// escape hatch, bypassing the builder's dialer and TLS configuration entirely.
+func TestExample_SetTransport(t *testing.T) {
+	var customTransportUsed bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"1","name":"widget"}`))
+	}))
+	t.Cleanup(server.Close)
+
+	custom := &roundTripFunc{fn: func(req *http.Request) (*http.Response, error) {
+		customTransportUsed = true
+		return http.DefaultTransport.RoundTrip(req)
+	}}
+
+	transport, err := httpc.NewBuilder().
+		SetTransport(custom).
+		BuildTransport(context.Background())
+	require.NoError(t, err)
+
+	// BuildTransport returns the injected transport directly.
+	client := &http.Client{Transport: transport}
+	resp, err := client.Get(server.URL + "/test")
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.True(t, customTransportUsed)
+}
+
+// TestExample_BuildHTTPClient shows building a complete *http.Client (with
+// metrics/tracing middleware) from the builder and using it for a raw request.
+func TestExample_BuildHTTPClient(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"1","name":"widget"}`))
+	}))
+	t.Cleanup(server.Close)
+
+	httpClient, err := httpc.NewBuilder().
+		SetTimeout(30 * time.Second).
+		BuildHTTPClient(context.Background())
+	require.NoError(t, err)
+
+	resp, err := httpClient.Current().Get(server.URL + "/test")
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Equal(t, 30*time.Second, httpClient.Current().Timeout)
+}
+
+// TestExample_SetTransport_FullClient shows building a full Client using
+// SetTransport to inject a custom transport. The builder's middleware stack
+// still wraps the custom transport.
+func TestExample_SetTransport_FullClient(t *testing.T) {
+	var customTransportUsed bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"1","name":"widget"}`))
+	}))
+	t.Cleanup(server.Close)
+
+	custom := &roundTripFunc{fn: func(req *http.Request) (*http.Response, error) {
+		customTransportUsed = true
+		return http.DefaultTransport.RoundTrip(req)
+	}}
+
+	client, err := httpc.NewBuilder().
+		SetTransport(custom).
+		SetBaseURLs(server.URL).
+		DisableRestErrors().
+		Build(context.Background())
+	require.NoError(t, err)
+
+	resp, _, err := httpc.ExecuteVoid(context.Background(), client,
+		getItemEndpoint.WithPathParam("itemId", "1"))
+	require.NoError(t, err)
+	assert.Equal(t, "1", resp.ID)
+	assert.True(t, customTransportUsed)
+}
+
+// roundTripFunc is an http.RoundTripper backed by a function.
+type roundTripFunc struct {
+	fn func(*http.Request) (*http.Response, error)
+}
+
+func (f *roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f.fn(req)
 }

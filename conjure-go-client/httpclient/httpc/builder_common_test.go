@@ -19,14 +19,14 @@ type builderTestPayload struct {
 	Message string `json:"message"`
 }
 
-func TestStandardClientBuilder_BasicBuild(t *testing.T) {
+func TestBuilder_BasicBuild(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"message":"hello"}`))
 	}))
 	defer server.Close()
 
-	client, err := httpc.NewStandardClientBuilder().
+	client, err := httpc.NewBuilder().
 		SetServiceName("test-service").
 		SetBaseURLs(server.URL).
 		DisableRestErrors().
@@ -37,13 +37,13 @@ func TestStandardClientBuilder_BasicBuild(t *testing.T) {
 		SetDecoder(httpc.JSONDecoder[builderTestPayload]()).
 		SetAccept("application/json")
 
-	result, err := ep.Execute(context.Background(), client, struct{}{})
+	result, _, err := ep.Execute(context.Background(), client, struct{}{})
 	require.NoError(t, err)
 	assert.Equal(t, "hello", result.Message)
 }
 
-func TestStandardClientBuilder_Clone(t *testing.T) {
-	b1 := httpc.NewStandardClientBuilder().
+func TestBuilder_Clone(t *testing.T) {
+	b1 := httpc.NewBuilder().
 		SetServiceName("svc1").
 		SetBaseURLs("http://localhost:1234").
 		SetTimeout(5 * time.Second)
@@ -61,12 +61,12 @@ func TestStandardClientBuilder_Clone(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestStandardClientBuilder_Apply(t *testing.T) {
-	setCustomTimeout := func(b *httpc.StandardClientBuilder) *httpc.StandardClientBuilder {
+func TestBuilder_Apply(t *testing.T) {
+	setCustomTimeout := func(b *httpc.Builder) *httpc.Builder {
 		return b.SetTimeout(30 * time.Second)
 	}
 
-	b := httpc.NewStandardClientBuilder().
+	b := httpc.NewBuilder().
 		SetBaseURLs("http://localhost:1234").
 		Apply(setCustomTimeout).
 		DisableRestErrors()
@@ -75,14 +75,14 @@ func TestStandardClientBuilder_Apply(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestStandardClientBuilder_ConfigurableClient(t *testing.T) {
+func TestBuilder_ConfigurableClient(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"message":"reconfigured"}`))
 	}))
 	defer server.Close()
 
-	client, err := httpc.NewStandardClientBuilder().
+	client, err := httpc.NewBuilder().
 		SetServiceName("test-service").
 		SetBaseURLs(server.URL).
 		DisableRestErrors().
@@ -103,16 +103,16 @@ func TestStandardClientBuilder_ConfigurableClient(t *testing.T) {
 		SetDecoder(httpc.JSONDecoder[builderTestPayload]()).
 		SetAccept("application/json")
 
-	result, err := ep.Execute(context.Background(), client2, struct{}{})
+	result, _, err := ep.Execute(context.Background(), client2, struct{}{})
 	require.NoError(t, err)
 	assert.Equal(t, "reconfigured", result.Message)
 }
 
-// TestStandardClientBuilder_BuilderSnapshotsAtBuildTime verifies that
+// TestBuilder_BuilderSnapshotsAtBuildTime verifies that
 // client.Builder() returns a clone of the builder as it was at Build time,
 // not the current (potentially mutated) builder.
-func TestStandardClientBuilder_BuilderSnapshotsAtBuildTime(t *testing.T) {
-	b := httpc.NewStandardClientBuilder().
+func TestBuilder_BuilderSnapshotsAtBuildTime(t *testing.T) {
+	b := httpc.NewBuilder().
 		SetServiceName("original").
 		SetBaseURLs("http://localhost:1234").
 		SetTimeout(5 * time.Second).
@@ -132,7 +132,7 @@ func TestStandardClientBuilder_BuilderSnapshotsAtBuildTime(t *testing.T) {
 	assert.Equal(t, 5*time.Second, httpClient.Current().Timeout)
 }
 
-func TestStandardClientBuilder_Middleware(t *testing.T) {
+func TestBuilder_Middleware(t *testing.T) {
 	var middlewareSeen bool
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "test-value", r.Header.Get("X-Test"))
@@ -146,7 +146,7 @@ func TestStandardClientBuilder_Middleware(t *testing.T) {
 		return next.RoundTrip(req)
 	})
 
-	client, err := httpc.NewStandardClientBuilder().
+	client, err := httpc.NewBuilder().
 		SetServiceName("mw-service").
 		SetBaseURLs(server.URL).
 		AddMiddleware(mw).
@@ -157,12 +157,12 @@ func TestStandardClientBuilder_Middleware(t *testing.T) {
 	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "/mw", "MW").
 		SetDecoder(httpc.VoidDecoder())
 
-	_, err = ep.Execute(context.Background(), client, struct{}{})
+	_, _, err = ep.Execute(context.Background(), client, struct{}{})
 	require.NoError(t, err)
 	assert.True(t, middlewareSeen)
 }
 
-func TestStandardClientBuilder_PostWithBody(t *testing.T) {
+func TestBuilder_PostWithBody(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, http.MethodPost, r.Method)
 		assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
@@ -173,7 +173,7 @@ func TestStandardClientBuilder_PostWithBody(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client, err := httpc.NewStandardClientBuilder().
+	client, err := httpc.NewBuilder().
 		SetServiceName("post-service").
 		SetBaseURLs(server.URL).
 		DisableRestErrors().
@@ -185,20 +185,20 @@ func TestStandardClientBuilder_PostWithBody(t *testing.T) {
 		SetDecoder(httpc.JSONDecoder[builderTestPayload]()).
 		SetAccept("application/json")
 
-	result, err := ep.Execute(context.Background(), client, builderTestPayload{Message: "request"})
+	result, _, err := ep.Execute(context.Background(), client, builderTestPayload{Message: "request"})
 	require.NoError(t, err)
 	assert.Equal(t, "response", result.Message)
 }
 
-func TestStandardClientBuilder_EmptyURIsError(t *testing.T) {
-	_, err := httpc.NewStandardClientBuilder().
+func TestBuilder_EmptyURIsError(t *testing.T) {
+	_, err := httpc.NewBuilder().
 		SetServiceName("no-urls").
 		Build(context.Background())
 	require.Error(t, err)
 }
 
-func TestStandardClientBuilder_AllowEmptyURIs(t *testing.T) {
-	_, err := httpc.NewStandardClientBuilder().
+func TestBuilder_AllowEmptyURIs(t *testing.T) {
+	_, err := httpc.NewBuilder().
 		SetServiceName("empty-ok").
 		SetBaseURLs().
 		SetAllowCreateWithEmptyURIs(true).
@@ -207,14 +207,14 @@ func TestStandardClientBuilder_AllowEmptyURIs(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestStandardClientBuilder_ErrorDecoder(t *testing.T) {
+func TestBuilder_ErrorDecoder(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte("server error"))
 	}))
 	defer server.Close()
 
-	client, err := httpc.NewStandardClientBuilder().
+	client, err := httpc.NewBuilder().
 		SetServiceName("err-service").
 		SetBaseURLs(server.URL).
 		SetErrorDecoder(&builderTestErrorDecoder{}).
@@ -224,7 +224,7 @@ func TestStandardClientBuilder_ErrorDecoder(t *testing.T) {
 	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "/fail", "Fail").
 		SetDecoder(httpc.VoidDecoder())
 
-	_, err = ep.Execute(context.Background(), client, struct{}{})
+	_, _, err = ep.Execute(context.Background(), client, struct{}{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "builder-decoded error")
 }
@@ -249,7 +249,7 @@ func (e *builderTestError) Error() string {
 	return "builder-decoded error"
 }
 
-func TestStandardClientBuilder_Headers(t *testing.T) {
+func TestBuilder_Headers(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "custom-agent", r.Header.Get("User-Agent"))
 		assert.Equal(t, "val1", r.Header.Get("X-Custom"))
@@ -257,7 +257,7 @@ func TestStandardClientBuilder_Headers(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client, err := httpc.NewStandardClientBuilder().
+	client, err := httpc.NewBuilder().
 		SetServiceName("header-service").
 		SetBaseURLs(server.URL).
 		SetUserAgent("custom-agent").
@@ -269,17 +269,17 @@ func TestStandardClientBuilder_Headers(t *testing.T) {
 	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "/headers", "Headers").
 		SetDecoder(httpc.VoidDecoder())
 
-	_, err = ep.Execute(context.Background(), client, struct{}{})
+	_, _, err = ep.Execute(context.Background(), client, struct{}{})
 	require.NoError(t, err)
 }
 
-func TestStandardClientBuilder_DefaultErrorDecoder_StatusCode(t *testing.T) {
+func TestBuilder_DefaultErrorDecoder_StatusCode(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	defer server.Close()
 
-	client, err := httpc.NewStandardClientBuilder().
+	client, err := httpc.NewBuilder().
 		SetServiceName("err-svc").
 		SetBaseURLs(server.URL).
 		Build(context.Background())
@@ -288,7 +288,7 @@ func TestStandardClientBuilder_DefaultErrorDecoder_StatusCode(t *testing.T) {
 	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "/fail", "Fail").
 		SetDecoder(httpc.VoidDecoder())
 
-	_, err = ep.Execute(context.Background(), client, struct{}{})
+	_, _, err = ep.Execute(context.Background(), client, struct{}{})
 	require.Error(t, err)
 
 	statusCode, ok := httpc.StatusCodeFromError(err)
@@ -296,7 +296,7 @@ func TestStandardClientBuilder_DefaultErrorDecoder_StatusCode(t *testing.T) {
 	assert.Equal(t, http.StatusInternalServerError, statusCode)
 }
 
-func TestStandardClientBuilder_DefaultErrorDecoder_NonJSONBody(t *testing.T) {
+func TestBuilder_DefaultErrorDecoder_NonJSONBody(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain")
 		w.WriteHeader(http.StatusBadRequest)
@@ -304,7 +304,7 @@ func TestStandardClientBuilder_DefaultErrorDecoder_NonJSONBody(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client, err := httpc.NewStandardClientBuilder().
+	client, err := httpc.NewBuilder().
 		SetServiceName("err-svc").
 		SetBaseURLs(server.URL).
 		Build(context.Background())
@@ -313,7 +313,7 @@ func TestStandardClientBuilder_DefaultErrorDecoder_NonJSONBody(t *testing.T) {
 	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "/fail", "Fail").
 		SetDecoder(httpc.VoidDecoder())
 
-	_, err = ep.Execute(context.Background(), client, struct{}{})
+	_, _, err = ep.Execute(context.Background(), client, struct{}{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "400 Bad Request")
 
@@ -323,7 +323,7 @@ func TestStandardClientBuilder_DefaultErrorDecoder_NonJSONBody(t *testing.T) {
 	// Body is included as an unsafe param (not visible in Error() string).
 }
 
-func TestStandardClientBuilder_DefaultErrorDecoder_ConjureJSON(t *testing.T) {
+func TestBuilder_DefaultErrorDecoder_ConjureJSON(t *testing.T) {
 	conjureError := map[string]interface{}{
 		"errorCode":       "NOT_FOUND",
 		"errorName":       "Default:NotFound",
@@ -338,7 +338,7 @@ func TestStandardClientBuilder_DefaultErrorDecoder_ConjureJSON(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client, err := httpc.NewStandardClientBuilder().
+	client, err := httpc.NewBuilder().
 		SetServiceName("err-svc").
 		SetBaseURLs(server.URL).
 		Build(context.Background())
@@ -347,7 +347,7 @@ func TestStandardClientBuilder_DefaultErrorDecoder_ConjureJSON(t *testing.T) {
 	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "/missing", "GetMissing").
 		SetDecoder(httpc.VoidDecoder())
 
-	_, err = ep.Execute(context.Background(), client, struct{}{})
+	_, _, err = ep.Execute(context.Background(), client, struct{}{})
 	require.Error(t, err)
 
 	statusCode, ok := httpc.StatusCodeFromError(err)
@@ -358,13 +358,13 @@ func TestStandardClientBuilder_DefaultErrorDecoder_ConjureJSON(t *testing.T) {
 	assert.Contains(t, err.Error(), "NOT_FOUND")
 }
 
-func TestStandardClientBuilder_DefaultErrorDecoder_EmptyBody(t *testing.T) {
+func TestBuilder_DefaultErrorDecoder_EmptyBody(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusServiceUnavailable)
 	}))
 	defer server.Close()
 
-	client, err := httpc.NewStandardClientBuilder().
+	client, err := httpc.NewBuilder().
 		SetServiceName("err-svc").
 		SetBaseURLs(server.URL).
 		Build(context.Background())
@@ -373,7 +373,7 @@ func TestStandardClientBuilder_DefaultErrorDecoder_EmptyBody(t *testing.T) {
 	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "/down", "Down").
 		SetDecoder(httpc.VoidDecoder())
 
-	_, err = ep.Execute(context.Background(), client, struct{}{})
+	_, _, err = ep.Execute(context.Background(), client, struct{}{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "503 Service Unavailable")
 
@@ -382,8 +382,8 @@ func TestStandardClientBuilder_DefaultErrorDecoder_EmptyBody(t *testing.T) {
 	assert.Equal(t, http.StatusServiceUnavailable, statusCode)
 }
 
-func TestStandardClientBuilder_BuildDialer(t *testing.T) {
-	dialer, err := httpc.NewStandardClientBuilder().
+func TestBuilder_BuildDialer(t *testing.T) {
+	dialer, err := httpc.NewBuilder().
 		SetDialTimeout(5 * time.Second).
 		SetKeepAlive(10 * time.Second).
 		BuildDialer(context.Background())
@@ -401,14 +401,14 @@ func TestStandardClientBuilder_BuildDialer(t *testing.T) {
 	_ = conn.Close()
 }
 
-func TestStandardClientBuilder_BuildTransport(t *testing.T) {
+func TestBuilder_BuildTransport(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"message":"transport"}`))
 	}))
 	defer server.Close()
 
-	transport, err := httpc.NewStandardClientBuilder().
+	transport, err := httpc.NewBuilder().
 		SetMaxIdleConnsPerHost(10).
 		BuildTransport(context.Background())
 	require.NoError(t, err)
@@ -426,7 +426,7 @@ func TestStandardClientBuilder_BuildTransport(t *testing.T) {
 	assert.JSONEq(t, `{"message":"transport"}`, string(body))
 }
 
-func TestStandardClientBuilder_BuildTransport_EscapeHatch(t *testing.T) {
+func TestBuilder_BuildTransport_EscapeHatch(t *testing.T) {
 	var customTransportUsed bool
 	customRT := httpc.MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
 		customTransportUsed = true
@@ -439,7 +439,7 @@ func TestStandardClientBuilder_BuildTransport_EscapeHatch(t *testing.T) {
 		base: http.DefaultTransport,
 	}
 
-	rt, err := httpc.NewStandardClientBuilder().
+	rt, err := httpc.NewBuilder().
 		SetTransport(transport).
 		BuildTransport(context.Background())
 	require.NoError(t, err)
@@ -459,14 +459,14 @@ func (t *trackingTransport) RoundTrip(req *http.Request) (*http.Response, error)
 	return t.base.RoundTrip(req)
 }
 
-func TestStandardClientBuilder_BuildHTTPClient(t *testing.T) {
+func TestBuilder_BuildHTTPClient(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"message":"httpclient"}`))
 	}))
 	defer server.Close()
 
-	httpClient, err := httpc.NewStandardClientBuilder().
+	httpClient, err := httpc.NewBuilder().
 		BuildHTTPClient(context.Background())
 	require.NoError(t, err)
 	require.NotNil(t, httpClient)
@@ -479,8 +479,8 @@ func TestStandardClientBuilder_BuildHTTPClient(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 }
 
-func TestStandardClientBuilder_BuildTLSConfig(t *testing.T) {
-	tlsConfig, err := httpc.NewStandardClientBuilder().
+func TestBuilder_BuildTLSConfig(t *testing.T) {
+	tlsConfig, err := httpc.NewBuilder().
 		SetInsecureSkipVerify(true).
 		BuildTLSConfig(context.Background())
 	require.NoError(t, err)
@@ -495,7 +495,7 @@ func TestStandardClientBuilder_BuildTLSConfig(t *testing.T) {
 // propagates to the *http.Client produced by BuildHTTPClient.
 func TestRefreshable_TimeoutPropagation(t *testing.T) {
 	timeout := refreshable.New(5 * time.Second)
-	httpClient, err := httpc.NewStandardClientBuilder().
+	httpClient, err := httpc.NewBuilder().
 		SetTimeoutRefreshable(timeout).
 		BuildHTTPClient(context.Background())
 	require.NoError(t, err)
@@ -524,7 +524,7 @@ func TestRefreshable_URIPropagation(t *testing.T) {
 	defer server2.Close()
 
 	uris := refreshable.New([]string{server1.URL})
-	client, err := httpc.NewStandardClientBuilder().
+	client, err := httpc.NewBuilder().
 		SetBaseURLsRefreshable(uris).
 		DisableRestErrors().
 		Build(context.Background())
@@ -533,7 +533,7 @@ func TestRefreshable_URIPropagation(t *testing.T) {
 	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "/test", "Test").
 		SetDecoder(httpc.VoidDecoder())
 
-	_, err = ep.Execute(context.Background(), client, struct{}{})
+	_, _, err = ep.Execute(context.Background(), client, struct{}{})
 	require.NoError(t, err)
 	assert.Equal(t, 1, server1Hits)
 	assert.Equal(t, 0, server2Hits)
@@ -541,7 +541,7 @@ func TestRefreshable_URIPropagation(t *testing.T) {
 	// Update URIs to point to server2.
 	uris.Update([]string{server2.URL})
 
-	_, err = ep.Execute(context.Background(), client, struct{}{})
+	_, _, err = ep.Execute(context.Background(), client, struct{}{})
 	require.NoError(t, err)
 	assert.Equal(t, 1, server1Hits)
 	assert.Equal(t, 1, server2Hits)

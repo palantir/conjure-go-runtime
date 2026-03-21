@@ -25,7 +25,7 @@ import (
 // returns the user-provided config as-is. The caller owns the config and is responsible
 // for setting secure defaults.
 func TestBuildTLSConfig_EscapeHatch_PreservesUserConfig(t *testing.T) {
-	tlsResult, err := httpc.NewStandardClientBuilder().
+	tlsResult, err := httpc.NewBuilder().
 		SetTLSConfig(&tls.Config{MinVersion: tls.VersionTLS13}).
 		BuildTLSConfig(context.Background())
 	require.NoError(t, err)
@@ -38,7 +38,7 @@ func TestBuildTLSConfig_EscapeHatch_PreservesUserConfig(t *testing.T) {
 // TestBuildTLSConfig_EscapeHatch_PreservesInsecureSkipVerify verifies that path 1
 // preserves InsecureSkipVerify from the user-provided config.
 func TestBuildTLSConfig_EscapeHatch_PreservesInsecureSkipVerify(t *testing.T) {
-	tlsResult, err := httpc.NewStandardClientBuilder().
+	tlsResult, err := httpc.NewBuilder().
 		SetTLSConfig(&tls.Config{InsecureSkipVerify: true}).
 		BuildTLSConfig(context.Background())
 	require.NoError(t, err)
@@ -48,11 +48,10 @@ func TestBuildTLSConfig_EscapeHatch_PreservesInsecureSkipVerify(t *testing.T) {
 	assert.True(t, cfg.InsecureSkipVerify)
 }
 
-// TestBuildTLSConfig_SystemCAs_SecureDefaults verifies that path 2 (AddSystemCAs)
-// applies secure defaults via tlsconfig.NewClientConfig.
+// TestBuildTLSConfig_SystemCAs_SecureDefaults verifies that system CAs (now included
+// by default) apply secure defaults via tlsconfig.NewClientConfig.
 func TestBuildTLSConfig_SystemCAs_SecureDefaults(t *testing.T) {
-	tlsResult, err := httpc.NewStandardClientBuilder().
-		AddSystemCAs().
+	tlsResult, err := httpc.NewBuilder().
 		BuildTLSConfig(context.Background())
 	require.NoError(t, err)
 
@@ -64,10 +63,9 @@ func TestBuildTLSConfig_SystemCAs_SecureDefaults(t *testing.T) {
 }
 
 // TestBuildTLSConfig_SystemCAs_InsecureSkipVerify verifies that SetInsecureSkipVerify
-// is respected in path 2 (the bug fix — previously InsecureSkipVerify was ignored).
+// is respected when system CAs are included (the default).
 func TestBuildTLSConfig_SystemCAs_InsecureSkipVerify(t *testing.T) {
-	tlsResult, err := httpc.NewStandardClientBuilder().
-		AddSystemCAs().
+	tlsResult, err := httpc.NewBuilder().
 		SetInsecureSkipVerify(true).
 		BuildTLSConfig(context.Background())
 	require.NoError(t, err)
@@ -78,12 +76,12 @@ func TestBuildTLSConfig_SystemCAs_InsecureSkipVerify(t *testing.T) {
 	assert.Equal(t, uint16(tls.VersionTLS12), cfg.MinVersion)
 }
 
-// TestBuildTLSConfig_CertBytes_SecureDefaults verifies that path 2 with client cert
-// bytes applies secure defaults.
+// TestBuildTLSConfig_CertBytes_SecureDefaults verifies that client cert bytes
+// applies secure defaults.
 func TestBuildTLSConfig_CertBytes_SecureDefaults(t *testing.T) {
 	certPEM, keyPEM := generateTestKeyPair(t)
 
-	tlsResult, err := httpc.NewStandardClientBuilder().
+	tlsResult, err := httpc.NewBuilder().
 		SetClientCertBytes(keyPEM, certPEM).
 		BuildTLSConfig(context.Background())
 	require.NoError(t, err)
@@ -95,11 +93,11 @@ func TestBuildTLSConfig_CertBytes_SecureDefaults(t *testing.T) {
 }
 
 // TestBuildTLSConfig_CertBytes_InsecureSkipVerify verifies that SetInsecureSkipVerify
-// is respected when using SetClientCertBytes (path 2 bug fix).
+// is respected when using SetClientCertBytes.
 func TestBuildTLSConfig_CertBytes_InsecureSkipVerify(t *testing.T) {
 	certPEM, keyPEM := generateTestKeyPair(t)
 
-	tlsResult, err := httpc.NewStandardClientBuilder().
+	tlsResult, err := httpc.NewBuilder().
 		SetClientCertBytes(keyPEM, certPEM).
 		SetInsecureSkipVerify(true).
 		BuildTLSConfig(context.Background())
@@ -111,14 +109,14 @@ func TestBuildTLSConfig_CertBytes_InsecureSkipVerify(t *testing.T) {
 	assert.Equal(t, uint16(tls.VersionTLS12), cfg.MinVersion)
 }
 
-// TestBuildTLSConfig_FileBased_SecureDefaults verifies that path 3 (file-based)
-// produces configs with secure defaults (via refreshingclient.NewTLSConfig → tlsconfig.NewClientConfig).
+// TestBuildTLSConfig_FileBased_SecureDefaults verifies that file-based TLS config
+// produces configs with secure defaults (via newTLSConfig → tlsconfig.NewClientConfig).
 func TestBuildTLSConfig_FileBased_SecureDefaults(t *testing.T) {
 	tmpDir := t.TempDir()
 	caFile := filepath.Join(tmpDir, "ca.pem")
 	writeTestCACertFile(t, caFile)
 
-	tlsResult, err := httpc.NewStandardClientBuilder().
+	tlsResult, err := httpc.NewBuilder().
 		AddCACertFiles(caFile).
 		BuildTLSConfig(context.Background())
 	require.NoError(t, err)
@@ -129,10 +127,10 @@ func TestBuildTLSConfig_FileBased_SecureDefaults(t *testing.T) {
 	assert.NotEmpty(t, cfg.CipherSuites, "file-based path should set cipher suites")
 }
 
-// TestBuildTLSConfig_FileBased_InsecureSkipVerify verifies that path 3 respects
-// SetInsecureSkipVerify.
+// TestBuildTLSConfig_FileBased_InsecureSkipVerify verifies that file-based config
+// respects SetInsecureSkipVerify.
 func TestBuildTLSConfig_FileBased_InsecureSkipVerify(t *testing.T) {
-	tlsResult, err := httpc.NewStandardClientBuilder().
+	tlsResult, err := httpc.NewBuilder().
 		SetInsecureSkipVerify(true).
 		BuildTLSConfig(context.Background())
 	require.NoError(t, err)
@@ -149,7 +147,7 @@ func TestBuildTLSConfig_FileBased_CAFileRefresh(t *testing.T) {
 	caFile := filepath.Join(tmpDir, "ca.pem")
 	writeTestCACertFile(t, caFile)
 
-	tlsResult, err := httpc.NewStandardClientBuilder().
+	tlsResult, err := httpc.NewBuilder().
 		AddCACertFiles(caFile).
 		SetInsecureSkipVerify(true).
 		BuildTLSConfig(context.Background())
@@ -181,7 +179,7 @@ func TestBuildTLSConfig_FileBased_CertFileRefresh(t *testing.T) {
 	require.NoError(t, os.WriteFile(certFile, certPEM1, 0600))
 	require.NoError(t, os.WriteFile(keyFile, keyPEM1, 0600))
 
-	tlsResult, err := httpc.NewStandardClientBuilder().
+	tlsResult, err := httpc.NewBuilder().
 		AddCACertFiles(caFile).
 		SetClientCertFiles(keyFile, certFile).
 		BuildTLSConfig(context.Background())
@@ -231,10 +229,10 @@ func TestBuildTLSConfig_FileBased_CertFileRefresh(t *testing.T) {
 	}, 10*time.Second)
 }
 
-// TestBuildTLSConfig_NoTLSSettings verifies that path 3 with no TLS settings
-// still produces a valid config with secure defaults.
+// TestBuildTLSConfig_NoTLSSettings verifies that with no explicit TLS settings
+// (system CAs included by default) still produces a valid config with secure defaults.
 func TestBuildTLSConfig_NoTLSSettings(t *testing.T) {
-	tlsResult, err := httpc.NewStandardClientBuilder().
+	tlsResult, err := httpc.NewBuilder().
 		BuildTLSConfig(context.Background())
 	require.NoError(t, err)
 
@@ -246,7 +244,7 @@ func TestBuildTLSConfig_NoTLSSettings(t *testing.T) {
 // TestBuildTLSConfig_Clone_TLSIsolation verifies that cloning the builder
 // isolates the escape-hatch TLS config between the original and clone.
 func TestBuildTLSConfig_Clone_TLSIsolation(t *testing.T) {
-	b1 := httpc.NewStandardClientBuilder().
+	b1 := httpc.NewBuilder().
 		SetTLSConfig(&tls.Config{InsecureSkipVerify: true})
 
 	b2 := b1.Clone()
@@ -261,6 +259,58 @@ func TestBuildTLSConfig_Clone_TLSIsolation(t *testing.T) {
 	v2, _ := cfg2.Validation()
 	assert.True(t, v1.InsecureSkipVerify, "original should still be insecure")
 	assert.False(t, v2.InsecureSkipVerify, "clone should be secure")
+}
+
+// TestBuildTLSConfig_SystemCAs_PlusCAFile verifies that when a CA file is added
+// alongside the default system CAs, the resulting pool contains both the system
+// CAs and the custom CA.
+func TestBuildTLSConfig_SystemCAs_PlusCAFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	caFile := filepath.Join(tmpDir, "custom-ca.pem")
+	writeTestCACertFileWithOrg(t, caFile, "Custom Test CA")
+
+	tlsResult, err := httpc.NewBuilder().
+		AddCACertFiles(caFile).
+		BuildTLSConfig(context.Background())
+	require.NoError(t, err)
+
+	cfg, validErr := tlsResult.Validation()
+	require.NoError(t, validErr)
+	assert.Equal(t, uint16(tls.VersionTLS12), cfg.MinVersion, "should enforce TLS 1.2 minimum")
+	assert.NotNil(t, cfg.RootCAs, "RootCAs should be set")
+
+	// The pool should contain more certs than just the custom CA
+	// (system CAs are merged in by default).
+	systemPool, err := x509.SystemCertPool()
+	require.NoError(t, err)
+	systemSubjects := systemPool.Subjects()
+	configSubjects := cfg.RootCAs.Subjects()
+	assert.Greater(t, len(configSubjects), len(systemSubjects),
+		"config pool should have more certs than system pool alone (custom CA added)")
+}
+
+// TestBuildTLSConfig_SystemCAs_PlusCertBytes verifies that AddCACertBytes
+// works alongside the default system CAs.
+func TestBuildTLSConfig_SystemCAs_PlusCertBytes(t *testing.T) {
+	tmpDir := t.TempDir()
+	caFile := filepath.Join(tmpDir, "ca.pem")
+	writeTestCACertFileWithOrg(t, caFile, "Bytes Test CA")
+	caPEM, err := os.ReadFile(caFile)
+	require.NoError(t, err)
+
+	tlsResult, err := httpc.NewBuilder().
+		AddCACertBytes(caPEM).
+		BuildTLSConfig(context.Background())
+	require.NoError(t, err)
+
+	cfg, validErr := tlsResult.Validation()
+	require.NoError(t, validErr)
+	assert.NotNil(t, cfg.RootCAs, "RootCAs should be set")
+
+	systemPool, err := x509.SystemCertPool()
+	require.NoError(t, err)
+	assert.Greater(t, len(cfg.RootCAs.Subjects()), len(systemPool.Subjects()),
+		"config pool should include system CAs plus the custom cert")
 }
 
 // --- helpers ---

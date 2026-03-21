@@ -197,32 +197,32 @@ type ServiceBuilder[B ServiceBuilder[B]] interface {
 	SetBytesBufferPool(bytesbuffers.Pool) B
 }
 
-func (b *StandardClientBuilder) SetServiceName(s string) *StandardClientBuilder {
+func (b *Builder) SetServiceName(s string) *Builder {
 	b.serviceName = refreshable.New(s)
 	return b
 }
 
-func (b *StandardClientBuilder) SetServiceNameRefreshable(r refreshable.Refreshable[string]) *StandardClientBuilder {
+func (b *Builder) SetServiceNameRefreshable(r refreshable.Refreshable[string]) *Builder {
 	b.serviceName = r
 	return b
 }
 
-func (b *StandardClientBuilder) SetBaseURLs(urls ...string) *StandardClientBuilder {
+func (b *Builder) SetBaseURLs(urls ...string) *Builder {
 	b.uris = refreshable.New(urls)
 	return b
 }
 
-func (b *StandardClientBuilder) SetBaseURLsRefreshable(r refreshable.Refreshable[[]string]) *StandardClientBuilder {
+func (b *Builder) SetBaseURLsRefreshable(r refreshable.Refreshable[[]string]) *Builder {
 	b.uris = r
 	return b
 }
 
-func (b *StandardClientBuilder) SetAllowCreateWithEmptyURIs(allow bool) *StandardClientBuilder {
+func (b *Builder) SetAllowCreateWithEmptyURIs(allow bool) *Builder {
 	b.allowEmptyURIs = allow
 	return b
 }
 
-func (b *StandardClientBuilder) SetURIScoringStrategy(s URIScoringStrategy) *StandardClientBuilder {
+func (b *Builder) SetURIScoringStrategy(s URIScoringStrategy) *Builder {
 	switch s {
 	case URIScoringRandom:
 		b.uriScorerBuilder = func(uris []string) internal.URIScoringMiddleware {
@@ -234,7 +234,7 @@ func (b *StandardClientBuilder) SetURIScoringStrategy(s URIScoringStrategy) *Sta
 	return b
 }
 
-func (b *StandardClientBuilder) SetAuthToken(t string) *StandardClientBuilder {
+func (b *Builder) SetAuthToken(t string) *Builder {
 	b.middlewares = append(b.middlewares, MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
 		if t != "" {
 			req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", t))
@@ -244,7 +244,7 @@ func (b *StandardClientBuilder) SetAuthToken(t string) *StandardClientBuilder {
 	return b
 }
 
-func (b *StandardClientBuilder) SetAuthTokenProvider(p TokenProvider) *StandardClientBuilder {
+func (b *Builder) SetAuthTokenProvider(p TokenProvider) *Builder {
 	b.middlewares = append(b.middlewares, MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
 		token, err := p(req.Context())
 		if err != nil {
@@ -258,7 +258,7 @@ func (b *StandardClientBuilder) SetAuthTokenProvider(p TokenProvider) *StandardC
 	return b
 }
 
-func (b *StandardClientBuilder) SetAuthTokenRefreshable(r refreshable.Refreshable[*string]) *StandardClientBuilder {
+func (b *Builder) SetAuthTokenRefreshable(r refreshable.Refreshable[*string]) *Builder {
 	b.middlewares = append(b.middlewares, MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
 		if s := r.Current(); s != nil && *s != "" {
 			req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", *s))
@@ -268,7 +268,7 @@ func (b *StandardClientBuilder) SetAuthTokenRefreshable(r refreshable.Refreshabl
 	return b
 }
 
-func (b *StandardClientBuilder) SetBasicAuth(user, password string) *StandardClientBuilder {
+func (b *Builder) SetBasicAuth(user, password string) *Builder {
 	b.middlewares = append(b.middlewares, MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
 		setBasicAuthHeader(req.Header, user, password)
 		return next.RoundTrip(req)
@@ -276,7 +276,7 @@ func (b *StandardClientBuilder) SetBasicAuth(user, password string) *StandardCli
 	return b
 }
 
-func (b *StandardClientBuilder) SetBasicAuthProvider(p BasicAuthProvider) *StandardClientBuilder {
+func (b *Builder) SetBasicAuthProvider(p BasicAuthProvider) *Builder {
 	b.middlewares = append(b.middlewares, MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
 		auth, err := p(req.Context())
 		if err != nil {
@@ -288,7 +288,7 @@ func (b *StandardClientBuilder) SetBasicAuthProvider(p BasicAuthProvider) *Stand
 	return b
 }
 
-func (b *StandardClientBuilder) SetBasicAuthRefreshable(r refreshable.Refreshable[*BasicAuth]) *StandardClientBuilder {
+func (b *Builder) SetBasicAuthRefreshable(r refreshable.Refreshable[*BasicAuth]) *Builder {
 	b.middlewares = append(b.middlewares, MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
 		if auth := r.Current(); auth != nil {
 			setBasicAuthHeader(req.Header, auth.User, auth.Password)
@@ -303,7 +303,7 @@ func setBasicAuthHeader(h http.Header, username, password string) {
 	h.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString(basicAuthBytes))
 }
 
-func (b *StandardClientBuilder) AddHeader(key, value string) *StandardClientBuilder {
+func (b *Builder) AddHeader(key, value string) *Builder {
 	b.middlewares = append([]Middleware{MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
 		req.Header.Add(key, value)
 		return next.RoundTrip(req)
@@ -311,7 +311,7 @@ func (b *StandardClientBuilder) AddHeader(key, value string) *StandardClientBuil
 	return b
 }
 
-func (b *StandardClientBuilder) SetHeader(key, value string) *StandardClientBuilder {
+func (b *Builder) SetHeader(key, value string) *Builder {
 	b.middlewares = append([]Middleware{MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
 		req.Header.Set(key, value)
 		return next.RoundTrip(req)
@@ -319,11 +319,11 @@ func (b *StandardClientBuilder) SetHeader(key, value string) *StandardClientBuil
 	return b
 }
 
-func (b *StandardClientBuilder) SetUserAgent(s string) *StandardClientBuilder {
+func (b *Builder) SetUserAgent(s string) *Builder {
 	return b.SetHeader("User-Agent", s)
 }
 
-func (b *StandardClientBuilder) SetOverrideRequestHost(host string) *StandardClientBuilder {
+func (b *Builder) SetOverrideRequestHost(host string) *Builder {
 	b.middlewares = append([]Middleware{MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
 		req.Host = host
 		return next.RoundTrip(req)
@@ -331,109 +331,109 @@ func (b *StandardClientBuilder) SetOverrideRequestHost(host string) *StandardCli
 	return b
 }
 
-func (b *StandardClientBuilder) AddMiddleware(m Middleware) *StandardClientBuilder {
+func (b *Builder) AddMiddleware(m Middleware) *Builder {
 	b.middlewares = append(b.middlewares, m)
 	return b
 }
 
-func (b *StandardClientBuilder) AddInnerMiddleware(m Middleware) *StandardClientBuilder {
+func (b *Builder) AddInnerMiddleware(m Middleware) *Builder {
 	b.innerMiddlewares = append(b.innerMiddlewares, m)
 	return b
 }
 
-func (b *StandardClientBuilder) SetTimeout(d time.Duration) *StandardClientBuilder {
+func (b *Builder) SetTimeout(d time.Duration) *Builder {
 	b.timeout = refreshable.New(d)
 	return b
 }
 
-func (b *StandardClientBuilder) SetTimeoutRefreshable(r refreshable.Refreshable[time.Duration]) *StandardClientBuilder {
+func (b *Builder) SetTimeoutRefreshable(r refreshable.Refreshable[time.Duration]) *Builder {
 	b.timeout = r
 	return b
 }
 
-func (b *StandardClientBuilder) SetMaxAttempts(p *int) *StandardClientBuilder {
+func (b *Builder) SetMaxAttempts(p *int) *Builder {
 	b.maxAttempts = refreshable.New(p)
 	return b
 }
 
-func (b *StandardClientBuilder) SetMaxAttemptsRefreshable(r refreshable.Refreshable[*int]) *StandardClientBuilder {
+func (b *Builder) SetMaxAttemptsRefreshable(r refreshable.Refreshable[*int]) *Builder {
 	b.maxAttempts = r
 	return b
 }
 
-func (b *StandardClientBuilder) SetInitialBackoff(d time.Duration) *StandardClientBuilder {
+func (b *Builder) SetInitialBackoff(d time.Duration) *Builder {
 	b.initialBackoff = refreshable.New(d)
 	return b
 }
 
-func (b *StandardClientBuilder) SetInitialBackoffRefreshable(r refreshable.Refreshable[time.Duration]) *StandardClientBuilder {
+func (b *Builder) SetInitialBackoffRefreshable(r refreshable.Refreshable[time.Duration]) *Builder {
 	b.initialBackoff = r
 	return b
 }
 
-func (b *StandardClientBuilder) SetMaxBackoff(d time.Duration) *StandardClientBuilder {
+func (b *Builder) SetMaxBackoff(d time.Duration) *Builder {
 	b.maxBackoff = refreshable.New(d)
 	return b
 }
 
-func (b *StandardClientBuilder) SetMaxBackoffRefreshable(r refreshable.Refreshable[time.Duration]) *StandardClientBuilder {
+func (b *Builder) SetMaxBackoffRefreshable(r refreshable.Refreshable[time.Duration]) *Builder {
 	b.maxBackoff = r
 	return b
 }
 
-func (b *StandardClientBuilder) SetMetrics(providers ...TagsProvider) *StandardClientBuilder {
+func (b *Builder) SetMetrics(providers ...TagsProvider) *Builder {
 	b.disableMetrics = refreshable.New(false)
 	b.metricsTagProviders = providers
 	return b
 }
 
-func (b *StandardClientBuilder) SetDisableMetrics(disable bool) *StandardClientBuilder {
+func (b *Builder) SetDisableMetrics(disable bool) *Builder {
 	b.disableMetrics = refreshable.New(disable)
 	return b
 }
 
-func (b *StandardClientBuilder) SetDisableMetricsRefreshable(r refreshable.Refreshable[bool]) *StandardClientBuilder {
+func (b *Builder) SetDisableMetricsRefreshable(r refreshable.Refreshable[bool]) *Builder {
 	b.disableMetrics = r
 	return b
 }
 
-func (b *StandardClientBuilder) DisableTracing() *StandardClientBuilder {
+func (b *Builder) DisableTracing() *Builder {
 	b.disableRequestSpan = true
 	return b
 }
 
-func (b *StandardClientBuilder) DisableTraceHeaderPropagation() *StandardClientBuilder {
+func (b *Builder) DisableTraceHeaderPropagation() *Builder {
 	b.disableTraceHeaders = true
 	return b
 }
 
-func (b *StandardClientBuilder) SetErrorDecoder(d ErrorDecoder) *StandardClientBuilder {
+func (b *Builder) SetErrorDecoder(d ErrorDecoder) *Builder {
 	b.errorDecoder = d
 	return b
 }
 
-func (b *StandardClientBuilder) DisableRestErrors() *StandardClientBuilder {
+func (b *Builder) DisableRestErrors() *Builder {
 	b.errorDecoder = nil
 	return b
 }
 
-func (b *StandardClientBuilder) DisablePanicRecovery() *StandardClientBuilder {
+func (b *Builder) DisablePanicRecovery() *Builder {
 	b.disableRecovery = true
 	return b
 }
 
-func (b *StandardClientBuilder) SetTransport(rt http.RoundTripper) *StandardClientBuilder {
+func (b *Builder) SetTransport(rt http.RoundTripper) *Builder {
 	b.transport = rt
 	return b
 }
 
-func (b *StandardClientBuilder) SetBytesBufferPool(pool bytesbuffers.Pool) *StandardClientBuilder {
+func (b *Builder) SetBytesBufferPool(pool bytesbuffers.Pool) *Builder {
 	b.bytesBufferPool = pool
 	return b
 }
 
 // Build constructs a Client from the current builder configuration.
-func (b *StandardClientBuilder) Build(ctx context.Context) (ConfigurableClient[*StandardClientBuilder], error) {
+func (b *Builder) Build(ctx context.Context) (ConfigurableClient[*Builder], error) {
 	if len(b.errs) > 0 {
 		if len(b.errs) == 1 {
 			return nil, werror.WrapWithContextParams(ctx, b.errs[0], "builder configuration errors")
@@ -473,7 +473,7 @@ func (b *StandardClientBuilder) Build(ctx context.Context) (ConfigurableClient[*
 		return b.uriScorerBuilder(uris)
 	})
 
-	return &fluentClient[*StandardClientBuilder]{
+	return &fluentClient[*Builder]{
 		serviceName:    b.serviceName,
 		httpClient:     httpClient,
 		middlewares:    b.middlewares,
@@ -491,7 +491,7 @@ func (b *StandardClientBuilder) Build(ctx context.Context) (ConfigurableClient[*
 // BuildHTTPClient builds a complete *http.Client from the builder's configuration.
 // The returned refreshable rebuilds whenever timeout or transport settings change.
 // The transport is wrapped with inner middlewares, metrics, tracing, and recovery.
-func (b *StandardClientBuilder) BuildHTTPClient(ctx context.Context) (refreshable.Refreshable[*http.Client], error) {
+func (b *Builder) BuildHTTPClient(ctx context.Context) (refreshable.Refreshable[*http.Client], error) {
 	transport, err := b.BuildTransport(ctx)
 	if err != nil {
 		return nil, err

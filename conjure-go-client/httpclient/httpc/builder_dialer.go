@@ -47,7 +47,7 @@ type DialerBuilder[B DialerBuilder[B]] interface {
 	SetSocksProxyURL(string) B
 }
 
-func (b *StandardClientBuilder) SetDialTimeout(d time.Duration) *StandardClientBuilder {
+func (b *Builder) SetDialTimeout(d time.Duration) *Builder {
 	b.dialerParams = refreshable.View(b.dialerParams, func(p dialerParams) dialerParams {
 		p.DialTimeout = d
 		return p
@@ -55,7 +55,7 @@ func (b *StandardClientBuilder) SetDialTimeout(d time.Duration) *StandardClientB
 	return b
 }
 
-func (b *StandardClientBuilder) SetKeepAlive(d time.Duration) *StandardClientBuilder {
+func (b *Builder) SetKeepAlive(d time.Duration) *Builder {
 	b.dialerParams = refreshable.View(b.dialerParams, func(p dialerParams) dialerParams {
 		p.KeepAlive = d
 		return p
@@ -63,7 +63,7 @@ func (b *StandardClientBuilder) SetKeepAlive(d time.Duration) *StandardClientBui
 	return b
 }
 
-func (b *StandardClientBuilder) SetSocksProxyURL(s string) *StandardClientBuilder {
+func (b *Builder) SetSocksProxyURL(s string) *Builder {
 	if s == "" {
 		b.dialerParams = refreshable.View(b.dialerParams, func(p dialerParams) dialerParams {
 			p.SocksProxyURL = nil
@@ -111,7 +111,7 @@ func (r *refreshableDialer) Dial(network, address string) (net.Conn, error) {
 // BuildDialer builds the configured TCP dialer from the builder's dialer parameters.
 // The returned ContextDialer automatically adapts when dial timeout, keep-alive,
 // or SOCKS proxy settings change via their refreshable sources.
-func (b *StandardClientBuilder) BuildDialer(ctx context.Context) (ContextDialer, error) {
+func (b *Builder) BuildDialer(ctx context.Context) (ContextDialer, error) {
 	if len(b.errs) > 0 {
 		if len(b.errs) == 1 {
 			return nil, werror.WrapWithContextParams(ctx, b.errs[0], "builder configuration errors")

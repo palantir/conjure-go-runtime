@@ -48,7 +48,7 @@ client, err := httpclient.NewClientWithContext(ctx,
 ### New
 
 ```go
-client, err := httpc.NewStandardClientBuilder().
+client, err := httpc.NewBuilder().
     SetServiceName("my-service").
     SetBaseURLs("https://host1", "https://host2").
     SetAuthToken("token").
@@ -102,10 +102,10 @@ var createItem = httpc.NewPOST[CreateReq, CreateResp]("/api/v1/items", "CreateIt
     SetAccept("application/json")
 
 // At call site:
-resp, err := httpc.ExecuteVoid(ctx, client,
+resp, _, err := httpc.ExecuteVoid(ctx, client,
     getItem.WithPathParam("itemId", itemId))
 
-resp, err := createItem.Execute(ctx, client, body)
+resp, _, err := createItem.Execute(ctx, client, body)
 ```
 
 Key differences:
@@ -180,8 +180,8 @@ Key differences:
 | `WithRequestMethod(m)` | `NewEndpoint[...]`/`NewGET`/`NewPOST`/etc. | Set once at endpoint definition |
 | `WithPath(p)` | Endpoint constructor `path` arg | Path template with `{param}` |
 | `WithPathf(fmt, args...)` | `WithPathParam(key, value)` | Named replacement, not fmt |
-| `WithHeader(k, v)` | `ep.WithHeader(k, v)` or `overrides.WithHeader(k, v)` | Copy-on-write |
-| `WithQueryValues(q)` | `ep.WithQueryParam(k, v)` (per key-value) | |
+| `WithHeader(k, v)` | `ep.AddHeader(k, v)` / `ep.SetHeader(k, v)` or `overrides.AddHeader(k, v)` / `overrides.SetHeader(k, v)` | `AddHeader` accumulates; `SetHeader` replaces. Copy-on-write |
+| `WithQueryValues(q)` | `ep.AddQuery(k, v)` / `ep.SetQuery(k, v)` (per key-value) | `AddQuery` accumulates; `SetQuery` replaces |
 | `WithRPCMethodName(n)` | Endpoint constructor `name` arg | Set once at definition |
 | `WithJSONRequest(v)` | `SetEncoder(httpc.JSONEncoder[T]())` | Set once on endpoint |
 | `WithJSONResponse(&v)` | `SetDecoder(httpc.JSONDecoder[T]())` | Returns typed value |
@@ -212,7 +212,7 @@ Key differences:
 | `httpclient.ClientConfig` | `httpc.ClientConfig` (alias) | Same underlying type |
 | `httpclient.RequestBody` | `httpc.BodyEncoder[T]` | See "Request bodies" |
 | `httpclient.RequestParam` | `httpc.Overrides` / `Endpoint` methods | See "Making requests" |
-| `httpclient.ClientParam` | `httpc.Param[*StandardClientBuilder]` | See "Params" |
+| `httpclient.ClientParam` | `httpc.Param[*Builder]` | See "Params" |
 | N/A | `httpc.Endpoint[Req, Resp]` | New concept |
 | N/A | `httpc.Overrides` | New concept |
 | N/A | `httpc.ConfigurableClient[B]` | New concept |
@@ -266,9 +266,9 @@ Using the wrong setter for the protocol will result in a builder error.
 
 The old `WithCAFiles` and `WithTLSCABytes` each **replaced** the CA pool.
 The new `AddCACertFiles`, `AddCACertBytes`, `AddCACertBytesRefreshable`, and
-`AddCACerts` are all **additive** -- each call appends to the pool. Call
-`AddSystemCAs()` explicitly if you want the system CA pool as a base (the old
-package included system CAs by default).
+`AddCACerts` are all **additive** -- each call appends to the pool. Both
+packages now include system CAs by default. Call `SetIncludeSystemCAs(false)`
+to use only explicitly configured CAs.
 
 ### Response body is returned, not written to a pointer
 
@@ -281,7 +281,7 @@ var result MyResp
 _, err := client.Do(ctx, httpclient.WithJSONResponse(&result), ...)
 
 // New:
-result, err := endpoint.Execute(ctx, client, body)
+result, _, err := endpoint.Execute(ctx, client, body)
 ```
 
 ### No more `RequestBody` interface
@@ -310,7 +310,7 @@ The old API used option functions (`WithFoo(value)`) that were applied once duri
 returns a new value:
 
 ```go
-base := httpc.Overrides{}.WithHeader("X-Tenant", "acme")
+base := httpc.Overrides{}.AddHeader("X-Tenant", "acme")
 withTimeout := base.WithTimeout(5 * time.Second)
 // base does NOT have the timeout; withTimeout does.
 ```
@@ -323,7 +323,7 @@ must be captured (the receiver is unchanged).
 Unlike endpoints and overrides, builders modify the receiver:
 
 ```go
-b := httpc.NewStandardClientBuilder()
+b := httpc.NewBuilder()
 b.SetTimeout(30 * time.Second)  // modifies b in place
 // Use b.Clone() if you need an independent copy.
 ```
@@ -363,17 +363,18 @@ in the old package:
 | `client_conn_idle_return_error` | Connection pool saturation |
 | `client_request_write_error` | Request write failures |
 
-### `WithQueryValues` replaced by repeated `WithQueryParam`
+### `WithQueryValues` replaced by `AddQuery`/`SetQuery`
 
 The old `WithQueryValues(url.Values{...})` set all query params at once. The new
-API adds them one at a time via `WithQueryParam(key, value)`, which accumulates:
+API adds them one at a time via `AddQuery(key, value)` (which accumulates) or
+`SetQuery(key, value)` (which replaces):
 
 ```go
 // Old:
 httpclient.WithQueryValues(url.Values{"page": {"1"}, "size": {"10"}})
 
 // New:
-ep.WithQueryParam("page", "1").WithQueryParam("size", "10")
+ep.AddQuery("page", "1").AddQuery("size", "10")
 ```
 
 ### Path construction uses named templates
@@ -394,7 +395,7 @@ Path templates use `{param}` placeholders (Conjure style). Greedy parameters
 ## Migration checklist
 
 1. **Replace client construction**: Change `httpclient.NewClient*` calls to
-   `httpc.NewStandardClientBuilder()...Build(ctx)`.
+   `httpc.NewBuilder()...Build(ctx)`.
 
 2. **Define endpoints**: Create package-level `Endpoint` vars for each RPC, setting
    method, path template, encoder, decoder, and accept header.
@@ -410,8 +411,8 @@ Path templates use `{param}` placeholders (Conjure style). Greedy parameters
 
 6. **Update proxy configuration**: Split `WithProxyURL` calls by protocol.
 
-7. **Update TLS CA configuration**: Add `AddSystemCAs()` if you need system CAs,
-   then add custom CAs via the `Add*` methods.
+7. **Update TLS CA configuration**: CA configuration is now additive. Replace
+   `WithCAFiles`/`WithTLSCABytes` with the corresponding `Add*` methods.
 
 8. **Update metrics consumers**: Change metric names from dot-separated to
    underscore-separated.

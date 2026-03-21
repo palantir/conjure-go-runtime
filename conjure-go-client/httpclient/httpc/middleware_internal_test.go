@@ -46,7 +46,7 @@ func TestMiddlewareChain_Order(t *testing.T) {
 		WithMiddleware(mw3)
 
 	client := &httpTestClient{server: server}
-	_, err := httpc.ExecuteVoid(t.Context(), client, ep)
+	_, _, err := httpc.ExecuteVoid(t.Context(), client, ep)
 	require.NoError(t, err)
 
 	// Last added (mw3) wraps mw2 wraps mw1 wraps client.
@@ -76,7 +76,7 @@ func TestMiddlewareChain_NilSkipped(t *testing.T) {
 		WithMiddleware(nil)
 
 	client := &httpTestClient{server: server}
-	_, err := httpc.ExecuteVoid(t.Context(), client, ep)
+	_, _, err := httpc.ExecuteVoid(t.Context(), client, ep)
 	require.NoError(t, err)
 	assert.True(t, called)
 }
@@ -95,7 +95,7 @@ func TestMiddlewareChain_EmptyPassthrough(t *testing.T) {
 		SetAccept("application/json")
 
 	client := &httpTestClient{server: server}
-	result, err := httpc.ExecuteVoid(t.Context(), client, ep)
+	result, _, err := httpc.ExecuteVoid(t.Context(), client, ep)
 	require.NoError(t, err)
 	assert.Equal(t, testPayload{Name: "passthrough", Value: 0}, result)
 }
@@ -117,7 +117,7 @@ func TestMiddlewareChain_BuiltClient(t *testing.T) {
 		return next.RoundTrip(req)
 	})
 
-	client, err := httpc.NewStandardClientBuilder().
+	client, err := httpc.NewBuilder().
 		SetBaseURLs(server.URL).
 		SetServiceName("test-service").
 		AddMiddleware(mw).
@@ -131,7 +131,7 @@ func TestMiddlewareChain_BuiltClient(t *testing.T) {
 		SetDecoder(httpc.JSONDecoder[testPayload]()).
 		SetAccept("application/json")
 
-	result, err := httpc.ExecuteVoid(t.Context(), client, ep)
+	result, _, err := httpc.ExecuteVoid(t.Context(), client, ep)
 	require.NoError(t, err)
 	assert.True(t, middlewareCalled)
 	assert.Equal(t, testPayload{Name: "chain", Value: 1}, result)
