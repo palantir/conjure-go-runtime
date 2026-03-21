@@ -229,8 +229,8 @@ func WithRequestTimeout(timeout time.Duration) RequestParam {
 }
 
 // withRequestMiddleware adds a per-request middleware to the transport chain.
-// It is unexported because callers should use the generic WithAdditionalMiddleware
-// helper via the ServiceClient interface.
+// It is unexported because callers should use the Overrides type for per-request
+// middleware configuration.
 func withRequestMiddleware(m Middleware) RequestParam {
 	return requestParamFunc(func(b *requestBuilder) error {
 		b.requestMiddlewares = append(b.requestMiddlewares, m)

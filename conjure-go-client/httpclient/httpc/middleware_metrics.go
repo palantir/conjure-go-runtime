@@ -147,7 +147,7 @@ func (m *metricsMiddleware) tlsTraceContext(ctx context.Context, registry metric
 	var (
 		getConnStart   time.Time
 		dnsStart       time.Time
-		connectStart   time.Time
+		connectStarts  = map[string]time.Time{} // keyed by network+addr for Happy Eyeballs
 		wroteRequestAt time.Time
 	)
 	return httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{
@@ -185,13 +185,16 @@ func (m *metricsMiddleware) tlsTraceContext(ctx context.Context, registry metric
 				registry.Meter(metricDNSLookupError, serviceNameTag).Mark(1)
 			}
 		},
+		// ConnectStart/ConnectDone may be called multiple times with Happy Eyeballs
+		// (dual-stack IPv4/IPv6), so we key start times by network+addr.
 		ConnectStart: func(network, addr string) {
-			connectStart = time.Now()
+			connectStarts[network+addr] = time.Now()
 		},
 		ConnectDone: func(network, addr string, err error) {
 			networkTag := metrics.NewTagWithFallbackValue(metricTagNetwork, network, "unknown")
-			if !connectStart.IsZero() {
-				registry.Timer(metricTCPConnect, serviceNameTag, networkTag).Update(time.Since(connectStart) / time.Microsecond)
+			if start, ok := connectStarts[network+addr]; ok {
+				registry.Timer(metricTCPConnect, serviceNameTag, networkTag).Update(time.Since(start) / time.Microsecond)
+				delete(connectStarts, network+addr)
 			}
 			if err != nil {
 				registry.Meter(metricTCPConnectError, serviceNameTag, networkTag).Mark(1)
@@ -218,6 +221,8 @@ func (m *metricsMiddleware) tlsTraceContext(ctx context.Context, registry metric
 				registry.Meter(metricTLSHandshake, tags...).Mark(1)
 			}
 		},
+		// WroteRequest may be called multiple times for retried requests. We always
+		// record the latest time so that TTFB measures from the successful write.
 		WroteRequest: func(info httptrace.WroteRequestInfo) {
 			wroteRequestAt = time.Now()
 			if info.Err != nil {

@@ -36,8 +36,8 @@ type baseB[B baseB[B]] interface {
 //	    }
 //	}
 //
-// Param is also the option type for ServiceClient, where it wraps copy-on-write
-// RequestOverrides methods rather than mutating setters. See ServiceClient for details.
+// Param is also the option type for Overrides, where it wraps copy-on-write
+// RequestOverrides methods rather than mutating setters. See Overrides for details.
 type Param[B baseB[B]] func(B) B
 
 func Param0[B baseB[B]](p func(B) B) Param[B] {

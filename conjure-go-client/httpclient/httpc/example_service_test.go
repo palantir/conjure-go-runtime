@@ -1,0 +1,464 @@
+package httpc_test
+
+// This file demonstrates what a Conjure-generated service client looks like
+// when built on top of httpc.Endpoint and httpc.Overrides. The pattern is:
+//
+//  1. Package-level Endpoint vars define the HTTP shape of each RPC,
+//     using Conjure-style path templates with {param} placeholders.
+//  2. The service struct holds an httpc.Overrides for per-client customization.
+//  3. Each method fills in path params via WithPathParam, merges client-level
+//     overrides via WithOverrides, then calls Execute.
+//  4. Callers use the With* methods on Overrides to derive customized clients
+//     without mutating the original.
+
+import (
+	"context"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+	"time"
+
+	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpclient/httpc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+// ---------------------------------------------------------------------------
+// Example generated types (would normally live in a separate api package)
+// ---------------------------------------------------------------------------
+
+type CreateItemRequest struct {
+	Name string `json:"name"`
+}
+
+type CreateItemResponse struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+type GetItemResponse struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// ---------------------------------------------------------------------------
+// Example generated service client
+// ---------------------------------------------------------------------------
+
+// Package-level endpoint descriptors. Path templates use {param} placeholders
+// matching the Conjure definition. These are safe to share across goroutines.
+var (
+	createItemEndpoint = httpc.NewPOST[CreateItemRequest, CreateItemResponse]("/api/v1/items", "CreateItem").
+		SetEncoder(httpc.JSONEncoder[CreateItemRequest]()).
+		SetDecoder(httpc.JSONDecoder[CreateItemResponse]()).
+		SetAccept("application/json")
+
+	getItemEndpoint = httpc.NewGET[GetItemResponse]("/api/v1/items/{itemId}", "GetItem").
+		SetDecoder(httpc.JSONDecoder[GetItemResponse]()).
+		SetAccept("application/json")
+
+	deleteItemEndpoint = httpc.NewDELETE[struct{}]("/api/v1/items/{itemId}", "DeleteItem").
+		SetDecoder(httpc.VoidDecoder())
+
+	downloadItemEndpoint = httpc.NewGET[io.ReadCloser]("/api/v1/items/{itemId}/download", "DownloadItem").
+		SetDecoder(httpc.BinaryDecoder()).
+		SetAccept("application/octet-stream")
+)
+
+// ItemServiceClient is the public interface for the item service.
+type ItemServiceClient interface {
+	CreateItem(ctx context.Context, req CreateItemRequest) (CreateItemResponse, error)
+	GetItem(ctx context.Context, itemId string) (GetItemResponse, error)
+	DeleteItem(ctx context.Context, itemId string) error
+	DownloadItem(ctx context.Context, itemId string) (io.ReadCloser, error)
+}
+
+// itemServiceClient is the generated implementation.
+type itemServiceClient struct {
+	client    httpc.Client
+	overrides httpc.Overrides
+}
+
+// NewItemServiceClient creates a new client for the item service.
+func NewItemServiceClient(client httpc.Client, params ...httpc.Param[*itemServiceClientBuilder]) ItemServiceClient {
+	c := &itemServiceClient{client: client}
+	b := &itemServiceClientBuilder{inner: c}
+	for _, p := range params {
+		p(b)
+	}
+	return c
+}
+
+// itemServiceClientBuilder adapts the service client for Param/Apply usage.
+type itemServiceClientBuilder struct {
+	inner *itemServiceClient
+}
+
+func (b *itemServiceClientBuilder) Clone() *itemServiceClientBuilder {
+	return &itemServiceClientBuilder{inner: &itemServiceClient{
+		client:    b.inner.client,
+		overrides: b.inner.overrides.Clone(),
+	}}
+}
+
+func (b *itemServiceClientBuilder) Apply(params ...httpc.Param[*itemServiceClientBuilder]) *itemServiceClientBuilder {
+	for _, p := range params {
+		p(b)
+	}
+	return b
+}
+
+func (c *itemServiceClient) CreateItem(ctx context.Context, req CreateItemRequest) (CreateItemResponse, error) {
+	return createItemEndpoint.
+		WithOverrides(c.overrides).
+		Execute(ctx, c.client, req)
+}
+
+func (c *itemServiceClient) GetItem(ctx context.Context, itemId string) (GetItemResponse, error) {
+	return httpc.ExecuteVoid(ctx, c.client,
+		getItemEndpoint.
+			WithPathParam("itemId", itemId).
+			WithOverrides(c.overrides))
+}
+
+func (c *itemServiceClient) DeleteItem(ctx context.Context, itemId string) error {
+	_, err := httpc.ExecuteVoid(ctx, c.client,
+		deleteItemEndpoint.
+			WithPathParam("itemId", itemId).
+			WithOverrides(c.overrides))
+	return err
+}
+
+func (c *itemServiceClient) DownloadItem(ctx context.Context, itemId string) (io.ReadCloser, error) {
+	return httpc.ExecuteVoid(ctx, c.client,
+		downloadItemEndpoint.
+			WithPathParam("itemId", itemId).
+			WithOverrides(c.overrides))
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+func TestExampleService_CreateItem(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodPost, r.Method)
+		assert.Equal(t, "/api/v1/items", r.URL.Path)
+		assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
+
+		var req CreateItemRequest
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&req))
+		assert.Equal(t, "widget", req.Name)
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(CreateItemResponse{ID: "123", Name: req.Name})
+	}))
+	t.Cleanup(server.Close)
+
+	client := &httpTestClient{server: server}
+	svc := NewItemServiceClient(client)
+
+	resp, err := svc.CreateItem(context.Background(), CreateItemRequest{Name: "widget"})
+	require.NoError(t, err)
+	assert.Equal(t, "123", resp.ID)
+	assert.Equal(t, "widget", resp.Name)
+}
+
+func TestExampleService_GetItem(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodGet, r.Method)
+		assert.Equal(t, "/api/v1/items/item-42", r.URL.Path)
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(GetItemResponse{ID: "item-42", Name: "gadget"})
+	}))
+	t.Cleanup(server.Close)
+
+	client := &httpTestClient{server: server}
+	svc := NewItemServiceClient(client)
+
+	resp, err := svc.GetItem(context.Background(), "item-42")
+	require.NoError(t, err)
+	assert.Equal(t, "item-42", resp.ID)
+	assert.Equal(t, "gadget", resp.Name)
+}
+
+func TestExampleService_DeleteItem(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodDelete, r.Method)
+		assert.Equal(t, "/api/v1/items/item-99", r.URL.Path)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	t.Cleanup(server.Close)
+
+	client := &httpTestClient{server: server}
+	svc := NewItemServiceClient(client)
+
+	err := svc.DeleteItem(context.Background(), "item-99")
+	require.NoError(t, err)
+}
+
+func TestExampleService_DownloadItem(t *testing.T) {
+	expected := "file-contents-here"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodGet, r.Method)
+		assert.Equal(t, "/api/v1/items/doc-1/download", r.URL.Path)
+		w.Header().Set("Content-Type", "application/octet-stream")
+		_, _ = w.Write([]byte(expected))
+	}))
+	t.Cleanup(server.Close)
+
+	client := &httpTestClient{server: server}
+	svc := NewItemServiceClient(client)
+
+	body, err := svc.DownloadItem(context.Background(), "doc-1")
+	require.NoError(t, err)
+	defer body.Close()
+
+	data, err := io.ReadAll(body)
+	require.NoError(t, err)
+	assert.Equal(t, expected, string(data))
+}
+
+// TestExampleService_PathParamEscaping verifies that special characters in path
+// parameters are properly URL-escaped.
+func TestExampleService_PathParamEscaping(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// "hello world" is escaped to "hello%20world" on the wire.
+		assert.Contains(t, r.RequestURI, "/api/v1/items/hello%20world")
+		// The decoded path should have the original value.
+		assert.Equal(t, "/api/v1/items/hello world", r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(GetItemResponse{ID: "hello world", Name: "x"})
+	}))
+	t.Cleanup(server.Close)
+
+	client := &httpTestClient{server: server}
+	svc := NewItemServiceClient(client)
+
+	resp, err := svc.GetItem(context.Background(), "hello world")
+	require.NoError(t, err)
+	assert.Equal(t, "hello world", resp.ID)
+}
+
+// TestExampleService_MultiplePathParams verifies that endpoints with multiple
+// path parameters fill them in by name, regardless of call order.
+func TestExampleService_MultiplePathParams(t *testing.T) {
+	// A contrived endpoint with two path params to test named replacement.
+	ep := httpc.NewGET[GetItemResponse]("/orgs/{orgId}/items/{itemId}", "GetOrgItem").
+		SetDecoder(httpc.JSONDecoder[GetItemResponse]()).
+		SetAccept("application/json")
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/orgs/acme/items/widget-1", r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(GetItemResponse{ID: "widget-1", Name: "Widget"})
+	}))
+	t.Cleanup(server.Close)
+
+	client := &httpTestClient{server: server}
+
+	// Fill in params in reverse order — should still work because replacement is by name.
+	resp, err := httpc.ExecuteVoid(context.Background(), client,
+		ep.WithPathParam("itemId", "widget-1").WithPathParam("orgId", "acme"))
+	require.NoError(t, err)
+	assert.Equal(t, "widget-1", resp.ID)
+}
+
+// TestExampleService_GreedyPathParam verifies that a {param*} placeholder preserves
+// slashes in the value while still escaping individual segments.
+func TestExampleService_GreedyPathParam(t *testing.T) {
+	ep := httpc.NewGET[GetItemResponse]("/files/{filePath*}", "GetFile").
+		SetDecoder(httpc.JSONDecoder[GetItemResponse]()).
+		SetAccept("application/json")
+
+	t.Run("simple nested path", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			assert.Equal(t, "/files/dir/subdir/file.txt", r.URL.Path)
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(GetItemResponse{ID: "file.txt", Name: "x"})
+		}))
+		t.Cleanup(server.Close)
+		client := &httpTestClient{server: server}
+
+		resp, err := httpc.ExecuteVoid(context.Background(), client,
+			ep.WithPathParam("filePath", "dir/subdir/file.txt"))
+		require.NoError(t, err)
+		assert.Equal(t, "file.txt", resp.ID)
+	})
+
+	t.Run("segments with spaces are escaped", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Slashes preserved, but spaces within segments are escaped.
+			assert.Equal(t, "/files/my docs/sub dir/file.txt", r.URL.Path)
+			assert.Contains(t, r.RequestURI, "/files/my%20docs/sub%20dir/file.txt")
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(GetItemResponse{ID: "file.txt", Name: "x"})
+		}))
+		t.Cleanup(server.Close)
+		client := &httpTestClient{server: server}
+
+		resp, err := httpc.ExecuteVoid(context.Background(), client,
+			ep.WithPathParam("filePath", "my docs/sub dir/file.txt"))
+		require.NoError(t, err)
+		assert.Equal(t, "file.txt", resp.ID)
+	})
+
+	t.Run("greedy param with prefix", func(t *testing.T) {
+		ep2 := httpc.NewGET[GetItemResponse]("/repos/{repoId}/files/{filePath*}", "GetRepoFile").
+			SetDecoder(httpc.JSONDecoder[GetItemResponse]()).
+			SetAccept("application/json")
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			assert.Equal(t, "/repos/my-repo/files/src/main/app.go", r.URL.Path)
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(GetItemResponse{ID: "app.go", Name: "x"})
+		}))
+		t.Cleanup(server.Close)
+		client := &httpTestClient{server: server}
+
+		resp, err := httpc.ExecuteVoid(context.Background(), client,
+			ep2.WithPathParam("repoId", "my-repo").WithPathParam("filePath", "src/main/app.go"))
+		require.NoError(t, err)
+		assert.Equal(t, "app.go", resp.ID)
+	})
+
+	t.Run("no slashes behaves like regular param", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			assert.Equal(t, "/files/simple.txt", r.URL.Path)
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(GetItemResponse{ID: "simple.txt", Name: "x"})
+		}))
+		t.Cleanup(server.Close)
+		client := &httpTestClient{server: server}
+
+		resp, err := httpc.ExecuteVoid(context.Background(), client,
+			ep.WithPathParam("filePath", "simple.txt"))
+		require.NoError(t, err)
+		assert.Equal(t, "simple.txt", resp.ID)
+	})
+}
+
+// TestExampleService_OverridesApplied verifies that Overrides set at client
+// construction time are threaded through to every request.
+func TestExampleService_OverridesApplied(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/api/v1/items/1", r.URL.Path)
+		assert.Equal(t, "acme-corp", r.Header.Get("X-Tenant"))
+		assert.Equal(t, "token-abc", r.Header.Get("Authorization"))
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(GetItemResponse{ID: "1", Name: "x"})
+	}))
+	t.Cleanup(server.Close)
+
+	client := &httpTestClient{server: server}
+	overrides := httpc.Overrides{}.
+		WithHeader("X-Tenant", "acme-corp").
+		WithHeader("Authorization", "token-abc")
+
+	svc := &itemServiceClient{client: client, overrides: overrides}
+
+	_, err := svc.GetItem(context.Background(), "1")
+	require.NoError(t, err)
+}
+
+// TestExampleService_PerCallOverride shows that per-call endpoint overrides
+// compose with the client-level overrides without affecting other calls.
+func TestExampleService_PerCallOverride(t *testing.T) {
+	callCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		// Client-level header should always be present.
+		assert.Equal(t, "acme-corp", r.Header.Get("X-Tenant"))
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(GetItemResponse{ID: "1", Name: "x"})
+	}))
+	t.Cleanup(server.Close)
+
+	client := &httpTestClient{server: server}
+	overrides := httpc.Overrides{}.WithHeader("X-Tenant", "acme-corp")
+	svc := &itemServiceClient{client: client, overrides: overrides}
+
+	// Two calls; both should carry the tenant header.
+	_, err := svc.GetItem(context.Background(), "1")
+	require.NoError(t, err)
+	_, err = svc.GetItem(context.Background(), "2")
+	require.NoError(t, err)
+	assert.Equal(t, 2, callCount)
+}
+
+// TestExampleService_WithOverridesOnEndpoint shows using WithOverrides directly
+// on an endpoint for one-off customization.
+func TestExampleService_WithOverridesOnEndpoint(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/api/v1/items/1", r.URL.Path)
+		assert.Equal(t, "custom-value", r.Header.Get("X-Custom"))
+		user, pass, ok := r.BasicAuth()
+		assert.True(t, ok)
+		assert.Equal(t, "admin", user)
+		assert.Equal(t, "secret", pass)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(GetItemResponse{ID: "1", Name: "x"})
+	}))
+	t.Cleanup(server.Close)
+
+	client := &httpTestClient{server: server}
+
+	// Build overrides externally and apply to an endpoint.
+	overrides := httpc.Overrides{}.
+		WithHeader("X-Custom", "custom-value").
+		WithBasicAuth("admin", "secret")
+
+	resp, err := httpc.ExecuteVoid(context.Background(), client,
+		getItemEndpoint.
+			WithPathParam("itemId", "1").
+			WithOverrides(overrides))
+	require.NoError(t, err)
+	assert.Equal(t, "1", resp.ID)
+}
+
+// TestExampleService_TimeoutOverride verifies that a timeout set via Overrides
+// is applied to the request.
+func TestExampleService_TimeoutOverride(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(200 * time.Millisecond)
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(server.Close)
+
+	client := &httpTestClient{server: server}
+	overrides := httpc.Overrides{}.WithTimeout(50 * time.Millisecond)
+	svc := &itemServiceClient{client: client, overrides: overrides}
+
+	err := svc.DeleteItem(context.Background(), "slow-item")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "context deadline exceeded")
+}
+
+// TestExampleService_MiddlewareOverride verifies that middleware set via Overrides
+// wraps every request from the client.
+func TestExampleService_MiddlewareOverride(t *testing.T) {
+	var middlewareCalled bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "injected", r.Header.Get("X-MW"))
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(GetItemResponse{ID: "1", Name: "x"})
+	}))
+	t.Cleanup(server.Close)
+
+	mw := httpc.MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+		middlewareCalled = true
+		req.Header.Set("X-MW", "injected")
+		return next.RoundTrip(req)
+	})
+
+	client := &httpTestClient{server: server}
+	overrides := httpc.Overrides{}.WithMiddleware(mw)
+	svc := &itemServiceClient{client: client, overrides: overrides}
+
+	_, err := svc.GetItem(context.Background(), "1")
+	require.NoError(t, err)
+	assert.True(t, middlewareCalled)
+}

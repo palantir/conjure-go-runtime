@@ -582,3 +582,47 @@ func TestEndpointExecute_PoolWithCompression(t *testing.T) {
 	assert.Equal(t, 1, pool.gets)
 	assert.Equal(t, 1, pool.puts)
 }
+
+func TestEndpointExecute_UnpopulatedPathParam(t *testing.T) {
+	ep := httpc.NewGET[struct{}]("/items/{itemId}", "GetItem").
+		SetDecoder(httpc.VoidDecoder())
+
+	client := &httpTestClient{server: newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("handler should not be called")
+	})}
+
+	_, err := httpc.ExecuteVoid(context.Background(), client, ep)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "{itemId}")
+	assert.Contains(t, err.Error(), "not populated")
+}
+
+func TestEndpointExecute_UnpopulatedGreedyPathParam(t *testing.T) {
+	ep := httpc.NewGET[struct{}]("/files/{filePath*}", "GetFile").
+		SetDecoder(httpc.VoidDecoder())
+
+	client := &httpTestClient{server: newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("handler should not be called")
+	})}
+
+	_, err := httpc.ExecuteVoid(context.Background(), client, ep)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "{filePath*}")
+	assert.Contains(t, err.Error(), "not populated")
+}
+
+func TestEndpointExecute_PartialPathParams(t *testing.T) {
+	ep := httpc.NewGET[struct{}]("/orgs/{orgId}/items/{itemId}", "GetOrgItem").
+		SetDecoder(httpc.VoidDecoder()).
+		WithPathParam("orgId", "acme")
+	// itemId is still unfilled.
+
+	client := &httpTestClient{server: newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("handler should not be called")
+	})}
+
+	_, err := httpc.ExecuteVoid(context.Background(), client, ep)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "{itemId}")
+	assert.Contains(t, err.Error(), "not populated")
+}

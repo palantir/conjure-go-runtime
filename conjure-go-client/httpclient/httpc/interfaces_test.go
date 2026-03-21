@@ -5,6 +5,9 @@ package httpc
 // Endpoint satisfies RequestOverrides.
 var _ RequestOverrides[Endpoint[string, string]] = Endpoint[string, string]{}
 
+// Overrides satisfies RequestOverrides.
+var _ RequestOverrides[Overrides] = Overrides{}
+
 // MiddlewareFunc satisfies Middleware.
 var _ Middleware = MiddlewareFunc(nil)
 
