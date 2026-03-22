@@ -1,3 +1,17 @@
+// Copyright (c) 2026 Palantir Technologies. All rights reserved.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package httpc
 
 import (
@@ -16,6 +30,9 @@ type basicAuthOverride struct {
 // or embedded in a generated service client struct. All methods use
 // copy-on-write semantics: they return a new Overrides value without modifying
 // the original.
+//
+// Overrides is safe for concurrent use: multiple goroutines may call methods on
+// the same Overrides value simultaneously, and each receives an independent copy.
 //
 // Headers and query parameters have both Set and Add variants:
 //   - SetHeader/SetQuery replaces all values for a key (last-wins semantics).

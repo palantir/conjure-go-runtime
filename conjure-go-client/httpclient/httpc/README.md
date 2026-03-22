@@ -388,6 +388,19 @@ func (c *itemServiceClient) DeleteItem(ctx context.Context, id string) error {
 }
 ```
 
+## Concurrency
+
+`Endpoint` and `Overrides` use **copy-on-write** semantics: every method returns a
+new value without modifying the original. They are safe to share across goroutines
+and store as package-level variables.
+
+`Client` (the interface returned by `Build`) is safe for concurrent use. Multiple
+goroutines may call `Do` simultaneously.
+
+`Builder` is **not** safe for concurrent use. All setter methods mutate the receiver.
+To share a configuration across goroutines, call `Clone()` to create an independent
+copy for each goroutine before mutating.
+
 ## Defaults
 
 | Setting | Default |

@@ -1,3 +1,17 @@
+// Copyright (c) 2026 Palantir Technologies. All rights reserved.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package httpc
 
 import (
@@ -75,7 +89,11 @@ type RequestOverrides[D any] interface {
 // Endpoint is a copy-on-write request descriptor that pairs an HTTP method and path
 // with a typed encoder and decoder. All methods (SetEncoder, SetDecoder, SetAccept,
 // and the RequestOverrides methods) return a new Endpoint value without modifying
-// the original. This makes Endpoint safe to store as a package-level base configuration
+// the original.
+//
+// Endpoint is safe for concurrent use: multiple goroutines may call methods on
+// the same Endpoint value simultaneously, and each receives an independent copy.
+// This makes Endpoint safe to store as a package-level base configuration
 // and derive per-call variants from it concurrently:
 //
 //	// Package-level base endpoint.
