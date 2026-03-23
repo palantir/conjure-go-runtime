@@ -15,12 +15,14 @@
 package httpc
 
 import (
+	"context"
 	"fmt"
+	"io"
 	"net/http"
 
-	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpclient/internal"
 	"github.com/palantir/pkg/refreshable/v2"
 	werror "github.com/palantir/witchcraft-go-error"
+	"github.com/palantir/witchcraft-go-logging/wlog/svclog/svc1log"
 	"github.com/palantir/witchcraft-go-tracing/wtracing"
 	"github.com/palantir/witchcraft-go-tracing/wtracing/propagation/b3"
 )
@@ -79,7 +81,7 @@ func (e errorDecoderMiddleware) RoundTrip(req *http.Request, next http.RoundTrip
 		return nil, err
 	}
 	if e.decoder.Handles(resp) {
-		defer internal.DrainBody(req.Context(), resp)
+		defer drainBody(req.Context(), resp)
 		return nil, e.decoder.DecodeError(resp)
 	}
 	return resp, nil
@@ -144,4 +146,26 @@ func (c *middlewareChain) RoundTrip(req *http.Request) (*http.Response, error) {
 		})
 	}
 	return rt.RoundTrip(req)
+}
+
+// drainBody reads then closes a response's body if it is non-nil.
+// This function should be deferred before a response reference is
+// discarded.
+func drainBody(ctx context.Context, resp *http.Response) {
+	// drain and close treated as best-effort
+	if resp != nil && resp.Body != nil {
+		if bytes, err := io.Copy(io.Discard, resp.Body); err != nil {
+			svc1log.FromContext(ctx).Warn("Failed to drain entire response body",
+				svc1log.SafeParam("bytes", bytes),
+				svc1log.Stacktrace(err))
+		} else if bytes > 0 {
+			svc1log.FromContext(ctx).Debug("Drained remaining response body",
+				svc1log.SafeParam("bytes", bytes))
+		}
+
+		if err := resp.Body.Close(); err != nil {
+			svc1log.FromContext(ctx).Warn("Failed to close response body",
+				svc1log.Stacktrace(err))
+		}
+	}
 }

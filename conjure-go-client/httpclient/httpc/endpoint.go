@@ -21,8 +21,6 @@ import (
 	"net/url"
 	"strings"
 	"time"
-
-	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpclient/internal"
 )
 
 // rpcMethodNameKey is the context key for the RPC method name set by Endpoint.Execute.
@@ -424,7 +422,7 @@ func (e Endpoint[Req, Resp]) Execute(ctx context.Context, client Client, body Re
 
 	// Per-endpoint error decoding (before response decode).
 	if e.overrides.errorDecoder != nil && e.overrides.errorDecoder.Handles(resp) {
-		internal.DrainBody(ctx, resp)
+		drainBody(ctx, resp)
 		return zero, resp, e.overrides.errorDecoder.DecodeError(resp)
 	}
 
@@ -432,17 +430,17 @@ func (e Endpoint[Req, Resp]) Execute(ctx context.Context, client Client, body Re
 	if e.decoder != nil {
 		result, err := e.decoder.Decode(ctx, resp)
 		if err != nil {
-			internal.DrainBody(ctx, resp)
+			drainBody(ctx, resp)
 			return zero, resp, err
 		}
 		// Skip draining for decoders that return the body directly to the caller.
 		if _, raw := e.decoder.(rawBodyDecoder); !raw {
-			internal.DrainBody(ctx, resp)
+			drainBody(ctx, resp)
 		}
 		return result, resp, nil
 	}
 	// No decoder: drain body.
-	internal.DrainBody(ctx, resp)
+	drainBody(ctx, resp)
 	return zero, resp, nil
 }
 
