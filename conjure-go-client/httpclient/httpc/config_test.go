@@ -23,7 +23,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpclient"
 	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpclient/httpc"
 	"github.com/palantir/pkg/refreshable/v2"
 	"github.com/stretchr/testify/assert"
@@ -48,7 +47,7 @@ func TestApplyConfig_StaticRoundTrip(t *testing.T) {
 	}
 
 	client, err := httpc.NewBuilder().
-		ApplyConfig(context.Background(), cfg).
+		ApplyConfig(cfg).
 		DisableRestErrors().
 		Build(context.Background())
 	require.NoError(t, err)
@@ -71,7 +70,7 @@ func TestApplyConfig_MinimalConfig(t *testing.T) {
 	}
 
 	client, err := httpc.NewBuilder().
-		ApplyConfig(context.Background(), cfg).
+		ApplyConfig(cfg).
 		DisableRestErrors().
 		Build(context.Background())
 	require.NoError(t, err)
@@ -94,14 +93,14 @@ func TestApplyConfig_AuthPrecedence_APITokenOverBasicAuth(t *testing.T) {
 	cfg := httpc.ClientConfig{
 		URIs:     []string{server.URL},
 		APIToken: &token,
-		BasicAuth: &httpclient.BasicAuth{
+		BasicAuth: &httpc.BasicAuth{
 			User:     "user",
 			Password: "pass",
 		},
 	}
 
 	client, err := httpc.NewBuilder().
-		ApplyConfig(context.Background(), cfg).
+		ApplyConfig(cfg).
 		DisableRestErrors().
 		Build(context.Background())
 	require.NoError(t, err)
@@ -128,14 +127,14 @@ func TestApplyConfig_AuthPrecedence_APITokenFileOverBasicAuth(t *testing.T) {
 	cfg := httpc.ClientConfig{
 		URIs:         []string{server.URL},
 		APITokenFile: &tokenFile,
-		BasicAuth: &httpclient.BasicAuth{
+		BasicAuth: &httpc.BasicAuth{
 			User:     "user",
 			Password: "pass",
 		},
 	}
 
 	client, err := httpc.NewBuilder().
-		ApplyConfig(context.Background(), cfg).
+		ApplyConfig(cfg).
 		DisableRestErrors().
 		Build(context.Background())
 	require.NoError(t, err)
@@ -157,14 +156,14 @@ func TestApplyConfig_BasicAuth(t *testing.T) {
 
 	cfg := httpc.ClientConfig{
 		URIs: []string{server.URL},
-		BasicAuth: &httpclient.BasicAuth{
+		BasicAuth: &httpc.BasicAuth{
 			User:     "user",
 			Password: "pass",
 		},
 	}
 
 	client, err := httpc.NewBuilder().
-		ApplyConfig(context.Background(), cfg).
+		ApplyConfig(cfg).
 		DisableRestErrors().
 		Build(context.Background())
 	require.NoError(t, err)
@@ -182,7 +181,7 @@ func TestApplyConfig_ValidationErrors_InvalidURI(t *testing.T) {
 	}
 
 	_, err := httpc.NewBuilder().
-		ApplyConfig(context.Background(), cfg).
+		ApplyConfig(cfg).
 		Build(context.Background())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid url")
@@ -195,7 +194,7 @@ func TestApplyConfig_ValidationErrors_InvalidProxyURL(t *testing.T) {
 	}
 
 	_, err := httpc.NewBuilder().
-		ApplyConfig(context.Background(), cfg).
+		ApplyConfig(cfg).
 		Build(context.Background())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid proxy url")
@@ -208,7 +207,7 @@ func TestApplyConfig_ValidationErrors_UnsupportedProxyScheme(t *testing.T) {
 	}
 
 	_, err := httpc.NewBuilder().
-		ApplyConfig(context.Background(), cfg).
+		ApplyConfig(cfg).
 		Build(context.Background())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "only http(s) and socks5 are supported")
@@ -221,7 +220,7 @@ func TestApplyConfig_ValidationErrors_MissingTokenFile(t *testing.T) {
 	}
 
 	_, err := httpc.NewBuilder().
-		ApplyConfig(context.Background(), cfg).
+		ApplyConfig(cfg).
 		Build(context.Background())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to read api-token-file")
@@ -269,7 +268,7 @@ func TestApplyConfig_MaxNumRetries(t *testing.T) {
 			}
 
 			client, err := httpc.NewBuilder().
-				ApplyConfig(context.Background(), cfg).
+				ApplyConfig(cfg).
 				Build(context.Background())
 			require.NoError(t, err)
 
@@ -295,7 +294,7 @@ func TestApplyConfig_EmptyURIsFiltered(t *testing.T) {
 	}
 
 	client, err := httpc.NewBuilder().
-		ApplyConfig(context.Background(), cfg).
+		ApplyConfig(cfg).
 		DisableRestErrors().
 		Build(context.Background())
 	require.NoError(t, err)
@@ -315,7 +314,7 @@ func TestApplyConfig_TimeoutFromConfig(t *testing.T) {
 
 	// Build should succeed. The timeout should be max(read, write) = 20s.
 	_, err := httpc.NewBuilder().
-		ApplyConfig(context.Background(), cfg).
+		ApplyConfig(cfg).
 		DisableRestErrors().
 		Build(context.Background())
 	require.NoError(t, err)
@@ -329,13 +328,13 @@ func TestApplyConfig_MetricsDisabled(t *testing.T) {
 
 	cfg := httpc.ClientConfig{
 		URIs: []string{server.URL},
-		Metrics: httpclient.MetricsConfig{
+		Metrics: httpc.MetricsConfig{
 			Enabled: ptr(false),
 		},
 	}
 
 	client, err := httpc.NewBuilder().
-		ApplyConfig(context.Background(), cfg).
+		ApplyConfig(cfg).
 		DisableRestErrors().
 		Build(context.Background())
 	require.NoError(t, err)
@@ -400,7 +399,7 @@ func TestApplyConfigRefreshable_AuthUpdate(t *testing.T) {
 	// Update config to use basic auth instead.
 	cfg.Update(httpc.ClientConfig{
 		URIs: []string{server.URL},
-		BasicAuth: &httpclient.BasicAuth{
+		BasicAuth: &httpc.BasicAuth{
 			User:     "user",
 			Password: "pass",
 		},
@@ -468,8 +467,8 @@ func TestApplyConfig_ComposesWithExistingSettings(t *testing.T) {
 
 	client, err := httpc.NewBuilder().
 		SetUserAgent("my-agent").
-		SetTimeout(5*time.Second).
-		ApplyConfig(context.Background(), cfg).
+		SetTimeout(5 * time.Second).
+		ApplyConfig(cfg).
 		DisableRestErrors().
 		Build(context.Background())
 	require.NoError(t, err)
@@ -522,7 +521,7 @@ func TestApplyConfig_ProxyHTTPS(t *testing.T) {
 
 	// Should succeed — https is a valid proxy scheme.
 	_, err := httpc.NewBuilder().
-		ApplyConfig(context.Background(), cfg).
+		ApplyConfig(cfg).
 		DisableRestErrors().
 		Build(context.Background())
 	require.NoError(t, err)
@@ -536,7 +535,7 @@ func TestApplyConfig_ProxySocks5(t *testing.T) {
 
 	// Should succeed — socks5 is a valid proxy scheme.
 	_, err := httpc.NewBuilder().
-		ApplyConfig(context.Background(), cfg).
+		ApplyConfig(cfg).
 		DisableRestErrors().
 		Build(context.Background())
 	require.NoError(t, err)

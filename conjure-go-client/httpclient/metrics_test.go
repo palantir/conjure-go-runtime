@@ -144,14 +144,16 @@ func TestRoundTripperWithMetrics(t *testing.T) {
 			assert.NoError(t, err)
 		}
 
-		// assert metrics exist in registry
-		var metricName string
+		// assert client.response metric exists in registry with expected tags
+		var found bool
 		var metricTags metrics.Tags
 		rootRegistry.Each(func(name string, tags metrics.Tags, _ metrics.MetricVal) {
-			metricName = name
-			metricTags = tags
+			if name == "client.response" {
+				found = true
+				metricTags = tags
+			}
 		})
-		assert.Equal(t, "client.response", metricName)
+		assert.True(t, found, "client.response metric should exist")
 		expectedTags := append(
 			customTags,
 			metrics.MustNewTag("method", method),

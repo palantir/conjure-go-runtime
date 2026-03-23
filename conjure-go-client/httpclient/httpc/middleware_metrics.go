@@ -28,68 +28,61 @@ import (
 	werror "github.com/palantir/witchcraft-go-error"
 )
 
-// metricsMiddleware emits client.response timer metrics.
-type metricsMiddleware struct {
-	disabled    refreshable.Refreshable[bool]
-	serviceName refreshable.Refreshable[string]
-	tags        []TagsProvider
-}
-
 const (
 	// metricClientResponse is a Timer (microseconds) measuring the total round-trip duration of each HTTP request.
-	// Tags: service_name, family (1xx-5xx/timeout/other), method, method_name.
-	metricClientResponse = "client_response"
+	// Tags: service-name, family (1xx-5xx/timeout/other), method, method-name.
+	metricClientResponse = "client.response"
 	// metricRequestInFlight is a Counter tracking the number of HTTP requests currently in progress.
-	// Tags: service_name.
-	metricRequestInFlight = "client_request_in_flight"
+	// Tags: service-name.
+	metricRequestInFlight = "client.request.in-flight"
 	// metricConnCreate is a Counter incremented each time a connection is obtained for a request.
-	// Tags: service_name, reused (true/false).
-	metricConnCreate = "client_connection_create"
+	// Tags: service-name, reused (true/false).
+	metricConnCreate = "client.connection.create"
 	// metricConnAcquire is a Timer (microseconds) measuring the time from requesting a connection (GetConn)
 	// to obtaining one (GotConn). This includes pool wait time, and for new connections: DNS, TCP dial, and TLS.
-	// Tags: service_name, reused (true/false).
-	metricConnAcquire = "client_conn_acquire"
+	// Tags: service-name, reused (true/false).
+	metricConnAcquire = "client.connection.acquire"
 	// metricConnIdleReturnError is a Meter counting connections that failed to return to the idle pool.
 	// A spike indicates connection pool saturation or broken connections.
-	// Tags: service_name.
-	metricConnIdleReturnError = "client_conn_idle_return_error"
+	// Tags: service-name.
+	metricConnIdleReturnError = "client.connection.idle-return-error"
 
 	// metricDNSLookup is a Timer (microseconds) measuring DNS resolution duration.
-	// Tags: service_name.
-	metricDNSLookup = "client_dns_lookup"
+	// Tags: service-name.
+	metricDNSLookup = "client.dns.lookup"
 	// metricDNSLookupError is a Meter counting DNS resolution failures.
-	// Tags: service_name.
-	metricDNSLookupError = "client_dns_lookup_error"
+	// Tags: service-name.
+	metricDNSLookupError = "client.dns.lookup-error"
 
 	// metricTCPConnect is a Timer (microseconds) measuring TCP dial duration (ConnectStart to ConnectDone).
-	// Tags: service_name, network (e.g. "tcp", "tcp4", "tcp6").
-	metricTCPConnect = "client_tcp_connect"
+	// Tags: service-name, network (e.g. "tcp", "tcp4", "tcp6").
+	metricTCPConnect = "client.tcp.connect"
 	// metricTCPConnectError is a Meter counting TCP connection failures.
-	// Tags: service_name, network.
-	metricTCPConnectError = "client_tcp_connect_error"
+	// Tags: service-name, network.
+	metricTCPConnectError = "client.tcp.connect-error"
 
 	// metricTLSHandshakeAttempt is a Meter counting TLS handshake attempts.
-	// Tags: service_name.
-	metricTLSHandshakeAttempt = "tls_handshake_attempt"
+	// Tags: service-name.
+	metricTLSHandshakeAttempt = "tls.handshake.attempt"
 	// metricTLSHandshakeFailure is a Meter counting TLS handshake failures.
-	// Tags: service_name, cipher, next_protocol, tls_version (when available).
-	metricTLSHandshakeFailure = "tls_handshake_failure"
+	// Tags: service-name, cipher, next_protocol, tls_version (when available).
+	metricTLSHandshakeFailure = "tls.handshake.failure"
 	// metricTLSHandshake is a Meter counting successful TLS handshakes.
-	// Tags: service_name, cipher, next_protocol, tls_version.
-	metricTLSHandshake = "tls_handshake"
+	// Tags: service-name, cipher, next_protocol, tls_version.
+	metricTLSHandshake = "tls.handshake"
 
 	// metricTimeToFirstByte is a Timer (microseconds) measuring the interval from request fully written (WroteRequest)
 	// to the first response byte received (GotFirstResponseByte). Approximates server-side processing time.
-	// Tags: service_name.
-	metricTimeToFirstByte = "client_time_to_first_byte"
+	// Tags: service-name.
+	metricTimeToFirstByte = "client.time-to-first-byte"
 	// metricRequestWriteError is a Meter counting failures when writing the request to the connection.
-	// Tags: service_name.
-	metricRequestWriteError = "client_request_write_error"
+	// Tags: service-name.
+	metricRequestWriteError = "client.request.write-error"
 
-	metricTagServiceName = "service_name"
+	metricTagServiceName = "service-name"
 	metricTagFamily      = "family"
 	metricTagMethod      = "method"
-	metricTagMethodName  = "method_name"
+	metricTagMethodName  = "method-name"
 	metricTagNetwork     = "network"
 
 	metricTagCipher       = "cipher"
@@ -109,6 +102,18 @@ var (
 	metricTagFamilyOther   = metrics.MustNewTag(metricTagFamily, "other")
 	metricTagFamilyTimeout = metrics.MustNewTag(metricTagFamily, "timeout")
 )
+
+// metricsMiddleware emits client.response timer metrics.
+type metricsMiddleware struct {
+	disabled    refreshable.Refreshable[bool]
+	serviceName refreshable.Refreshable[string]
+	tags        []TagsProvider
+}
+
+// MetricsMiddleware emits client.response timer metrics.
+func MetricsMiddleware(serviceName string, tagProviders ...TagsProvider) (Middleware, error) {
+	return &metricsMiddleware{serviceName: refreshable.New(serviceName), tags: tagProviders}, nil
+}
 
 func (m *metricsMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (*http.Response, error) {
 	if m.disabled != nil && m.disabled.Current() {
@@ -146,11 +151,7 @@ func (m *metricsMiddleware) appendTags(tags metrics.Tags, req *http.Request, res
 	}
 	// custom tags
 	for _, tp := range m.tags {
-		for k, v := range tp.Tags(req, resp, err) {
-			if tag, tagErr := metrics.NewTag(k, v); tagErr == nil {
-				tags = append(tags, tag)
-			}
-		}
+		tags = append(tags, tp.Tags(req, resp, err)...)
 	}
 	return tags
 }

@@ -17,10 +17,7 @@ package httpclient
 import (
 	"context"
 	"encoding/base64"
-	"fmt"
 	"net/http"
-
-	"github.com/palantir/pkg/refreshable/v2"
 )
 
 // TokenProvider accepts a context and returns either:
@@ -31,34 +28,6 @@ import (
 //
 // A good implementation will request and cache an ephemeral client token.
 type TokenProvider func(context.Context) (string, error)
-
-type authTokenMiddleware struct {
-	provideToken TokenProvider
-}
-
-// RoundTrip wraps an existing round tripper with a token providing round tripper.
-// It sets the Authorization header using a newly provided token for each request.
-func (h *authTokenMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (*http.Response, error) {
-	token, err := h.provideToken(req.Context())
-	if err != nil {
-		return nil, err
-	}
-	if token != "" {
-		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
-	}
-	return next.RoundTrip(req)
-}
-
-func newAuthTokenMiddlewareFromRefreshable(token refreshable.Refreshable[*string]) Middleware {
-	return &authTokenMiddleware{
-		provideToken: func(ctx context.Context) (string, error) {
-			if s := token.Current(); s != nil {
-				return *s, nil
-			}
-			return "", nil
-		},
-	}
-}
 
 // BasicAuthProvider accepts a context and returns either:
 //
@@ -75,15 +44,6 @@ type BasicAuthProvider func(context.Context) (BasicAuth, error)
 //
 // (3) a nil BasicAuth and a non-nil error.
 type BasicAuthOptionalProvider func(context.Context) (*BasicAuth, error)
-
-func newBasicAuthMiddlewareFromRefreshable(auth refreshable.Refreshable[*BasicAuth]) Middleware {
-	return MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
-		if basicAuth := auth.Current(); basicAuth != nil {
-			setBasicAuth(req.Header, basicAuth.User, basicAuth.Password)
-		}
-		return next.RoundTrip(req)
-	})
-}
 
 func setBasicAuth(h http.Header, username, password string) {
 	basicAuthBytes := []byte(username + ":" + password)

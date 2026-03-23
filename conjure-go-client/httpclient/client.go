@@ -19,12 +19,10 @@ import (
 	"net/http"
 	"net/url"
 
+	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpclient/httpc"
 	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpclient/internal"
-	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpclient/internal/refreshingclient"
 	"github.com/palantir/pkg/bytesbuffers"
-	"github.com/palantir/pkg/refreshable/v2"
 	werror "github.com/palantir/witchcraft-go-error"
-	"github.com/palantir/witchcraft-go-logging/wlog/svclog/svc1log"
 )
 
 // A Client executes requests to a configured service.
@@ -49,16 +47,8 @@ type Client interface {
 }
 
 type clientImpl struct {
-	serviceName            refreshable.Refreshable[string]
-	client                 refreshable.Refreshable[*http.Client]
-	middlewares            []Middleware
-	errorDecoderMiddleware Middleware
-	recoveryMiddleware     Middleware
-
-	uriScorer      internal.RefreshableURIScoringMiddleware
-	maxAttempts    refreshable.Refreshable[*int] // 0 means no limit. If nil, uses 2*len(uris).
-	backoffOptions refreshable.Refreshable[refreshingclient.RetryParams]
-	bufferPool     bytesbuffers.Pool
+	client     httpc.Client
+	bufferPool bytesbuffers.Pool
 }
 
 func (c *clientImpl) Get(ctx context.Context, params ...RequestParam) (*http.Response, error) {
@@ -82,155 +72,74 @@ func (c *clientImpl) Delete(ctx context.Context, params ...RequestParam) (*http.
 }
 
 func (c *clientImpl) Do(ctx context.Context, params ...RequestParam) (*http.Response, error) {
-	uris := c.uriScorer.GetURIsInOrderOfIncreasingScore()
-	if len(uris) == 0 {
-		return nil, werror.WrapWithContextParams(ctx, ErrEmptyURIs, "", werror.SafeParam("serviceName", c.serviceName.Current()))
-	}
-
-	attempts := 2 * len(uris)
-	if c.maxAttempts != nil {
-		if confMaxAttempts := c.maxAttempts.Current(); confMaxAttempts != nil {
-			attempts = *confMaxAttempts
-		}
-	}
-
-	retrier := internal.NewRequestRetrier(uris, c.backoffOptions.Current().Start(ctx), attempts)
-	uri, isRelocated := retrier.GetNextURI(nil, nil)
-	for {
-		resp, retryable, err := c.doOnce(ctx, uri, isRelocated, params...)
-		if !retryable {
-			return resp, err
-		}
-		uri, isRelocated = retrier.GetNextURI(resp, err)
-		if uri == "" {
-			return resp, err
-		}
-		if err != nil {
-			svc1log.FromContext(ctx).Debug("Retrying request", svc1log.Stacktrace(err))
-		}
-	}
-}
-
-func (c *clientImpl) doOnce(
-	ctx context.Context,
-	baseURI string,
-	useBaseURIOnly bool,
-	params ...RequestParam,
-) (_ *http.Response, retryable bool, _ error) {
-
-	// 1. create the request
+	// 1. Parse RequestParams
 	b := &requestBuilder{
 		headers:        make(http.Header),
 		query:          make(url.Values),
 		bodyMiddleware: &bodyMiddleware{bufferPool: c.bufferPool},
 	}
-
 	for _, p := range params {
 		if p == nil {
 			continue
 		}
 		if err := p.apply(b); err != nil {
-			return nil, false, err
+			return nil, err
 		}
 	}
-	if useBaseURIOnly {
-		b.path = ""
+
+	// 2. Apply context configuration (RPC method name, etc.)
+	for _, cfg := range b.configureCtx {
+		ctx = cfg(ctx)
 	}
 
-	for _, c := range b.configureCtx {
-		ctx = c(ctx)
-	}
-
+	// 3. Validate method
 	if b.method == "" {
-		return nil, false, werror.ErrorWithContextParams(ctx, "httpclient: use WithRequestMethod() to specify HTTP method")
-	}
-	baseURL, err := url.Parse(baseURI)
-	if err != nil {
-		return nil, false, werror.WrapWithContextParams(ctx, err, "invalid URL")
-	}
-	reqURI := baseURL.JoinPath(b.path).String()
-	req, err := http.NewRequestWithContext(ctx, b.method, reqURI, nil)
-	if err != nil {
-		return nil, false, werror.WrapWithContextParams(ctx, err, "failed to build new HTTP request")
+		return nil, werror.ErrorWithContextParams(ctx, "httpclient: use WithRequestMethod() to specify HTTP method")
 	}
 
+	// 4. Build http.Request (path-only URL; httpc prepends base URI)
+	req, err := http.NewRequestWithContext(ctx, b.method, b.path, nil)
+	if err != nil {
+		return nil, werror.WrapWithContextParams(ctx, err, "failed to build new HTTP request")
+	}
 	req.Header = b.headers
 	if q := b.query.Encode(); q != "" {
 		req.URL.RawQuery = q
 	}
 
-	// 2. create the transport and client
-	// shallow copy so we can overwrite the Transport with a wrapped one.
-	clientCopy := *c.client.Current()
+	// 5. Encode body
+	cleanup, err := b.bodyMiddleware.setRequestBody(req)
+	if err != nil {
+		return nil, err
+	}
+	defer cleanup()
 
-	// use request-specific timeout if set
-	if b.requestTimeout != nil {
-		clientCopy.Timeout = *b.requestTimeout
+	// 6. Per-request error decoder -> context
+	if b.errorDecoderMiddleware != nil {
+		req = req.WithContext(context.WithValue(req.Context(), perRequestErrorDecoderKey{}, b.errorDecoderMiddleware))
 	}
 
-	transport := clientCopy.Transport // start with the client's transport configured with default middleware
+	// 7. Per-request timeout -> context
+	if b.requestTimeout != nil {
+		req = req.WithContext(httpc.ContextWithRequestTimeout(req.Context(), *b.requestTimeout))
+	}
 
-	// must precede the error decoders to read the status code of the raw response.
-	transport = wrapTransport(transport, c.uriScorer)
-	// request decoder must precede the client decoder
-	// must precede the body middleware to read the response body
-	transport = wrapTransport(transport, b.errorDecoderMiddleware, c.errorDecoderMiddleware)
-	// must precede the body middleware to read the request body
-	transport = wrapTransport(transport, c.middlewares...)
-	// per-request middlewares run after client-scoped middlewares
-	transport = wrapTransport(transport, b.requestMiddlewares...)
-	// must wrap inner middlewares to mutate the return values
-	transport = wrapTransport(transport, b.bodyMiddleware)
-	// must be the outermost middleware to recover panics in the rest of the request flow
-	// there is a second, inner recoveryMiddleware in the client's default middlewares so that panics
-	// inside the inner-most RoundTrip benefit from traceIDs and loggers set on the context.
-	transport = wrapTransport(transport, c.recoveryMiddleware)
+	// 8. Execute (httpc handles retry, URI scoring, middleware, error decoding)
+	resp, respErr := c.client.Do(req)
 
-	clientCopy.Transport = transport
+	// 9. Decode response body (must happen before drain so body is still readable)
+	readErr := b.bodyMiddleware.readResponse(resp, respErr)
 
-	// 3. execute the request using the client to get and handle the response
-	resp, respErr := clientCopy.Do(req)
-
-	// unless this is exactly the scenario where the caller has opted into being responsible for draining and closing
-	// the response body, be sure to do so here.
+	// 10. Drain body unless caller opted into raw response and no error
 	if !(respErr == nil && b.bodyMiddleware.rawOutput) {
 		internal.DrainBody(ctx, resp)
 	}
 
-	// doOnce should be retried unless the body specifically indicates it can not be replayed.
+	if readErr != nil {
+		return nil, readErr
+	}
 	if respErr != nil {
-		if !b.bodyMiddleware.noRetriesRequestBody() {
-			retryable = true
-		} else {
-			svc1log.FromContext(ctx).Debug("Request body can not be replayed, not retrying.")
-		}
-		return nil, retryable, unwrapURLError(ctx, respErr)
+		return nil, respErr
 	}
-
-	return resp, false, nil
-}
-
-// unwrapURLError converts a *url.Error to a werror. We need this because all
-// errors from the stdlib's client.Do are wrapped in *url.Error, and if we
-// were to blindly return that we would lose any werror params stored on the
-// underlying Err.
-func unwrapURLError(ctx context.Context, respErr error) error {
-	if respErr == nil {
-		return nil
-	}
-
-	urlErr, ok := respErr.(*url.Error)
-	if !ok {
-		// We don't recognize this as a url.Error, just return the original.
-		return respErr
-	}
-	params := []werror.Param{werror.SafeParam("requestMethod", urlErr.Op)}
-
-	if parsedURL, _ := url.Parse(urlErr.URL); parsedURL != nil {
-		params = append(params,
-			werror.SafeParam("requestHost", parsedURL.Host),
-			werror.UnsafeParam("requestPath", parsedURL.Path))
-	}
-
-	return werror.WrapWithContextParams(ctx, urlErr.Err, "httpclient request failed", params...)
+	return resp, nil
 }

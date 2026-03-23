@@ -29,7 +29,7 @@ import (
 
 // fluentClient implements Client by wrapping a standard *http.Client with
 // retry and URI scoring logic.
-type fluentClient[B ServiceBuilder[B]] struct {
+type fluentClient struct {
 	serviceName    refreshable.Refreshable[string]
 	httpClient     refreshable.Refreshable[*http.Client]
 	middlewares    []Middleware
@@ -40,17 +40,24 @@ type fluentClient[B ServiceBuilder[B]] struct {
 	initialBackoff refreshable.Refreshable[time.Duration]
 	maxBackoff     refreshable.Refreshable[time.Duration]
 	bufferPool     bytesbuffers.Pool
+}
 
+type configurableClient[B ServiceBuilder[B]] struct {
+	fluentClient
 	// retains a reference to the builder for ConfigurableClient.Builder().
 	builder B
 }
 
+func (c *configurableClient[B]) Builder() B {
+	return c.builder.Clone()
+}
+
 // getBufferPool returns the client's buffer pool, implementing poolProvider.
-func (c *fluentClient[B]) getBufferPool() bytesbuffers.Pool {
+func (c *fluentClient) getBufferPool() bytesbuffers.Pool {
 	return c.bufferPool
 }
 
-func (c *fluentClient[B]) Do(req *http.Request) (*http.Response, error) {
+func (c *fluentClient) Do(req *http.Request) (*http.Response, error) {
 	ctx := req.Context()
 
 	uris := c.uriScorer.GetURIsInOrderOfIncreasingScore()
@@ -83,7 +90,7 @@ func (c *fluentClient[B]) Do(req *http.Request) (*http.Response, error) {
 	}
 }
 
-func (c *fluentClient[B]) doOnce(
+func (c *fluentClient) doOnce(
 	origReq *http.Request,
 	baseURI string,
 	useBaseURIOnly bool,
@@ -127,12 +134,19 @@ func (c *fluentClient[B]) doOnce(
 	// Shallow copy the http.Client so we can override Transport.
 	clientCopy := *c.httpClient.Current()
 
-	// Build middleware slice: outermost (recovery) first, innermost (URI scorer) last.
+	// Per-request timeout override via context.
+	if timeout, ok := requestTimeoutFromContext(ctx); ok {
+		clientCopy.Timeout = timeout
+	}
+
+	// Build middleware slice: innermost first, outermost last.
+	// middlewareChain iterates forwards, wrapping each around the previous,
+	// so the last element ends up outermost.
 	mws := make([]Middleware, 0, 3+len(c.middlewares))
-	mws = append(mws, c.recoveryMW)
-	mws = append(mws, c.middlewares...)
-	mws = append(mws, c.errorDecoderMW)
-	mws = append(mws, c.uriScorer)
+	mws = append(mws, c.uriScorer)      // innermost
+	mws = append(mws, c.errorDecoderMW) // error decoder
+	mws = append(mws, c.middlewares...) // user MWs: last added = outermost
+	mws = append(mws, c.recoveryMW)     // outermost
 
 	clientCopy.Transport = &middlewareChain{middlewares: mws, base: clientCopy.Transport}
 
@@ -140,15 +154,11 @@ func (c *fluentClient[B]) doOnce(
 	resp, respErr := clientCopy.Do(req)
 
 	if respErr != nil {
-		// Request can be retried if body is replayable.
-		if origReq.GetBody != nil {
+		// Request can be retried if body is replayable (or absent).
+		if origReq.Body == nil || origReq.Body == http.NoBody || origReq.GetBody != nil {
 			retryable = true
 		}
 		return nil, retryable, unwrapURLError(ctx, respErr)
 	}
 	return resp, false, nil
-}
-
-func (c *fluentClient[B]) Builder() B {
-	return c.builder.Clone()
 }

@@ -294,7 +294,7 @@ func TestEndpointExecute_BinaryDecoder(t *testing.T) {
 	result, _, err := ep.Execute(context.Background(), client, struct{}{})
 	require.NoError(t, err)
 	require.NotNil(t, result)
-	defer result.Close()
+	defer func() { _ = result.Close() }()
 
 	data, err := io.ReadAll(result)
 	require.NoError(t, err)
@@ -467,7 +467,7 @@ func TestEndpointExecute_CompressionRoundTrip(t *testing.T) {
 		// Decompress the request body.
 		reader, err := zlib.NewReader(r.Body)
 		require.NoError(t, err)
-		defer reader.Close()
+		defer func() { _ = reader.Close() }()
 		body, err := io.ReadAll(reader)
 		require.NoError(t, err)
 		assert.JSONEq(t, `{"name":"compressed","value":42}`, string(body))
@@ -617,7 +617,7 @@ func TestEndpointExecute_PoolWithCompression(t *testing.T) {
 		// Decompress and verify.
 		reader, err := zlib.NewReader(bytes.NewReader(compressed))
 		require.NoError(t, err)
-		defer reader.Close()
+		defer func() { _ = reader.Close() }()
 		body, err := io.ReadAll(reader)
 		require.NoError(t, err)
 		assert.JSONEq(t, `{"name":"pool-zlib","value":9}`, string(body))

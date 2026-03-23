@@ -234,7 +234,7 @@ func TestExampleService_DownloadItem(t *testing.T) {
 
 	body, err := svc.DownloadItem(context.Background(), "doc-1")
 	require.NoError(t, err)
-	defer body.Close()
+	defer func() { _ = body.Close() }()
 
 	data, err := io.ReadAll(body)
 	require.NoError(t, err)
@@ -577,7 +577,7 @@ func TestExample_BuildTransport(t *testing.T) {
 	client := &http.Client{Transport: transport}
 	resp, err := client.Get(server.URL + "/test")
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 }
 
@@ -605,7 +605,7 @@ func TestExample_SetTransport(t *testing.T) {
 	client := &http.Client{Transport: transport}
 	resp, err := client.Get(server.URL + "/test")
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	assert.True(t, customTransportUsed)
 }
@@ -626,7 +626,7 @@ func TestExample_BuildHTTPClient(t *testing.T) {
 
 	resp, err := httpClient.Current().Get(server.URL + "/test")
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	assert.Equal(t, 30*time.Second, httpClient.Current().Timeout)
 }

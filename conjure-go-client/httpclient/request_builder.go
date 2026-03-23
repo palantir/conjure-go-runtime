@@ -28,16 +28,10 @@ type requestBuilder struct {
 	query          url.Values
 	bodyMiddleware *bodyMiddleware
 
-	errorDecoderMiddleware Middleware
-	requestMiddlewares     []Middleware
+	errorDecoderMiddleware ErrorDecoder
 	configureCtx           []func(context.Context) context.Context
 	requestTimeout         *time.Duration
 }
-
-const (
-	traceIDHeaderKey      = "X-B3-TraceId"
-	forUserAgentHeaderKey = "For-User-Agent"
-)
 
 type RequestParam interface {
 	apply(*requestBuilder) error

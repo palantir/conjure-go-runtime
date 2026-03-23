@@ -15,45 +15,12 @@
 package httpclient
 
 import (
-	"context"
-)
-
-type ctxKey string
-
-const (
-	// context-key for the RPC method name associated with the HTTP request call
-	rpcMethodName ctxKey = "rpcMethodName"
-	// context-key for the "For-User-Agent" header value
-	forUserAgentContextKey ctxKey = "forUserAgent"
+	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpclient/httpc"
 )
 
 // ContextWithRPCMethodName returns a copy of ctx with the rpcMethodName key set.
 // This enables instrumentation (metrics, tracing, etc) to better identify metrics.
-func ContextWithRPCMethodName(ctx context.Context, name string) context.Context {
-	return context.WithValue(ctx, rpcMethodName, name)
-}
+var ContextWithRPCMethodName = httpc.ContextWithRPCMethodName
 
-func getRPCMethodName(ctx context.Context) string {
-	e := ctx.Value(rpcMethodName)
-	if e == nil {
-		return ""
-	}
-	return e.(string)
-}
-
-// ContextWithForUserAgent returns a copy of ctx with the forUserAgent key set to the provided value (unless the
-// provided value is the empty string, in which case it returns the provided context).
-func ContextWithForUserAgent(ctx context.Context, forUserAgent string) context.Context {
-	if forUserAgent == "" {
-		return ctx
-	}
-	return context.WithValue(ctx, forUserAgentContextKey, forUserAgent)
-}
-
-func getForUserAgent(ctx context.Context) string {
-	e := ctx.Value(forUserAgentContextKey)
-	if e == nil {
-		return ""
-	}
-	return e.(string)
-}
+// ContextWithForUserAgent returns a copy of ctx with the For-User-Agent header value set.
+var ContextWithForUserAgent = httpc.ContextWithForUserAgent

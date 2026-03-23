@@ -22,6 +22,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpclient/httpc"
 	"github.com/palantir/conjure-go-runtime/v3/conjure-go-contract/codecs"
 	"github.com/palantir/conjure-go-runtime/v3/conjure-go-contract/errors"
 	werror "github.com/palantir/witchcraft-go-error"
@@ -32,7 +33,8 @@ import (
 func WithRPCMethodName(name string) RequestParam {
 	return requestParamFunc(func(b *requestBuilder) error {
 		b.configureCtx = append(b.configureCtx, func(ctx context.Context) context.Context {
-			return ContextWithRPCMethodName(ctx, name)
+			ctx = ContextWithRPCMethodName(ctx, name)
+			return ctx
 		})
 		return nil
 	})
@@ -206,7 +208,7 @@ func WithSnappyCompressedRequest(input any, codec codecs.Codec) RequestParam {
 // ErrorDecoder will be consulted in the usual way.
 func WithRequestErrorDecoder(errorDecoder ErrorDecoder) RequestParam {
 	return requestParamFunc(func(b *requestBuilder) error {
-		b.errorDecoderMiddleware = errorDecoderMiddleware{errorDecoder: errorDecoder}
+		b.errorDecoderMiddleware = errorDecoder
 		return nil
 	})
 }
@@ -228,23 +230,9 @@ func WithRequestTimeout(timeout time.Duration) RequestParam {
 	})
 }
 
-// withRequestMiddleware adds a per-request middleware to the transport chain.
-// It is unexported because callers should use the Overrides type for per-request
-// middleware configuration.
-func withRequestMiddleware(m Middleware) RequestParam {
-	return requestParamFunc(func(b *requestBuilder) error {
-		b.requestMiddlewares = append(b.requestMiddlewares, m)
-		return nil
-	})
-}
-
 func WithRequestConjureErrorDecoder(ced errors.ConjureErrorDecoder) RequestParam {
 	return requestParamFunc(func(b *requestBuilder) error {
-		b.errorDecoderMiddleware = errorDecoderMiddleware{
-			errorDecoder: restErrorDecoder{
-				conjureErrorDecoder: ced,
-			},
-		}
+		b.errorDecoderMiddleware = httpc.DefaultErrorDecoderWithConjure(ced)
 		return nil
 	})
 }

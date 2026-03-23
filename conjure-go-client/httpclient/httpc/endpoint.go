@@ -26,6 +26,12 @@ import (
 // rpcMethodNameKey is the context key for the RPC method name set by Endpoint.Execute.
 type rpcMethodNameKey struct{}
 
+// forUserAgentKey is the context key for the For-User-Agent header value.
+type forUserAgentKey struct{}
+
+// requestTimeoutKey is the context key for per-request timeout overrides.
+type requestTimeoutKey struct{}
+
 // RPCMethodName extracts the RPC method name from the context, if set by Endpoint.Execute.
 func RPCMethodName(ctx context.Context) (string, bool) {
 	v, ok := ctx.Value(rpcMethodNameKey{}).(string)
@@ -35,6 +41,31 @@ func RPCMethodName(ctx context.Context) (string, bool) {
 // ContextWithRPCMethodName returns a new context with the RPC method name set for use in logging and metrics.
 func ContextWithRPCMethodName(ctx context.Context, name string) context.Context {
 	return context.WithValue(ctx, rpcMethodNameKey{}, name)
+}
+
+// ContextWithForUserAgent returns a new context with the For-User-Agent header value set.
+func ContextWithForUserAgent(ctx context.Context, forUserAgent string) context.Context {
+	if forUserAgent == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, forUserAgentKey{}, forUserAgent)
+}
+
+func forUserAgentFromContext(ctx context.Context) (string, bool) {
+	v, ok := ctx.Value(forUserAgentKey{}).(string)
+	return v, ok
+}
+
+// ContextWithRequestTimeout returns a new context carrying a per-request timeout
+// that overrides the client-level timeout for a single request attempt.
+func ContextWithRequestTimeout(ctx context.Context, d time.Duration) context.Context {
+	return context.WithValue(ctx, requestTimeoutKey{}, d)
+}
+
+// requestTimeoutFromContext extracts a per-request timeout from the context, if set.
+func requestTimeoutFromContext(ctx context.Context) (time.Duration, bool) {
+	v, ok := ctx.Value(requestTimeoutKey{}).(time.Duration)
+	return v, ok
 }
 
 // roundTripperFunc adapts a function to http.RoundTripper.

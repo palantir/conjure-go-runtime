@@ -85,39 +85,37 @@ func TestAddingCAFileIsCaptured(t *testing.T) {
 	caFile2 := filepath.Join(tmpDir, "ca2.pem")
 	createTestCACertFile(t, caFile1, 1, "Test CA")
 	createTestCACertFile(t, caFile2, 2, "Test CA 2")
-	// Track unique CA subjects captured during requests
-	capturedSubjects := make(map[string]struct{})
-	tlsCapturingMiddleware := newTLSCapturingMiddleware(&capturedSubjects)
+
 	cfg := httpclient.ClientConfig{
 		ServiceName:   "baz",
 		MaxNumRetries: new(0),
-		URIs: []string{
-			"https://test-service",
-		},
 		Security: httpclient.SecurityConfig{
 			CAFiles: []string{caFile1},
 		},
 	}
 	clientConfigRefreshable := refreshable.New(cfg)
-	scopedTokenClient, err := httpclient.NewClientFromRefreshableConfig(
+	httpClient, err := httpclient.NewHTTPClientFromRefreshableConfig(
 		context.Background(),
 		clientConfigRefreshable,
-		httpclient.WithMiddleware(tlsCapturingMiddleware),
 	)
 	require.NoError(t, err)
-	_, err = scopedTokenClient.Delete(context.Background())
-	assert.Error(t, err)
-	assert.Eventually(t, func() bool {
-		return containsAllKeys(capturedSubjects, []string{"Test CA"})
-	}, time.Second*2, time.Millisecond*100)
+
+	// Verify initial CA is loaded
+	transport := unwrapTransport(httpClient.Current().Transport)
+	require.NotNil(t, transport)
+	capturedSubjects := extractCASubjects(transport)
+	assert.True(t, containsAllKeys(capturedSubjects, []string{"Test CA"}))
+
 	// Update config to use both CA files
-	capturedSubjects = map[string]struct{}{}
 	cfg.Security.CAFiles = []string{caFile1, caFile2}
 	clientConfigRefreshable.Update(cfg)
-	_, err = scopedTokenClient.Delete(context.Background())
-	assert.Error(t, err)
 	assert.Eventually(t, func() bool {
-		return containsAllKeys(capturedSubjects, []string{"Test CA", "Test CA 2"})
+		transport := unwrapTransport(httpClient.Current().Transport)
+		if transport == nil {
+			return false
+		}
+		subjects := extractCASubjects(transport)
+		return containsAllKeys(subjects, []string{"Test CA", "Test CA 2"})
 	}, time.Second*2, time.Millisecond*100)
 }
 
@@ -128,62 +126,62 @@ func TestCAUpdatesToTheSameCAFileIsCaptured(t *testing.T) {
 	caFile1 := filepath.Join(tmpDir, "ca1.pem")
 	createTestCACertFile(t, caFile1, 1, "Test CA")
 
-	// Track unique CA subjects captured during requests
-	capturedSubjects1 := make(map[string]struct{})
-	tlsCapturingMiddleware1 := newTLSCapturingMiddleware(&capturedSubjects1)
-	capturedSubjects2 := make(map[string]struct{})
-	tlsCapturingMiddleware2 := newTLSCapturingMiddleware(&capturedSubjects2)
 	cfg := httpclient.ClientConfig{
-		ServiceName: "baz",
-		URIs: []string{
-			"https://test-service",
-		},
+		ServiceName:   "baz",
 		MaxNumRetries: new(0),
 		Security: httpclient.SecurityConfig{
 			CAFiles: []string{caFile1},
 		},
 	}
 	clientConfigRefreshable := refreshable.New(cfg)
-	client1, err := httpclient.NewClientFromRefreshableConfig(
+	httpClient1, err := httpclient.NewHTTPClientFromRefreshableConfig(
 		context.Background(),
 		clientConfigRefreshable,
-		httpclient.WithMiddleware(tlsCapturingMiddleware1),
 	)
 	require.NoError(t, err)
-	client2, err := httpclient.NewClient(
-		httpclient.WithConfig(cfg),
-		httpclient.WithMiddleware(tlsCapturingMiddleware2),
+
+	httpClient2, err := httpclient.NewHTTPClient(
+		httpclient.WithConfigForHTTPClient(cfg),
 	)
 	require.NoError(t, err)
-	// Client 1
+
+	// Client 1 (refreshable)
 	assert.Eventually(t, func() bool {
-		capturedSubjects1 = map[string]struct{}{}
-		_, err = client1.Delete(context.Background())
-		assert.Error(t, err)
-		return containsAllKeys(capturedSubjects1, []string{"Test CA"})
+		transport := unwrapTransport(httpClient1.Current().Transport)
+		if transport == nil {
+			return false
+		}
+		subjects := extractCASubjects(transport)
+		return containsAllKeys(subjects, []string{"Test CA"})
 	}, time.Second*5, time.Millisecond*100)
-	// Client 2
-	assert.Eventually(t, func() bool {
-		capturedSubjects2 = map[string]struct{}{}
-		_, err = client2.Delete(context.Background())
-		assert.Error(t, err)
-		return containsAllKeys(capturedSubjects2, []string{"Test CA"})
-	}, time.Second*5, time.Millisecond*100)
+
+	// Client 2 (static)
+	transport2 := unwrapTransport(httpClient2.Transport)
+	require.NotNil(t, transport2)
+	subjects2 := extractCASubjects(transport2)
+	assert.True(t, containsAllKeys(subjects2, []string{"Test CA"}))
+
 	// Append a file and see the newest CA
 	appendTestCACertFile(t, caFile1, 3, "Test CA 3")
+
 	// Client 1
 	assert.Eventually(t, func() bool {
-		capturedSubjects1 = map[string]struct{}{}
-		_, err = client1.Delete(context.Background())
-		assert.Error(t, err)
-		return containsAllKeys(capturedSubjects1, []string{"Test CA", "Test CA 3"})
+		transport := unwrapTransport(httpClient1.Current().Transport)
+		if transport == nil {
+			return false
+		}
+		subjects := extractCASubjects(transport)
+		return containsAllKeys(subjects, []string{"Test CA", "Test CA 3"})
 	}, time.Second*5, time.Millisecond*100)
+
 	// Client 2
 	assert.Eventually(t, func() bool {
-		capturedSubjects2 = map[string]struct{}{}
-		_, err = client2.Delete(context.Background())
-		assert.Error(t, err)
-		return containsAllKeys(capturedSubjects2, []string{"Test CA", "Test CA 3"})
+		transport := unwrapTransport(httpClient2.Transport)
+		if transport == nil {
+			return false
+		}
+		subjects := extractCASubjects(transport)
+		return containsAllKeys(subjects, []string{"Test CA", "Test CA 3"})
 	}, time.Second*5, time.Millisecond*100)
 }
 
@@ -285,89 +283,96 @@ func TestCABytesAndCAFileCombined(t *testing.T) {
 	// Create CA bytes for the dynamic provider
 	dynamicCABytes := generateTestCACertPEM(t, 2, "Dynamic CA")
 	caBytesRefreshable := refreshable.New([][]byte{dynamicCABytes})
-	// Track unique CA subjects captured during requests
-	capturedSubjects1 := make(map[string]struct{})
-	tlsCapturingMiddleware1 := newTLSCapturingMiddleware(&capturedSubjects1)
-	capturedSubjects2 := make(map[string]struct{})
-	tlsCapturingMiddleware2 := newTLSCapturingMiddleware(&capturedSubjects2)
+
 	cfg := httpclient.ClientConfig{
-		ServiceName:   "test-service",
-		MaxNumRetries: new(0),
-		URIs:          []string{"https://test-service"},
+		ServiceName: "test-service",
 		Security: httpclient.SecurityConfig{
 			CAFiles: []string{caFile},
 		},
 	}
 	clientConfigRefreshable := refreshable.New(cfg)
-	client1, err := httpclient.NewClientFromRefreshableConfig(
+	httpClient1, err := httpclient.NewHTTPClientFromRefreshableConfig(
 		context.Background(),
 		clientConfigRefreshable,
-		httpclient.WithMiddleware(tlsCapturingMiddleware1),
 		httpclient.WithTLSCABytes(caBytesRefreshable),
 	)
 	require.NoError(t, err)
-	client2, err := httpclient.NewClient(
-		httpclient.WithConfig(cfg),
-		httpclient.WithMiddleware(tlsCapturingMiddleware2),
+	httpClient2, err := httpclient.NewHTTPClient(
+		httpclient.WithConfigForHTTPClient(cfg),
 		httpclient.WithTLSCABytes(caBytesRefreshable),
 	)
 	require.NoError(t, err)
+
 	// Ensure the initial CA bundle is loaded
-	_, err = client1.Delete(context.Background())
-	assert.Error(t, err)
-	assert.True(t, containsAllKeys(capturedSubjects1, []string{"Disk CA", "Dynamic CA"}))
-	_, err = client2.Delete(context.Background())
-	assert.Error(t, err)
-	assert.True(t, containsAllKeys(capturedSubjects2, []string{"Disk CA", "Dynamic CA"}))
+	transport1 := unwrapTransport(httpClient1.Current().Transport)
+	require.NotNil(t, transport1)
+	subjects1 := extractCASubjects(transport1)
+	assert.True(t, containsAllKeys(subjects1, []string{"Disk CA", "Dynamic CA"}))
+
+	transport2 := unwrapTransport(httpClient2.Transport)
+	require.NotNil(t, transport2)
+	subjects2 := extractCASubjects(transport2)
+	assert.True(t, containsAllKeys(subjects2, []string{"Disk CA", "Dynamic CA"}))
 
 	// Update dynamic CA bytes and verify it refreshes
-	capturedSubjects1 = make(map[string]struct{})
-	capturedSubjects2 = make(map[string]struct{})
 	newDynamicCABytes := generateTestCACertPEM(t, 3, "New Dynamic CA")
 	caBytesRefreshable.Update([][]byte{newDynamicCABytes})
 	// Re-Check
 	assert.Eventually(t, func() bool {
-		capturedSubjects1 = make(map[string]struct{})
-		_, err = client1.Delete(context.Background())
-		assert.Error(t, err)
-		return containsAllKeys(capturedSubjects1, []string{"Disk CA", "New Dynamic CA"})
+		transport := unwrapTransport(httpClient1.Current().Transport)
+		if transport == nil {
+			return false
+		}
+		subjects := extractCASubjects(transport)
+		return containsAllKeys(subjects, []string{"Disk CA", "New Dynamic CA"})
 	}, time.Second*2, time.Millisecond*100)
 	assert.Eventually(t, func() bool {
-		capturedSubjects2 = make(map[string]struct{})
-		_, err = client2.Delete(context.Background())
-		assert.Error(t, err)
-		return containsAllKeys(capturedSubjects2, []string{"Disk CA", "New Dynamic CA"})
+		transport := unwrapTransport(httpClient2.Transport)
+		if transport == nil {
+			return false
+		}
+		subjects := extractCASubjects(transport)
+		return containsAllKeys(subjects, []string{"Disk CA", "New Dynamic CA"})
 	}, time.Second*2, time.Millisecond*100)
 }
 
-func newTLSCapturingMiddleware(capturedSubjects *map[string]struct{}) httpclient.MiddlewareFunc {
-	return func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
-		transport := unwrapTransport(next)
-		for _, subject := range transport.TLSClientConfig.RootCAs.Subjects() {
-			var rdnSeq pkix.RDNSequence
-			if _, err := asn1.Unmarshal(subject, &rdnSeq); err == nil {
-				var name pkix.Name
-				name.FillFromRDNSequence(&rdnSeq)
-				for _, org := range name.Organization {
-					(*capturedSubjects)[org] = struct{}{}
-				}
+// extractCASubjects extracts organization names from the root CAs in the transport's TLS config.
+func extractCASubjects(transport *http.Transport) map[string]struct{} {
+	subjects := make(map[string]struct{})
+	if transport.TLSClientConfig == nil || transport.TLSClientConfig.RootCAs == nil {
+		return subjects
+	}
+	for _, subject := range transport.TLSClientConfig.RootCAs.Subjects() {
+		var rdnSeq pkix.RDNSequence
+		if _, err := asn1.Unmarshal(subject, &rdnSeq); err == nil {
+			var name pkix.Name
+			name.FillFromRDNSequence(&rdnSeq)
+			for _, org := range name.Organization {
+				subjects[org] = struct{}{}
 			}
 		}
-		return next.RoundTrip(req)
 	}
+	return subjects
 }
 
 // unwrapTransport traverses the RoundTripper chain to find the underlying *http.Transport.
 func unwrapTransport(rt http.RoundTripper) *http.Transport {
 	for rt != nil {
-		switch rt.(type) {
+		switch v := rt.(type) {
 		case *http.Transport:
-			return rt.(*http.Transport)
+			return v
 		default:
 			if transport := unwrapRefreshableValidatedTransport(rt); transport != nil {
 				return transport
 			}
-			rt = getUnexportedBaseTransport(rt)
+			next := getUnexportedField(rt, "base")
+			if next == nil {
+				next = getUnexportedField(rt, "baseTransport")
+			}
+			if next == nil {
+				return nil
+			}
+			rt = next
 		}
 	}
 	return nil
@@ -400,9 +405,9 @@ func unwrapRefreshableValidatedTransport(rt http.RoundTripper) *http.Transport {
 	return transport
 }
 
-// getUnexportedBaseTransport uses unsafe reflection to access the unexported baseTransport
-// field from httpclient.wrappedClient middleware wrappers.
-func getUnexportedBaseTransport(rt http.RoundTripper) http.RoundTripper {
+// getUnexportedField uses unsafe reflection to access an unexported http.RoundTripper
+// field by name from a struct.
+func getUnexportedField(rt http.RoundTripper, fieldName string) http.RoundTripper {
 	val := reflect.ValueOf(rt)
 	if val.Kind() == reflect.Pointer {
 		val = val.Elem()
@@ -410,7 +415,7 @@ func getUnexportedBaseTransport(rt http.RoundTripper) http.RoundTripper {
 	if val.Kind() != reflect.Struct {
 		return nil
 	}
-	field := val.FieldByName("baseTransport")
+	field := val.FieldByName(fieldName)
 	if !field.IsValid() || !field.CanAddr() {
 		return nil
 	}

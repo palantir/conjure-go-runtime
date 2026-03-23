@@ -94,7 +94,10 @@ type traceMiddleware struct {
 	disableTraceHeaders bool
 }
 
-const traceIDHeaderKey = "X-B3-TraceId"
+const (
+	traceIDHeaderKey      = "X-B3-TraceId"
+	forUserAgentHeaderKey = "For-User-Agent"
+)
 
 func (t *traceMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (*http.Response, error) {
 	ctx := req.Context()
@@ -118,6 +121,9 @@ func (t *traceMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (
 		} else if traceID := wtracing.TraceIDFromContext(ctx); traceID != "" {
 			req.Header.Set(traceIDHeaderKey, string(traceID))
 		}
+		if forUserAgent, ok := forUserAgentFromContext(ctx); ok && forUserAgent != "" && req.Header.Get(forUserAgentHeaderKey) == "" {
+			req.Header.Set(forUserAgentHeaderKey, forUserAgent)
+		}
 	}
 
 	return next.RoundTrip(req)
@@ -133,9 +139,9 @@ type middlewareChain struct {
 }
 
 func (c *middlewareChain) RoundTrip(req *http.Request) (*http.Response, error) {
-	// Build the chain from innermost (last) to outermost (first).
+	// Build the chain from innermost (first) to outermost (last).
 	rt := c.base
-	for i := len(c.middlewares) - 1; i >= 0; i-- {
+	for i := 0; i < len(c.middlewares); i++ {
 		if c.middlewares[i] == nil {
 			continue
 		}

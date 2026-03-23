@@ -432,7 +432,7 @@ func TestBuilder_BuildTransport(t *testing.T) {
 	client := &http.Client{Transport: transport}
 	resp, err := client.Get(server.URL + "/test")
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 	body, err := io.ReadAll(resp.Body)
@@ -489,7 +489,7 @@ func TestBuilder_BuildHTTPClient(t *testing.T) {
 	client := httpClient.Current()
 	resp, err := client.Get(server.URL + "/test")
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 }
 

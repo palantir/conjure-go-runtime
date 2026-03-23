@@ -97,6 +97,9 @@ type TLSConfigBuilder[B TLSConfigBuilder[B]] interface {
 
 	// SetClientCertBytes sets client certificate and key bytes for mutual TLS.
 	SetClientCertBytes(keyBytes, certBytes []byte) B
+
+	// SetDynamicCertReload controls whether client cert/key files are re-read on each TLS handshake.
+	SetDynamicCertReload(bool) B
 }
 
 func (b *Builder) SetTLSConfig(cfg *tls.Config) *Builder {
@@ -177,6 +180,14 @@ func (b *Builder) SetClientCertBytes(keyBytes, certBytes []byte) *Builder {
 	return b
 }
 
+func (b *Builder) SetDynamicCertReload(enabled bool) *Builder {
+	b.tlsFileParams = refreshable.View(b.tlsFileParams, func(p tlsFileParams) tlsFileParams {
+		p.DynamicCertReload = enabled
+		return p
+	})
+	return b
+}
+
 // tlsFileParams holds the file-based and flag-based TLS settings
 // that feed into BuildTLSConfig. Separated from transportParams so
 // that non-TLS transport changes do not trigger TLS rebuilds.
@@ -185,6 +196,7 @@ type tlsFileParams struct {
 	CertFile           string
 	KeyFile            string
 	InsecureSkipVerify bool
+	DynamicCertReload  bool
 }
 
 // tlsParams contains the parameters needed to build a *tls.Config.
@@ -197,6 +209,7 @@ type tlsParams struct {
 	KeyBytes           []byte // PEM client key bytes; preferred over KeyFile when non-nil.
 	InsecureSkipVerify bool
 	IncludeSystemCAs   bool
+	DynamicCertReload  bool
 }
 
 // newRefreshableTLSConfig evaluates the provided tlsParams and returns a Validated[*tls.Config] that will update the
@@ -253,7 +266,11 @@ func newTLSConfig(ctx context.Context, p tlsParams) (*tls.Config, error) {
 			return tls.X509KeyPair(certBytes, keyBytes)
 		}))
 	} else if p.CertFile != "" && p.KeyFile != "" {
-		tlsClientParams = append(tlsClientParams, tlsconfig.ClientKeyPairFiles(p.CertFile, p.KeyFile))
+		if p.DynamicCertReload {
+			tlsClientParams = append(tlsClientParams, tlsconfig.ClientKeyPair(tlsconfig.TLSCertFromFiles(p.CertFile, p.KeyFile)))
+		} else {
+			tlsClientParams = append(tlsClientParams, tlsconfig.ClientKeyPairFiles(p.CertFile, p.KeyFile))
+		}
 	}
 	if p.InsecureSkipVerify {
 		tlsClientParams = append(tlsClientParams, tlsconfig.ClientInsecureSkipVerify())
@@ -324,19 +341,25 @@ func (b *Builder) BuildTLSConfig(ctx context.Context) (refreshable.Validated[*tl
 			CABytes:            caBytes,
 			InsecureSkipVerify: tp.InsecureSkipVerify,
 			IncludeSystemCAs:   includeSystemCAs,
+			DynamicCertReload:  tp.DynamicCertReload,
 		}
-		// Pass cert/key as bytes when watched via file refreshable so that
-		// content changes are detected by DeepEqual and trigger a TLS rebuild.
-		if certBytes := fileBytes[tp.CertFile]; len(certBytes) > 0 {
-			params.CertBytes = certBytes
-		}
-		if keyBytes := fileBytes[tp.KeyFile]; len(keyBytes) > 0 {
-			params.KeyBytes = keyBytes
-		}
-		// Fall back to file paths if bytes aren't available (files not in watch set).
-		if len(params.CertBytes) == 0 && len(params.KeyBytes) == 0 {
+		if tp.DynamicCertReload {
 			params.CertFile = tp.CertFile
 			params.KeyFile = tp.KeyFile
+		} else {
+			// Pass cert/key as bytes when watched via file refreshable so that
+			// content changes are detected by DeepEqual and trigger a TLS rebuild.
+			if certBytes := fileBytes[tp.CertFile]; len(certBytes) > 0 {
+				params.CertBytes = certBytes
+			}
+			if keyBytes := fileBytes[tp.KeyFile]; len(keyBytes) > 0 {
+				params.KeyBytes = keyBytes
+			}
+			// Fall back to file paths if bytes aren't available (files not in watch set).
+			if len(params.CertBytes) == 0 && len(params.KeyBytes) == 0 {
+				params.CertFile = tp.CertFile
+				params.KeyFile = tp.KeyFile
+			}
 		}
 		// Fall back to static client cert bytes if no file-based cert was configured.
 		if len(params.CertBytes) == 0 && len(params.KeyBytes) == 0 &&

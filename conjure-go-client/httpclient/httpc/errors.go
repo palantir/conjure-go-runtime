@@ -51,13 +51,23 @@ func unwrapURLError(ctx context.Context, respErr error) error {
 	return werror.WrapWithContextParams(ctx, urlErr.Err, "httpclient request failed", params...)
 }
 
-// defaultRestErrorDecoder handles responses with status code >= 307.
-// For JSON responses, it attempts to unmarshal the body as a Conjure error.
-// For non-JSON responses or failed unmarshal, it includes the raw body as an
-// unsafe parameter. For 3xx responses, it extracts the Location header.
+// DefaultErrorDecoder returns an ErrorDecoder that handles responses with status
+// code >= 307. For JSON responses, it attempts to unmarshal the body as a Conjure
+// error. For non-JSON responses or failed unmarshal, it includes the raw body as
+// an unsafe parameter. For 3xx responses, it extracts the Location header.
 //
 // Use StatusCodeFromError(err) to retrieve the code from the error,
 // and DisableRestErrors() to disable this decoder on your client.
+func DefaultErrorDecoder() ErrorDecoder {
+	return defaultRestErrorDecoder{}
+}
+
+// DefaultErrorDecoderWithConjure returns an ErrorDecoder like DefaultErrorDecoder
+// but uses the provided ConjureErrorDecoder to unmarshal Conjure-typed errors.
+func DefaultErrorDecoderWithConjure(ced errors.ConjureErrorDecoder) ErrorDecoder {
+	return defaultRestErrorDecoder{conjureErrorDecoder: ced}
+}
+
 type defaultRestErrorDecoder struct {
 	conjureErrorDecoder errors.ConjureErrorDecoder
 }

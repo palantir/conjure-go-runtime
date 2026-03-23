@@ -136,19 +136,19 @@ func TestMiddlewareStackOrder_MultipleOuterAndInner(t *testing.T) {
 	_, _, err = httpc.ExecuteVoid(t.Context(), client, ep)
 	require.NoError(t, err)
 
-	// Outer middlewares: first added is outermost (outer1 before outer2).
-	// Inner middlewares: last added is outermost of the inner layer (inner2 before inner1),
-	// because wrapTransport wraps sequentially — the last element ends up outermost.
+	// Outer middlewares: last added is outermost (outer2 before outer1).
+	// Inner middlewares: last added is innermost (inner1 before inner2),
+	// because AddInnerMiddleware prepends.
 	assert.Equal(t, []string{
-		"outer1-before",
 		"outer2-before",
-		"inner2-before",
+		"outer1-before",
 		"inner1-before",
+		"inner2-before",
 		"transport",
-		"inner1-after",
 		"inner2-after",
-		"outer2-after",
+		"inner1-after",
 		"outer1-after",
+		"outer2-after",
 	}, order)
 }
 

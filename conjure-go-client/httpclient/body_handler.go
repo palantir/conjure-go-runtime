@@ -83,15 +83,6 @@ func (b *bodyMiddleware) setRequestBody(req *http.Request) (func(), error) {
 	return cleanup, requestBody.setRequestBody(req)
 }
 
-// returns true if the request body is a noRetriesRequestBody
-func (b *bodyMiddleware) noRetriesRequestBody() bool {
-	if b.requestEncoder == nil && b.requestInput != nil {
-		_, ok := b.requestInput.(noRetriesRequestBody)
-		return ok
-	}
-	return false
-}
-
 func (b *bodyMiddleware) readResponse(resp *http.Response, respErr error) error {
 	// If rawOutput is true, return response directly without draining or closing body
 	if b.rawOutput && respErr == nil {

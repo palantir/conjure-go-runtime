@@ -125,10 +125,12 @@ type ServiceBuilder[B ServiceBuilder[B]] interface {
 
 	// Middleware
 
-	// AddMiddleware appends an outer middleware that wraps all previously added middleware.
+	// AddMiddleware appends a middleware that wraps all previously added middleware.
+	// The last-added middleware is outermost (sees the request first, response last).
 	AddMiddleware(Middleware) B
 
-	// AddInnerMiddleware appends an inner middleware that runs closest to the transport.
+	// AddInnerMiddleware prepends an inner middleware that runs closest to the transport.
+	// The last-added inner middleware is innermost (sees the request last, response first).
 	AddInnerMiddleware(Middleware) B
 
 	// Timeout
@@ -249,17 +251,16 @@ func (b *Builder) SetURIScoringStrategy(s URIScoringStrategy) *Builder {
 }
 
 func (b *Builder) SetAuthToken(t string) *Builder {
-	b.middlewares = append(b.middlewares, MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+	return b.AddInnerMiddleware(MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
 		if t != "" {
 			req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", t))
 		}
 		return next.RoundTrip(req)
 	}))
-	return b
 }
 
 func (b *Builder) SetAuthTokenProvider(p TokenProvider) *Builder {
-	b.middlewares = append(b.middlewares, MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+	return b.AddInnerMiddleware(MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
 		token, err := p(req.Context())
 		if err != nil {
 			return nil, err
@@ -269,29 +270,26 @@ func (b *Builder) SetAuthTokenProvider(p TokenProvider) *Builder {
 		}
 		return next.RoundTrip(req)
 	}))
-	return b
 }
 
 func (b *Builder) SetAuthTokenRefreshable(r refreshable.Refreshable[*string]) *Builder {
-	b.middlewares = append(b.middlewares, MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+	return b.AddInnerMiddleware(MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
 		if s := r.Current(); s != nil && *s != "" {
 			req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", *s))
 		}
 		return next.RoundTrip(req)
 	}))
-	return b
 }
 
 func (b *Builder) SetBasicAuth(user, password string) *Builder {
-	b.middlewares = append(b.middlewares, MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+	return b.AddInnerMiddleware(MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
 		setBasicAuthHeader(req.Header, user, password)
 		return next.RoundTrip(req)
 	}))
-	return b
 }
 
 func (b *Builder) SetBasicAuthProvider(p BasicAuthProvider) *Builder {
-	b.middlewares = append(b.middlewares, MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+	return b.AddInnerMiddleware(MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
 		auth, err := p(req.Context())
 		if err != nil {
 			return nil, err
@@ -299,17 +297,15 @@ func (b *Builder) SetBasicAuthProvider(p BasicAuthProvider) *Builder {
 		setBasicAuthHeader(req.Header, auth.User, auth.Password)
 		return next.RoundTrip(req)
 	}))
-	return b
 }
 
 func (b *Builder) SetBasicAuthRefreshable(r refreshable.Refreshable[*BasicAuth]) *Builder {
-	b.middlewares = append(b.middlewares, MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+	return b.AddInnerMiddleware(MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
 		if auth := r.Current(); auth != nil {
 			setBasicAuthHeader(req.Header, auth.User, auth.Password)
 		}
 		return next.RoundTrip(req)
 	}))
-	return b
 }
 
 func setBasicAuthHeader(h http.Header, username, password string) {
@@ -318,19 +314,17 @@ func setBasicAuthHeader(h http.Header, username, password string) {
 }
 
 func (b *Builder) AddHeader(key, value string) *Builder {
-	b.middlewares = append([]Middleware{MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+	return b.AddInnerMiddleware(MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
 		req.Header.Add(key, value)
 		return next.RoundTrip(req)
-	})}, b.middlewares...)
-	return b
+	}))
 }
 
 func (b *Builder) SetHeader(key, value string) *Builder {
-	b.middlewares = append([]Middleware{MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+	return b.AddInnerMiddleware(MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
 		req.Header.Set(key, value)
 		return next.RoundTrip(req)
-	})}, b.middlewares...)
-	return b
+	}))
 }
 
 func (b *Builder) SetUserAgent(s string) *Builder {
@@ -338,11 +332,10 @@ func (b *Builder) SetUserAgent(s string) *Builder {
 }
 
 func (b *Builder) SetOverrideRequestHost(host string) *Builder {
-	b.middlewares = append([]Middleware{MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+	return b.AddInnerMiddleware(MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
 		req.Host = host
 		return next.RoundTrip(req)
-	})}, b.middlewares...)
-	return b
+	}))
 }
 
 func (b *Builder) AddMiddleware(m Middleware) *Builder {
@@ -351,7 +344,7 @@ func (b *Builder) AddMiddleware(m Middleware) *Builder {
 }
 
 func (b *Builder) AddInnerMiddleware(m Middleware) *Builder {
-	b.innerMiddlewares = append(b.innerMiddlewares, m)
+	b.innerMiddlewares = append([]Middleware{m}, b.innerMiddlewares...)
 	return b
 }
 
@@ -487,18 +480,20 @@ func (b *Builder) Build(ctx context.Context) (ConfigurableClient[*Builder], erro
 		return b.uriScorerBuilder(uris)
 	})
 
-	return &fluentClient[*Builder]{
-		serviceName:    b.serviceName,
-		httpClient:     httpClient,
-		middlewares:    b.middlewares,
-		errorDecoderMW: edm,
-		recoveryMW:     recovery,
-		uriScorer:      uriScorer,
-		maxAttempts:    b.maxAttempts,
-		initialBackoff: b.initialBackoff,
-		maxBackoff:     b.maxBackoff,
-		bufferPool:     b.bytesBufferPool,
-		builder:        b.Clone(),
+	return &configurableClient[*Builder]{
+		fluentClient: fluentClient{
+			serviceName:    b.serviceName,
+			httpClient:     httpClient,
+			middlewares:    b.middlewares,
+			errorDecoderMW: edm,
+			recoveryMW:     recovery,
+			uriScorer:      uriScorer,
+			maxAttempts:    b.maxAttempts,
+			initialBackoff: b.initialBackoff,
+			maxBackoff:     b.maxBackoff,
+			bufferPool:     b.bytesBufferPool,
+		},
+		builder: b.Clone(),
 	}, nil
 }
 

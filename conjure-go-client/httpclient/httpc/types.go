@@ -17,6 +17,8 @@ package httpc
 import (
 	"context"
 	"net/http"
+
+	"github.com/palantir/pkg/metrics"
 )
 
 // Client is the minimal transport interface returned by ServiceBuilder.Build and ClientBuilder.Build.
@@ -83,34 +85,19 @@ type ErrorDecoder interface {
 
 // TagsProvider produces metric tags from an HTTP request/response pair.
 type TagsProvider interface {
-	Tags(req *http.Request, resp *http.Response, err error) Tags
+	Tags(req *http.Request, resp *http.Response, err error) metrics.Tags
 }
 
-// Tags is a set of key-value metric tags. It implements TagsProvider as a
-// convenience for static tags that don't depend on the request or response:
-//
-//	builder.SetMetrics(httpc.Tags{"service": "myapp", "env": "prod"})
-type Tags map[string]string
-
-// Tags implements TagsProvider by returning itself, ignoring the request, response, and error.
-func (t Tags) Tags(*http.Request, *http.Response, error) Tags { return t }
-
 // TagsProviderFunc is a function adapter for the TagsProvider interface.
-type TagsProviderFunc func(req *http.Request, resp *http.Response, err error) Tags
+type TagsProviderFunc func(req *http.Request, resp *http.Response, err error) metrics.Tags
 
 // Tags implements TagsProvider.
-func (f TagsProviderFunc) Tags(req *http.Request, resp *http.Response, err error) Tags {
+func (f TagsProviderFunc) Tags(req *http.Request, resp *http.Response, err error) metrics.Tags {
 	return f(req, resp, err)
 }
 
 // TokenProvider returns a bearer token for request authentication.
 type TokenProvider func(ctx context.Context) (string, error)
-
-// BasicAuth holds HTTP basic authentication credentials.
-type BasicAuth struct {
-	User     string
-	Password string
-}
 
 // BasicAuthProvider returns basic auth credentials for request authentication.
 type BasicAuthProvider func(ctx context.Context) (BasicAuth, error)

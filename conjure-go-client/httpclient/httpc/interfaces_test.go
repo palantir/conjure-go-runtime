@@ -25,9 +25,6 @@ var _ RequestOverrides[Overrides] = Overrides{}
 // MiddlewareFunc satisfies Middleware.
 var _ Middleware = MiddlewareFunc(nil)
 
-// Tags satisfies TagsProvider.
-var _ TagsProvider = Tags(nil)
-
 // BodyEncoderFunc satisfies BodyEncoder.
 var _ BodyEncoder[string] = BodyEncoderFunc[string]{}
 

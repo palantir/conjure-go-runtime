@@ -15,41 +15,11 @@
 package httpclient
 
 import (
-	"net/http"
+	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpclient/httpc"
 )
 
 // A Middleware wraps an http client's request and is able to read or modify the request and response.
-type Middleware interface {
-	// RoundTrip mimics the API of http.RoundTripper, but adds a 'next' argument.
-	// RoundTrip is responsible for invoking next.RoundTrip(req) and returning the response.
-	RoundTrip(req *http.Request, next http.RoundTripper) (*http.Response, error)
-}
+type Middleware = httpc.Middleware
 
 // MiddlewareFunc is a convenience type alias that implements Middleware.
-type MiddlewareFunc func(req *http.Request, next http.RoundTripper) (*http.Response, error)
-
-func (f MiddlewareFunc) RoundTrip(req *http.Request, next http.RoundTripper) (*http.Response, error) {
-	return f(req, next)
-}
-
-// wrapTransport is used by clientBuilder to create the final Client's RoundTripper.
-func wrapTransport(baseTransport http.RoundTripper, middlewares ...Middleware) http.RoundTripper {
-	if baseTransport == nil {
-		baseTransport = http.DefaultTransport
-	}
-	for i := range middlewares {
-		if middleware := middlewares[i]; middleware != nil {
-			baseTransport = &wrappedClient{baseTransport: baseTransport, middleware: middleware}
-		}
-	}
-	return baseTransport
-}
-
-type wrappedClient struct {
-	baseTransport http.RoundTripper
-	middleware    Middleware
-}
-
-func (c *wrappedClient) RoundTrip(req *http.Request) (*http.Response, error) {
-	return c.middleware.RoundTrip(req, c.baseTransport)
-}
+type MiddlewareFunc = httpc.MiddlewareFunc
