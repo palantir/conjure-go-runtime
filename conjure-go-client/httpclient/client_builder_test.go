@@ -78,11 +78,6 @@ func TestNewHTTPClientWithoutURIs(t *testing.T) {
 	require.NotNil(t, c.Current())
 }
 
-//go:fix inline
-func toPointer[T any](timeArg T) *T {
-	return new(timeArg)
-}
-
 func TestAddingCAFileIsCaptured(t *testing.T) {
 	// Create a temp directory with CA certificate files
 	tmpDir := t.TempDir()
