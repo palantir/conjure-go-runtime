@@ -30,7 +30,7 @@ import (
 
 func TestWriteErrorResponse_ValidateJSON(t *testing.T) {
 	testError := errors.NewError(errors.MustErrorType(errors.Timeout, "MyApplication:Timeout"),
-		wparams.NewSafeParamStorer(map[string]interface{}{
+		wparams.NewSafeParamStorer(map[string]any{
 			"metadata": struct {
 				KeyB int `json:"keyB"`
 			}{

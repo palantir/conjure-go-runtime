@@ -305,7 +305,7 @@ func BenchmarkAllocWithBytesBufferPool(b *testing.B) {
 			b.Run(fmt.Sprintf("count=%d", count), func(b *testing.B) {
 				b.ReportAllocs()
 				for i := 0; i < b.N; i++ {
-					for j := 0; j < count; j++ {
+					for range count {
 						resp, err := client.Do(ctx, reqBody, reqMethod)
 						require.NoError(b, err)
 						require.NotNil(b, resp)
@@ -364,7 +364,7 @@ func BenchmarkUnavailableURIs(b *testing.B) {
 			b.Run(fmt.Sprintf("count=%d", count), func(b *testing.B) {
 				b.ReportAllocs()
 				for i := 0; i < b.N; i++ {
-					for j := 0; j < count; j++ {
+					for range count {
 						resp, err := client.Do(ctx, reqBody, reqMethod)
 						require.NoError(b, err)
 						require.NotNil(b, resp)

@@ -99,7 +99,7 @@ func TestTracing(t *testing.T) {
 }
 
 func mustNewTracer() wtracing.Tracer {
-	tracer, err := wzipkin.NewTracer(&testReporter{reporterMap: map[string]interface{}{}})
+	tracer, err := wzipkin.NewTracer(&testReporter{reporterMap: map[string]any{}})
 	if err != nil {
 		panic(err)
 	}
@@ -107,7 +107,7 @@ func mustNewTracer() wtracing.Tracer {
 }
 
 type testReporter struct {
-	reporterMap map[string]interface{}
+	reporterMap map[string]any
 }
 
 func (r *testReporter) Send(span wtracing.SpanModel) {
