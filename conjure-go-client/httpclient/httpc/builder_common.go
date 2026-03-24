@@ -70,6 +70,11 @@ func Param2[B baseB[B], X any, Y any](p func(B, X, Y) B, x X, y Y) Param[B] {
 	return func(b B) B { return p(b, x, y) }
 }
 
+// ParamVarArgs creates a Param from a variadic builder method and a slice of arguments.
+func ParamVarArgs[B baseB[B], X any](p func(B, ...X) B, xs []X) Param[B] {
+	return func(b B) B { return p(b, xs...) }
+}
+
 // ClientBuilder is the top-level builder interface for constructing HTTP clients.
 // It composes DialerBuilder, TLSConfigBuilder, TransportBuilder, and ServiceBuilder
 // into a single unified builder covering all layers of the HTTP stack.
