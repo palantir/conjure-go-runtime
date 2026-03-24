@@ -67,26 +67,6 @@ func (recoveryMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (
 	return next.RoundTrip(req)
 }
 
-// errorDecoderMiddleware intercepts responses and returns decoded errors.
-// When the error decoder handles a response, the response body is drained
-// and closed before returning the decoded error.
-type errorDecoderMiddleware struct {
-	decoder ErrorDecoder
-}
-
-func (e errorDecoderMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (*http.Response, error) {
-	resp, err := next.RoundTrip(req)
-	// If error is already set, it is more severe than our HTTP error. Just return it.
-	if resp == nil || err != nil {
-		return nil, err
-	}
-	if e.decoder.Handles(resp) {
-		defer drainBody(req.Context(), resp)
-		return nil, e.decoder.DecodeError(resp)
-	}
-	return resp, nil
-}
-
 // traceMiddleware injects tracing information into request headers.
 type traceMiddleware struct {
 	serviceName         refreshable.Refreshable[string]

@@ -33,9 +33,9 @@ type fluentClient struct {
 	serviceName    refreshable.Refreshable[string]
 	httpClient     refreshable.Refreshable[*http.Client]
 	middlewares    []Middleware
-	errorDecoderMW Middleware // client-level error decoder as middleware
+	errorDecoder   ErrorDecoder // client-level error decoder
 	recoveryMW     Middleware
-	uriScorer      internal.RefreshableURIScoringMiddleware
+	uriScorer      internal.URIScoringMiddleware
 	maxAttempts    refreshable.Refreshable[*int]
 	initialBackoff refreshable.Refreshable[time.Duration]
 	maxBackoff     refreshable.Refreshable[time.Duration]
@@ -55,6 +55,16 @@ func (c *configurableClient[B]) Builder() B {
 // getBufferPool returns the client's buffer pool, implementing poolProvider.
 func (c *fluentClient) getBufferPool() bytesbuffers.Pool {
 	return c.bufferPool
+}
+
+// errorDecoderProvider is implemented by clients that carry a client-level ErrorDecoder.
+// Endpoint.Execute uses this to extract the decoder before wrapping with per-endpoint middleware.
+type errorDecoderProvider interface {
+	getErrorDecoder() ErrorDecoder
+}
+
+func (c *fluentClient) getErrorDecoder() ErrorDecoder {
+	return c.errorDecoder
 }
 
 func (c *fluentClient) Do(req *http.Request) (*http.Response, error) {
@@ -84,8 +94,13 @@ func (c *fluentClient) Do(req *http.Request) (*http.Response, error) {
 		if uri == "" {
 			return resp, err
 		}
+		// Drain and close the retried response body to free resources.
+		drainBody(ctx, resp)
 		if err != nil {
 			svc1log.FromContext(ctx).Debug("Retrying request", svc1log.Stacktrace(err))
+		} else if resp != nil {
+			svc1log.FromContext(ctx).Debug("Retrying request",
+				svc1log.SafeParam("statusCode", resp.StatusCode))
 		}
 	}
 }
@@ -139,26 +154,37 @@ func (c *fluentClient) doOnce(
 		clientCopy.Timeout = timeout
 	}
 
+	// Always block 307/308 redirects — the retrier handles these as QoS signals.
+	// 301/302/303 are still followed normally by http.Client.
+	clientCopy.CheckRedirect = func(redirectReq *http.Request, via []*http.Request) error {
+		if resp := redirectReq.Response; resp != nil {
+			if resp.StatusCode == http.StatusTemporaryRedirect || resp.StatusCode == http.StatusPermanentRedirect {
+				return http.ErrUseLastResponse
+			}
+		}
+		return nil
+	}
+
 	// Build middleware slice: innermost first, outermost last.
 	// middlewareChain iterates forwards, wrapping each around the previous,
 	// so the last element ends up outermost.
-	mws := make([]Middleware, 0, 3+len(c.middlewares))
-	mws = append(mws, c.uriScorer)      // innermost
-	mws = append(mws, c.errorDecoderMW) // error decoder
+	mws := make([]Middleware, 0, 2+len(c.middlewares))
+	mws = append(mws, c.uriScorer)     // innermost
 	mws = append(mws, c.middlewares...) // user MWs: last added = outermost
-	mws = append(mws, c.recoveryMW)     // outermost
+	mws = append(mws, c.recoveryMW)    // outermost
 
 	clientCopy.Transport = &middlewareChain{middlewares: mws, base: clientCopy.Transport}
 
 	// Execute the request.
 	resp, respErr := clientCopy.Do(req)
-
 	if respErr != nil {
-		// Request can be retried if body is replayable (or absent).
-		if origReq.Body == nil || origReq.Body == http.NoBody || origReq.GetBody != nil {
-			retryable = true
-		}
-		return nil, retryable, unwrapURLError(ctx, respErr)
+		return nil, isRetryableBody(origReq), unwrapURLError(ctx, respErr)
 	}
-	return resp, false, nil
+	return resp, resp.StatusCode >= 300 && isRetryableBody(origReq), nil
+}
+
+// isRetryableBody reports whether the request body is replayable (or absent),
+// meaning the request can be safely retried.
+func isRetryableBody(req *http.Request) bool {
+	return req.Body == nil || req.Body == http.NoBody || req.GetBody != nil
 }

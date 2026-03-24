@@ -256,7 +256,7 @@ type Middleware interface {
 The full middleware stack from outermost to innermost:
 
 ```
-Recovery -> User outer middleware -> Error decoder -> URI scorer
+Recovery -> User outer middleware -> URI scorer
          -> Tracing -> Metrics -> Inner recovery -> User inner middleware
          -> http.Transport
 ```
@@ -264,10 +264,27 @@ Recovery -> User outer middleware -> Error decoder -> URI scorer
 Per-request middleware (from `Overrides`/`Endpoint`) wraps the `Client` itself, so it
 sits outside the client's entire middleware stack.
 
+Error decoding is **not** a middleware layer. It runs in `Endpoint.Execute` after
+`Client.Do` returns the raw HTTP response (see [Error handling](#error-handling)).
+
 ## Retry and URI selection
 
-Requests are automatically retried on transport errors when the request body is
-replayable (`GetBody` is set on the `*http.Request`).
+`Client.Do` returns raw `(*http.Response, error)` with no error decoding. The retry
+loop operates on response status codes and transport errors directly, following the
+[Conjure QoS protocol](https://github.com/palantir/http-remoting#quality-of-service-retry-failover-throttling).
+
+Requests are retried when the request body is replayable (`GetBody` is set on the
+`*http.Request`) and one of the following conditions is met:
+
+- **Transport errors** (connection refused, DNS errors, EOF, etc.)
+- **429 Too Many Requests** -- throttle; retried with exponential backoff
+- **503 Service Unavailable** -- retried against a different host
+- **307 / 308 Redirects** -- retried against the `Location` header target (these are
+  QoS signals, not standard HTTP redirects; `Client` blocks `http.Client` from
+  following them automatically). Standard redirects (301/302/303) are still followed
+  by `http.Client` as usual.
+
+Other status codes (including 4xx and non-503 5xx) are **not** retried.
 
 - **Default attempts**: 2 per base URL (e.g. 2 URLs = 4 attempts)
 - **`SetMaxAttempts(*int)`**: `nil` = default, `n > 0` = exactly n total attempts, `0` = unlimited
@@ -314,7 +331,8 @@ if loc, ok := httpc.LocationFromError(err); ok { ... }
 
 Custom error decoders can be set at the builder level (`SetErrorDecoder`) or
 per-request (`WithErrorDecoder` on `Endpoint` or `Overrides`). Per-request error
-decoders run after the client-level decoder.
+decoders take priority over the client-level decoder; if the per-request decoder
+does not handle a response, the client-level decoder is consulted as a fallback.
 
 Use `DisableRestErrors()` on the builder to disable the default error decoder entirely.
 

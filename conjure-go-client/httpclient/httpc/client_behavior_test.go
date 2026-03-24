@@ -522,6 +522,215 @@ func TestRetry_ZLIBCompressedBody(t *testing.T) {
 	assert.Equal(t, int32(2), attempts.Load())
 }
 
+// ---------------------------------------------------------------------------
+// Error decoder + redirect/retry integration
+// ---------------------------------------------------------------------------
+
+// TestErrorDecoder_307WithLocation_RetriesAgainstLocation verifies that when
+// the server returns 307 with a Location header, the error decoder intercepts
+// the response (preventing http.Client from following the redirect itself),
+// and the retrier follows the Location to a second server which returns 200.
+func TestErrorDecoder_307WithLocation_RetriesAgainstLocation(t *testing.T) {
+	var targetHits atomic.Int32
+	targetServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		targetHits.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"value":"redirected"}`))
+	}))
+	t.Cleanup(targetServer.Close)
+
+	var originHits atomic.Int32
+	originServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		originHits.Add(1)
+		w.Header().Set("Location", targetServer.URL+"/test")
+		w.WriteHeader(http.StatusTemporaryRedirect)
+	}))
+	t.Cleanup(originServer.Close)
+
+	maxAttempts := 3
+	client, err := httpc.NewBuilder().
+		SetBaseURLs(originServer.URL).
+		SetServiceName("redirect-test").
+		SetMaxAttempts(&maxAttempts).
+		Build(t.Context())
+	require.NoError(t, err)
+
+	ep := httpc.NewGET[testRetryPayload]("/test", "RedirectTest").
+		SetDecoder(httpc.JSONDecoder[testRetryPayload]()).
+		SetAccept("application/json")
+
+	resp, _, err := httpc.ExecuteVoid(t.Context(), client, ep)
+	require.NoError(t, err)
+	assert.Equal(t, "redirected", resp.Value)
+	assert.Equal(t, int32(1), originHits.Load(), "origin should be hit once")
+	assert.Equal(t, int32(1), targetHits.Load(), "target should be hit once via redirect")
+}
+
+// TestErrorDecoder_307NoLocation_Retries verifies that a 307 without
+// a Location header triggers a retry.
+func TestErrorDecoder_307NoLocation_Retries(t *testing.T) {
+	var attempts atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := attempts.Add(1)
+		if n == 1 {
+			w.WriteHeader(http.StatusTemporaryRedirect) // 307, no Location
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"value":"retried"}`))
+	}))
+	t.Cleanup(server.Close)
+
+	maxAttempts := 3
+	client, err := httpc.NewBuilder().
+		SetBaseURLs(server.URL).
+		SetServiceName("307-no-location").
+		SetMaxAttempts(&maxAttempts).
+		Build(t.Context())
+	require.NoError(t, err)
+
+	ep := httpc.NewGET[testRetryPayload]("/test", "NoLocationTest").
+		SetDecoder(httpc.JSONDecoder[testRetryPayload]()).
+		SetAccept("application/json")
+
+	resp, _, err := httpc.ExecuteVoid(t.Context(), client, ep)
+	require.NoError(t, err)
+	assert.Equal(t, "retried", resp.Value)
+	assert.Equal(t, int32(2), attempts.Load())
+}
+
+// TestErrorDecoder_301Redirect_FollowedByHTTPClient verifies that a 301
+// redirect (below the default error decoder's 307 threshold) is followed
+// normally by http.Client, even when an error decoder is configured.
+// This guards against CheckRedirect accidentally blocking sub-307 redirects.
+func TestErrorDecoder_301Redirect_FollowedByHTTPClient(t *testing.T) {
+	var targetHits atomic.Int32
+	targetServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		targetHits.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"value":"moved"}`))
+	}))
+	t.Cleanup(targetServer.Close)
+
+	var originHits atomic.Int32
+	originServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		originHits.Add(1)
+		http.Redirect(w, r, targetServer.URL+r.URL.Path, http.StatusMovedPermanently)
+	}))
+	t.Cleanup(originServer.Close)
+
+	client, err := httpc.NewBuilder().
+		SetBaseURLs(originServer.URL).
+		SetServiceName("301-redirect").
+		Build(t.Context()) // default error decoder configured
+	require.NoError(t, err)
+
+	ep := httpc.NewGET[testRetryPayload]("/test", "MovedTest").
+		SetDecoder(httpc.JSONDecoder[testRetryPayload]()).
+		SetAccept("application/json")
+
+	resp, _, err := httpc.ExecuteVoid(t.Context(), client, ep)
+	require.NoError(t, err)
+	assert.Equal(t, "moved", resp.Value)
+	assert.Equal(t, int32(1), originHits.Load())
+	assert.Equal(t, int32(1), targetHits.Load())
+}
+
+// TestErrorDecoder_429_RetriesWithBackoff verifies that a 429 Too Many Requests
+// response is retried. The first attempt gets throttled, the second succeeds.
+func TestErrorDecoder_429_RetriesWithBackoff(t *testing.T) {
+	var attempts atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := attempts.Add(1)
+		if n == 1 {
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"value":"throttled-ok"}`))
+	}))
+	t.Cleanup(server.Close)
+
+	maxAttempts := 3
+	client, err := httpc.NewBuilder().
+		SetBaseURLs(server.URL).
+		SetServiceName("throttle-test").
+		SetMaxAttempts(&maxAttempts).
+		Build(t.Context())
+	require.NoError(t, err)
+
+	ep := httpc.NewGET[testRetryPayload]("/test", "ThrottleTest").
+		SetDecoder(httpc.JSONDecoder[testRetryPayload]()).
+		SetAccept("application/json")
+
+	resp, _, err := httpc.ExecuteVoid(t.Context(), client, ep)
+	require.NoError(t, err)
+	assert.Equal(t, "throttled-ok", resp.Value)
+	assert.Equal(t, int32(2), attempts.Load())
+}
+
+// TestErrorDecoder_503_Retries verifies that a 503 Service Unavailable
+// response triggers a retry.
+func TestErrorDecoder_503_Retries(t *testing.T) {
+	var attempts atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := attempts.Add(1)
+		if n == 1 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"value":"available"}`))
+	}))
+	t.Cleanup(server.Close)
+
+	maxAttempts := 3
+	client, err := httpc.NewBuilder().
+		SetBaseURLs(server.URL).
+		SetServiceName("unavailable-test").
+		SetMaxAttempts(&maxAttempts).
+		Build(t.Context())
+	require.NoError(t, err)
+
+	ep := httpc.NewGET[testRetryPayload]("/test", "UnavailableTest").
+		SetDecoder(httpc.JSONDecoder[testRetryPayload]()).
+		SetAccept("application/json")
+
+	resp, _, err := httpc.ExecuteVoid(t.Context(), client, ep)
+	require.NoError(t, err)
+	assert.Equal(t, "available", resp.Value)
+	assert.Equal(t, int32(2), attempts.Load())
+}
+
+// TestErrorDecoder_404_NotRetried verifies that a 404 response is not retried
+// (it's a client error, not a retryable QoS signal).
+func TestErrorDecoder_404_NotRetried(t *testing.T) {
+	var attempts atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts.Add(1)
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(server.Close)
+
+	maxAttempts := 5
+	client, err := httpc.NewBuilder().
+		SetBaseURLs(server.URL).
+		SetServiceName("not-found-test").
+		SetMaxAttempts(&maxAttempts).
+		Build(t.Context())
+	require.NoError(t, err)
+
+	ep := httpc.NewGET[struct{}]("/missing", "NotFoundTest").
+		SetDecoder(httpc.VoidDecoder())
+
+	_, _, err = httpc.ExecuteVoid(t.Context(), client, ep)
+	require.Error(t, err)
+	statusCode, ok := httpc.StatusCodeFromError(err)
+	assert.True(t, ok)
+	assert.Equal(t, http.StatusNotFound, statusCode)
+	assert.Equal(t, int32(1), attempts.Load(), "404 should not be retried")
+}
+
 // TestRetry_GZIPCompressedBody_AllFail verifies that a gzip-compressed request
 // that fails on every attempt exhausts max attempts and returns an error.
 func TestRetry_GZIPCompressedBody_AllFail(t *testing.T) {

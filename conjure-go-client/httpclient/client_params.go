@@ -81,10 +81,11 @@ func (f builderClientOrHTTPClientParam) applyHTTPClient(b *httpc.Builder) error 
 }
 
 func WithConfig(c ClientConfig) ClientParam {
-	return clientParamFunc(func(b *clientBuilder) error {
-		b.HTTP.ApplyConfig(c)
-		return nil
-	})
+	return builderClientOrHTTPClientParam(httpc.Param1((*httpc.Builder).ApplyConfig, c))
+	//return clientParamFunc(func(b *clientBuilder) error {
+	//	b.HTTP.ApplyConfig(c)
+	//	return nil
+	//})
 }
 
 func WithConfigForHTTPClient(c ClientConfig) HTTPClientParam {

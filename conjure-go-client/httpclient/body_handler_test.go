@@ -161,12 +161,13 @@ func TestRawRequestRetry(t *testing.T) {
 	client, err := httpclient.NewClient(httpclient.WithBaseURLs([]string{server.URL}))
 	assert.NoError(t, err)
 
+	// 500 is not retried (only 429, 503, 307/308, and connection errors are retryable per QoS protocol).
 	_, err = client.Do(
 		context.Background(),
 		httpclient.WithBinaryRequestBody(httpclient.RequestBodyInMemory(bytes.NewReader(requestBytes))),
 		httpclient.WithRequestMethod(http.MethodPost))
-	assert.NoError(t, err)
-	assert.Equal(t, 2, count)
+	assert.Error(t, err)
+	assert.Equal(t, 1, count)
 }
 
 func TestRedirectWithBodyAndBytesBuffer(t *testing.T) {
@@ -289,7 +290,7 @@ func TestRedirectWithBodyAndBytesBuffer(t *testing.T) {
 			httpclient.WithJSONResponse(&actualRespVar),
 		)
 
-		require.EqualError(t, err, "httpclient request failed: 307 Temporary Redirect")
+		require.EqualError(t, err, "307 Temporary Redirect")
 		assert.Nil(t, resp)
 	})
 
@@ -309,7 +310,7 @@ func TestRedirectWithBodyAndBytesBuffer(t *testing.T) {
 			httpclient.WithJSONResponse(&actualRespVar),
 		)
 
-		require.EqualError(t, err, "httpclient request failed: 404 Not Found")
+		require.EqualError(t, err, "404 Not Found")
 		assert.Nil(t, resp)
 	})
 }

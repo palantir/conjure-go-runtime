@@ -33,7 +33,6 @@ var (
 	defaultStatusMsg  = "456 status code 456"
 	clientDecoderMsg  = "client custom error decoder error foo"
 	requestDecoderMsg = "request custom error decoder error bar"
-	errPrefix         = "httpclient request failed: "
 )
 
 func TestErrorDecoder(t *testing.T) {
@@ -49,7 +48,7 @@ func TestErrorDecoder(t *testing.T) {
 		)
 		require.NoError(t, err)
 		resp, err := client.Get(context.Background())
-		assert.EqualError(t, err, errPrefix+defaultStatusMsg)
+		assert.EqualError(t, err, defaultStatusMsg)
 		assert.Nil(t, resp)
 		gotStatusCode, ok := internal.StatusCodeFromError(err)
 		assert.True(t, ok)
@@ -76,7 +75,7 @@ func TestErrorDecoder(t *testing.T) {
 		)
 		require.NoError(t, err)
 		resp, err := client.Get(context.Background())
-		assert.EqualError(t, err, errPrefix+clientDecoderMsg)
+		assert.EqualError(t, err, clientDecoderMsg)
 		assert.Nil(t, resp)
 	})
 	t.Run("RequestCustom", func(t *testing.T) {
@@ -97,7 +96,7 @@ func TestErrorDecoder(t *testing.T) {
 		)
 
 		assert.Nil(t, resp)
-		assert.EqualError(t, err, errPrefix+requestDecoderMsg)
+		assert.EqualError(t, err, requestDecoderMsg)
 	})
 	t.Run("FallbackToClient", func(t *testing.T) {
 		client, err := httpclient.NewClient(
@@ -116,7 +115,7 @@ func TestErrorDecoder(t *testing.T) {
 			}),
 		)
 		assert.Nil(t, resp)
-		assert.EqualError(t, err, errPrefix+clientDecoderMsg)
+		assert.EqualError(t, err, clientDecoderMsg)
 	})
 }
 

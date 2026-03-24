@@ -234,6 +234,24 @@ Key differences:
 
 ## Gotchas and behavioral differences
 
+### 5xx responses (except 503) are no longer retried
+
+The old package ran error decoding inside the retry loop. This converted all error
+responses (including 5xx) into Go errors with `resp = nil`, which triggered the
+retrier's "nil response → retry" path. This meant all 5xx responses were retried,
+not just 503.
+
+The new package returns raw HTTP responses from `Client.Do` and the retrier operates
+on `resp.StatusCode` directly. Only the status codes specified by the
+[Conjure QoS protocol](https://github.com/palantir/http-remoting#quality-of-service-retry-failover-throttling)
+are retried: **429** (throttle), **503** (unavailable), **307/308** (redirect), and
+transport errors (connection refused, DNS errors, etc.). A 500 Internal Server Error,
+for example, is no longer retried.
+
+If your service relied on the old behavior of retrying all 5xx, you may see different
+failure modes during transient 500 errors. The correct fix is server-side: services
+should return 503 for conditions where client retry is appropriate.
+
 ### Retry configuration: MaxRetries vs MaxAttempts
 
 The old `WithMaxRetries(n)` set the number of **retries**, so the total number of

@@ -56,15 +56,9 @@ func newClient(ctx context.Context, b *clientBuilder, params ...ClientParam) (*c
 		}
 	}
 
-	// Install httpclient's error decoder as httpc's error decoder so it runs
-	// inside the retry loop — this ensures retryable status codes (503, 429, 308)
-	// are converted to errors that trigger retries. The combinedErrorDecoder also
-	// checks for per-request decoder overrides in the request context.
-	if b.ErrorDecoder != nil {
-		b.HTTP.SetErrorDecoder(&combinedErrorDecoder{clientDecoder: b.ErrorDecoder})
-	} else {
-		b.HTTP.DisableRestErrors()
-	}
+	// httpc returns raw responses (no error decoding); error decoding is applied
+	// by clientImpl.Do after the retry loop completes.
+	b.HTTP.DisableRestErrors()
 
 	if b.BytesBufferPool != nil {
 		b.HTTP.SetBytesBufferPool(b.BytesBufferPool)
@@ -76,8 +70,9 @@ func newClient(ctx context.Context, b *clientBuilder, params ...ClientParam) (*c
 	}
 
 	return &clientImpl{
-		client:     client,
-		bufferPool: b.BytesBufferPool,
+		client:       client,
+		errorDecoder: b.ErrorDecoder,
+		bufferPool:   b.BytesBufferPool,
 	}, nil
 }
 

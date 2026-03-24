@@ -437,6 +437,12 @@ func (e Endpoint[Req, Resp]) Execute(ctx context.Context, client Client, body Re
 		req = req.WithContext(ctx)
 	}
 
+	// Extract client error decoder before wrapping (middleware wrapping hides the concrete type).
+	var clientErrorDecoder ErrorDecoder
+	if edp, ok := client.(errorDecoderProvider); ok {
+		clientErrorDecoder = edp.getErrorDecoder()
+	}
+
 	// Wrap client with per-endpoint middleware (last added is outermost).
 	c := client
 	for _, mw := range e.overrides.middlewares {
@@ -451,10 +457,15 @@ func (e Endpoint[Req, Resp]) Execute(ctx context.Context, client Client, body Re
 		return zero, nil, err
 	}
 
-	// Per-endpoint error decoding (before response decode).
-	if e.overrides.errorDecoder != nil && e.overrides.errorDecoder.Handles(resp) {
+	// Error decoding: per-request first, then client-level.
+	ed := e.overrides.errorDecoder
+	if ed == nil {
+		ed = clientErrorDecoder
+	}
+	if ed != nil && ed.Handles(resp) {
+		decodeErr := ed.DecodeError(resp)
 		drainBody(ctx, resp)
-		return zero, resp, e.overrides.errorDecoder.DecodeError(resp)
+		return zero, resp, decodeErr
 	}
 
 	// Decode response.

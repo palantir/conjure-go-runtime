@@ -47,8 +47,9 @@ type Client interface {
 }
 
 type clientImpl struct {
-	client     httpc.Client
-	bufferPool bytesbuffers.Pool
+	client       httpc.Client
+	errorDecoder ErrorDecoder
+	bufferPool   bytesbuffers.Pool
 }
 
 func (c *clientImpl) Get(ctx context.Context, params ...RequestParam) (*http.Response, error) {
@@ -114,18 +115,27 @@ func (c *clientImpl) Do(ctx context.Context, params ...RequestParam) (*http.Resp
 	}
 	defer cleanup()
 
-	// 6. Per-request error decoder -> context
-	if b.errorDecoderMiddleware != nil {
-		req = req.WithContext(context.WithValue(req.Context(), perRequestErrorDecoderKey{}, b.errorDecoderMiddleware))
-	}
-
-	// 7. Per-request timeout -> context
+	// 6. Per-request timeout -> context
 	if b.requestTimeout != nil {
 		req = req.WithContext(httpc.ContextWithRequestTimeout(req.Context(), *b.requestTimeout))
 	}
 
-	// 8. Execute (httpc handles retry, URI scoring, middleware, error decoding)
+	// 7. Execute (httpc handles retry, URI scoring, middleware; returns raw responses)
 	resp, respErr := c.client.Do(req)
+
+	// 8. Error decoding (per-request first, then client-level fallback)
+	if respErr == nil && resp != nil {
+		var ed ErrorDecoder
+		if b.errorDecoderMiddleware != nil && b.errorDecoderMiddleware.Handles(resp) {
+			ed = b.errorDecoderMiddleware
+		} else if c.errorDecoder != nil && c.errorDecoder.Handles(resp) {
+			ed = c.errorDecoder
+		}
+		if ed != nil {
+			respErr = ed.DecodeError(resp)
+			internal.DrainBody(ctx, resp)
+		}
+	}
 
 	// 9. Decode response body (must happen before drain so body is still readable)
 	readErr := b.bodyMiddleware.readResponse(resp, respErr)

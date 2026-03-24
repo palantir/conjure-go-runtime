@@ -460,12 +460,6 @@ func (b *Builder) Build(ctx context.Context) (ConfigurableClient[*Builder], erro
 		return nil, err
 	}
 
-	// Error decoder middleware.
-	var edm Middleware
-	if b.errorDecoder != nil {
-		edm = errorDecoderMiddleware{decoder: b.errorDecoder}
-	}
-
 	// Recovery middleware.
 	var recovery Middleware
 	if !b.disableRecovery {
@@ -485,7 +479,7 @@ func (b *Builder) Build(ctx context.Context) (ConfigurableClient[*Builder], erro
 			serviceName:    b.serviceName,
 			httpClient:     httpClient,
 			middlewares:    b.middlewares,
-			errorDecoderMW: edm,
+			errorDecoder:   b.errorDecoder,
 			recoveryMW:     recovery,
 			uriScorer:      uriScorer,
 			maxAttempts:    b.maxAttempts,

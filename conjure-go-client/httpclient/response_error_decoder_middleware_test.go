@@ -60,7 +60,7 @@ func TestErrorDecoderMiddlewares(t *testing.T) {
 				w.WriteHeader(307)
 			},
 			verify: func(t *testing.T, u *url.URL, err error) {
-				assert.EqualError(t, err, "httpclient request failed: 307 Temporary Redirect")
+				assert.EqualError(t, err, "307 Temporary Redirect")
 				code, ok := httpclient.StatusCodeFromError(err)
 				assert.True(t, ok)
 				assert.Equal(t, 307, code)
@@ -86,7 +86,7 @@ func TestErrorDecoderMiddlewares(t *testing.T) {
 				w.WriteHeader(307)
 			},
 			verify: func(t *testing.T, u *url.URL, err error) {
-				assert.EqualError(t, err, "httpclient request failed: 307 Temporary Redirect")
+				assert.EqualError(t, err, "307 Temporary Redirect")
 				code, ok := httpclient.StatusCodeFromError(err)
 				assert.True(t, ok)
 				assert.Equal(t, 307, code)
@@ -111,10 +111,10 @@ func TestErrorDecoderMiddlewares(t *testing.T) {
 			handler: http.NotFound,
 			verify: func(t *testing.T, u *url.URL, err error) {
 				verify404(t, err)
-				assert.EqualError(t, err, "httpclient request failed: 404 Not Found")
+				assert.EqualError(t, err, "404 Not Found")
 				safeParams, unsafeParams := werror.ParamsFromError(err)
-				assert.Equal(t, map[string]any{"requestHost": u.Host, "requestMethod": "Get", "statusCode": 404}, safeParams)
-				assert.Equal(t, map[string]any{"requestPath": "/path", "responseBody": "404 page not found\n"}, unsafeParams)
+				assert.Equal(t, map[string]any{"statusCode": 404}, safeParams)
+				assert.Equal(t, map[string]any{"responseBody": "404 page not found\n"}, unsafeParams)
 			},
 		},
 		{
@@ -124,10 +124,10 @@ func TestErrorDecoderMiddlewares(t *testing.T) {
 			},
 			verify: func(t *testing.T, u *url.URL, err error) {
 				verify404(t, err)
-				assert.EqualError(t, err, "httpclient request failed: 404 Not Found")
+				assert.EqualError(t, err, "404 Not Found")
 				safeParams, unsafeParams := werror.ParamsFromError(err)
-				assert.Equal(t, map[string]any{"requestHost": u.Host, "requestMethod": "Get", "statusCode": 404}, safeParams)
-				assert.Equal(t, map[string]any{"requestPath": "/path"}, unsafeParams)
+				assert.Equal(t, map[string]any{"statusCode": 404}, safeParams)
+				assert.Equal(t, map[string]any{}, unsafeParams)
 			},
 		},
 		{
@@ -139,10 +139,10 @@ func TestErrorDecoderMiddlewares(t *testing.T) {
 			},
 			verify: func(t *testing.T, u *url.URL, err error) {
 				verify404(t, err)
-				assert.EqualError(t, err, "httpclient request failed: 404 Not Found")
+				assert.EqualError(t, err, "404 Not Found")
 				safeParams, unsafeParams := werror.ParamsFromError(err)
-				assert.Equal(t, map[string]any{"requestHost": u.Host, "requestMethod": "Get", "statusCode": 404}, safeParams)
-				assert.Equal(t, map[string]any{"requestPath": "/path", "responseBody": "route does not exist"}, unsafeParams)
+				assert.Equal(t, map[string]any{"statusCode": 404}, safeParams)
+				assert.Equal(t, map[string]any{"responseBody": "route does not exist"}, unsafeParams)
 			},
 		},
 		{
@@ -154,10 +154,10 @@ func TestErrorDecoderMiddlewares(t *testing.T) {
 			},
 			verify: func(t *testing.T, u *url.URL, err error) {
 				verify404(t, err)
-				assert.EqualError(t, err, "httpclient request failed: 404 Not Found")
+				assert.EqualError(t, err, "404 Not Found")
 				safeParams, unsafeParams := werror.ParamsFromError(err)
-				assert.Equal(t, map[string]any{"requestHost": u.Host, "requestMethod": "Get", "statusCode": 404}, safeParams)
-				assert.Equal(t, map[string]any{"requestPath": "/path", "responseBody": `{"foo":"bar"}`}, unsafeParams)
+				assert.Equal(t, map[string]any{"statusCode": 404}, safeParams)
+				assert.Equal(t, map[string]any{"responseBody": `{"foo":"bar"}`}, unsafeParams)
 			},
 		},
 		{
@@ -178,8 +178,8 @@ func TestErrorDecoderMiddlewares(t *testing.T) {
 				assert.Equal(t, errors.DefaultNotFound.Name(), conjureErr.Name())
 
 				safeParams, unsafeParams := werror.ParamsFromError(err)
-				assert.Equal(t, map[string]any{"requestHost": u.Host, "requestMethod": "Get", "errorInstanceId": id, "errorName": "Default:NotFound", "statusCode": 404}, safeParams)
-				assert.Equal(t, map[string]any{"requestPath": "/path", "stringParam": "stringValue"}, unsafeParams)
+				assert.Equal(t, map[string]any{"errorInstanceId": id, "errorName": "Default:NotFound", "statusCode": 404}, safeParams)
+				assert.Equal(t, map[string]any{"stringParam": "stringValue"}, unsafeParams)
 			},
 		},
 		{
@@ -187,10 +187,10 @@ func TestErrorDecoderMiddlewares(t *testing.T) {
 			handler:      http.NotFound,
 			decoderParam: httpclient.WithErrorDecoder(fooErrorDecoder{}),
 			verify: func(t *testing.T, u *url.URL, err error) {
-				assert.EqualError(t, err, "httpclient request failed: foo error")
+				assert.EqualError(t, err, "foo error")
 				safeParams, unsafeParams := werror.ParamsFromError(err)
-				assert.Equal(t, map[string]any{"requestHost": u.Host, "requestMethod": "Get"}, safeParams)
-				assert.Equal(t, map[string]any{"requestPath": "/path"}, unsafeParams)
+				assert.Equal(t, map[string]any{}, safeParams)
+				assert.Equal(t, map[string]any{}, unsafeParams)
 			},
 		},
 		{
@@ -198,10 +198,10 @@ func TestErrorDecoderMiddlewares(t *testing.T) {
 			handler:      http.NotFound,
 			decoderParam: httpclient.WithErrorDecoder(bodyReadingErrorDecoder{}),
 			verify: func(t *testing.T, u *url.URL, err error) {
-				assert.EqualError(t, err, "httpclient request failed: error from body: 404 page not found\n")
+				assert.EqualError(t, err, "error from body: 404 page not found\n")
 				safeParams, unsafeParams := werror.ParamsFromError(err)
-				assert.Equal(t, map[string]any{"requestHost": u.Host, "requestMethod": "Get"}, safeParams)
-				assert.Equal(t, map[string]any{"requestPath": "/path"}, unsafeParams)
+				assert.Equal(t, map[string]any{}, safeParams)
+				assert.Equal(t, map[string]any{}, unsafeParams)
 			},
 		},
 	} {
