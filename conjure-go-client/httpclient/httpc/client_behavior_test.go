@@ -320,7 +320,7 @@ func TestRetry_MultipleURIs(t *testing.T) {
 
 	// Retry enough times to hit both servers.
 	var successes int
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		resp, _, err := ep.Execute(t.Context(), client, testRetryPayload{Value: "hello"})
 		if err == nil {
 			successes++

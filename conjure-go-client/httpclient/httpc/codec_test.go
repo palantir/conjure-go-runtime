@@ -192,7 +192,7 @@ type trackingPool struct {
 
 func newTrackingPool() *trackingPool {
 	p := &trackingPool{}
-	p.pool.New = func() interface{} { return new(bytes.Buffer) }
+	p.pool.New = func() any { return new(bytes.Buffer) }
 	return p
 }
 

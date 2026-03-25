@@ -29,7 +29,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func ptr[T any](v T) *T { return &v }
+//go:fix inline
+func ptr[T any](v T) *T { return new(v) }
 
 func TestApplyConfig_StaticRoundTrip(t *testing.T) {
 	var gotAuth string
@@ -190,7 +191,7 @@ func TestApplyConfig_ValidationErrors_InvalidURI(t *testing.T) {
 func TestApplyConfig_ValidationErrors_InvalidProxyURL(t *testing.T) {
 	cfg := httpc.ClientConfig{
 		URIs:     []string{"http://localhost"},
-		ProxyURL: ptr("://bad-proxy"),
+		ProxyURL: new("://bad-proxy"),
 	}
 
 	_, err := httpc.NewBuilder().
@@ -203,7 +204,7 @@ func TestApplyConfig_ValidationErrors_InvalidProxyURL(t *testing.T) {
 func TestApplyConfig_ValidationErrors_UnsupportedProxyScheme(t *testing.T) {
 	cfg := httpc.ClientConfig{
 		URIs:     []string{"http://localhost"},
-		ProxyURL: ptr("ftp://proxy.example.com"),
+		ProxyURL: new("ftp://proxy.example.com"),
 	}
 
 	_, err := httpc.NewBuilder().
@@ -216,7 +217,7 @@ func TestApplyConfig_ValidationErrors_UnsupportedProxyScheme(t *testing.T) {
 func TestApplyConfig_ValidationErrors_MissingTokenFile(t *testing.T) {
 	cfg := httpc.ClientConfig{
 		URIs:         []string{"http://localhost"},
-		APITokenFile: ptr("/nonexistent/token/file"),
+		APITokenFile: new("/nonexistent/token/file"),
 	}
 
 	_, err := httpc.NewBuilder().
@@ -239,12 +240,12 @@ func TestApplyConfig_MaxNumRetries(t *testing.T) {
 		},
 		{
 			name:         "0 retries yields 1 attempt",
-			retries:      ptr(0),
+			retries:      new(0),
 			wantAttempts: 1,
 		},
 		{
 			name:         "3 retries yields 4 attempts",
-			retries:      ptr(3),
+			retries:      new(3),
 			wantAttempts: 4,
 		},
 	}
@@ -329,7 +330,7 @@ func TestApplyConfig_MetricsDisabled(t *testing.T) {
 	cfg := httpc.ClientConfig{
 		URIs: []string{server.URL},
 		Metrics: httpc.MetricsConfig{
-			Enabled: ptr(false),
+			Enabled: new(false),
 		},
 	}
 
@@ -516,7 +517,7 @@ func TestApplyConfigRefreshable_ComposesWithExistingSettings(t *testing.T) {
 func TestApplyConfig_ProxyHTTPS(t *testing.T) {
 	cfg := httpc.ClientConfig{
 		URIs:     []string{"http://localhost"},
-		ProxyURL: ptr("https://proxy.example.com:8080"),
+		ProxyURL: new("https://proxy.example.com:8080"),
 	}
 
 	// Should succeed — https is a valid proxy scheme.
@@ -530,7 +531,7 @@ func TestApplyConfig_ProxyHTTPS(t *testing.T) {
 func TestApplyConfig_ProxySocks5(t *testing.T) {
 	cfg := httpc.ClientConfig{
 		URIs:     []string{"http://localhost"},
-		ProxyURL: ptr("socks5://proxy.example.com:1080"),
+		ProxyURL: new("socks5://proxy.example.com:1080"),
 	}
 
 	// Should succeed — socks5 is a valid proxy scheme.

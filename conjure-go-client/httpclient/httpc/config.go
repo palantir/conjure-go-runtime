@@ -109,10 +109,10 @@ type ClientConfig struct {
 	MaxIdleConnsPerHost *int `json:"max-idle-conns-per-host,omitempty" yaml:"max-idle-conns-per-host,omitempty"`
 
 	// Metrics allows disabling metric emission or adding additional static tags to the client metrics.
-	Metrics MetricsConfig `json:"metrics,omitempty" yaml:"metrics,omitempty"`
+	Metrics MetricsConfig `json:"metrics" yaml:"metrics,omitempty"`
 	// Security configures the TLS configuration for the client. It accepts file paths which should be
 	// absolute paths or relative to the process's current working directory.
-	Security SecurityConfig `json:"security,omitempty" yaml:"security,omitempty"`
+	Security SecurityConfig `json:"security" yaml:"security,omitempty"`
 }
 
 // BasicAuth represents the configuration for HTTP Basic Authorization

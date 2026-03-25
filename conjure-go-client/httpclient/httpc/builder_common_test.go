@@ -338,11 +338,11 @@ func TestBuilder_DefaultErrorDecoder_NonJSONBody(t *testing.T) {
 }
 
 func TestBuilder_DefaultErrorDecoder_ConjureJSON(t *testing.T) {
-	conjureError := map[string]interface{}{
+	conjureError := map[string]any{
 		"errorCode":       "NOT_FOUND",
 		"errorName":       "Default:NotFound",
 		"errorInstanceId": "00000000-0000-0000-0000-000000000000",
-		"parameters":      map[string]interface{}{},
+		"parameters":      map[string]any{},
 	}
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

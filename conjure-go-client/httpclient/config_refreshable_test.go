@@ -133,7 +133,7 @@ func TestRefreshableClientConfig(t *testing.T) {
 	t.Run("update timeout succeeds", func(t *testing.T) {
 		t.Run("service config", func(t *testing.T) {
 			serviceCfg := initialConfig.Services[serviceName]
-			serviceCfg.WriteTimeout = newDurationPtr(time.Second)
+			serviceCfg.WriteTimeout = new(time.Second)
 			initialConfig.Services[serviceName] = serviceCfg
 			updateRefreshableBytes(initialConfig)
 
@@ -143,7 +143,7 @@ func TestRefreshableClientConfig(t *testing.T) {
 			require.Equal(t, http.StatusOK, resp.StatusCode)
 		})
 		t.Run("default config", func(t *testing.T) {
-			initialConfig.Default.ReadTimeout = newDurationPtr(time.Hour)
+			initialConfig.Default.ReadTimeout = new(time.Hour)
 			updateRefreshableBytes(initialConfig)
 
 			resp, err := client.Get(context.Background())
@@ -189,9 +189,4 @@ func TestRefreshableClientConfig(t *testing.T) {
 		require.Error(t, dialErr)
 		assert.Less(t, time.Since(start), 5*time.Second, "Dial should fail quickly due to the 1ns timeout")
 	})
-}
-
-//go:fix inline
-func newDurationPtr(dur time.Duration) *time.Duration {
-	return new(dur)
 }

@@ -169,9 +169,9 @@ func (c *fluentClient) doOnce(
 	// middlewareChain iterates forwards, wrapping each around the previous,
 	// so the last element ends up outermost.
 	mws := make([]Middleware, 0, 2+len(c.middlewares))
-	mws = append(mws, c.uriScorer)     // innermost
+	mws = append(mws, c.uriScorer)      // innermost
 	mws = append(mws, c.middlewares...) // user MWs: last added = outermost
-	mws = append(mws, c.recoveryMW)    // outermost
+	mws = append(mws, c.recoveryMW)     // outermost
 
 	clientCopy.Transport = &middlewareChain{middlewares: mws, base: clientCopy.Transport}
 
