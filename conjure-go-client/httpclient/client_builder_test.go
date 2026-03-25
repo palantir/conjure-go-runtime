@@ -492,13 +492,19 @@ func Test_NewClientDoesNotLeakGoroutines(t *testing.T) {
 			// add in some slack in case goroutines other than client ones stopped since startNumGoroutines was recorded
 			assert.Greater(t, afterCreateClientsNumGoroutines, startNumGoroutines+mostClients)
 
-			// make clients unreferenced, run GC, and briefly sleep
+			// make clients unreferenced, run GC, and briefly sleep.
+			// Multiple GC cycles are needed because runtime.AddCleanup
+			// callbacks cascade through multi-level derived refreshable
+			// chains: each level must be collected before its cleanup
+			// unsubscribes from the next level up.
 			_ = clients
 			clients = nil
 			_ = clients
 
-			runtime.GC()
-			time.Sleep(50 * time.Millisecond)
+			for range 20 {
+				runtime.GC()
+				time.Sleep(10 * time.Millisecond)
+			}
 
 			afterGCNumGoroutines := runtime.NumGoroutine()
 			t.Log("Goroutines after GC:", afterGCNumGoroutines)
