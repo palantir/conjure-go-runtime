@@ -156,7 +156,7 @@ func (m *metricsMiddleware) appendTags(tags metrics.Tags, req *http.Request, res
 	return tags
 }
 
-func (m *metricsMiddleware) tlsTraceContext(ctx context.Context, registry metrics.Registry, serviceNameTag metrics.Tag) context.Context {
+func (*metricsMiddleware) tlsTraceContext(ctx context.Context, registry metrics.Registry, serviceNameTag metrics.Tag) context.Context {
 	// Local timing variables shared across closures. ClientTrace callbacks are invoked
 	// sequentially on the goroutine that owns the request, so no synchronization is needed.
 	var (

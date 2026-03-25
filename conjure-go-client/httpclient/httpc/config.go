@@ -16,15 +16,12 @@ package httpc
 
 import (
 	"bytes"
-	"context"
-	"net/http"
 	"net/url"
 	"os"
 	"slices"
 	"time"
 
 	"github.com/palantir/pkg/metrics"
-	"github.com/palantir/pkg/refreshable/v2"
 	werror "github.com/palantir/witchcraft-go-error"
 )
 
@@ -169,74 +166,38 @@ func (c ServicesConfig) ClientConfig(serviceName string) ClientConfig {
 // MergeClientConfig merges two instances of ClientConfig, preferring values from conf over defaults.
 // The ServiceName field is not affected, and is expected to be set in the config before building a Client.
 func MergeClientConfig(conf, defaults ClientConfig) ClientConfig {
-	if len(conf.URIs) == 0 {
-		conf.URIs = defaults.URIs
+	mergeOptionalConfigSlice(&conf.URIs, defaults.URIs)
+	mergeOptionalConfigField(&conf.APIToken, defaults.APIToken)
+	mergeOptionalConfigField(&conf.APITokenFile, defaults.APITokenFile)
+	mergeOptionalConfigField(&conf.BasicAuth, defaults.BasicAuth)
+	mergeOptionalConfigField(&conf.DisableHTTP2, defaults.DisableHTTP2)
+	mergeOptionalConfigField(&conf.ProxyFromEnvironment, defaults.ProxyFromEnvironment)
+	mergeOptionalConfigField(&conf.ProxyURL, defaults.ProxyURL)
+	mergeOptionalConfigField(&conf.MaxNumRetries, defaults.MaxNumRetries)
+	mergeOptionalConfigField(&conf.InitialBackoff, defaults.InitialBackoff)
+	mergeOptionalConfigField(&conf.MaxBackoff, defaults.MaxBackoff)
+	mergeOptionalConfigField(&conf.ConnectTimeout, defaults.ConnectTimeout)
+	mergeOptionalConfigField(&conf.ReadTimeout, defaults.ReadTimeout)
+	mergeOptionalConfigField(&conf.WriteTimeout, defaults.WriteTimeout)
+	mergeOptionalConfigField(&conf.IdleConnTimeout, defaults.IdleConnTimeout)
+	mergeOptionalConfigField(&conf.TLSHandshakeTimeout, defaults.TLSHandshakeTimeout)
+	mergeOptionalConfigField(&conf.ExpectContinueTimeout, defaults.ExpectContinueTimeout)
+	mergeOptionalConfigField(&conf.ResponseHeaderTimeout, defaults.ResponseHeaderTimeout)
+	mergeOptionalConfigField(&conf.KeepAlive, defaults.KeepAlive)
+	mergeOptionalConfigField(&conf.HTTP2ReadIdleTimeout, defaults.HTTP2ReadIdleTimeout)
+	mergeOptionalConfigField(&conf.HTTP2PingTimeout, defaults.HTTP2PingTimeout)
+	mergeOptionalConfigField(&conf.MaxIdleConns, defaults.MaxIdleConns)
+	mergeOptionalConfigField(&conf.MaxIdleConnsPerHost, defaults.MaxIdleConnsPerHost)
+	mergeOptionalConfigField(&conf.Metrics.Enabled, defaults.Metrics.Enabled)
+	mergeOptionalConfigField(&conf.Security.InsecureSkipVerify, defaults.Security.InsecureSkipVerify)
+	mergeOptionalConfigField(&conf.Security.DynamicCertReload, defaults.Security.DynamicCertReload)
+	mergeOptionalConfigSlice(&conf.Security.CAFiles, defaults.Security.CAFiles)
+
+	if conf.Security.CertFile == "" {
+		conf.Security.CertFile = defaults.Security.CertFile
 	}
-	if conf.APIToken == nil {
-		conf.APIToken = defaults.APIToken
-	}
-	if conf.APITokenFile == nil {
-		conf.APITokenFile = defaults.APITokenFile
-	}
-	if conf.BasicAuth == nil {
-		conf.BasicAuth = defaults.BasicAuth
-	}
-	if conf.MaxNumRetries == nil {
-		conf.MaxNumRetries = defaults.MaxNumRetries
-	}
-	if conf.ConnectTimeout == nil {
-		conf.ConnectTimeout = defaults.ConnectTimeout
-	}
-	if conf.ReadTimeout == nil {
-		conf.ReadTimeout = defaults.ReadTimeout
-	}
-	if conf.WriteTimeout == nil {
-		conf.WriteTimeout = defaults.WriteTimeout
-	}
-	if conf.IdleConnTimeout == nil {
-		conf.IdleConnTimeout = defaults.IdleConnTimeout
-	}
-	if conf.TLSHandshakeTimeout == nil {
-		conf.TLSHandshakeTimeout = defaults.TLSHandshakeTimeout
-	}
-	if conf.ExpectContinueTimeout == nil {
-		conf.ExpectContinueTimeout = defaults.ExpectContinueTimeout
-	}
-	if conf.ResponseHeaderTimeout == nil {
-		conf.ResponseHeaderTimeout = defaults.ResponseHeaderTimeout
-	}
-	if conf.KeepAlive == nil {
-		conf.KeepAlive = defaults.KeepAlive
-	}
-	if conf.HTTP2ReadIdleTimeout == nil {
-		conf.HTTP2ReadIdleTimeout = defaults.HTTP2ReadIdleTimeout
-	}
-	if conf.HTTP2PingTimeout == nil {
-		conf.HTTP2PingTimeout = defaults.HTTP2PingTimeout
-	}
-	if conf.MaxIdleConns == nil {
-		conf.MaxIdleConns = defaults.MaxIdleConns
-	}
-	if conf.MaxIdleConnsPerHost == nil {
-		conf.MaxIdleConnsPerHost = defaults.MaxIdleConnsPerHost
-	}
-	if conf.Metrics.Enabled == nil {
-		conf.Metrics.Enabled = defaults.Metrics.Enabled
-	}
-	if conf.InitialBackoff == nil {
-		conf.InitialBackoff = defaults.InitialBackoff
-	}
-	if conf.MaxBackoff == nil {
-		conf.MaxBackoff = defaults.MaxBackoff
-	}
-	if conf.DisableHTTP2 == nil {
-		conf.DisableHTTP2 = defaults.DisableHTTP2
-	}
-	if conf.ProxyFromEnvironment == nil {
-		conf.ProxyFromEnvironment = defaults.ProxyFromEnvironment
-	}
-	if conf.ProxyURL == nil {
-		conf.ProxyURL = defaults.ProxyURL
+	if conf.Security.KeyFile == "" {
+		conf.Security.KeyFile = defaults.Security.KeyFile
 	}
 
 	if len(defaults.Metrics.Tags) != 0 {
@@ -249,22 +210,19 @@ func MergeClientConfig(conf, defaults ClientConfig) ClientConfig {
 			}
 		}
 	}
-	if conf.Security.CAFiles == nil {
-		conf.Security.CAFiles = defaults.Security.CAFiles
-	}
-	if conf.Security.CertFile == "" {
-		conf.Security.CertFile = defaults.Security.CertFile
-	}
-	if conf.Security.KeyFile == "" {
-		conf.Security.KeyFile = defaults.Security.KeyFile
-	}
-	if conf.Security.InsecureSkipVerify == nil {
-		conf.Security.InsecureSkipVerify = defaults.Security.InsecureSkipVerify
-	}
-	if conf.Security.DynamicCertReload == nil {
-		conf.Security.DynamicCertReload = defaults.Security.DynamicCertReload
-	}
 	return conf
+}
+
+func mergeOptionalConfigField[T any](conf **T, defaults *T) {
+	if *conf == nil {
+		*conf = defaults
+	}
+}
+
+func mergeOptionalConfigSlice[T any](conf *[]T, defaults []T) {
+	if len(*conf) == 0 {
+		*conf = defaults
+	}
 }
 
 // validatedClientParams holds validated, converted fields from a ClientConfig.
@@ -359,8 +317,12 @@ func newValidatedClientParams(config ClientConfig) (validatedClientParams, error
 	}
 
 	// Timeout — only set when the config explicitly specifies read/write timeout.
-	if config.ReadTimeout != nil || config.WriteTimeout != nil {
-		p.timeout = new(max(derefPtr(config.ReadTimeout, 0), derefPtr(config.WriteTimeout, 0)))
+	if config.ReadTimeout != nil && config.WriteTimeout != nil {
+		p.timeout = new(max(*config.ReadTimeout, *config.WriteTimeout))
+	} else if config.ReadTimeout != nil {
+		p.timeout = new(*config.ReadTimeout)
+	} else if config.WriteTimeout != nil {
+		p.timeout = new(*config.WriteTimeout)
 	}
 
 	// Proxy — validate and classify.
@@ -411,8 +373,7 @@ func newValidatedClientParams(config ClientConfig) (validatedClientParams, error
 
 	// Metrics
 	if config.Metrics.Enabled != nil {
-		disabled := !*config.Metrics.Enabled
-		p.disableMetrics = &disabled
+		p.disableMetrics = new(!*config.Metrics.Enabled)
 	}
 	if len(config.Metrics.Tags) > 0 {
 		tags, err := metrics.NewTags(config.Metrics.Tags)
@@ -423,312 +384,4 @@ func newValidatedClientParams(config ClientConfig) (validatedClientParams, error
 	}
 
 	return p, nil
-}
-
-// applyValidatedParams calls builder setter methods only for fields that the
-// config explicitly specified. Unset fields are left at whatever the builder
-// already has, preserving composability with other builder calls.
-func applyValidatedParams(b *Builder, p validatedClientParams) {
-	if p.serviceName != "" {
-		b.SetServiceName(p.serviceName)
-	}
-	if p.uris != nil {
-		b.SetBaseURLs(p.uris...)
-	}
-
-	// Auth — only install the middleware the config specifies.
-	if p.apiToken != nil {
-		b.SetAuthToken(*p.apiToken)
-	} else if p.basicAuth != nil {
-		b.SetBasicAuth(p.basicAuth.User, p.basicAuth.Password)
-	}
-
-	if p.timeout != nil {
-		b.SetTimeout(*p.timeout)
-	}
-
-	// Dialer fields.
-	if p.connectTimeout != nil {
-		b.SetDialTimeout(*p.connectTimeout)
-	}
-	if p.keepAlive != nil {
-		b.SetKeepAlive(*p.keepAlive)
-	}
-	if p.socksProxyURL != nil {
-		b.SetSocksProxyURL(p.socksProxyURL.String())
-	}
-
-	// Transport fields.
-	if p.httpProxyURL != nil {
-		b.SetHTTPProxyURL(p.httpProxyURL.String())
-	}
-	if p.proxyFromEnvironment != nil {
-		if *p.proxyFromEnvironment {
-			b.SetProxyFromEnvironment()
-		} else {
-			b.transportParams = refreshable.View(b.transportParams, func(tp transportParams) transportParams {
-				tp.ProxyFromEnvironment = false
-				return tp
-			})
-		}
-	}
-	if p.maxIdleConns != nil {
-		b.SetMaxIdleConns(*p.maxIdleConns)
-	}
-	if p.maxIdleConnsPerHost != nil {
-		b.SetMaxIdleConnsPerHost(*p.maxIdleConnsPerHost)
-	}
-	if p.disableHTTP2 != nil && *p.disableHTTP2 {
-		b.DisableHTTP2()
-	}
-	if p.idleConnTimeout != nil {
-		b.SetIdleConnTimeout(*p.idleConnTimeout)
-	}
-	if p.expectContinueTimeout != nil {
-		b.SetExpectContinueTimeout(*p.expectContinueTimeout)
-	}
-	if p.responseHeaderTimeout != nil {
-		b.SetResponseHeaderTimeout(*p.responseHeaderTimeout)
-	}
-	if p.tlsHandshakeTimeout != nil {
-		b.SetTLSHandshakeTimeout(*p.tlsHandshakeTimeout)
-	}
-	if p.http2ReadIdleTimeout != nil {
-		b.SetHTTP2ReadIdleTimeout(*p.http2ReadIdleTimeout)
-	}
-	if p.http2PingTimeout != nil {
-		b.SetHTTP2PingTimeout(*p.http2PingTimeout)
-	}
-
-	// TLS
-	if len(p.caFiles) > 0 {
-		b.AddCACertFiles(p.caFiles...)
-	}
-	if p.certFile != "" && p.keyFile != "" {
-		b.SetClientCertFiles(p.keyFile, p.certFile)
-	}
-	if p.insecureSkipVerify != nil {
-		b.SetInsecureSkipVerify(*p.insecureSkipVerify)
-	}
-	if p.dynamicCertReload != nil {
-		b.SetDynamicCertReload(*p.dynamicCertReload)
-	}
-
-	// Retry
-	if p.maxAttempts != nil {
-		b.SetMaxAttempts(p.maxAttempts)
-	}
-	if p.initialBackoff != nil {
-		b.SetInitialBackoff(*p.initialBackoff)
-	}
-	if p.maxBackoff != nil {
-		b.SetMaxBackoff(*p.maxBackoff)
-	}
-
-	// Metrics
-	if p.disableMetrics != nil {
-		b.SetDisableMetrics(*p.disableMetrics)
-	}
-	if len(p.metricsTags) > 0 {
-		staticTags := p.metricsTags
-		b.metricsTagProviders = append(b.metricsTagProviders, TagsProviderFunc(func(*http.Request, *http.Response, error) metrics.Tags {
-			return staticTags
-		}))
-	}
-}
-
-// ApplyConfig validates the config and calls builder setter methods for each
-// field the config explicitly specifies. Fields not present in the config are
-// left at whatever the builder already has (from NewBuilder
-// defaults or prior setter calls), preserving composability.
-// Validation errors are deferred to b.errs (surfaced at Build time).
-func (b *Builder) ApplyConfig(config ClientConfig) *Builder {
-	params, err := newValidatedClientParams(config)
-	if err != nil {
-		b.errs = append(b.errs, err)
-		return b
-	}
-	applyValidatedParams(b, params)
-	return b
-}
-
-// ApplyConfigRefreshable validates the initial config and wires up refreshable
-// overlays for each field the config specifies. When a config field is unset,
-// the builder's existing value (captured at call time) is used as the fallback.
-// Validation errors are deferred to b.errs (surfaced at Build time).
-func (b *Builder) ApplyConfigRefreshable(ctx context.Context, config refreshable.Refreshable[ClientConfig]) *Builder {
-	// Stage 1: Validate initial config and create validated refreshable.
-	validParams, _, err := refreshable.MapWithError(ctx, config, func(ctx context.Context, config ClientConfig) (validatedClientParams, error) {
-		return newValidatedClientParams(config)
-	})
-	if err != nil {
-		b.errs = append(b.errs, err)
-		return b
-	}
-
-	// Stage 2: For each field, create a refreshable that overlays the config
-	// value (when set) on top of the builder's existing value (captured now).
-
-	existingServiceName := b.serviceName
-	b.serviceName, _ = refreshable.MapFromValidated(validParams, func(p validatedClientParams) string {
-		if p.serviceName != "" {
-			return p.serviceName
-		}
-		return existingServiceName.Current()
-	})
-
-	existingURIs := b.uris
-	uris, _ := refreshable.MapFromValidated(validParams, func(p validatedClientParams) []string {
-		if p.uris != nil {
-			return p.uris
-		}
-		if existingURIs != nil {
-			return existingURIs.Current()
-		}
-		return nil
-	})
-	b.uris = uris
-
-	existingTimeout := b.timeout
-	b.timeout, _ = refreshable.MapFromValidated(validParams, func(p validatedClientParams) time.Duration {
-		if p.timeout != nil {
-			return *p.timeout
-		}
-		return existingTimeout.Current()
-	})
-
-	// Dialer: overlay individual config fields onto existing dialer params.
-	existingDialer := b.dialerParams
-	b.dialerParams, _ = refreshable.MapFromValidated(validParams, func(p validatedClientParams) dialerParams {
-		d := existingDialer.Current()
-		if p.connectTimeout != nil {
-			d.DialTimeout = *p.connectTimeout
-		}
-		if p.keepAlive != nil {
-			d.KeepAlive = *p.keepAlive
-		}
-		if p.socksProxyURL != nil {
-			d.SocksProxyURL = p.socksProxyURL
-		}
-		return d
-	})
-
-	// Transport: overlay individual config fields onto existing transport params.
-	existingTransport := b.transportParams
-	b.transportParams, _ = refreshable.MapFromValidated(validParams, func(p validatedClientParams) transportParams {
-		t := existingTransport.Current()
-		if p.maxIdleConns != nil {
-			t.MaxIdleConns = *p.maxIdleConns
-		}
-		if p.maxIdleConnsPerHost != nil {
-			t.MaxIdleConnsPerHost = *p.maxIdleConnsPerHost
-		}
-		if p.disableHTTP2 != nil {
-			t.DisableHTTP2 = *p.disableHTTP2
-		}
-		if p.idleConnTimeout != nil {
-			t.IdleConnTimeout = *p.idleConnTimeout
-		}
-		if p.expectContinueTimeout != nil {
-			t.ExpectContinueTimeout = *p.expectContinueTimeout
-		}
-		if p.responseHeaderTimeout != nil {
-			t.ResponseHeaderTimeout = *p.responseHeaderTimeout
-		}
-		if p.tlsHandshakeTimeout != nil {
-			t.TLSHandshakeTimeout = *p.tlsHandshakeTimeout
-		}
-		if p.proxyFromEnvironment != nil {
-			t.ProxyFromEnvironment = *p.proxyFromEnvironment
-		}
-		if p.httpProxyURL != nil {
-			t.HTTPProxyURL = p.httpProxyURL
-		}
-		if p.http2ReadIdleTimeout != nil {
-			t.HTTP2ReadIdleTimeout = *p.http2ReadIdleTimeout
-		}
-		if p.http2PingTimeout != nil {
-			t.HTTP2PingTimeout = *p.http2PingTimeout
-		}
-		return t
-	})
-
-	// TLS: overlay individual config fields onto existing TLS file params.
-	existingTLS := b.tlsFileParams
-	b.tlsFileParams, _ = refreshable.MapFromValidated(validParams, func(p validatedClientParams) tlsFileParams {
-		t := existingTLS.Current()
-		if len(p.caFiles) > 0 {
-			t.CAFiles = p.caFiles
-		}
-		// Only set cert/key when both are present — a lone cert or key file
-		// would cause BuildTLSConfig to try to watch a file that may not exist.
-		if p.certFile != "" && p.keyFile != "" {
-			t.CertFile = p.certFile
-			t.KeyFile = p.keyFile
-		}
-		if p.insecureSkipVerify != nil {
-			t.InsecureSkipVerify = *p.insecureSkipVerify
-		}
-		if p.dynamicCertReload != nil {
-			t.DynamicCertReload = *p.dynamicCertReload
-		}
-		return t
-	})
-
-	existingMaxAttempts := b.maxAttempts
-	b.maxAttempts, _ = refreshable.MapFromValidated(validParams, func(p validatedClientParams) *int {
-		if p.maxAttempts != nil {
-			return p.maxAttempts
-		}
-		if existingMaxAttempts != nil {
-			return existingMaxAttempts.Current()
-		}
-		return nil
-	})
-
-	existingInitialBackoff := b.initialBackoff
-	b.initialBackoff, _ = refreshable.MapFromValidated(validParams, func(p validatedClientParams) time.Duration {
-		if p.initialBackoff != nil {
-			return *p.initialBackoff
-		}
-		return existingInitialBackoff.Current()
-	})
-
-	existingMaxBackoff := b.maxBackoff
-	b.maxBackoff, _ = refreshable.MapFromValidated(validParams, func(p validatedClientParams) time.Duration {
-		if p.maxBackoff != nil {
-			return *p.maxBackoff
-		}
-		return existingMaxBackoff.Current()
-	})
-
-	existingDisableMetrics := b.disableMetrics
-	b.disableMetrics, _ = refreshable.MapFromValidated(validParams, func(p validatedClientParams) bool {
-		if p.disableMetrics != nil {
-			return *p.disableMetrics
-		}
-		return existingDisableMetrics.Current()
-	})
-
-	// Auth: always install both middlewares for the refreshable case, since
-	// the config may switch between token and basic auth on refresh.
-	// Each middleware checks for nil and becomes a no-op when unset.
-	apiToken, _ := refreshable.MapFromValidated(validParams, func(p validatedClientParams) *string { return p.apiToken })
-	basicAuth, _ := refreshable.MapFromValidated(validParams, func(p validatedClientParams) *BasicAuth { return p.basicAuth })
-	b.SetAuthTokenRefreshable(apiToken)
-	b.SetBasicAuthRefreshable(basicAuth)
-
-	// Metrics tags via closure over validated refreshable.
-	b.metricsTagProviders = append(b.metricsTagProviders, TagsProviderFunc(func(*http.Request, *http.Response, error) metrics.Tags {
-		return validParams.Unvalidated().metricsTags
-	}))
-
-	return b
-}
-
-func derefPtr[T any](ptr *T, defaultVal T) T {
-	if ptr == nil {
-		return defaultVal
-	}
-	return *ptr
 }

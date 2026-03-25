@@ -16,6 +16,7 @@ package httpc
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"net/http"
 	"slices"
@@ -23,6 +24,7 @@ import (
 
 	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpclient/internal"
 	"github.com/palantir/pkg/bytesbuffers"
+	"github.com/palantir/pkg/metrics"
 	"github.com/palantir/pkg/refreshable/v2"
 )
 
@@ -235,6 +237,297 @@ func (b *Builder) Apply(params ...Param[*Builder]) *Builder {
 	for _, p := range params {
 		p(b)
 	}
+	return b
+}
+
+// ApplyConfig validates the config and calls builder setter methods for each
+// field the config explicitly specifies. Fields not present in the config are
+// left at whatever the builder already has (from NewBuilder
+// defaults or prior setter calls), preserving composability.
+// Validation errors are deferred to b.errs (surfaced at Build time).
+func (b *Builder) ApplyConfig(config ClientConfig) *Builder {
+	params, err := newValidatedClientParams(config)
+	if err != nil {
+		b.errs = append(b.errs, err)
+		return b
+	}
+	if params.serviceName != "" {
+		b.SetServiceName(params.serviceName)
+	}
+	if params.uris != nil {
+		b.SetBaseURLs(params.uris...)
+	}
+
+	// Auth — only install the middleware the config specifies.
+	if params.apiToken != nil {
+		b.SetAuthToken(*params.apiToken)
+	} else if params.basicAuth != nil {
+		b.SetBasicAuth(params.basicAuth.User, params.basicAuth.Password)
+	}
+
+	if params.timeout != nil {
+		b.SetTimeout(*params.timeout)
+	}
+
+	// Dialer fields.
+	if params.connectTimeout != nil {
+		b.SetDialTimeout(*params.connectTimeout)
+	}
+	if params.keepAlive != nil {
+		b.SetKeepAlive(*params.keepAlive)
+	}
+	if params.socksProxyURL != nil {
+		b.SetSocksProxyURL(params.socksProxyURL.String())
+	}
+
+	// Transport fields.
+	if params.httpProxyURL != nil {
+		b.SetHTTPProxyURL(params.httpProxyURL.String())
+	}
+	if params.proxyFromEnvironment != nil {
+		if *params.proxyFromEnvironment {
+			b.SetProxyFromEnvironment()
+		} else {
+			b.transportParams = refreshable.View(b.transportParams, func(tp transportParams) transportParams {
+				tp.ProxyFromEnvironment = false
+				return tp
+			})
+		}
+	}
+	if params.maxIdleConns != nil {
+		b.SetMaxIdleConns(*params.maxIdleConns)
+	}
+	if params.maxIdleConnsPerHost != nil {
+		b.SetMaxIdleConnsPerHost(*params.maxIdleConnsPerHost)
+	}
+	if params.disableHTTP2 != nil && *params.disableHTTP2 {
+		b.DisableHTTP2()
+	}
+	if params.idleConnTimeout != nil {
+		b.SetIdleConnTimeout(*params.idleConnTimeout)
+	}
+	if params.expectContinueTimeout != nil {
+		b.SetExpectContinueTimeout(*params.expectContinueTimeout)
+	}
+	if params.responseHeaderTimeout != nil {
+		b.SetResponseHeaderTimeout(*params.responseHeaderTimeout)
+	}
+	if params.tlsHandshakeTimeout != nil {
+		b.SetTLSHandshakeTimeout(*params.tlsHandshakeTimeout)
+	}
+	if params.http2ReadIdleTimeout != nil {
+		b.SetHTTP2ReadIdleTimeout(*params.http2ReadIdleTimeout)
+	}
+	if params.http2PingTimeout != nil {
+		b.SetHTTP2PingTimeout(*params.http2PingTimeout)
+	}
+
+	// TLS
+	if len(params.caFiles) > 0 {
+		b.AddCACertFiles(params.caFiles...)
+	}
+	if params.certFile != "" && params.keyFile != "" {
+		b.SetClientCertFiles(params.keyFile, params.certFile)
+	}
+	if params.insecureSkipVerify != nil {
+		b.SetInsecureSkipVerify(*params.insecureSkipVerify)
+	}
+	if params.dynamicCertReload != nil {
+		b.SetDynamicCertReload(*params.dynamicCertReload)
+	}
+
+	// Retry
+	if params.maxAttempts != nil {
+		b.SetMaxAttempts(params.maxAttempts)
+	}
+	if params.initialBackoff != nil {
+		b.SetInitialBackoff(*params.initialBackoff)
+	}
+	if params.maxBackoff != nil {
+		b.SetMaxBackoff(*params.maxBackoff)
+	}
+
+	// Metrics
+	if params.disableMetrics != nil {
+		b.SetDisableMetrics(*params.disableMetrics)
+	}
+	if len(params.metricsTags) > 0 {
+		b.metricsTagProviders = append(b.metricsTagProviders, StaticTagsProvider(params.metricsTags))
+	}
+	return b
+}
+
+// ApplyConfigRefreshable validates the initial config and wires up refreshable
+// overlays for each field the config specifies. When a config field is unset,
+// the builder's existing value (captured at call time) is used as the fallback.
+// Validation errors are deferred to b.errs (surfaced at Build time).
+func (b *Builder) ApplyConfigRefreshable(ctx context.Context, config refreshable.Refreshable[ClientConfig]) *Builder {
+	// Stage 1: Validate initial config and create validated refreshable.
+	validParams, _, err := refreshable.MapWithError(ctx, config, func(ctx context.Context, config ClientConfig) (validatedClientParams, error) {
+		return newValidatedClientParams(config)
+	})
+	if err != nil {
+		b.errs = append(b.errs, err)
+		return b
+	}
+
+	// Stage 2: For each field, create a refreshable that overlays the config
+	// value (when set) on top of the builder's existing value (captured now).
+
+	existingServiceName := b.serviceName
+	b.serviceName, _ = refreshable.MapFromValidated(validParams, func(p validatedClientParams) string {
+		if p.serviceName != "" {
+			return p.serviceName
+		}
+		return existingServiceName.Current()
+	})
+
+	existingURIs := b.uris
+	uris, _ := refreshable.MapFromValidated(validParams, func(p validatedClientParams) []string {
+		if p.uris != nil {
+			return p.uris
+		}
+		if existingURIs != nil {
+			return existingURIs.Current()
+		}
+		return nil
+	})
+	b.uris = uris
+
+	existingTimeout := b.timeout
+	b.timeout, _ = refreshable.MapFromValidated(validParams, func(p validatedClientParams) time.Duration {
+		if p.timeout != nil {
+			return *p.timeout
+		}
+		return existingTimeout.Current()
+	})
+
+	// Dialer: overlay individual config fields onto existing dialer params.
+	existingDialer := b.dialerParams
+	b.dialerParams, _ = refreshable.MapFromValidated(validParams, func(p validatedClientParams) dialerParams {
+		d := existingDialer.Current()
+		if p.connectTimeout != nil {
+			d.DialTimeout = *p.connectTimeout
+		}
+		if p.keepAlive != nil {
+			d.KeepAlive = *p.keepAlive
+		}
+		if p.socksProxyURL != nil {
+			d.SocksProxyURL = p.socksProxyURL
+		}
+		return d
+	})
+
+	// Transport: overlay individual config fields onto existing transport params.
+	existingTransport := b.transportParams
+	b.transportParams, _ = refreshable.MapFromValidated(validParams, func(p validatedClientParams) transportParams {
+		t := existingTransport.Current()
+		if p.maxIdleConns != nil {
+			t.MaxIdleConns = *p.maxIdleConns
+		}
+		if p.maxIdleConnsPerHost != nil {
+			t.MaxIdleConnsPerHost = *p.maxIdleConnsPerHost
+		}
+		if p.disableHTTP2 != nil {
+			t.DisableHTTP2 = *p.disableHTTP2
+		}
+		if p.idleConnTimeout != nil {
+			t.IdleConnTimeout = *p.idleConnTimeout
+		}
+		if p.expectContinueTimeout != nil {
+			t.ExpectContinueTimeout = *p.expectContinueTimeout
+		}
+		if p.responseHeaderTimeout != nil {
+			t.ResponseHeaderTimeout = *p.responseHeaderTimeout
+		}
+		if p.tlsHandshakeTimeout != nil {
+			t.TLSHandshakeTimeout = *p.tlsHandshakeTimeout
+		}
+		if p.proxyFromEnvironment != nil {
+			t.ProxyFromEnvironment = *p.proxyFromEnvironment
+		}
+		if p.httpProxyURL != nil {
+			t.HTTPProxyURL = p.httpProxyURL
+		}
+		if p.http2ReadIdleTimeout != nil {
+			t.HTTP2ReadIdleTimeout = *p.http2ReadIdleTimeout
+		}
+		if p.http2PingTimeout != nil {
+			t.HTTP2PingTimeout = *p.http2PingTimeout
+		}
+		return t
+	})
+
+	// TLS: overlay individual config fields onto existing TLS file params.
+	existingTLS := b.tlsFileParams
+	b.tlsFileParams, _ = refreshable.MapFromValidated(validParams, func(p validatedClientParams) tlsFileParams {
+		t := existingTLS.Current()
+		if len(p.caFiles) > 0 {
+			t.CAFiles = p.caFiles
+		}
+		// Only set cert/key when both are present — a lone cert or key file
+		// would cause BuildTLSConfig to try to watch a file that may not exist.
+		if p.certFile != "" && p.keyFile != "" {
+			t.CertFile = p.certFile
+			t.KeyFile = p.keyFile
+		}
+		if p.insecureSkipVerify != nil {
+			t.InsecureSkipVerify = *p.insecureSkipVerify
+		}
+		if p.dynamicCertReload != nil {
+			t.DynamicCertReload = *p.dynamicCertReload
+		}
+		return t
+	})
+
+	existingMaxAttempts := b.maxAttempts
+	b.maxAttempts, _ = refreshable.MapFromValidated(validParams, func(p validatedClientParams) *int {
+		if p.maxAttempts != nil {
+			return p.maxAttempts
+		}
+		if existingMaxAttempts != nil {
+			return existingMaxAttempts.Current()
+		}
+		return nil
+	})
+
+	existingInitialBackoff := b.initialBackoff
+	b.initialBackoff, _ = refreshable.MapFromValidated(validParams, func(p validatedClientParams) time.Duration {
+		if p.initialBackoff != nil {
+			return *p.initialBackoff
+		}
+		return existingInitialBackoff.Current()
+	})
+
+	existingMaxBackoff := b.maxBackoff
+	b.maxBackoff, _ = refreshable.MapFromValidated(validParams, func(p validatedClientParams) time.Duration {
+		if p.maxBackoff != nil {
+			return *p.maxBackoff
+		}
+		return existingMaxBackoff.Current()
+	})
+
+	existingDisableMetrics := b.disableMetrics
+	b.disableMetrics, _ = refreshable.MapFromValidated(validParams, func(p validatedClientParams) bool {
+		if p.disableMetrics != nil {
+			return *p.disableMetrics
+		}
+		return existingDisableMetrics.Current()
+	})
+
+	// Auth: always install both middlewares for the refreshable case, since
+	// the config may switch between token and basic auth on refresh.
+	// Each middleware checks for nil and becomes a no-op when unset.
+	apiToken, _ := refreshable.MapFromValidated(validParams, func(p validatedClientParams) *string { return p.apiToken })
+	basicAuth, _ := refreshable.MapFromValidated(validParams, func(p validatedClientParams) *BasicAuth { return p.basicAuth })
+	b.SetAuthTokenRefreshable(apiToken)
+	b.SetBasicAuthRefreshable(basicAuth)
+
+	// Metrics tags via closure over validated refreshable.
+	b.metricsTagProviders = append(b.metricsTagProviders, TagsProviderFunc(func(*http.Request, *http.Response, error) metrics.Tags {
+		return validParams.Unvalidated().metricsTags
+	}))
+
 	return b
 }
 

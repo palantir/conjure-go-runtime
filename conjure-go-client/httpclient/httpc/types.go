@@ -96,6 +96,12 @@ func (f TagsProviderFunc) Tags(req *http.Request, resp *http.Response, err error
 	return f(req, resp, err)
 }
 
+type StaticTagsProvider metrics.Tags
+
+func (s StaticTagsProvider) Tags(req *http.Request, resp *http.Response, err error) metrics.Tags {
+	return metrics.Tags(s)
+}
+
 // TokenProvider returns a bearer token for request authentication.
 type TokenProvider func(ctx context.Context) (string, error)
 
