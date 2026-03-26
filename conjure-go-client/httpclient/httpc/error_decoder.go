@@ -21,7 +21,6 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/palantir/conjure-go-runtime/v3/conjure-go-contract/codecs"
 	"github.com/palantir/conjure-go-runtime/v3/conjure-go-contract/errors"
 	werror "github.com/palantir/witchcraft-go-error"
 )
@@ -100,7 +99,7 @@ func (d defaultRestErrorDecoder) DecodeError(resp *http.Response) error {
 	}
 
 	// If JSON, try to unmarshal as Conjure error.
-	if isJSON := strings.Contains(resp.Header.Get("Content-Type"), codecs.JSON.ContentType()); !isJSON {
+	if isJSON := strings.Contains(resp.Header.Get("Content-Type"), ContentTypeJSON); !isJSON {
 		return werror.Error(resp.Status, wSafeParams, wUnsafeParams, werror.UnsafeParam("responseBody", string(body)))
 	}
 	var conjureErr errors.Error

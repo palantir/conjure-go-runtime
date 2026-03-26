@@ -24,6 +24,7 @@ import (
 	"github.com/palantir/pkg/refreshable/v2"
 	"github.com/palantir/pkg/tlsconfig"
 	werror "github.com/palantir/witchcraft-go-error"
+	"github.com/palantir/witchcraft-go-logging/wlog/svclog/svc1log"
 )
 
 // TLSConfigBuilder is an F-bounded interface for configuring TLS settings.
@@ -142,8 +143,7 @@ func (b *Builder) AddCACertBytes(certBytes []byte) *Builder {
 
 func (b *Builder) AddCACertBytesRefreshable(r refreshable.Refreshable[[][]byte]) *Builder {
 	if b.tlsCABytes != nil {
-		existing := b.tlsCABytes
-		b.tlsCABytes, _ = refreshable.Merge(existing, r, func(existingBytes, newBytes [][]byte) [][]byte {
+		b.tlsCABytes = refreshable.MergeAuto(b.tlsCABytes, r, func(existingBytes, newBytes [][]byte) [][]byte {
 			merged := make([][]byte, 0, len(existingBytes)+len(newBytes))
 			merged = append(merged, existingBytes...)
 			merged = append(merged, newBytes...)
@@ -212,18 +212,118 @@ type tlsParams struct {
 	DynamicCertReload  bool
 }
 
-// newRefreshableTLSConfig evaluates the provided tlsParams and returns a Validated[*tls.Config] that will update the
-// underlying *tls.Config when the tlsParams change.
-// If the initial tlsParams are invalid, newRefreshableTLSConfig will return an error.
-// If the updated tlsParams are invalid, the config will continue to use the previous value and log the error.
-func newRefreshableTLSConfig(ctx context.Context, params refreshable.Validated[tlsParams]) (refreshable.Validated[*tls.Config], error) {
-	r, _, err := refreshable.MapValidated(ctx, params, func(ctx context.Context, p tlsParams) (*tls.Config, error) {
+// BuildTLSConfig builds the configured TLS configuration from the builder's TLS parameters.
+// The returned Validated[*tls.Config] automatically rebuilds when CA files, refreshable
+// CA byte sources, or transport TLS parameters change.
+//
+// If SetTLSConfig was called, the injected config is returned as a static validated refreshable.
+// BuildTLSConfig returns an error if CA files cannot be read or system CAs cannot be loaded.
+func (b *Builder) BuildTLSConfig(ctx context.Context) (refreshable.Validated[*tls.Config], error) {
+	if len(b.errs) > 0 {
+		if len(b.errs) == 1 {
+			return nil, werror.WrapWithContextParams(ctx, b.errs[0], "builder configuration errors")
+		}
+		return nil, werror.WrapWithContextParams(ctx, errors.Join(b.errs...), "builder configuration errors")
+	}
+
+	// Path 1: Escape hatch — use the provided *tls.Config directly.
+	// The caller owns the config and is responsible for setting secure defaults.
+	if b.tlsConfig != nil {
+		r := refreshable.New(b.tlsConfig.Clone())
+		return refreshable.ValidateAuto(ctx, r, func(context.Context, *tls.Config) error { return nil })
+	}
+
+	// File-based and refreshable CA sources — subscribe to tlsFileParams (not transportParams).
+	// Watch CA files, cert file, and key file so that content changes trigger a TLS config rebuild.
+	fileSlices := refreshable.MapAuto(b.tlsFileParams, func(t tlsFileParams) map[string]struct{} {
+		m := map[string]struct{}{}
+		for _, file := range t.CAFiles {
+			m[file] = struct{}{}
+		}
+		if t.CertFile != "" {
+			m[t.CertFile] = struct{}{}
+		}
+		if t.KeyFile != "" {
+			m[t.KeyFile] = struct{}{}
+		}
+		return m
+	})
+	multiFileRefreshable := refreshable.NewMultiFileRefreshable(ctx, fileSlices)
+	if _, err := multiFileRefreshable.Validation(); err != nil {
+		return nil, werror.WrapWithContextParams(ctx, err, "failed to read TLS files")
+	}
+	includeSystemCAs := b.includeSystemCAs
+	clientCertCert := b.clientCertCert
+	clientCertKey := b.clientCertKey
+	tlsP := refreshable.MergeValidatedAndRefreshableAuto(ctx, multiFileRefreshable, b.tlsFileParams, func(fileBytes map[string][]byte, tp tlsFileParams) tlsParams {
+		var caBytes [][]byte
+		for path, contents := range fileBytes {
+			if path == tp.CertFile || path == tp.KeyFile {
+				continue
+			}
+			caBytes = append(caBytes, contents)
+		}
+		params := tlsParams{
+			CABytes:            caBytes,
+			InsecureSkipVerify: tp.InsecureSkipVerify,
+			IncludeSystemCAs:   includeSystemCAs,
+			DynamicCertReload:  tp.DynamicCertReload,
+		}
+		if tp.DynamicCertReload {
+			params.CertFile = tp.CertFile
+			params.KeyFile = tp.KeyFile
+		} else {
+			// Pass cert/key as bytes when watched via file refreshable so that
+			// content changes are detected by DeepEqual and trigger a TLS rebuild.
+			if certBytes := fileBytes[tp.CertFile]; len(certBytes) > 0 {
+				params.CertBytes = certBytes
+			}
+			if keyBytes := fileBytes[tp.KeyFile]; len(keyBytes) > 0 {
+				params.KeyBytes = keyBytes
+			}
+			// Fall back to file paths if bytes aren't available (files not in watch set).
+			if len(params.CertBytes) == 0 && len(params.KeyBytes) == 0 {
+				params.CertFile = tp.CertFile
+				params.KeyFile = tp.KeyFile
+			}
+		}
+		// Fall back to static client cert bytes if no file-based cert was configured.
+		if len(params.CertBytes) == 0 && len(params.KeyBytes) == 0 &&
+			params.CertFile == "" && params.KeyFile == "" &&
+			len(clientCertCert) > 0 && len(clientCertKey) > 0 {
+			params.CertBytes = clientCertCert
+			params.KeyBytes = clientCertKey
+		}
+		return params
+	})
+
+	// Merge static CA byte slices.
+	if len(b.caByteSlices) > 0 {
+		staticSlices := make([][]byte, len(b.caByteSlices))
+		copy(staticSlices, b.caByteSlices)
+		tlsP = refreshable.MergeValidatedAndRefreshableAuto(ctx, tlsP, refreshable.New(staticSlices), func(params tlsParams, statics [][]byte) tlsParams {
+			params.CABytes = append(params.CABytes, statics...)
+			return params
+		})
+	}
+
+	// Merge refreshable CA bytes.
+	if b.tlsCABytes != nil {
+		tlsP = refreshable.MergeValidatedAndRefreshableAuto(ctx, tlsP, b.tlsCABytes, func(params tlsParams, caByteSlices [][]byte) tlsParams {
+			params.CABytes = append(params.CABytes, caByteSlices...)
+			return params
+		})
+	}
+
+	rebuild := false
+	return refreshable.MapValidatedAuto(ctx, tlsP, func(ctx context.Context, p tlsParams) (*tls.Config, error) {
+		if rebuild {
+			svc1log.FromContext(ctx).Debug("Reconstructing TLS Config")
+		} else {
+			rebuild = true
+		}
 		return newTLSConfig(ctx, p)
 	})
-	if err != nil {
-		return nil, werror.WrapWithContextParams(ctx, err, "failed to build RefreshableTLSConfig")
-	}
-	return r, nil
 }
 
 // newTLSConfig returns a *tls.Config built from the provided tlsParams.
@@ -280,114 +380,4 @@ func newTLSConfig(ctx context.Context, p tlsParams) (*tls.Config, error) {
 		return nil, werror.WrapWithContextParams(ctx, err, "failed to build tlsConfig")
 	}
 	return tlsCfg, nil
-}
-
-// BuildTLSConfig builds the configured TLS configuration from the builder's TLS parameters.
-// The returned Validated[*tls.Config] automatically rebuilds when CA files, refreshable
-// CA byte sources, or transport TLS parameters change.
-//
-// If SetTLSConfig was called, the injected config is returned as a static validated refreshable.
-// BuildTLSConfig returns an error if CA files cannot be read or system CAs cannot be loaded.
-func (b *Builder) BuildTLSConfig(ctx context.Context) (refreshable.Validated[*tls.Config], error) {
-	if len(b.errs) > 0 {
-		if len(b.errs) == 1 {
-			return nil, werror.WrapWithContextParams(ctx, b.errs[0], "builder configuration errors")
-		}
-		return nil, werror.WrapWithContextParams(ctx, errors.Join(b.errs...), "builder configuration errors")
-	}
-
-	// Path 1: Escape hatch — use the provided *tls.Config directly.
-	// The caller owns the config and is responsible for setting secure defaults.
-	if b.tlsConfig != nil {
-		r := refreshable.New(b.tlsConfig.Clone())
-		v, _, err := refreshable.Validate(ctx, r, func(context.Context, *tls.Config) error { return nil })
-		if err != nil {
-			return nil, err
-		}
-		return v, nil
-	}
-
-	// File-based and refreshable CA sources — subscribe to tlsFileParams (not transportParams).
-	// Watch CA files, cert file, and key file so that content changes trigger a TLS config rebuild.
-	fileSlices, _ := refreshable.Map(b.tlsFileParams, func(t tlsFileParams) map[string]struct{} {
-		m := map[string]struct{}{}
-		for _, file := range t.CAFiles {
-			m[file] = struct{}{}
-		}
-		if t.CertFile != "" {
-			m[t.CertFile] = struct{}{}
-		}
-		if t.KeyFile != "" {
-			m[t.KeyFile] = struct{}{}
-		}
-		return m
-	})
-	multiFileRefreshable := refreshable.NewMultiFileRefreshable(ctx, fileSlices)
-	if _, err := multiFileRefreshable.Validation(); err != nil {
-		return nil, werror.WrapWithContextParams(ctx, err, "failed to read TLS files")
-	}
-	includeSystemCAs := b.includeSystemCAs
-	clientCertCert := b.clientCertCert
-	clientCertKey := b.clientCertKey
-	tlsP, _ := refreshable.MergeValidatedAndRefreshable(ctx, multiFileRefreshable, b.tlsFileParams, func(fileBytes map[string][]byte, tp tlsFileParams) tlsParams {
-		var caBytes [][]byte
-		for path, contents := range fileBytes {
-			if path == tp.CertFile || path == tp.KeyFile {
-				continue
-			}
-			caBytes = append(caBytes, contents)
-		}
-		params := tlsParams{
-			CABytes:            caBytes,
-			InsecureSkipVerify: tp.InsecureSkipVerify,
-			IncludeSystemCAs:   includeSystemCAs,
-			DynamicCertReload:  tp.DynamicCertReload,
-		}
-		if tp.DynamicCertReload {
-			params.CertFile = tp.CertFile
-			params.KeyFile = tp.KeyFile
-		} else {
-			// Pass cert/key as bytes when watched via file refreshable so that
-			// content changes are detected by DeepEqual and trigger a TLS rebuild.
-			if certBytes := fileBytes[tp.CertFile]; len(certBytes) > 0 {
-				params.CertBytes = certBytes
-			}
-			if keyBytes := fileBytes[tp.KeyFile]; len(keyBytes) > 0 {
-				params.KeyBytes = keyBytes
-			}
-			// Fall back to file paths if bytes aren't available (files not in watch set).
-			if len(params.CertBytes) == 0 && len(params.KeyBytes) == 0 {
-				params.CertFile = tp.CertFile
-				params.KeyFile = tp.KeyFile
-			}
-		}
-		// Fall back to static client cert bytes if no file-based cert was configured.
-		if len(params.CertBytes) == 0 && len(params.KeyBytes) == 0 &&
-			params.CertFile == "" && params.KeyFile == "" &&
-			len(clientCertCert) > 0 && len(clientCertKey) > 0 {
-			params.CertBytes = clientCertCert
-			params.KeyBytes = clientCertKey
-		}
-		return params
-	})
-
-	// Merge static CA byte slices.
-	if len(b.caByteSlices) > 0 {
-		staticSlices := make([][]byte, len(b.caByteSlices))
-		copy(staticSlices, b.caByteSlices)
-		tlsP, _ = refreshable.MergeValidatedAndRefreshable(ctx, tlsP, refreshable.New(staticSlices), func(params tlsParams, statics [][]byte) tlsParams {
-			params.CABytes = append(params.CABytes, statics...)
-			return params
-		})
-	}
-
-	// Merge refreshable CA bytes.
-	if b.tlsCABytes != nil {
-		tlsP, _ = refreshable.MergeValidatedAndRefreshable(ctx, tlsP, b.tlsCABytes, func(params tlsParams, caByteSlices [][]byte) tlsParams {
-			params.CABytes = append(params.CABytes, caByteSlices...)
-			return params
-		})
-	}
-
-	return newRefreshableTLSConfig(ctx, tlsP)
 }

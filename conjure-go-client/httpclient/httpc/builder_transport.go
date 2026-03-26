@@ -321,7 +321,7 @@ func (b *Builder) BuildTransport(ctx context.Context) (http.RoundTripper, error)
 		return nil, err
 	}
 	rebuild := false
-	mapped, _ := refreshable.MergeValidatedAndRefreshable(ctx, tlsConfig, b.transportParams, func(t *tls.Config, p transportParams) *http.Transport {
+	mapped := refreshable.MergeValidatedAndRefreshableAuto(ctx, tlsConfig, b.transportParams, func(t *tls.Config, p transportParams) *http.Transport {
 		if rebuild {
 			svc1log.FromContext(ctx).Debug("Reconstructing HTTP Transport")
 		} else {

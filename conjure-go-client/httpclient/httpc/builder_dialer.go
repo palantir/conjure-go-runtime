@@ -132,8 +132,13 @@ func (b *Builder) BuildDialer(ctx context.Context) (ContextDialer, error) {
 		}
 		return nil, werror.WrapWithContextParams(ctx, errors.Join(b.errs...), "builder configuration errors")
 	}
-	mapped, _ := refreshable.Map(b.dialerParams, func(p dialerParams) ContextDialer {
-		svc1log.FromContext(ctx).Debug("Reconstructing HTTP Dialer")
+	rebuild := false
+	mapped := refreshable.MapAuto(b.dialerParams, func(p dialerParams) ContextDialer {
+		if rebuild {
+			svc1log.FromContext(ctx).Debug("Reconstructing HTTP Dialer")
+		} else {
+			rebuild = true
+		}
 		dialer := &net.Dialer{
 			Timeout:   p.DialTimeout,
 			KeepAlive: p.KeepAlive,

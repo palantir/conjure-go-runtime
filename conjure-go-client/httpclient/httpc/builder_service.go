@@ -518,7 +518,7 @@ func (b *Builder) BuildHTTPClient(ctx context.Context) (refreshable.Refreshable[
 	if !b.disableRecovery {
 		transport = wrapTransport(transport, recoveryMiddleware{})
 	}
-	mapped, _ := refreshable.Map(b.timeout, func(timeout time.Duration) *http.Client {
+	mapped := refreshable.MapAuto(b.timeout, func(timeout time.Duration) *http.Client {
 		return &http.Client{
 			Timeout:   timeout,
 			Transport: transport,

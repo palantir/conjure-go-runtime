@@ -363,7 +363,7 @@ func (b *Builder) ApplyConfig(config ClientConfig) *Builder {
 // Validation errors are deferred to b.errs (surfaced at Build time).
 func (b *Builder) ApplyConfigRefreshable(ctx context.Context, config refreshable.Refreshable[ClientConfig]) *Builder {
 	// Stage 1: Validate initial config and create validated refreshable.
-	validParams, _, err := refreshable.MapWithError(ctx, config, func(ctx context.Context, config ClientConfig) (validatedClientParams, error) {
+	validParams, err := refreshable.MapWithErrorAuto(ctx, config, func(ctx context.Context, config ClientConfig) (validatedClientParams, error) {
 		return newValidatedClientParams(config)
 	})
 	if err != nil {
@@ -375,7 +375,7 @@ func (b *Builder) ApplyConfigRefreshable(ctx context.Context, config refreshable
 	// value (when set) on top of the builder's existing value (captured now).
 
 	existingServiceName := b.serviceName
-	b.serviceName, _ = refreshable.MapFromValidated(validParams, func(p validatedClientParams) string {
+	b.serviceName = refreshable.MapFromValidatedAuto(validParams, func(p validatedClientParams) string {
 		if p.serviceName != "" {
 			return p.serviceName
 		}
@@ -383,7 +383,7 @@ func (b *Builder) ApplyConfigRefreshable(ctx context.Context, config refreshable
 	})
 
 	existingURIs := b.uris
-	uris, _ := refreshable.MapFromValidated(validParams, func(p validatedClientParams) []string {
+	uris := refreshable.MapFromValidatedAuto(validParams, func(p validatedClientParams) []string {
 		if p.uris != nil {
 			return p.uris
 		}
@@ -395,7 +395,7 @@ func (b *Builder) ApplyConfigRefreshable(ctx context.Context, config refreshable
 	b.uris = uris
 
 	existingTimeout := b.timeout
-	b.timeout, _ = refreshable.MapFromValidated(validParams, func(p validatedClientParams) time.Duration {
+	b.timeout = refreshable.MapFromValidatedAuto(validParams, func(p validatedClientParams) time.Duration {
 		if p.timeout != nil {
 			return *p.timeout
 		}
@@ -404,7 +404,7 @@ func (b *Builder) ApplyConfigRefreshable(ctx context.Context, config refreshable
 
 	// Dialer: overlay individual config fields onto existing dialer params.
 	existingDialer := b.dialerParams
-	b.dialerParams, _ = refreshable.MapFromValidated(validParams, func(p validatedClientParams) dialerParams {
+	b.dialerParams = refreshable.MapFromValidatedAuto(validParams, func(p validatedClientParams) dialerParams {
 		d := existingDialer.Current()
 		if p.connectTimeout != nil {
 			d.DialTimeout = *p.connectTimeout
@@ -420,7 +420,7 @@ func (b *Builder) ApplyConfigRefreshable(ctx context.Context, config refreshable
 
 	// Transport: overlay individual config fields onto existing transport params.
 	existingTransport := b.transportParams
-	b.transportParams, _ = refreshable.MapFromValidated(validParams, func(p validatedClientParams) transportParams {
+	b.transportParams = refreshable.MapFromValidatedAuto(validParams, func(p validatedClientParams) transportParams {
 		t := existingTransport.Current()
 		if p.maxIdleConns != nil {
 			t.MaxIdleConns = *p.maxIdleConns
@@ -460,7 +460,7 @@ func (b *Builder) ApplyConfigRefreshable(ctx context.Context, config refreshable
 
 	// TLS: overlay individual config fields onto existing TLS file params.
 	existingTLS := b.tlsFileParams
-	b.tlsFileParams, _ = refreshable.MapFromValidated(validParams, func(p validatedClientParams) tlsFileParams {
+	b.tlsFileParams = refreshable.MapFromValidatedAuto(validParams, func(p validatedClientParams) tlsFileParams {
 		t := existingTLS.Current()
 		if len(p.caFiles) > 0 {
 			t.CAFiles = p.caFiles
@@ -481,7 +481,7 @@ func (b *Builder) ApplyConfigRefreshable(ctx context.Context, config refreshable
 	})
 
 	existingMaxAttempts := b.maxAttempts
-	b.maxAttempts, _ = refreshable.MapFromValidated(validParams, func(p validatedClientParams) *int {
+	b.maxAttempts = refreshable.MapFromValidatedAuto(validParams, func(p validatedClientParams) *int {
 		if p.maxAttempts != nil {
 			return p.maxAttempts
 		}
@@ -492,7 +492,7 @@ func (b *Builder) ApplyConfigRefreshable(ctx context.Context, config refreshable
 	})
 
 	existingInitialBackoff := b.initialBackoff
-	b.initialBackoff, _ = refreshable.MapFromValidated(validParams, func(p validatedClientParams) time.Duration {
+	b.initialBackoff = refreshable.MapFromValidatedAuto(validParams, func(p validatedClientParams) time.Duration {
 		if p.initialBackoff != nil {
 			return *p.initialBackoff
 		}
@@ -500,7 +500,7 @@ func (b *Builder) ApplyConfigRefreshable(ctx context.Context, config refreshable
 	})
 
 	existingMaxBackoff := b.maxBackoff
-	b.maxBackoff, _ = refreshable.MapFromValidated(validParams, func(p validatedClientParams) time.Duration {
+	b.maxBackoff = refreshable.MapFromValidatedAuto(validParams, func(p validatedClientParams) time.Duration {
 		if p.maxBackoff != nil {
 			return *p.maxBackoff
 		}
@@ -508,7 +508,7 @@ func (b *Builder) ApplyConfigRefreshable(ctx context.Context, config refreshable
 	})
 
 	existingDisableMetrics := b.disableMetrics
-	b.disableMetrics, _ = refreshable.MapFromValidated(validParams, func(p validatedClientParams) bool {
+	b.disableMetrics = refreshable.MapFromValidatedAuto(validParams, func(p validatedClientParams) bool {
 		if p.disableMetrics != nil {
 			return *p.disableMetrics
 		}
@@ -518,8 +518,8 @@ func (b *Builder) ApplyConfigRefreshable(ctx context.Context, config refreshable
 	// Auth: always install both middlewares for the refreshable case, since
 	// the config may switch between token and basic auth on refresh.
 	// Each middleware checks for nil and becomes a no-op when unset.
-	apiToken, _ := refreshable.MapFromValidated(validParams, func(p validatedClientParams) *string { return p.apiToken })
-	basicAuth, _ := refreshable.MapFromValidated(validParams, func(p validatedClientParams) *BasicAuth { return p.basicAuth })
+	apiToken := refreshable.MapFromValidatedAuto(validParams, func(p validatedClientParams) *string { return p.apiToken })
+	basicAuth := refreshable.MapFromValidatedAuto(validParams, func(p validatedClientParams) *BasicAuth { return p.basicAuth })
 	b.SetAuthTokenRefreshable(apiToken)
 	b.SetBasicAuthRefreshable(basicAuth)
 
