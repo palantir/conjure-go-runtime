@@ -17,7 +17,6 @@ package httpc
 import (
 	"context"
 	"encoding/base64"
-	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -251,16 +250,17 @@ func (b *Builder) SetURIScoringStrategy(s URIScoringStrategy) *Builder {
 }
 
 func (b *Builder) SetAuthToken(t string) *Builder {
-	return b.AddInnerMiddleware(MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+	b.authMiddleware = MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
 		if t != "" {
 			req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", t))
 		}
 		return next.RoundTrip(req)
-	}))
+	})
+	return b
 }
 
 func (b *Builder) SetAuthTokenProvider(p TokenProvider) *Builder {
-	return b.AddInnerMiddleware(MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+	b.authMiddleware = MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
 		token, err := p(req.Context())
 		if err != nil {
 			return nil, err
@@ -269,43 +269,48 @@ func (b *Builder) SetAuthTokenProvider(p TokenProvider) *Builder {
 			req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
 		}
 		return next.RoundTrip(req)
-	}))
+	})
+	return b
 }
 
 func (b *Builder) SetAuthTokenRefreshable(r refreshable.Refreshable[*string]) *Builder {
-	return b.AddInnerMiddleware(MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+	b.authMiddleware = MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
 		if s := r.Current(); s != nil && *s != "" {
 			req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", *s))
 		}
 		return next.RoundTrip(req)
-	}))
+	})
+	return b
 }
 
 func (b *Builder) SetBasicAuth(user, password string) *Builder {
-	return b.AddInnerMiddleware(MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+	b.authMiddleware = MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
 		setBasicAuthHeader(req.Header, user, password)
 		return next.RoundTrip(req)
-	}))
+	})
+	return b
 }
 
 func (b *Builder) SetBasicAuthProvider(p BasicAuthProvider) *Builder {
-	return b.AddInnerMiddleware(MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+	b.authMiddleware = MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
 		auth, err := p(req.Context())
 		if err != nil {
 			return nil, err
 		}
 		setBasicAuthHeader(req.Header, auth.User, auth.Password)
 		return next.RoundTrip(req)
-	}))
+	})
+	return b
 }
 
 func (b *Builder) SetBasicAuthRefreshable(r refreshable.Refreshable[*BasicAuth]) *Builder {
-	return b.AddInnerMiddleware(MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+	b.authMiddleware = MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
 		if auth := r.Current(); auth != nil {
 			setBasicAuthHeader(req.Header, auth.User, auth.Password)
 		}
 		return next.RoundTrip(req)
-	}))
+	})
+	return b
 }
 
 func setBasicAuthHeader(h http.Header, username, password string) {
@@ -441,11 +446,8 @@ func (b *Builder) SetBytesBufferPool(pool bytesbuffers.Pool) *Builder {
 
 // Build constructs a Client from the current builder configuration.
 func (b *Builder) Build(ctx context.Context) (ConfigurableClient[*Builder], error) {
-	if len(b.errs) > 0 {
-		if len(b.errs) == 1 {
-			return nil, werror.WrapWithContextParams(ctx, b.errs[0], "builder configuration errors")
-		}
-		return nil, werror.WrapWithContextParams(ctx, errors.Join(b.errs...), "builder configuration errors")
+	if err := b.buildError(ctx); err != nil {
+		return nil, err
 	}
 	if b.uris == nil {
 		return nil, werror.ErrorWithContextParams(ctx, "httpclient URLs must be set in configuration or by constructor param", werror.SafeParam("serviceName", b.serviceName.Current()))
@@ -493,14 +495,20 @@ func (b *Builder) Build(ctx context.Context) (ConfigurableClient[*Builder], erro
 
 // BuildHTTPClient builds a complete *http.Client from the builder's configuration.
 // The returned refreshable rebuilds whenever timeout or transport settings change.
-// The transport is wrapped with inner middlewares, metrics, tracing, and recovery.
+// The transport is wrapped with auth, inner middlewares, metrics, and tracing.
+// Panic recovery is NOT included here; Build adds a single recovery layer in doOnce
+// that covers the entire middleware chain (including user outer middleware).
 func (b *Builder) BuildHTTPClient(ctx context.Context) (refreshable.Refreshable[*http.Client], error) {
 	transport, err := b.BuildTransport(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	// Wrap with inner middlewares (closest to transport).
+	// Wrap with auth middleware (innermost, closest to transport).
+	if b.authMiddleware != nil {
+		transport = wrapTransport(transport, b.authMiddleware)
+	}
+	// Wrap with inner middlewares.
 	transport = wrapTransport(transport, b.innerMiddlewares...)
 	// Metrics middleware.
 	transport = wrapTransport(transport, &metricsMiddleware{
@@ -514,10 +522,6 @@ func (b *Builder) BuildHTTPClient(ctx context.Context) (refreshable.Refreshable[
 		disableRequestSpan:  b.disableRequestSpan,
 		disableTraceHeaders: b.disableTraceHeaders,
 	})
-	// Inner recovery (before user middleware, catches panics with trace context).
-	if !b.disableRecovery {
-		transport = wrapTransport(transport, recoveryMiddleware{})
-	}
 	mapped := refreshable.MapAuto(b.timeout, func(timeout time.Duration) *http.Client {
 		return &http.Client{
 			Timeout:   timeout,

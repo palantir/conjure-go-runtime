@@ -16,7 +16,6 @@ package httpc
 
 import (
 	"context"
-	"errors"
 	"net"
 	"net/url"
 	"time"
@@ -126,11 +125,8 @@ func (r *refreshableDialer) Dial(network, address string) (net.Conn, error) {
 // The returned ContextDialer automatically adapts when dial timeout, keep-alive,
 // or SOCKS proxy settings change via their refreshable sources.
 func (b *Builder) BuildDialer(ctx context.Context) (ContextDialer, error) {
-	if len(b.errs) > 0 {
-		if len(b.errs) == 1 {
-			return nil, werror.WrapWithContextParams(ctx, b.errs[0], "builder configuration errors")
-		}
-		return nil, werror.WrapWithContextParams(ctx, errors.Join(b.errs...), "builder configuration errors")
+	if err := b.buildError(ctx); err != nil {
+		return nil, err
 	}
 	rebuild := false
 	mapped := refreshable.MapAuto(b.dialerParams, func(p dialerParams) ContextDialer {

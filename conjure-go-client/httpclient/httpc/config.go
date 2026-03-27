@@ -80,7 +80,7 @@ type ClientConfig struct {
 	IdleConnTimeout *time.Duration `json:"idle-conn-timeout,omitempty" yaml:"idle-conn-timeout,omitempty"`
 	// TLSHandshakeTimeout sets the timeout for TLS handshakes
 	TLSHandshakeTimeout *time.Duration `json:"tls-handshake-timeout,omitempty" yaml:"tls-handshake-timeout,omitempty"`
-	// IdleConnTimeout sets the timeout to receive the server's first response headers after
+	// ExpectContinueTimeout sets the timeout to receive the server's first response headers after
 	// fully writing the request headers if the request has an "Expect: 100-continue" header.
 	ExpectContinueTimeout *time.Duration `json:"expect-continue-timeout,omitempty" yaml:"expect-continue-timeout,omitempty"`
 	// ResponseHeaderTimeout, if non-zero, specifies the amount of time to wait for a server's response headers after fully

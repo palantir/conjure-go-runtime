@@ -18,6 +18,8 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"errors"
+	"fmt"
 	"net/http"
 	"slices"
 	"time"
@@ -26,6 +28,7 @@ import (
 	"github.com/palantir/pkg/bytesbuffers"
 	"github.com/palantir/pkg/metrics"
 	"github.com/palantir/pkg/refreshable/v2"
+	werror "github.com/palantir/witchcraft-go-error"
 )
 
 // baseB is the shared contract for all builder interfaces in this package.
@@ -137,6 +140,7 @@ type Builder struct {
 
 	middlewares      []Middleware // outer: applied after built-in middleware
 	innerMiddlewares []Middleware // inner: applied before built-in middleware
+	authMiddleware   Middleware   // single auth slot: replaced (not accumulated) by Set*Auth* methods
 
 	disableMetrics      refreshable.Refreshable[bool]
 	metricsTagProviders []TagsProvider
@@ -160,6 +164,18 @@ type Builder struct {
 	clientCertCert   []byte            // client cert bytes
 	includeSystemCAs bool
 	errs             []error
+}
+
+// buildError returns a combined error from the builder's accumulated errors, or nil.
+func (b *Builder) buildError(ctx context.Context) error {
+	switch len(b.errs) {
+	case 0:
+		return nil
+	case 1:
+		return werror.WrapWithContextParams(ctx, b.errs[0], "builder configuration errors")
+	default:
+		return werror.WrapWithContextParams(ctx, errors.Join(b.errs...), "builder configuration errors")
+	}
 }
 
 // Compile-time interface check.
@@ -209,6 +225,7 @@ func (b *Builder) Clone() *Builder {
 		tlsCABytes:          b.tlsCABytes,
 		middlewares:         slices.Clone(b.middlewares),
 		innerMiddlewares:    slices.Clone(b.innerMiddlewares),
+		authMiddleware:      b.authMiddleware,
 		disableMetrics:      b.disableMetrics,
 		metricsTagProviders: slices.Clone(b.metricsTagProviders),
 		disableRequestSpan:  b.disableRequestSpan,
@@ -515,13 +532,19 @@ func (b *Builder) ApplyConfigRefreshable(ctx context.Context, config refreshable
 		return existingDisableMetrics.Current()
 	})
 
-	// Auth: always install both middlewares for the refreshable case, since
+	// Auth: install a single combined middleware for the refreshable case, since
 	// the config may switch between token and basic auth on refresh.
-	// Each middleware checks for nil and becomes a no-op when unset.
+	// The middleware checks the current values and becomes a no-op when both are nil.
 	apiToken := refreshable.MapFromValidatedAuto(validParams, func(p validatedClientParams) *string { return p.apiToken })
-	basicAuth := refreshable.MapFromValidatedAuto(validParams, func(p validatedClientParams) *BasicAuth { return p.basicAuth })
-	b.SetAuthTokenRefreshable(apiToken)
-	b.SetBasicAuthRefreshable(basicAuth)
+	basicAuthR := refreshable.MapFromValidatedAuto(validParams, func(p validatedClientParams) *BasicAuth { return p.basicAuth })
+	b.authMiddleware = MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+		if s := apiToken.Current(); s != nil && *s != "" {
+			req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", *s))
+		} else if auth := basicAuthR.Current(); auth != nil {
+			setBasicAuthHeader(req.Header, auth.User, auth.Password)
+		}
+		return next.RoundTrip(req)
+	})
 
 	// Metrics tags via closure over validated refreshable.
 	b.metricsTagProviders = append(b.metricsTagProviders, TagsProviderFunc(func(*http.Request, *http.Response, error) metrics.Tags {

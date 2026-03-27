@@ -232,6 +232,23 @@ func NewJSONPUT[Req, Resp any](path, name string) Endpoint[Req, Resp] {
 		SetAccept("application/json")
 }
 
+// NewJSONPATCH creates a PATCH endpoint pre-configured with a JSON encoder, JSON decoder,
+// and Accept header.
+func NewJSONPATCH[Req, Resp any](path, name string) Endpoint[Req, Resp] {
+	return NewPATCH[Req, Resp](path, name).
+		SetEncoder(JSONEncoder[Req]()).
+		SetDecoder(JSONDecoder[Resp]()).
+		SetAccept("application/json")
+}
+
+// NewJSONDELETE creates a DELETE endpoint pre-configured with a JSON decoder and Accept header.
+// Useful for DELETE endpoints that return a JSON response body.
+func NewJSONDELETE[Resp any](path, name string) Endpoint[struct{}, Resp] {
+	return NewDELETE[Resp](path, name).
+		SetDecoder(JSONDecoder[Resp]()).
+		SetAccept("application/json")
+}
+
 // SetEncoder sets the body encoder for the request. Returns a new Endpoint value.
 func (e Endpoint[Req, Resp]) SetEncoder(enc BodyEncoder[Req]) Endpoint[Req, Resp] {
 	e.encoder = enc
@@ -429,8 +446,14 @@ func (e Endpoint[Req, Resp]) Execute(ctx context.Context, client Client, body Re
 		req.SetBasicAuth(e.overrides.basicAuth.user, e.overrides.basicAuth.password)
 	}
 
-	// Apply timeout via context.
+	// Apply per-request timeout override.
+	// We use both mechanisms:
+	// 1. ContextWithRequestTimeout signals doOnce to replace clientCopy.Timeout,
+	//    preventing the client-level timeout from capping the override.
+	// 2. context.WithTimeout enforces the deadline for Client implementations
+	//    that don't go through doOnce (e.g., plain http.Client wrappers).
 	if e.overrides.timeout != nil {
+		ctx = ContextWithRequestTimeout(ctx, *e.overrides.timeout)
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, *e.overrides.timeout)
 		defer cancel()

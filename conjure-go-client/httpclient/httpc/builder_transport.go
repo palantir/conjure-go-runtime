@@ -17,7 +17,6 @@ package httpc
 import (
 	"context"
 	"crypto/tls"
-	"errors"
 	"net/http"
 	"net/url"
 	"time"
@@ -303,11 +302,8 @@ func newTransport(ctx context.Context, p transportParams, tlsConfig *tls.Config,
 // BuildTransport does NOT wrap the transport with middleware — use BuildHTTPClient
 // or Build for the full middleware stack.
 func (b *Builder) BuildTransport(ctx context.Context) (http.RoundTripper, error) {
-	if len(b.errs) > 0 {
-		if len(b.errs) == 1 {
-			return nil, werror.WrapWithContextParams(ctx, b.errs[0], "builder configuration errors")
-		}
-		return nil, werror.WrapWithContextParams(ctx, errors.Join(b.errs...), "builder configuration errors")
+	if err := b.buildError(ctx); err != nil {
+		return nil, err
 	}
 	if b.transport != nil {
 		return b.transport, nil

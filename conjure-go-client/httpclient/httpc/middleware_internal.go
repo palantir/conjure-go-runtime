@@ -109,31 +109,6 @@ func (t *traceMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (
 	return next.RoundTrip(req)
 }
 
-// middlewareChain applies a slice of middleware around a base RoundTripper
-// using iterative delegation rather than nested wrapping. This produces
-// flatter stack traces compared to deeply nested wrappedTransport structs.
-// nil middleware values in the slice are skipped.
-type middlewareChain struct {
-	middlewares []Middleware
-	base        http.RoundTripper
-}
-
-func (c *middlewareChain) RoundTrip(req *http.Request) (*http.Response, error) {
-	// Build the chain from innermost (first) to outermost (last).
-	rt := c.base
-	for i := 0; i < len(c.middlewares); i++ {
-		if c.middlewares[i] == nil {
-			continue
-		}
-		mw := c.middlewares[i]
-		next := rt
-		rt = roundTripperFunc(func(r *http.Request) (*http.Response, error) {
-			return mw.RoundTrip(r, next)
-		})
-	}
-	return rt.RoundTrip(req)
-}
-
 // drainBody reads then closes a response's body if it is non-nil.
 // This function should be deferred before a response reference is
 // discarded.

@@ -165,15 +165,12 @@ func (c *fluentClient) doOnce(
 		return nil
 	}
 
-	// Build middleware slice: innermost first, outermost last.
-	// middlewareChain iterates forwards, wrapping each around the previous,
+	// Wrap transport with middleware: innermost first, outermost last.
+	// wrapTransport iterates forwards, wrapping each around the previous,
 	// so the last element ends up outermost.
-	mws := make([]Middleware, 0, 2+len(c.middlewares))
-	mws = append(mws, c.uriScorer)      // innermost
-	mws = append(mws, c.middlewares...) // user MWs: last added = outermost
-	mws = append(mws, c.recoveryMW)     // outermost
-
-	clientCopy.Transport = &middlewareChain{middlewares: mws, base: clientCopy.Transport}
+	clientCopy.Transport = wrapTransport(clientCopy.Transport, c.uriScorer)      // innermost
+	clientCopy.Transport = wrapTransport(clientCopy.Transport, c.middlewares...) // user MWs: last added = outermost
+	clientCopy.Transport = wrapTransport(clientCopy.Transport, c.recoveryMW)     // outermost
 
 	// Execute the request.
 	resp, respErr := clientCopy.Do(req)
