@@ -76,7 +76,7 @@ type httpClientBuilder struct {
 	DialerParams    refreshable.Refreshable[refreshingclient.DialerParams]
 	TLSConfig       *tls.Config // If unset, config in TransportParams will be used.
 	TransportParams refreshable.Refreshable[refreshingclient.TransportParams]
-	TLSCABytes      refreshable.Refreshable[[][]byte]          // Optional refreshable CA bytes to combine with TLSParams.
+	TLSCABytes      refreshable.Refreshable[[][]byte]         // Optional refreshable CA bytes to combine with TLSParams.
 	TLSCertKeyBytes refreshable.Refreshable[CertKeyPairBytes] // Optional refreshable cert+key bytes to combine with TLSParams.
 	Middlewares     []Middleware
 

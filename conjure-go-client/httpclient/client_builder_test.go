@@ -340,6 +340,89 @@ func TestCABytesAndCAFileCombined(t *testing.T) {
 	}, time.Second*2, time.Millisecond*100)
 }
 
+func TestCertKeyBytesRefreshable(t *testing.T) {
+	// Generate initial client cert+key PEM bytes
+	certPEM1, keyPEM1 := generateTestCertKeyPEM(t, 1, "Test Client Cert")
+	certKeyRefreshable := refreshable.New(httpclient.CertKeyPairBytes{
+		CertBytes: certPEM1,
+		KeyBytes:  keyPEM1,
+	})
+
+	// Track unique cert subjects captured during requests
+	capturedSubjects1 := make(map[string]struct{})
+	certKeyCapturingMiddleware1 := newCertKeyCapturingMiddleware(&capturedSubjects1)
+	capturedSubjects2 := make(map[string]struct{})
+	certKeyCapturingMiddleware2 := newCertKeyCapturingMiddleware(&capturedSubjects2)
+
+	cfg := httpclient.ClientConfig{
+		ServiceName:   "test-service",
+		MaxNumRetries: new(0),
+		URIs:          []string{"https://test-service"},
+	}
+	clientConfigRefreshable := refreshable.New(cfg)
+	client1, err := httpclient.NewClientFromRefreshableConfig(
+		context.Background(),
+		clientConfigRefreshable,
+		httpclient.WithMiddleware(certKeyCapturingMiddleware1),
+		httpclient.WithTLSCertKeyBytes(certKeyRefreshable),
+	)
+	require.NoError(t, err)
+	client2, err := httpclient.NewClient(
+		httpclient.WithConfig(cfg),
+		httpclient.WithMiddleware(certKeyCapturingMiddleware2),
+		httpclient.WithTLSCertKeyBytes(certKeyRefreshable),
+	)
+	require.NoError(t, err)
+
+	// Ensure the initial client cert is loaded
+	_, err = client1.Delete(context.Background())
+	assert.Error(t, err)
+	assert.True(t, containsAllKeys(capturedSubjects1, []string{"Test Client Cert"}))
+	_, err = client2.Delete(context.Background())
+	assert.Error(t, err)
+	assert.True(t, containsAllKeys(capturedSubjects2, []string{"Test Client Cert"}))
+
+	// Update cert+key bytes and verify it refreshes
+	capturedSubjects1 = make(map[string]struct{})
+	capturedSubjects2 = make(map[string]struct{})
+	certPEM2, keyPEM2 := generateTestCertKeyPEM(t, 2, "New Client Cert")
+	certKeyRefreshable.Update(httpclient.CertKeyPairBytes{
+		CertBytes: certPEM2,
+		KeyBytes:  keyPEM2,
+	})
+	// Re-Check
+	assert.Eventually(t, func() bool {
+		capturedSubjects1 = make(map[string]struct{})
+		_, err = client1.Delete(context.Background())
+		assert.Error(t, err)
+		return containsAllKeys(capturedSubjects1, []string{"New Client Cert"})
+	}, time.Second*2, time.Millisecond*100)
+	assert.Eventually(t, func() bool {
+		capturedSubjects2 = make(map[string]struct{})
+		_, err = client2.Delete(context.Background())
+		assert.Error(t, err)
+		return containsAllKeys(capturedSubjects2, []string{"New Client Cert"})
+	}, time.Second*2, time.Millisecond*100)
+}
+
+func newCertKeyCapturingMiddleware(capturedSubjects *map[string]struct{}) httpclient.MiddlewareFunc {
+	return func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+		transport := unwrapTransport(next)
+		if transport.TLSClientConfig != nil && transport.TLSClientConfig.GetClientCertificate != nil {
+			cert, err := transport.TLSClientConfig.GetClientCertificate(nil)
+			if err == nil && len(cert.Certificate) > 0 {
+				x509Cert, parseErr := x509.ParseCertificate(cert.Certificate[0])
+				if parseErr == nil {
+					for _, org := range x509Cert.Subject.Organization {
+						(*capturedSubjects)[org] = struct{}{}
+					}
+				}
+			}
+		}
+		return next.RoundTrip(req)
+	}
+}
+
 func newTLSCapturingMiddleware(capturedSubjects *map[string]struct{}) httpclient.MiddlewareFunc {
 	return func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
 		transport := unwrapTransport(next)
@@ -461,6 +544,27 @@ func generateTestCACertPEM(t *testing.T, serialNumber int64, orgName string) []b
 	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, &priv.PublicKey, priv)
 	require.NoError(t, err)
 	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
+}
+
+func generateTestCertKeyPEM(t *testing.T, serialNumber int64, orgName string) (certPEM []byte, keyPEM []byte) {
+	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	template := x509.Certificate{
+		SerialNumber: big.NewInt(serialNumber),
+		Subject: pkix.Name{
+			Organization: []string{orgName},
+		},
+		NotBefore: time.Now(),
+		NotAfter:  time.Now().Add(time.Hour),
+		KeyUsage:  x509.KeyUsageDigitalSignature,
+	}
+	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, &priv.PublicKey, priv)
+	require.NoError(t, err)
+	certPEM = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
+	keyDER, err := x509.MarshalECPrivateKey(priv)
+	require.NoError(t, err)
+	keyPEM = pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
+	return certPEM, keyPEM
 }
 
 // Test_NewClientDoesNotLeakGoroutines verifies that the clients returned by httpclient.NewClient and
