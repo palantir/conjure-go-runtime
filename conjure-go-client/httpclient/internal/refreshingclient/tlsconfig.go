@@ -30,6 +30,8 @@ type TLSParams struct {
 	CABytes            [][]byte
 	CertFile           string
 	KeyFile            string
+	CertBytes          []byte
+	KeyBytes           []byte
 	InsecureSkipVerify bool
 }
 
@@ -66,7 +68,13 @@ func NewTLSConfig(ctx context.Context, p TLSParams) (*tls.Config, error) {
 		}
 		tlsParams = append(tlsParams, tlsconfig.ClientRootCAs(tlsconfig.AugmentCertPoolWithCertPoolOptions(certPool, certPoolOptions)))
 	}
-	if p.CertFile != "" && p.KeyFile != "" {
+	if len(p.CertBytes) > 0 && len(p.KeyBytes) > 0 {
+		certBytes := p.CertBytes
+		keyBytes := p.KeyBytes
+		tlsParams = append(tlsParams, tlsconfig.ClientKeyPair(func() (tls.Certificate, error) {
+			return tls.X509KeyPair(certBytes, keyBytes)
+		}))
+	} else if p.CertFile != "" && p.KeyFile != "" {
 		tlsParams = append(tlsParams, tlsconfig.ClientKeyPairFiles(p.CertFile, p.KeyFile))
 	}
 	if p.InsecureSkipVerify {

@@ -122,12 +122,29 @@ func WithMiddleware(h Middleware) ClientOrHTTPClientParam {
 	})
 }
 
+// CertKeyPairBytes contains PEM-encoded TLS certificate and private key bytes.
+type CertKeyPairBytes struct {
+	CertBytes []byte
+	KeyBytes  []byte
+}
+
 // WithTLSCABytes sets the root CA certificates for the HTTP client's TLS config using a refreshable
 // source of PEM-encoded bytes. The TLS configuration will be rebuilt whenever the refreshable updates.
 // This is useful when the CA certificates are available in memory rather than on disk and may change over time.
 func WithTLSCABytes(caBytes refreshable.Refreshable[[][]byte]) ClientOrHTTPClientParam {
 	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
 		b.TLSCABytes = caBytes
+		return nil
+	})
+}
+
+// WithTLSCertKeyBytes sets the client TLS certificate and private key for the HTTP client's TLS config
+// using a refreshable source of PEM-encoded bytes. The TLS configuration will be rebuilt whenever the
+// refreshable updates. This is useful when the certificate and key are available in memory rather than
+// on disk and may change over time. When set, this takes precedence over WithKeyAndCertFile.
+func WithTLSCertKeyBytes(certKeyBytes refreshable.Refreshable[CertKeyPairBytes]) ClientOrHTTPClientParam {
+	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
+		b.TLSCertKeyBytes = certKeyBytes
 		return nil
 	})
 }
