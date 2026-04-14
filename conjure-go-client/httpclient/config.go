@@ -137,6 +137,10 @@ type SecurityConfig struct {
 	// InsecureSkipVerify sets the InsecureSkipVerify field for the HTTP client's tls config.
 	// This option should only be used in clients that have other ways to establish trust with servers.
 	InsecureSkipVerify *bool `json:"insecure-skip-verify,omitempty" yaml:"insecure-skip-verify,omitempty"`
+
+	// DynamicCertReload enables re-reading client TLS cert/key files on each TLS handshake.
+	// When enabled, rotated certificates are picked up without restarting the process.
+	DynamicCertReload *bool `json:"dynamic-cert-reload,omitempty" yaml:"dynamic-cert-reload,omitempty"`
 }
 
 // MustClientConfig returns an error if the service name is not configured.
@@ -253,6 +257,9 @@ func MergeClientConfig(conf, defaults ClientConfig) ClientConfig {
 	}
 	if conf.Security.InsecureSkipVerify == nil {
 		conf.Security.InsecureSkipVerify = defaults.Security.InsecureSkipVerify
+	}
+	if conf.Security.DynamicCertReload == nil {
+		conf.Security.DynamicCertReload = defaults.Security.DynamicCertReload
 	}
 	return conf
 }
@@ -375,6 +382,9 @@ func getClientTLSParams(c ClientConfig) []ClientParam {
 	if derefPtr(c.Security.InsecureSkipVerify, false) {
 		params = append(params, WithTLSInsecureSkipVerify())
 	}
+	if derefPtr(c.Security.DynamicCertReload, false) {
+		params = append(params, WithDynamicCertReload())
+	}
 	return params
 }
 
@@ -400,6 +410,7 @@ func newValidatedClientParamsFromConfig(ctx context.Context, config ClientConfig
 			CertFile:           config.Security.CertFile,
 			KeyFile:            config.Security.KeyFile,
 			InsecureSkipVerify: derefPtr(config.Security.InsecureSkipVerify, false),
+			DynamicCertReload:  derefPtr(config.Security.DynamicCertReload, false),
 		},
 	}
 

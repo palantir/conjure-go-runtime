@@ -421,6 +421,20 @@ func WithKeyAndCertFile(keyFile string, certFile string) ClientOrHTTPClientParam
 	})
 }
 
+// WithDynamicCertReload enables re-reading client TLS cert/key files on each TLS handshake.
+// By default, client certificates are loaded once at client creation time. When this option is
+// enabled, the cert and key files are re-read from disk on every TLS handshake, allowing the
+// client to pick up rotated certificates without restarting.
+func WithDynamicCertReload() ClientOrHTTPClientParam {
+	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
+		b.TransportParams = refreshable.View(b.TransportParams, func(p refreshingclient.TransportParams) refreshingclient.TransportParams {
+			p.TLSConfigurationParams.DynamicCertReload = true
+			return p
+		})
+		return nil
+	})
+}
+
 // WithCAFiles sets the CA certificate file paths for the client's TLS configuration.
 // The files are read when the client is created and periodically refreshed to support certificate rotation.
 func WithCAFiles(CAFiles []string) ClientOrHTTPClientParam {

@@ -31,6 +31,7 @@ type TLSParams struct {
 	CertFile           string
 	KeyFile            string
 	InsecureSkipVerify bool
+	DynamicCertReload  bool
 }
 
 // NewRefreshableTLSConfig evaluates the provided TLSParams and returns a RefreshableTLSConfig that will update the
@@ -39,7 +40,7 @@ type TLSParams struct {
 // If the updated TLSParams are invalid, the RefreshableTLSConfig will continue to use the previous value and log the error.
 //
 // N.B. This subscription only fires when the paths are updated, not when the contents of the files are updated.
-// We could consider adding a file refreshable to watch the key and cert files.
+// When DynamicCertReload is enabled, the cert/key files are re-read on each TLS handshake via GetClientCertificate.
 func NewRefreshableTLSConfig(ctx context.Context, params refreshable.Validated[TLSParams]) (refreshable.Validated[*tls.Config], error) {
 	r, _, err := refreshable.MapValidated(ctx, params, func(ctx context.Context, p TLSParams) (*tls.Config, error) {
 		return NewTLSConfig(ctx, p)
@@ -67,7 +68,11 @@ func NewTLSConfig(ctx context.Context, p TLSParams) (*tls.Config, error) {
 		tlsParams = append(tlsParams, tlsconfig.ClientRootCAs(tlsconfig.AugmentCertPoolWithCertPoolOptions(certPool, certPoolOptions)))
 	}
 	if p.CertFile != "" && p.KeyFile != "" {
-		tlsParams = append(tlsParams, tlsconfig.ClientKeyPairFiles(p.CertFile, p.KeyFile))
+		if p.DynamicCertReload {
+			tlsParams = append(tlsParams, tlsconfig.ClientKeyPair(tlsconfig.TLSCertFromFiles(p.CertFile, p.KeyFile)))
+		} else {
+			tlsParams = append(tlsParams, tlsconfig.ClientKeyPairFiles(p.CertFile, p.KeyFile))
+		}
 	}
 	if p.InsecureSkipVerify {
 		tlsParams = append(tlsParams, tlsconfig.ClientInsecureSkipVerify())
