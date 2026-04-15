@@ -149,6 +149,7 @@ func (b *httpClientBuilder) getRefreshableTLSConfig(ctx context.Context) (refres
 			CertFile:           t1.TLSConfigurationParams.CertFile,
 			KeyFile:            t1.TLSConfigurationParams.KeyFile,
 			InsecureSkipVerify: t1.TLSConfigurationParams.InsecureSkipVerify,
+			DynamicCertReload:  t1.TLSConfigurationParams.DynamicCertReload,
 		}
 	})
 	if b.TLSCABytes != nil {

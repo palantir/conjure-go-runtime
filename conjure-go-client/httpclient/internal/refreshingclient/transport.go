@@ -48,6 +48,7 @@ type TLSConfigurationParams struct {
 	CertFile           string
 	KeyFile            string
 	InsecureSkipVerify bool
+	DynamicCertReload  bool
 }
 
 func NewRefreshableTransport(ctx context.Context, p refreshable.Refreshable[TransportParams], refreshableConfig refreshable.Validated[*tls.Config], dialer ContextDialer) http.RoundTripper {
