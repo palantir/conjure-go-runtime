@@ -23,6 +23,8 @@ type ctxKey string
 const (
 	// context-key for the RPC method name associated with the HTTP request call
 	rpcMethodName ctxKey = "rpcMethodName"
+	// context-key for the "For-User-Agent" header value
+	forUserAgentContextKey ctxKey = "forUserAgent"
 )
 
 // ContextWithRPCMethodName returns a copy of ctx with the rpcMethodName key set.
@@ -33,6 +35,23 @@ func ContextWithRPCMethodName(ctx context.Context, name string) context.Context 
 
 func getRPCMethodName(ctx context.Context) string {
 	e := ctx.Value(rpcMethodName)
+	if e == nil {
+		return ""
+	}
+	return e.(string)
+}
+
+// ContextWithForUserAgent returns a copy of ctx with the forUserAgent key set to the provided value (unless the
+// provided value is the empty string, in which case it returns the provided context).
+func ContextWithForUserAgent(ctx context.Context, forUserAgent string) context.Context {
+	if forUserAgent == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, forUserAgentContextKey, forUserAgent)
+}
+
+func getForUserAgent(ctx context.Context) string {
+	e := ctx.Value(forUserAgentContextKey)
 	if e == nil {
 		return ""
 	}
