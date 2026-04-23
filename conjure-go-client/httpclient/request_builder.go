@@ -33,7 +33,10 @@ type requestBuilder struct {
 	requestTimeout         *time.Duration
 }
 
-const traceIDHeaderKey = "X-B3-TraceId"
+const (
+	traceIDHeaderKey      = "X-B3-TraceId"
+	forUserAgentHeaderKey = "For-User-Agent"
+)
 
 type RequestParam interface {
 	apply(*requestBuilder) error

@@ -65,6 +65,11 @@ func (t traceMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (*
 				req.Header.Set(traceIDHeaderKey, string(traceID))
 			}
 		}
+
+		// if the forUserAgent header value is not set on the request and is set in the context, use the context value
+		if forUserAgent := getForUserAgent(ctx); forUserAgent != "" && req.Header.Get(forUserAgentHeaderKey) == "" {
+			req.Header.Set(forUserAgentHeaderKey, forUserAgent)
+		}
 	}
 
 	return next.RoundTrip(req)
