@@ -194,6 +194,18 @@ builder.SetMaxAttemptsRefreshable(attemptsRefreshable)
 `Clone()` preserves refreshable links (both copies observe the same source).
 Calling a static setter (e.g. `SetTimeout`) replaces the refreshable with a fixed value.
 
+### TLS client certificates
+
+Client certificate files are watched by default and trigger TLS config rebuilds when
+their contents change. For clients that need to re-read the cert/key files on every TLS
+handshake, enable dynamic reload:
+
+```go
+builder.
+    SetClientCertFiles("client.key", "client.crt").
+    SetDynamicCertReload(true)
+```
+
 ### YAML configuration
 
 `ApplyConfig` and `ApplyConfigRefreshable` apply a `ClientConfig` struct (typically
@@ -342,6 +354,8 @@ Tracing is enabled by default using `witchcraft-go-tracing`:
 
 - Each request creates a child span named after the endpoint's RPC name
 - B3 trace headers (`X-B3-TraceId`, etc.) are propagated to downstream services
+- `ContextWithForUserAgent(ctx, value)` propagates `For-User-Agent` unless the request
+  already has that header set
 
 Disable independently via `DisableTracing()` (spans) and
 `DisableTraceHeaderPropagation()` (headers).

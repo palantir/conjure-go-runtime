@@ -151,6 +151,7 @@ Key differences:
 | `WithTLSCABytes(r)` | `AddCACertBytesRefreshable(r)` | Additive in new API |
 | `WithCAFiles(files)` | `AddCACertFiles(files...)` | Additive in new API |
 | `WithKeyAndCertFile(k, c)` | `SetClientCertFiles(k, c)` | |
+| `WithDynamicCertReload()` | `SetDynamicCertReload(true)` | Re-reads cert/key files on each TLS handshake |
 | `WithTLSInsecureSkipVerify()` | `SetInsecureSkipVerify(true)` | Now takes bool |
 | `WithMetrics(tags...)` | `SetMetrics(tags...)` | |
 | `WithoutMetrics()` | `SetDisableMetrics(true)` | |
@@ -230,6 +231,7 @@ Key differences:
 | Old | New | Notes |
 |---|---|---|
 | `httpclient.ContextWithRPCMethodName(ctx, n)` | `httpc.ContextWithRPCMethodName(ctx, n)` | Same; rarely needed now |
+| `httpclient.ContextWithForUserAgent(ctx, v)` | `httpc.ContextWithForUserAgent(ctx, v)` | Same; propagated by tracing middleware |
 | N/A | `httpc.RPCMethodName(ctx)` | New: reads RPC name from context |
 
 ## Gotchas and behavioral differences

@@ -2,6 +2,3 @@ refreshables:
   ./conjure-go-client/httpclient:
     types:
       - ServicesConfig
-  ./conjure-go-client/httpclient/internal/refreshingclient:
-    types:
-      - ValidatedClientParams

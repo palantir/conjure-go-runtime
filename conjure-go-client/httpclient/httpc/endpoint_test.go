@@ -242,6 +242,50 @@ func TestEndpointExecute_RPCMethodName(t *testing.T) {
 	assert.Equal(t, "MyRPCMethod", name)
 }
 
+func TestEndpointExecute_ForUserAgentFromContext(t *testing.T) {
+	var got string
+	server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header.Get("For-User-Agent")
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	client, err := httpc.NewBuilder().
+		SetBaseURLs(server.URL).
+		SetServiceName("test-service").
+		DisableRestErrors().
+		Build(t.Context())
+	require.NoError(t, err)
+
+	ctx := httpc.ContextWithForUserAgent(t.Context(), "end-user-agent")
+	_, _, err = httpc.ExecuteVoid(ctx, client,
+		httpc.NewGET[struct{}]("/test", "ForUserAgent").SetDecoder(httpc.VoidDecoder()))
+	require.NoError(t, err)
+	assert.Equal(t, "end-user-agent", got)
+}
+
+func TestEndpointExecute_ForUserAgentDoesNotOverrideHeader(t *testing.T) {
+	var got string
+	server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header.Get("For-User-Agent")
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	client, err := httpc.NewBuilder().
+		SetBaseURLs(server.URL).
+		SetServiceName("test-service").
+		DisableRestErrors().
+		Build(t.Context())
+	require.NoError(t, err)
+
+	ctx := httpc.ContextWithForUserAgent(t.Context(), "context-value")
+	_, _, err = httpc.ExecuteVoid(ctx, client,
+		httpc.NewGET[struct{}]("/test", "ForUserAgent").
+			SetDecoder(httpc.VoidDecoder()).
+			SetHeader("For-User-Agent", "request-value"))
+	require.NoError(t, err)
+	assert.Equal(t, "request-value", got)
+}
+
 func TestEndpointExecute_CopyOnWrite(t *testing.T) {
 	server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

@@ -243,6 +243,41 @@ func TestBuildTLSConfig_FileBased_CertFileRefresh(t *testing.T) {
 	}, 10*time.Second)
 }
 
+func TestBuildTLSConfig_DynamicCertReload(t *testing.T) {
+	tmpDir := t.TempDir()
+	certFile := filepath.Join(tmpDir, "client.crt")
+	keyFile := filepath.Join(tmpDir, "client.key")
+
+	certPEM1, keyPEM1 := generateTestKeyPair(t)
+	require.NoError(t, os.WriteFile(certFile, certPEM1, 0600))
+	require.NoError(t, os.WriteFile(keyFile, keyPEM1, 0600))
+
+	tlsResult, err := httpc.NewBuilder().
+		SetClientCertFiles(keyFile, certFile).
+		SetDynamicCertReload(true).
+		BuildTLSConfig(context.Background())
+	require.NoError(t, err)
+
+	cfg, validErr := tlsResult.Validation()
+	require.NoError(t, validErr)
+	require.NotNil(t, cfg.GetClientCertificate)
+	assert.Empty(t, cfg.Certificates)
+
+	cert1, err := cfg.GetClientCertificate(nil)
+	require.NoError(t, err)
+	require.NotEmpty(t, cert1.Certificate)
+	original := cert1.Certificate[0]
+
+	certPEM2, keyPEM2 := generateTestKeyPair(t)
+	require.NoError(t, os.WriteFile(certFile, certPEM2, 0600))
+	require.NoError(t, os.WriteFile(keyFile, keyPEM2, 0600))
+
+	cert2, err := cfg.GetClientCertificate(nil)
+	require.NoError(t, err)
+	require.NotEmpty(t, cert2.Certificate)
+	assert.NotEqual(t, original, cert2.Certificate[0])
+}
+
 // TestBuildTLSConfig_NoTLSSettings verifies that with no explicit TLS settings
 // (system CAs included by default) still produces a valid config with secure defaults.
 func TestBuildTLSConfig_NoTLSSettings(t *testing.T) {
