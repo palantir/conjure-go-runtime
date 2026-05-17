@@ -26,6 +26,7 @@ import (
 	"github.com/palantir/pkg/metrics"
 	"github.com/palantir/pkg/refreshable/v2"
 	werror "github.com/palantir/witchcraft-go-error"
+	"github.com/palantir/witchcraft-go-logging/wlog/svclog/svc1log"
 )
 
 const (
@@ -81,7 +82,6 @@ func (m *metricsMiddleware) RoundTrip(req *http.Request, next http.RoundTripper)
 	start := time.Now()
 	tlsCtx := m.tlsTraceContext(req.Context(), registry, serviceNameTag)
 	resp, err := next.RoundTrip(req.WithContext(tlsCtx))
-	duration := time.Since(start)
 	registry.Counter(metricRequestInFlight, serviceNameTag).Dec(1)
 
 	tags := []metrics.Tag{
@@ -94,7 +94,7 @@ func (m *metricsMiddleware) RoundTrip(req *http.Request, next http.RoundTripper)
 		tags = append(tags, tp.Tags(req, resp, err)...)
 	}
 
-	registry.Timer(metricClientResponse, tags...).Update(duration / time.Microsecond)
+	registry.Timer(metricClientResponse, tags...).UpdateSince(start)
 	return resp, err
 }
 
@@ -132,17 +132,18 @@ func (*metricsMiddleware) tlsTraceContext(ctx context.Context, registry metrics.
 			}
 			registry.Counter(metricConnCreate, serviceNameTag, reuseTag).Inc(1)
 			if !getConnStart.IsZero() {
-				registry.Timer(metricConnAcquire, serviceNameTag, reuseTag).Update(time.Since(getConnStart) / time.Microsecond)
+				registry.Timer(metricConnAcquire, serviceNameTag, reuseTag).UpdateSince(getConnStart)
 			}
 		},
 		PutIdleConn: func(err error) {
 			if err != nil {
 				registry.Meter(metricConnIdleReturnError, serviceNameTag).Mark(1)
+				svc1log.FromContext(ctx).Warn("Idle connection return error", svc1log.Stacktrace(err))
 			}
 		},
 		GotFirstResponseByte: func() {
 			if !wroteRequestAt.IsZero() {
-				registry.Timer(metricTimeToFirstByte, serviceNameTag).Update(time.Since(wroteRequestAt) / time.Microsecond)
+				registry.Timer(metricTimeToFirstByte, serviceNameTag).UpdateSince(wroteRequestAt)
 			}
 		},
 		DNSStart: func(info httptrace.DNSStartInfo) {
@@ -150,44 +151,41 @@ func (*metricsMiddleware) tlsTraceContext(ctx context.Context, registry metrics.
 		},
 		DNSDone: func(info httptrace.DNSDoneInfo) {
 			if !dnsStart.IsZero() {
-				registry.Timer(metricDNSLookup, serviceNameTag).Update(time.Since(dnsStart) / time.Microsecond)
+				registry.Timer(metricDNSLookup, serviceNameTag).UpdateSince(dnsStart)
 			}
 			if info.Err != nil {
 				registry.Meter(metricDNSLookupError, serviceNameTag).Mark(1)
+				svc1log.FromContext(ctx).Warn("DNS Lookup error", svc1log.Stacktrace(info.Err))
 			}
 		},
-		// Happy Eyeballs may produce multiple ConnectStart/ConnectDone pairs,
-		// so we key start times by network+addr.
+		// Happy Eyeballs may produce multiple ConnectStart/ConnectDone pairs, so we key start times by network+addr.
 		ConnectStart: func(network, addr string) {
 			connectStarts[network+addr] = time.Now()
 		},
 		ConnectDone: func(network, addr string, err error) {
 			networkTag := metrics.NewTagWithFallbackValue(metricTagNetwork, network, "unknown")
 			if start, ok := connectStarts[network+addr]; ok {
-				registry.Timer(metricTCPConnect, serviceNameTag, networkTag).Update(time.Since(start) / time.Microsecond)
+				registry.Timer(metricTCPConnect, serviceNameTag, networkTag).UpdateSince(start)
 				delete(connectStarts, network+addr)
 			}
 			if err != nil {
 				registry.Meter(metricTCPConnectError, serviceNameTag, networkTag).Mark(1)
+				svc1log.FromContext(ctx).Warn("TCP Connect error", svc1log.Stacktrace(err))
 			}
 		},
 		TLSHandshakeStart: func() {
 			registry.Meter(metricTLSHandshakeAttempt, serviceNameTag).Mark(1)
 		},
 		TLSHandshakeDone: func(state tls.ConnectionState, err error) {
-			tags := []metrics.Tag{serviceNameTag}
-			cipherSuite := tls.CipherSuiteName(state.CipherSuite)
-			if cipherSuite != "" {
-				tags = append(tags, metrics.NewTagWithFallbackValue(metricTagCipher, cipherSuite, "unknown"))
-			}
-			if state.NegotiatedProtocol != "" {
-				tags = append(tags, metrics.NewTagWithFallbackValue(metricTagNextProtocol, state.NegotiatedProtocol, "unknown"))
-			}
-			if tlsVersion := tlsVersionString(state.Version); tlsVersion != "" {
-				tags = append(tags, metrics.NewTagWithFallbackValue(metricTagTLSVersion, tlsVersion, "unknown"))
+			tags := []metrics.Tag{
+				serviceNameTag,
+				metrics.NewTagWithFallbackValue(metricTagCipher, tls.CipherSuiteName(state.CipherSuite), "unknown"),
+				metrics.NewTagWithFallbackValue(metricTagNextProtocol, state.NegotiatedProtocol, "unknown"),
+				metrics.NewTagWithFallbackValue(metricTagTLSVersion, tlsVersionString(state.Version), "unknown"),
 			}
 			if err != nil {
 				registry.Meter(metricTLSHandshakeFailure, tags...).Mark(1)
+				svc1log.FromContext(ctx).Warn("TLS Handshake error", svc1log.Stacktrace(err))
 			} else {
 				registry.Meter(metricTLSHandshake, tags...).Mark(1)
 			}
@@ -198,6 +196,7 @@ func (*metricsMiddleware) tlsTraceContext(ctx context.Context, registry metrics.
 			wroteRequestAt = time.Now()
 			if info.Err != nil {
 				registry.Meter(metricRequestWriteError, serviceNameTag).Mark(1)
+				svc1log.FromContext(ctx).Warn("Request Write error", svc1log.Stacktrace(info.Err))
 			}
 		},
 	})
@@ -207,7 +206,7 @@ func tagMethodName(req *http.Request) metrics.Tag {
 	if name, ok := RPCMethodName(req.Context()); ok && name != "" {
 		return metrics.NewTagWithFallbackValue(metricTagMethodName, name, "RPCMethodNameInvalid")
 	}
-	return metrics.MustNewTag(metricTagMethodName, "RPCMethodNameMissing"))
+	return metrics.MustNewTag(metricTagMethodName, "RPCMethodNameMissing")
 }
 
 func tagStatusFamily(resp *http.Response, err error) metrics.Tag {
