@@ -80,11 +80,11 @@ func TestMiddlewareStackOrder(t *testing.T) {
 		Build(t.Context())
 	require.NoError(t, err)
 
-	ep := httpc.NewGET[struct{}]("/test", "OrderTest").
+	ep := httpc.NewGET[struct{}]("OrderTest", "/test").
 		SetDecoder(httpc.VoidDecoder()).
 		WithMiddleware(perRequestMW)
 
-	_, _, err = httpc.ExecuteVoid(t.Context(), client, ep)
+	_, _, err = ep.Execute(t.Context(), client, httpc.Void{})
 	require.NoError(t, err)
 
 	assert.Equal(t, []string{
@@ -130,10 +130,10 @@ func TestMiddlewareStackOrder_MultipleOuterAndInner(t *testing.T) {
 		Build(t.Context())
 	require.NoError(t, err)
 
-	ep := httpc.NewGET[struct{}]("/test", "MultiMW").
+	ep := httpc.NewGET[struct{}]("MultiMW", "/test").
 		SetDecoder(httpc.VoidDecoder())
 
-	_, _, err = httpc.ExecuteVoid(t.Context(), client, ep)
+	_, _, err = ep.Execute(t.Context(), client, httpc.Void{})
 	require.NoError(t, err)
 
 	// Outer middlewares: last added is outermost (outer2 before outer1).
@@ -237,7 +237,7 @@ func TestRetry_ExhaustsMaxAttempts(t *testing.T) {
 		Build(t.Context())
 	require.NoError(t, err)
 
-	ep := httpc.NewPOST[testRetryPayload, struct{}]("/test", "RetryTest").
+	ep := httpc.NewPOST[testRetryPayload, struct{}]("RetryTest", "/test").
 		SetEncoder(httpc.JSONEncoder[testRetryPayload]()).
 		SetDecoder(httpc.VoidDecoder())
 
@@ -279,7 +279,7 @@ func TestRetry_SucceedsOnSecondAttempt(t *testing.T) {
 		Build(t.Context())
 	require.NoError(t, err)
 
-	ep := httpc.NewJSONPOST[testRetryPayload, testRetryPayload]("/test", "RetrySuccessTest")
+	ep := httpc.NewJSONPOST[testRetryPayload, testRetryPayload]("RetrySuccessTest", "/test")
 
 	resp, _, err := ep.Execute(t.Context(), client, testRetryPayload{Value: "hello"})
 	require.NoError(t, err)
@@ -316,7 +316,7 @@ func TestRetry_MultipleURIs(t *testing.T) {
 		Build(t.Context())
 	require.NoError(t, err)
 
-	ep := httpc.NewJSONPOST[testRetryPayload, testRetryPayload]("/test", "MultiURIRetry")
+	ep := httpc.NewJSONPOST[testRetryPayload, testRetryPayload]("MultiURIRetry", "/test")
 
 	// Retry enough times to hit both servers.
 	var successes int
@@ -356,7 +356,7 @@ func TestRetry_NonRetryableBody(t *testing.T) {
 	require.NoError(t, err)
 
 	// Use BinaryEncoder with a non-seekable reader — GetBody won't be set.
-	ep := httpc.NewEndpoint[io.ReadCloser, struct{}](http.MethodPost, "/test", "NoRetry").
+	ep := httpc.NewEndpoint[io.ReadCloser, struct{}](http.MethodPost, "NoRetry", "/test").
 		SetEncoder(httpc.BinaryEncoder("application/octet-stream")).
 		SetDecoder(httpc.VoidDecoder())
 
@@ -421,7 +421,7 @@ func TestRetry_GZIPCompressedBody(t *testing.T) {
 		Build(t.Context())
 	require.NoError(t, err)
 
-	ep := httpc.NewPOST[testRetryPayload, testRetryPayload]("/test", "GZIPRetry").
+	ep := httpc.NewPOST[testRetryPayload, testRetryPayload]("GZIPRetry", "/test").
 		SetEncoder(httpc.GZIPEncoder(httpc.JSONEncoder[testRetryPayload]())).
 		SetDecoder(httpc.JSONDecoder[testRetryPayload]()).
 		SetAccept("application/json")
@@ -467,7 +467,7 @@ func TestRetry_SnappyCompressedBody(t *testing.T) {
 		Build(t.Context())
 	require.NoError(t, err)
 
-	ep := httpc.NewPOST[testRetryPayload, testRetryPayload]("/test", "SnappyRetry").
+	ep := httpc.NewPOST[testRetryPayload, testRetryPayload]("SnappyRetry", "/test").
 		SetEncoder(httpc.SnappyEncoder(httpc.JSONEncoder[testRetryPayload]())).
 		SetDecoder(httpc.JSONDecoder[testRetryPayload]()).
 		SetAccept("application/json")
@@ -511,7 +511,7 @@ func TestRetry_ZLIBCompressedBody(t *testing.T) {
 		Build(t.Context())
 	require.NoError(t, err)
 
-	ep := httpc.NewPOST[testRetryPayload, testRetryPayload]("/test", "ZLIBRetry").
+	ep := httpc.NewPOST[testRetryPayload, testRetryPayload]("ZLIBRetry", "/test").
 		SetEncoder(httpc.ZLIBEncoder(httpc.JSONEncoder[testRetryPayload]())).
 		SetDecoder(httpc.JSONDecoder[testRetryPayload]()).
 		SetAccept("application/json")
@@ -555,11 +555,11 @@ func TestErrorDecoder_307WithLocation_RetriesAgainstLocation(t *testing.T) {
 		Build(t.Context())
 	require.NoError(t, err)
 
-	ep := httpc.NewGET[testRetryPayload]("/test", "RedirectTest").
+	ep := httpc.NewGET[testRetryPayload]("RedirectTest", "/test").
 		SetDecoder(httpc.JSONDecoder[testRetryPayload]()).
 		SetAccept("application/json")
 
-	resp, _, err := httpc.ExecuteVoid(t.Context(), client, ep)
+	resp, _, err := ep.Execute(t.Context(), client, httpc.Void{})
 	require.NoError(t, err)
 	assert.Equal(t, "redirected", resp.Value)
 	assert.Equal(t, int32(1), originHits.Load(), "origin should be hit once")
@@ -589,11 +589,11 @@ func TestErrorDecoder_307NoLocation_Retries(t *testing.T) {
 		Build(t.Context())
 	require.NoError(t, err)
 
-	ep := httpc.NewGET[testRetryPayload]("/test", "NoLocationTest").
+	ep := httpc.NewGET[testRetryPayload]("NoLocationTest", "/test").
 		SetDecoder(httpc.JSONDecoder[testRetryPayload]()).
 		SetAccept("application/json")
 
-	resp, _, err := httpc.ExecuteVoid(t.Context(), client, ep)
+	resp, _, err := ep.Execute(t.Context(), client, httpc.Void{})
 	require.NoError(t, err)
 	assert.Equal(t, "retried", resp.Value)
 	assert.Equal(t, int32(2), attempts.Load())
@@ -625,11 +625,11 @@ func TestErrorDecoder_301Redirect_FollowedByHTTPClient(t *testing.T) {
 		Build(t.Context()) // default error decoder configured
 	require.NoError(t, err)
 
-	ep := httpc.NewGET[testRetryPayload]("/test", "MovedTest").
+	ep := httpc.NewGET[testRetryPayload]("MovedTest", "/test").
 		SetDecoder(httpc.JSONDecoder[testRetryPayload]()).
 		SetAccept("application/json")
 
-	resp, _, err := httpc.ExecuteVoid(t.Context(), client, ep)
+	resp, _, err := ep.Execute(t.Context(), client, httpc.Void{})
 	require.NoError(t, err)
 	assert.Equal(t, "moved", resp.Value)
 	assert.Equal(t, int32(1), originHits.Load())
@@ -659,11 +659,11 @@ func TestErrorDecoder_429_RetriesWithBackoff(t *testing.T) {
 		Build(t.Context())
 	require.NoError(t, err)
 
-	ep := httpc.NewGET[testRetryPayload]("/test", "ThrottleTest").
+	ep := httpc.NewGET[testRetryPayload]("ThrottleTest", "/test").
 		SetDecoder(httpc.JSONDecoder[testRetryPayload]()).
 		SetAccept("application/json")
 
-	resp, _, err := httpc.ExecuteVoid(t.Context(), client, ep)
+	resp, _, err := ep.Execute(t.Context(), client, httpc.Void{})
 	require.NoError(t, err)
 	assert.Equal(t, "throttled-ok", resp.Value)
 	assert.Equal(t, int32(2), attempts.Load())
@@ -692,11 +692,11 @@ func TestErrorDecoder_503_Retries(t *testing.T) {
 		Build(t.Context())
 	require.NoError(t, err)
 
-	ep := httpc.NewGET[testRetryPayload]("/test", "UnavailableTest").
+	ep := httpc.NewGET[testRetryPayload]("UnavailableTest", "/test").
 		SetDecoder(httpc.JSONDecoder[testRetryPayload]()).
 		SetAccept("application/json")
 
-	resp, _, err := httpc.ExecuteVoid(t.Context(), client, ep)
+	resp, _, err := ep.Execute(t.Context(), client, httpc.Void{})
 	require.NoError(t, err)
 	assert.Equal(t, "available", resp.Value)
 	assert.Equal(t, int32(2), attempts.Load())
@@ -720,10 +720,10 @@ func TestErrorDecoder_404_NotRetried(t *testing.T) {
 		Build(t.Context())
 	require.NoError(t, err)
 
-	ep := httpc.NewGET[struct{}]("/missing", "NotFoundTest").
+	ep := httpc.NewGET[struct{}]("NotFoundTest", "/missing").
 		SetDecoder(httpc.VoidDecoder())
 
-	_, _, err = httpc.ExecuteVoid(t.Context(), client, ep)
+	_, _, err = ep.Execute(t.Context(), client, httpc.Void{})
 	require.Error(t, err)
 	statusCode, ok := httpc.StatusCodeFromError(err)
 	assert.True(t, ok)
@@ -753,7 +753,7 @@ func TestRetry_GZIPCompressedBody_AllFail(t *testing.T) {
 		Build(t.Context())
 	require.NoError(t, err)
 
-	ep := httpc.NewPOST[testRetryPayload, struct{}]("/test", "GZIPRetryFail").
+	ep := httpc.NewPOST[testRetryPayload, struct{}]("GZIPRetryFail", "/test").
 		SetEncoder(httpc.GZIPEncoder(httpc.JSONEncoder[testRetryPayload]())).
 		SetDecoder(httpc.VoidDecoder())
 

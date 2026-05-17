@@ -65,7 +65,7 @@ func TestEndpointExecute_JSONRoundTrip(t *testing.T) {
 		_, _ = w.Write([]byte(`{"name":"response","value":2}`))
 	})
 
-	ep := httpc.NewEndpoint[testPayload, testPayload](http.MethodPost, "/api/v1/items", "CreateItem").
+	ep := httpc.NewEndpoint[testPayload, testPayload](http.MethodPost, "CreateItem", "/api/v1/items").
 		SetEncoder(httpc.JSONEncoder[testPayload]()).
 		SetDecoder(httpc.JSONDecoder[testPayload]()).
 		SetAccept("application/json")
@@ -83,7 +83,7 @@ func TestEndpointExecute_Headers(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 
-	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "/test", "Test").
+	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "Test", "/test").
 		SetDecoder(httpc.VoidDecoder()).
 		AddHeader("X-Custom", "val1").
 		AddHeader("X-Other", "val2")
@@ -100,7 +100,7 @@ func TestEndpointExecute_QueryParams(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 
-	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "/search", "Search").
+	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "Search", "/search").
 		SetDecoder(httpc.VoidDecoder()).
 		AddQuery("foo", "bar").
 		AddQuery("page", "2")
@@ -119,13 +119,46 @@ func TestEndpointExecute_BasicAuth(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 
-	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "/auth", "Auth").
+	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "Auth", "/auth").
 		SetDecoder(httpc.VoidDecoder()).
 		WithBasicAuth("myuser", "mypass")
 
 	client := &httpTestClient{server: server}
 	_, _, err := ep.Execute(context.Background(), client, struct{}{})
 	require.NoError(t, err)
+}
+
+func TestEndpointExecute_BasicAuthOverridesClientAuth(t *testing.T) {
+	var gotAuth string
+	var providerCalled bool
+	transport := &roundTripFunc{fn: func(req *http.Request) (*http.Response, error) {
+		gotAuth = req.Header.Get("Authorization")
+		return &http.Response{
+			StatusCode: http.StatusNoContent,
+			Header:     make(http.Header),
+			Body:       http.NoBody,
+			Request:    req,
+		}, nil
+	}}
+	client, err := httpc.NewBuilder().
+		SetBaseURLs("https://example.com").
+		SetAuthTokenProvider(func(context.Context) (string, error) {
+			providerCalled = true
+			return "", assert.AnError
+		}).
+		SetTransport(transport).
+		DisableRestErrors().
+		Build(context.Background())
+	require.NoError(t, err)
+
+	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "Auth", "/auth").
+		SetDecoder(httpc.VoidDecoder()).
+		WithBasicAuth("request-user", "request-pass")
+
+	_, _, err = ep.Execute(context.Background(), client, struct{}{})
+	require.NoError(t, err)
+	assert.Equal(t, "Basic cmVxdWVzdC11c2VyOnJlcXVlc3QtcGFzcw==", gotAuth)
+	assert.False(t, providerCalled)
 }
 
 func TestEndpointExecute_Timeout(t *testing.T) {
@@ -135,7 +168,7 @@ func TestEndpointExecute_Timeout(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 
-	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "/slow", "Slow").
+	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "Slow", "/slow").
 		SetDecoder(httpc.VoidDecoder()).
 		WithTimeout(50 * time.Millisecond)
 
@@ -145,18 +178,63 @@ func TestEndpointExecute_Timeout(t *testing.T) {
 	assert.Contains(t, err.Error(), "context deadline exceeded")
 }
 
+func TestEndpointExecute_ZeroTimeoutDoesNotCancelContext(t *testing.T) {
+	client := clientFunc(func(req *http.Request) (*http.Response, error) {
+		require.NoError(t, req.Context().Err())
+		return &http.Response{
+			StatusCode: http.StatusNoContent,
+			Header:     make(http.Header),
+			Body:       http.NoBody,
+			Request:    req,
+		}, nil
+	})
+
+	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "Test", "/test").
+		SetDecoder(httpc.VoidDecoder()).
+		WithTimeout(0)
+
+	_, _, err := ep.Execute(context.Background(), client, struct{}{})
+	require.NoError(t, err)
+}
+
 func TestEndpointExecute_ErrorDecoder(t *testing.T) {
 	server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
 		_, _ = w.Write([]byte("forbidden"))
 	})
 
-	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "/err", "Err").
+	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "Err", "/err").
 		SetDecoder(httpc.VoidDecoder()).
 		WithErrorDecoder(&testErrorDecoder{})
 
 	client := &httpTestClient{server: server}
 	_, _, err := ep.Execute(context.Background(), client, struct{}{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "test error: Forbidden")
+}
+
+func TestEndpointExecute_ErrorDecoderFallsBackToClientDecoder(t *testing.T) {
+	transport := &roundTripFunc{fn: func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusForbidden,
+			Status:     "403 Forbidden",
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader("forbidden")),
+			Request:    req,
+		}, nil
+	}}
+	client, err := httpc.NewBuilder().
+		SetBaseURLs("https://example.com").
+		SetTransport(transport).
+		SetErrorDecoder(&testErrorDecoder{}).
+		Build(context.Background())
+	require.NoError(t, err)
+
+	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "Err", "/err").
+		SetDecoder(httpc.VoidDecoder()).
+		WithErrorDecoder(neverErrorDecoder{})
+
+	_, _, err = ep.Execute(context.Background(), client, struct{}{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "test error: Forbidden")
 }
@@ -181,6 +259,45 @@ func (e *testError) Error() string {
 	return "test error: " + http.StatusText(e.statusCode)
 }
 
+type neverErrorDecoder struct{}
+
+func (neverErrorDecoder) Handles(*http.Response) bool { return false }
+
+func (neverErrorDecoder) DecodeError(*http.Response) error {
+	return assert.AnError
+}
+
+type clientFunc func(*http.Request) (*http.Response, error)
+
+func (f clientFunc) Do(req *http.Request) (*http.Response, error) { return f(req) }
+
+func TestClientDo_PreservesEscapedPathSegments(t *testing.T) {
+	var gotEscapedPath string
+	transport := &roundTripFunc{fn: func(req *http.Request) (*http.Response, error) {
+		gotEscapedPath = req.URL.EscapedPath()
+		return &http.Response{
+			StatusCode: http.StatusNoContent,
+			Header:     make(http.Header),
+			Body:       http.NoBody,
+			Request:    req,
+		}, nil
+	}}
+	client, err := httpc.NewBuilder().
+		SetBaseURLs("https://example.com/base%2Froot").
+		SetTransport(transport).
+		DisableRestErrors().
+		Build(context.Background())
+	require.NoError(t, err)
+
+	ep := httpc.NewGET[struct{}]("GetItem", "/items/{itemId}").
+		SetDecoder(httpc.VoidDecoder()).
+		WithPathParam("itemId", "a/b")
+
+	_, _, err = ep.Execute(context.Background(), client, httpc.Void{})
+	require.NoError(t, err)
+	assert.Equal(t, "/base%2Froot/items/a%2Fb", gotEscapedPath)
+}
+
 func TestEndpointExecute_Middleware(t *testing.T) {
 	var middlewareCalled bool
 	server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
@@ -194,7 +311,7 @@ func TestEndpointExecute_Middleware(t *testing.T) {
 		return next.RoundTrip(req)
 	})
 
-	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "/mw", "MW").
+	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "MW", "/mw").
 		SetDecoder(httpc.VoidDecoder()).
 		WithMiddleware(mw)
 
@@ -204,17 +321,17 @@ func TestEndpointExecute_Middleware(t *testing.T) {
 	assert.True(t, middlewareCalled)
 }
 
-func TestExecuteVoid(t *testing.T) {
+func TestEndpointExecute_Void(t *testing.T) {
 	server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, http.MethodDelete, r.Method)
 		w.WriteHeader(http.StatusNoContent)
 	})
 
-	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodDelete, "/item/1", "DeleteItem").
+	ep := httpc.NewEndpoint[httpc.Void, httpc.Void](http.MethodDelete, "DeleteItem", "/item/1").
 		SetDecoder(httpc.VoidDecoder())
 
 	client := &httpTestClient{server: server}
-	_, _, err := httpc.ExecuteVoid(context.Background(), client, ep)
+	_, _, err := ep.Execute(context.Background(), client, httpc.Void{})
 	require.NoError(t, err)
 }
 
@@ -229,7 +346,7 @@ func TestEndpointExecute_RPCMethodName(t *testing.T) {
 		return next.RoundTrip(req)
 	})
 
-	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "/rpc", "MyRPCMethod").
+	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "MyRPCMethod", "/rpc").
 		SetDecoder(httpc.VoidDecoder()).
 		WithMiddleware(mw)
 
@@ -257,8 +374,8 @@ func TestEndpointExecute_ForUserAgentFromContext(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx := httpc.ContextWithForUserAgent(t.Context(), "end-user-agent")
-	_, _, err = httpc.ExecuteVoid(ctx, client,
-		httpc.NewGET[struct{}]("/test", "ForUserAgent").SetDecoder(httpc.VoidDecoder()))
+	_, _, err = httpc.NewGET[httpc.Void]("ForUserAgent", "/test").SetDecoder(httpc.VoidDecoder()).
+		Execute(ctx, client, httpc.Void{})
 	require.NoError(t, err)
 	assert.Equal(t, "end-user-agent", got)
 }
@@ -278,10 +395,10 @@ func TestEndpointExecute_ForUserAgentDoesNotOverrideHeader(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx := httpc.ContextWithForUserAgent(t.Context(), "context-value")
-	_, _, err = httpc.ExecuteVoid(ctx, client,
-		httpc.NewGET[struct{}]("/test", "ForUserAgent").
-			SetDecoder(httpc.VoidDecoder()).
-			SetHeader("For-User-Agent", "request-value"))
+	_, _, err = httpc.NewGET[httpc.Void]("ForUserAgent", "/test").
+		SetDecoder(httpc.VoidDecoder()).
+		SetHeader("For-User-Agent", "request-value").
+		Execute(ctx, client, httpc.Void{})
 	require.NoError(t, err)
 	assert.Equal(t, "request-value", got)
 }
@@ -292,7 +409,7 @@ func TestEndpointExecute_CopyOnWrite(t *testing.T) {
 		_, _ = w.Write([]byte(`{"name":"ok","value":0}`))
 	})
 
-	base := httpc.NewEndpoint[struct{}, testPayload](http.MethodGet, "/items", "GetItems").
+	base := httpc.NewEndpoint[struct{}, testPayload](http.MethodGet, "GetItems", "/items").
 		SetDecoder(httpc.JSONDecoder[testPayload]()).
 		SetAccept("application/json")
 
@@ -315,7 +432,7 @@ func TestEndpointExecute_NoDecoder(t *testing.T) {
 		_, _ = w.Write([]byte("ignored"))
 	})
 
-	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "/nodec", "NoDec")
+	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "NoDec", "/nodec")
 
 	client := &httpTestClient{server: server}
 	result, _, err := ep.Execute(context.Background(), client, struct{}{})
@@ -330,7 +447,7 @@ func TestEndpointExecute_BinaryDecoder(t *testing.T) {
 		_, _ = w.Write([]byte(expected))
 	})
 
-	ep := httpc.NewEndpoint[struct{}, io.ReadCloser](http.MethodGet, "/download", "Download").
+	ep := httpc.NewEndpoint[struct{}, io.ReadCloser](http.MethodGet, "Download", "/download").
 		SetDecoder(httpc.BinaryDecoder()).
 		SetAccept("application/octet-stream")
 
@@ -360,12 +477,12 @@ func TestNewGET(t *testing.T) {
 		_, _ = w.Write([]byte(`{"name":"get","value":1}`))
 	})
 
-	ep := httpc.NewGET[testPayload]("/items", "GetItems").
+	ep := httpc.NewGET[testPayload]("GetItems", "/items").
 		SetDecoder(httpc.JSONDecoder[testPayload]()).
 		SetAccept("application/json")
 
 	client := &httpTestClient{server: server}
-	result, _, err := httpc.ExecuteVoid(context.Background(), client, ep)
+	result, _, err := ep.Execute(context.Background(), client, httpc.Void{})
 	require.NoError(t, err)
 	assert.Equal(t, testPayload{Name: "get", Value: 1}, result)
 }
@@ -376,11 +493,11 @@ func TestNewDELETE(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 
-	ep := httpc.NewDELETE[struct{}]("/item/1", "DeleteItem").
+	ep := httpc.NewDELETE[struct{}]("DeleteItem", "/item/1").
 		SetDecoder(httpc.VoidDecoder())
 
 	client := &httpTestClient{server: server}
-	_, _, err := httpc.ExecuteVoid(context.Background(), client, ep)
+	_, _, err := ep.Execute(context.Background(), client, httpc.Void{})
 	require.NoError(t, err)
 }
 
@@ -390,11 +507,11 @@ func TestNewHEAD(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	ep := httpc.NewHEAD[struct{}]("/health", "Health").
+	ep := httpc.NewHEAD[struct{}]("Health", "/health").
 		SetDecoder(httpc.VoidDecoder())
 
 	client := &httpTestClient{server: server}
-	_, _, err := httpc.ExecuteVoid(context.Background(), client, ep)
+	_, _, err := ep.Execute(context.Background(), client, httpc.Void{})
 	require.NoError(t, err)
 }
 
@@ -407,7 +524,7 @@ func TestNewPOST(t *testing.T) {
 		_, _ = w.Write([]byte(`{"name":"created","value":2}`))
 	})
 
-	ep := httpc.NewPOST[testPayload, testPayload]("/items", "CreateItem").
+	ep := httpc.NewPOST[testPayload, testPayload]("CreateItem", "/items").
 		SetEncoder(httpc.JSONEncoder[testPayload]()).
 		SetDecoder(httpc.JSONDecoder[testPayload]()).
 		SetAccept("application/json")
@@ -424,7 +541,7 @@ func TestNewPUT(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 
-	ep := httpc.NewPUT[testPayload, struct{}]("/item/1", "UpdateItem").
+	ep := httpc.NewPUT[testPayload, struct{}]("UpdateItem", "/item/1").
 		SetEncoder(httpc.JSONEncoder[testPayload]()).
 		SetDecoder(httpc.VoidDecoder())
 
@@ -439,7 +556,7 @@ func TestNewPATCH(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 
-	ep := httpc.NewPATCH[testPayload, struct{}]("/item/1", "PatchItem").
+	ep := httpc.NewPATCH[testPayload, struct{}]("PatchItem", "/item/1").
 		SetEncoder(httpc.JSONEncoder[testPayload]()).
 		SetDecoder(httpc.VoidDecoder())
 
@@ -459,8 +576,8 @@ func TestNewJSONGET(t *testing.T) {
 	})
 
 	client := &httpTestClient{server: server}
-	result, _, err := httpc.ExecuteVoid(context.Background(), client,
-		httpc.NewJSONGET[testPayload]("/items/1", "GetItem"))
+	result, _, err := httpc.NewJSONGET[testPayload]("GetItem", "/items/1").
+		Execute(context.Background(), client, httpc.Void{})
 	require.NoError(t, err)
 	assert.Equal(t, testPayload{Name: "json-get", Value: 1}, result)
 }
@@ -477,7 +594,7 @@ func TestNewJSONPOST(t *testing.T) {
 	})
 
 	client := &httpTestClient{server: server}
-	result, _, err := httpc.NewJSONPOST[testPayload, testPayload]("/items", "CreateItem").
+	result, _, err := httpc.NewJSONPOST[testPayload, testPayload]("CreateItem", "/items").
 		Execute(context.Background(), client, testPayload{Name: "req", Value: 1})
 	require.NoError(t, err)
 	assert.Equal(t, testPayload{Name: "resp", Value: 2}, result)
@@ -495,7 +612,7 @@ func TestNewJSONPUT(t *testing.T) {
 	})
 
 	client := &httpTestClient{server: server}
-	result, _, err := httpc.NewJSONPUT[testPayload, testPayload]("/items/1", "UpdateItem").
+	result, _, err := httpc.NewJSONPUT[testPayload, testPayload]("UpdateItem", "/items/1").
 		Execute(context.Background(), client, testPayload{Name: "update", Value: 3})
 	require.NoError(t, err)
 	assert.Equal(t, testPayload{Name: "updated", Value: 4}, result)
@@ -520,7 +637,7 @@ func TestEndpointExecute_CompressionRoundTrip(t *testing.T) {
 		_, _ = w.Write([]byte(`{"name":"ok","value":0}`))
 	})
 
-	ep := httpc.NewPOST[testPayload, testPayload]("/test", "Compressed").
+	ep := httpc.NewPOST[testPayload, testPayload]("Compressed", "/test").
 		SetEncoder(httpc.ZLIBEncoder(httpc.JSONEncoder[testPayload]())).
 		SetDecoder(httpc.JSONDecoder[testPayload]()).
 		SetAccept("application/json")
@@ -539,12 +656,12 @@ func TestEndpointExecute_ResponseBodyDrained(t *testing.T) {
 		_, _ = w.Write([]byte(`{"name":"ok","value":1}`))
 	})
 
-	ep := httpc.NewGET[testPayload]("/test", "DrainTest").
+	ep := httpc.NewGET[testPayload]("DrainTest", "/test").
 		SetDecoder(httpc.JSONDecoder[testPayload]()).
 		SetAccept("application/json")
 
 	client := &httpTestClient{server: server}
-	result, _, err := httpc.ExecuteVoid(context.Background(), client, ep)
+	result, _, err := ep.Execute(context.Background(), client, httpc.Void{})
 	require.NoError(t, err)
 	assert.Equal(t, testPayload{Name: "ok", Value: 1}, result)
 }
@@ -560,7 +677,7 @@ func TestEndpointExecute_BinaryEncoderOnce(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 
-	ep := httpc.NewEndpoint[io.ReadCloser, struct{}](http.MethodPost, "/upload", "Upload").
+	ep := httpc.NewEndpoint[io.ReadCloser, struct{}](http.MethodPost, "Upload", "/upload").
 		SetEncoder(httpc.BinaryEncoder("application/octet-stream")).
 		SetDecoder(httpc.VoidDecoder())
 
@@ -592,7 +709,7 @@ func TestEndpointExecute_BufferPoolFromClient(t *testing.T) {
 		Build(t.Context())
 	require.NoError(t, err)
 
-	ep := httpc.NewPOST[testPayload, testPayload]("/test", "PoolTest").
+	ep := httpc.NewPOST[testPayload, testPayload]("PoolTest", "/test").
 		SetEncoder(httpc.JSONEncoder[testPayload]()).
 		SetDecoder(httpc.JSONDecoder[testPayload]()).
 		SetAccept("application/json")
@@ -613,7 +730,7 @@ func TestEndpointExecute_NoBufferPool(t *testing.T) {
 		_, _ = w.Write([]byte(`{"name":"ok","value":0}`))
 	})
 
-	ep := httpc.NewPOST[testPayload, testPayload]("/test", "NoPool").
+	ep := httpc.NewPOST[testPayload, testPayload]("NoPool", "/test").
 		SetEncoder(httpc.JSONEncoder[testPayload]()).
 		SetDecoder(httpc.JSONDecoder[testPayload]()).
 		SetAccept("application/json")
@@ -632,12 +749,12 @@ func TestEndpointExecute_BinaryDecoderNotDrained(t *testing.T) {
 		_, _ = w.Write([]byte(expected))
 	})
 
-	ep := httpc.NewGET[io.ReadCloser]("/dl", "Download").
+	ep := httpc.NewGET[io.ReadCloser]("Download", "/dl").
 		SetDecoder(httpc.BinaryDecoder()).
 		SetAccept("application/octet-stream")
 
 	client := &httpTestClient{server: server}
-	result, _, err := httpc.ExecuteVoid(context.Background(), client, ep)
+	result, _, err := ep.Execute(context.Background(), client, httpc.Void{})
 	require.NoError(t, err)
 	require.NotNil(t, result)
 
@@ -681,7 +798,7 @@ func TestEndpointExecute_PoolWithCompression(t *testing.T) {
 		Build(t.Context())
 	require.NoError(t, err)
 
-	ep := httpc.NewPOST[testPayload, testPayload]("/test", "PoolZlib").
+	ep := httpc.NewPOST[testPayload, testPayload]("PoolZlib", "/test").
 		SetEncoder(httpc.ZLIBEncoder(httpc.JSONEncoder[testPayload]())).
 		SetDecoder(httpc.JSONDecoder[testPayload]()).
 		SetAccept("application/json")
@@ -695,35 +812,35 @@ func TestEndpointExecute_PoolWithCompression(t *testing.T) {
 }
 
 func TestEndpointExecute_UnpopulatedPathParam(t *testing.T) {
-	ep := httpc.NewGET[struct{}]("/items/{itemId}", "GetItem").
+	ep := httpc.NewGET[struct{}]("GetItem", "/items/{itemId}").
 		SetDecoder(httpc.VoidDecoder())
 
 	client := &httpTestClient{server: newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		t.Fatal("handler should not be called")
 	})}
 
-	_, _, err := httpc.ExecuteVoid(context.Background(), client, ep)
+	_, _, err := ep.Execute(context.Background(), client, httpc.Void{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "{itemId}")
 	assert.Contains(t, err.Error(), "not populated")
 }
 
 func TestEndpointExecute_UnpopulatedGreedyPathParam(t *testing.T) {
-	ep := httpc.NewGET[struct{}]("/files/{filePath*}", "GetFile").
+	ep := httpc.NewGET[struct{}]("GetFile", "/files/{filePath*}").
 		SetDecoder(httpc.VoidDecoder())
 
 	client := &httpTestClient{server: newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		t.Fatal("handler should not be called")
 	})}
 
-	_, _, err := httpc.ExecuteVoid(context.Background(), client, ep)
+	_, _, err := ep.Execute(context.Background(), client, httpc.Void{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "{filePath*}")
 	assert.Contains(t, err.Error(), "not populated")
 }
 
 func TestEndpointExecute_PartialPathParams(t *testing.T) {
-	ep := httpc.NewGET[struct{}]("/orgs/{orgId}/items/{itemId}", "GetOrgItem").
+	ep := httpc.NewGET[struct{}]("GetOrgItem", "/orgs/{orgId}/items/{itemId}").
 		SetDecoder(httpc.VoidDecoder()).
 		WithPathParam("orgId", "acme")
 	// itemId is still unfilled.
@@ -732,7 +849,7 @@ func TestEndpointExecute_PartialPathParams(t *testing.T) {
 		t.Fatal("handler should not be called")
 	})}
 
-	_, _, err := httpc.ExecuteVoid(context.Background(), client, ep)
+	_, _, err := ep.Execute(context.Background(), client, httpc.Void{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "{itemId}")
 	assert.Contains(t, err.Error(), "not populated")

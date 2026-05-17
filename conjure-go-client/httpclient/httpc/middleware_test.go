@@ -53,14 +53,14 @@ func TestMiddlewareChain_Order(t *testing.T) {
 	})
 
 	// Each WithMiddleware wraps the previous, so mw3 is outermost.
-	ep := httpc.NewGET[struct{}]("/test", "Order").
+	ep := httpc.NewGET[struct{}]("Order", "/test").
 		SetDecoder(httpc.VoidDecoder()).
 		WithMiddleware(mw1).
 		WithMiddleware(mw2).
 		WithMiddleware(mw3)
 
 	client := &httpTestClient{server: server}
-	_, _, err := httpc.ExecuteVoid(t.Context(), client, ep)
+	_, _, err := ep.Execute(t.Context(), client, httpc.Void{})
 	require.NoError(t, err)
 
 	// Last added (mw3) wraps mw2 wraps mw1 wraps client.
@@ -83,14 +83,14 @@ func TestMiddlewareChain_NilSkipped(t *testing.T) {
 	})
 
 	// Mix nil and non-nil middleware.
-	ep := httpc.NewGET[struct{}]("/test", "NilSkip").
+	ep := httpc.NewGET[struct{}]("NilSkip", "/test").
 		SetDecoder(httpc.VoidDecoder()).
 		WithMiddleware(nil).
 		WithMiddleware(mw).
 		WithMiddleware(nil)
 
 	client := &httpTestClient{server: server}
-	_, _, err := httpc.ExecuteVoid(t.Context(), client, ep)
+	_, _, err := ep.Execute(t.Context(), client, httpc.Void{})
 	require.NoError(t, err)
 	assert.True(t, called)
 }
@@ -104,12 +104,12 @@ func TestMiddlewareChain_EmptyPassthrough(t *testing.T) {
 	})
 
 	// No middleware at all.
-	ep := httpc.NewGET[testPayload]("/test", "Empty").
+	ep := httpc.NewGET[testPayload]("Empty", "/test").
 		SetDecoder(httpc.JSONDecoder[testPayload]()).
 		SetAccept("application/json")
 
 	client := &httpTestClient{server: server}
-	result, _, err := httpc.ExecuteVoid(t.Context(), client, ep)
+	result, _, err := ep.Execute(t.Context(), client, httpc.Void{})
 	require.NoError(t, err)
 	assert.Equal(t, testPayload{Name: "passthrough", Value: 0}, result)
 }
@@ -141,11 +141,11 @@ func TestMiddlewareChain_BuiltClient(t *testing.T) {
 		Build(t.Context())
 	require.NoError(t, err)
 
-	ep := httpc.NewGET[testPayload]("/test", "ChainTest").
+	ep := httpc.NewGET[testPayload]("ChainTest", "/test").
 		SetDecoder(httpc.JSONDecoder[testPayload]()).
 		SetAccept("application/json")
 
-	result, _, err := httpc.ExecuteVoid(t.Context(), client, ep)
+	result, _, err := ep.Execute(t.Context(), client, httpc.Void{})
 	require.NoError(t, err)
 	assert.True(t, middlewareCalled)
 	assert.Equal(t, testPayload{Name: "chain", Value: 1}, result)

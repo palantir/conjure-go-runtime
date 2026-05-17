@@ -17,13 +17,14 @@ client, err := httpc.NewBuilder().
     Build(ctx)
 
 // 2. Define an endpoint (typically a package-level var).
-var getItem = httpc.NewGET[GetItemResponse]("/api/v1/items/{itemId}", "GetItem").
+var getItem = httpc.NewGET[GetItemResponse]("GetItem", "/api/v1/items/{itemId}").
     SetDecoder(httpc.JSONDecoder[GetItemResponse]()).
     SetAccept("application/json")
 
 // 3. Execute.
-resp, _, err := httpc.ExecuteVoid(ctx, client,
-    getItem.WithPathParam("itemId", "item-42"))
+resp, _, err := getItem.
+    WithPathParam("itemId", "item-42").
+    Execute(ctx, client, httpc.Void{})
 ```
 
 ## Core concepts
@@ -62,13 +63,16 @@ and derive per-call variants concurrently.
 
 | Constructor | Req type | Use case |
 |-------------|----------|----------|
-| `NewGET[Resp]` | `struct{}` | GET with no body |
-| `NewDELETE[Resp]` | `struct{}` | DELETE with no body |
-| `NewHEAD[Resp]` | `struct{}` | HEAD with no body |
+| `NewGET[Resp]` | `Void` | GET with no body |
+| `NewDELETE[Resp]` | `Void` | DELETE with no body |
+| `NewHEAD[Resp]` | `Void` | HEAD with no body |
 | `NewPOST[Req, Resp]` | caller-chosen | POST with body |
 | `NewPUT[Req, Resp]` | caller-chosen | PUT with body |
 | `NewPATCH[Req, Resp]` | caller-chosen | PATCH with body |
 | `NewEndpoint[Req, Resp]` | caller-chosen | Any method |
+
+`Void` is an alias for `struct{}`; pass `httpc.Void{}` as the body for body-less
+endpoints.
 
 **Configuration** (each returns a new `Endpoint`):
 
@@ -79,7 +83,7 @@ and derive per-call variants concurrently.
 **Path parameters** use named replacement in Conjure-style templates:
 
 ```go
-var ep = httpc.NewGET[Resp]("/items/{itemId}/version/{version}", "GetItem")
+var ep = httpc.NewGET[Resp]("GetItem", "/items/{itemId}/version/{version}")
 
 // Parameters can be provided in any order.
 ep.WithPathParam("version", 3).WithPathParam("itemId", "widget-1")
@@ -88,7 +92,7 @@ ep.WithPathParam("version", 3).WithPathParam("itemId", "widget-1")
 Greedy parameters (`{param*}`) preserve slashes while escaping each segment:
 
 ```go
-var ep = httpc.NewGET[Resp]("/files/{filePath*}", "GetFile")
+var ep = httpc.NewGET[Resp]("GetFile", "/files/{filePath*}")
 ep.WithPathParam("filePath", "dir/sub dir/file.txt")
 // produces: /files/dir/sub%20dir/file.txt
 ```
@@ -99,8 +103,8 @@ ep.WithPathParam("filePath", "dir/sub dir/file.txt")
 // With a request body:
 resp, httpResp, err := endpoint.Execute(ctx, client, requestBody)
 
-// Without a request body (Req = struct{}):
-resp, httpResp, err := httpc.ExecuteVoid(ctx, client, endpoint)
+// Without a request body (Req = Void):
+resp, httpResp, err := endpoint.Execute(ctx, client, httpc.Void{})
 ```
 
 ### Overrides
@@ -117,10 +121,10 @@ type myServiceClient struct {
 }
 
 func (c *myServiceClient) GetItem(ctx context.Context, id string) (Resp, error) {
-    resp, _, err := httpc.ExecuteVoid(ctx, c.client,
-        getItemEndpoint.
-            WithPathParam("itemId", id).
-            WithOverrides(c.overrides))
+    resp, _, err := getItemEndpoint.
+        WithPathParam("itemId", id).
+        WithOverrides(c.overrides).
+        Execute(ctx, c.client, httpc.Void{})
     return resp, err
 }
 ```
@@ -143,7 +147,7 @@ Built-in encoders and decoders cover common content types:
 | Function | Content-Type | Retryable | Notes |
 |----------|-------------|-----------|-------|
 | `JSONEncoder[Req]()` | `application/json` | Yes | Uses buffer pool when available |
-| `BinaryEncoder(ct)` | caller-specified | If seekable | Probes for `io.Seeker` and `Stat()` |
+| `BinaryEncoder(ct)` | caller-specified | If file can be reopened | Probes for `Stat()` and reopens named files for replay |
 | `BinaryEncoderWithReplay(ct)` | caller-specified | Yes | Takes `func() (io.ReadCloser, error)` |
 | `GZIPEncoder[Req](inner)` | preserved | If inner is | Wraps any encoder with gzip |
 | `SnappyEncoder[Req](inner)` | preserved | If inner is | Wraps any encoder with snappy |
@@ -225,7 +229,7 @@ builder.ApplyConfigRefreshable(ctx, configRefreshable)
 ```go
 func WithMyDefaults[B httpc.ServiceBuilder[B]]() httpc.Param[B] {
     return func(b B) B {
-        return b.SetTimeout(30 * time.Second).SetMaxAttempts(intPtr(5))
+        return b.SetTimeout(30 * time.Second).SetMaxAttempts(new(5))
     }
 }
 
@@ -309,22 +313,22 @@ When metrics are enabled (via `SetMetrics`), the client emits detailed request i
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| `client_response` | Timer (us) | Full round-trip duration |
-| `client_request_in_flight` | Counter | Concurrent in-flight requests |
-| `client_connection_create` | Counter | Connection acquisitions (tagged `reused:true/false`) |
-| `client_conn_acquire` | Timer (us) | GetConn to GotConn latency |
-| `client_time_to_first_byte` | Timer (us) | WroteRequest to GotFirstResponseByte |
-| `client_dns_lookup` | Timer (us) | DNS resolution time |
-| `client_tcp_connect` | Timer (us) | TCP dial time |
-| `tls_handshake_attempt` | Meter | TLS handshake attempts |
-| `tls_handshake` | Meter | Successful TLS handshakes |
-| `tls_handshake_failure` | Meter | Failed TLS handshakes |
-| `client_dns_lookup_error` | Meter | DNS resolution failures |
-| `client_tcp_connect_error` | Meter | TCP dial failures |
-| `client_conn_idle_return_error` | Meter | Pool saturation events |
-| `client_request_write_error` | Meter | Request write failures |
+| `client.response` | Timer (us) | Full round-trip duration |
+| `client.request.in-flight` | Counter | Concurrent in-flight requests |
+| `client.connection.create` | Counter | Connection acquisitions (tagged `reused:true/false`) |
+| `client.connection.acquire` | Timer (us) | GetConn to GotConn latency |
+| `client.time-to-first-byte` | Timer (us) | WroteRequest to GotFirstResponseByte |
+| `client.dns.lookup` | Timer (us) | DNS resolution time |
+| `client.tcp.connect` | Timer (us) | TCP dial time |
+| `tls.handshake.attempt` | Meter | TLS handshake attempts |
+| `tls.handshake` | Meter | Successful TLS handshakes |
+| `tls.handshake.failure` | Meter | Failed TLS handshakes |
+| `client.dns.lookup-error` | Meter | DNS resolution failures |
+| `client.tcp.connect-error` | Meter | TCP dial failures |
+| `client.connection.idle-return-error` | Meter | Pool saturation events |
+| `client.request.write-error` | Meter | Request write failures |
 
-Common tags: `service_name`, `method` (HTTP verb), `method_name` (RPC name from Endpoint),
+Common tags: `service-name`, `method` (HTTP verb), `method-name` (RPC name from Endpoint),
 `family` (1xx/2xx/3xx/4xx/5xx/timeout/other).
 
 ## Error handling
@@ -367,16 +371,16 @@ The intended pattern for generated Conjure service clients:
 ```go
 // Package-level endpoint descriptors (immutable, safe for concurrent use).
 var (
-    createItem = httpc.NewPOST[CreateReq, CreateResp]("/api/v1/items", "CreateItem").
+    createItem = httpc.NewPOST[CreateReq, CreateResp]("CreateItem", "/api/v1/items").
         SetEncoder(httpc.JSONEncoder[CreateReq]()).
         SetDecoder(httpc.JSONDecoder[CreateResp]()).
         SetAccept("application/json")
 
-    getItem = httpc.NewGET[GetItemResp]("/api/v1/items/{itemId}", "GetItem").
+    getItem = httpc.NewGET[GetItemResp]("GetItem", "/api/v1/items/{itemId}").
         SetDecoder(httpc.JSONDecoder[GetItemResp]()).
         SetAccept("application/json")
 
-    deleteItem = httpc.NewDELETE[struct{}]("/api/v1/items/{itemId}", "DeleteItem").
+    deleteItem = httpc.NewDELETE[struct{}]("DeleteItem", "/api/v1/items/{itemId}").
         SetDecoder(httpc.VoidDecoder())
 )
 
@@ -404,18 +408,18 @@ func (c *itemServiceClient) CreateItem(ctx context.Context, req CreateReq) (Crea
 }
 
 func (c *itemServiceClient) GetItem(ctx context.Context, id string) (GetItemResp, error) {
-    resp, _, err := httpc.ExecuteVoid(ctx, c.client,
-        getItem.
-            WithPathParam("itemId", id).
-            WithOverrides(c.overrides))
+    resp, _, err := getItem.
+        WithPathParam("itemId", id).
+        WithOverrides(c.overrides).
+        Execute(ctx, c.client, httpc.Void{})
     return resp, err
 }
 
 func (c *itemServiceClient) DeleteItem(ctx context.Context, id string) error {
-    _, _, err := httpc.ExecuteVoid(ctx, c.client,
-        deleteItem.
-            WithPathParam("itemId", id).
-            WithOverrides(c.overrides))
+    _, _, err := deleteItem.
+        WithPathParam("itemId", id).
+        WithOverrides(c.overrides).
+        Execute(ctx, c.client, httpc.Void{})
     return err
 }
 ```

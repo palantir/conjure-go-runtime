@@ -90,6 +90,18 @@ func TestBuildTLSConfig_SystemCAs_InsecureSkipVerify(t *testing.T) {
 	assert.Equal(t, uint16(tls.VersionTLS12), cfg.MinVersion)
 }
 
+func TestBuildTLSConfig_ExcludeSystemCAsWithoutCustomCAs(t *testing.T) {
+	tlsResult, err := httpc.NewBuilder().
+		SetIncludeSystemCAs(false).
+		BuildTLSConfig(context.Background())
+	require.NoError(t, err)
+
+	cfg, validErr := tlsResult.Validation()
+	require.NoError(t, validErr)
+	require.NotNil(t, cfg.RootCAs)
+	assert.Empty(t, cfg.RootCAs.Subjects())
+}
+
 // TestBuildTLSConfig_CertBytes_SecureDefaults verifies that client cert bytes
 // applies secure defaults.
 func TestBuildTLSConfig_CertBytes_SecureDefaults(t *testing.T) {
@@ -121,6 +133,20 @@ func TestBuildTLSConfig_CertBytes_InsecureSkipVerify(t *testing.T) {
 	require.NoError(t, validErr)
 	assert.True(t, cfg.InsecureSkipVerify, "InsecureSkipVerify should be respected in cert bytes path")
 	assert.Equal(t, uint16(tls.VersionTLS12), cfg.MinVersion)
+}
+
+func TestBuildTLSConfig_ClientCertBytesOverrideClientCertFiles(t *testing.T) {
+	certPEM, keyPEM := generateTestKeyPair(t)
+	tmpDir := t.TempDir()
+
+	tlsResult, err := httpc.NewBuilder().
+		SetClientCertFiles(filepath.Join(tmpDir, "missing.key"), filepath.Join(tmpDir, "missing.crt")).
+		SetClientCertBytes(keyPEM, certPEM).
+		BuildTLSConfig(context.Background())
+	require.NoError(t, err)
+
+	_, validErr := tlsResult.Validation()
+	require.NoError(t, validErr)
 }
 
 // TestBuildTLSConfig_FileBased_SecureDefaults verifies that file-based TLS config

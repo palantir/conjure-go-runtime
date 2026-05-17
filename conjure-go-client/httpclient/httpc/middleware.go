@@ -27,6 +27,23 @@ import (
 	"github.com/palantir/witchcraft-go-tracing/wtracing/propagation/b3"
 )
 
+// roundTripperFunc adapts a function to http.RoundTripper.
+type roundTripperFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
+
+// clientFunc adapts a function to Client.
+type clientFunc func(*http.Request) (*http.Response, error)
+
+func (f clientFunc) Do(req *http.Request) (*http.Response, error) { return f(req) }
+
+// wrapClientMiddleware wraps a Client with a Middleware.
+func wrapClientMiddleware(c Client, mw Middleware) Client {
+	return clientFunc(func(req *http.Request) (*http.Response, error) {
+		return mw.RoundTrip(req, roundTripperFunc(c.Do))
+	})
+}
+
 // wrapTransport composes middleware around a base http.RoundTripper.
 // Each middleware wraps the previous, creating a chain.
 // nil middleware values are skipped.

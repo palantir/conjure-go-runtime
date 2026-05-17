@@ -23,67 +23,6 @@ import (
 	"time"
 )
 
-// rpcMethodNameKey is the context key for the RPC method name set by Endpoint.Execute.
-type rpcMethodNameKey struct{}
-
-// forUserAgentKey is the context key for the For-User-Agent header value.
-type forUserAgentKey struct{}
-
-// requestTimeoutKey is the context key for per-request timeout overrides.
-type requestTimeoutKey struct{}
-
-// RPCMethodName extracts the RPC method name from the context, if set by Endpoint.Execute.
-func RPCMethodName(ctx context.Context) (string, bool) {
-	v, ok := ctx.Value(rpcMethodNameKey{}).(string)
-	return v, ok
-}
-
-// ContextWithRPCMethodName returns a new context with the RPC method name set for use in logging and metrics.
-func ContextWithRPCMethodName(ctx context.Context, name string) context.Context {
-	return context.WithValue(ctx, rpcMethodNameKey{}, name)
-}
-
-// ContextWithForUserAgent returns a new context with the For-User-Agent header value set.
-func ContextWithForUserAgent(ctx context.Context, forUserAgent string) context.Context {
-	if forUserAgent == "" {
-		return ctx
-	}
-	return context.WithValue(ctx, forUserAgentKey{}, forUserAgent)
-}
-
-func forUserAgentFromContext(ctx context.Context) (string, bool) {
-	v, ok := ctx.Value(forUserAgentKey{}).(string)
-	return v, ok
-}
-
-// ContextWithRequestTimeout returns a new context carrying a per-request timeout
-// that overrides the client-level timeout for a single request attempt.
-func ContextWithRequestTimeout(ctx context.Context, d time.Duration) context.Context {
-	return context.WithValue(ctx, requestTimeoutKey{}, d)
-}
-
-// requestTimeoutFromContext extracts a per-request timeout from the context, if set.
-func requestTimeoutFromContext(ctx context.Context) (time.Duration, bool) {
-	v, ok := ctx.Value(requestTimeoutKey{}).(time.Duration)
-	return v, ok
-}
-
-// roundTripperFunc adapts a function to http.RoundTripper.
-type roundTripperFunc func(*http.Request) (*http.Response, error)
-
-func (f roundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
-
-// wrapClientMiddleware wraps a Client with a Middleware.
-func wrapClientMiddleware(c Client, mw Middleware) Client {
-	return clientFunc(func(req *http.Request) (*http.Response, error) {
-		return mw.RoundTrip(req, roundTripperFunc(c.Do))
-	})
-}
-
-type clientFunc func(*http.Request) (*http.Response, error)
-
-func (f clientFunc) Do(req *http.Request) (*http.Response, error) { return f(req) }
-
 // RequestOverrides defines per-request configuration methods shared by Endpoint and
 // Overrides. Unlike builder interfaces, all methods use copy-on-write semantics:
 // they return a new value with the override applied, leaving the original unchanged.
@@ -116,39 +55,25 @@ type RequestOverrides[D any] interface {
 }
 
 // Endpoint is a copy-on-write request descriptor that pairs an HTTP method and path
-// with a typed encoder and decoder. All methods (SetEncoder, SetDecoder, SetAccept,
-// and the RequestOverrides methods) return a new Endpoint value without modifying
-// the original.
+// with a typed encoder and decoder. All methods return a new Endpoint value without
+// modifying the original, so an Endpoint is safe to store as a package-level var
+// and derive per-call variants concurrently.
 //
-// Endpoint is safe for concurrent use: multiple goroutines may call methods on
-// the same Endpoint value simultaneously, and each receives an independent copy.
-// This makes Endpoint safe to store as a package-level base configuration
-// and derive per-call variants from it concurrently:
+// Construct via NewGET / NewPOST / NewJSONPOST / etc., or NewEndpoint for arbitrary
+// methods. For body-less endpoints, the Req type parameter is Void and the caller
+// passes httpc.Void{} as the body argument to Execute.
 //
 //	// Package-level base endpoint.
-//	var createItem = httpc.NewEndpoint[CreateReq, CreateResp](http.MethodPost, "/api/v1/items", "CreateItem").
-//	    SetEncoder(httpc.JSONEncoder[CreateReq]()).
-//	    SetDecoder(httpc.JSONDecoder[CreateResp]()).
-//	    SetAccept("application/json")
+//	var createItem = httpc.NewJSONPOST[CreateReq, CreateResp]("CreateItem", "/api/v1/items")
 //
 //	// Per-call customization (does not modify createItem).
 //	resp, _, err := createItem.AddHeader("Idempotency-Key", key).Execute(ctx, client, req)
 //
-// Additional examples:
-//
-//	// No-body GET with JSON response
-//	ep := httpc.NewEndpoint[struct{}, MyResp](http.MethodGet, "/api/v1/item", "GetItem").
-//	    SetDecoder(httpc.JSONDecoder[MyResp]()).
-//	    SetAccept("application/json")
-//
-//	// Void DELETE (no Accept header needed)
-//	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodDelete, "/api/v1/item", "Delete").
-//	    SetDecoder(httpc.VoidDecoder())
-//
-//	// Binary download
-//	ep := httpc.NewEndpoint[struct{}, io.ReadCloser](http.MethodGet, "/dl", "Download").
-//	    SetDecoder(httpc.BinaryDecoder()).
-//	    SetAccept("application/octet-stream")
+// Endpoint methods include the body codec setters (SetEncoder, SetDecoder,
+// SetAccept), the path templating (WithPathParam), and all the per-request
+// overrides defined by RequestOverrides (AddHeader, SetHeader, AddQuery,
+// SetQuery, WithTimeout, WithBasicAuth, WithErrorDecoder, WithMiddleware).
+// WithOverrides merges a separately-built Overrides value into the endpoint.
 type Endpoint[Req, Resp any] struct {
 	method    string
 	path      string
@@ -159,10 +84,10 @@ type Endpoint[Req, Resp any] struct {
 	decoder   BodyDecoder[Resp]
 }
 
-// NewEndpoint creates a new Endpoint with the given HTTP method, path, and RPC name.
+// NewEndpoint creates a new Endpoint with the given HTTP method, RPC name, and path.
 // The RPC name is used in tracing spans and metrics tags.
 // Use SetEncoder and SetDecoder to configure body serialization before calling Execute.
-func NewEndpoint[Req, Resp any](method, path, name string) Endpoint[Req, Resp] {
+func NewEndpoint[Req, Resp any](method, name, path string) Endpoint[Req, Resp] {
 	return Endpoint[Req, Resp]{
 		method: method,
 		path:   path,
@@ -171,42 +96,42 @@ func NewEndpoint[Req, Resp any](method, path, name string) Endpoint[Req, Resp] {
 }
 
 // NewGET creates a GET endpoint with no request body.
-func NewGET[Resp any](path, name string) Endpoint[struct{}, Resp] {
-	return NewEndpoint[struct{}, Resp](http.MethodGet, path, name)
+func NewGET[Resp any](name, path string) Endpoint[Void, Resp] {
+	return NewEndpoint[Void, Resp](http.MethodGet, name, path)
 }
 
 // NewDELETE creates a DELETE endpoint with no request body.
-func NewDELETE[Resp any](path, name string) Endpoint[struct{}, Resp] {
-	return NewEndpoint[struct{}, Resp](http.MethodDelete, path, name)
+func NewDELETE[Resp any](name, path string) Endpoint[Void, Resp] {
+	return NewEndpoint[Void, Resp](http.MethodDelete, name, path)
 }
 
 // NewHEAD creates a HEAD endpoint with no request body.
-func NewHEAD[Resp any](path, name string) Endpoint[struct{}, Resp] {
-	return NewEndpoint[struct{}, Resp](http.MethodHead, path, name)
+func NewHEAD[Resp any](name, path string) Endpoint[Void, Resp] {
+	return NewEndpoint[Void, Resp](http.MethodHead, name, path)
 }
 
 // NewPOST creates a POST endpoint with a typed request body.
-func NewPOST[Req, Resp any](path, name string) Endpoint[Req, Resp] {
-	return NewEndpoint[Req, Resp](http.MethodPost, path, name)
+func NewPOST[Req, Resp any](name, path string) Endpoint[Req, Resp] {
+	return NewEndpoint[Req, Resp](http.MethodPost, name, path)
 }
 
 // NewPUT creates a PUT endpoint with a typed request body.
-func NewPUT[Req, Resp any](path, name string) Endpoint[Req, Resp] {
-	return NewEndpoint[Req, Resp](http.MethodPut, path, name)
+func NewPUT[Req, Resp any](name, path string) Endpoint[Req, Resp] {
+	return NewEndpoint[Req, Resp](http.MethodPut, name, path)
 }
 
 // NewPATCH creates a PATCH endpoint with a typed request body.
-func NewPATCH[Req, Resp any](path, name string) Endpoint[Req, Resp] {
-	return NewEndpoint[Req, Resp](http.MethodPatch, path, name)
+func NewPATCH[Req, Resp any](name, path string) Endpoint[Req, Resp] {
+	return NewEndpoint[Req, Resp](http.MethodPatch, name, path)
 }
 
 // NewJSONGET creates a GET endpoint pre-configured with a JSON decoder and Accept header.
 // This is a convenience for the common case of a GET returning a JSON response:
 //
-//	result, _, err := httpc.ExecuteVoid(ctx, client,
-//	    httpc.NewJSONGET[MyResp]("/items/123", "GetItem"))
-func NewJSONGET[Resp any](path, name string) Endpoint[struct{}, Resp] {
-	return NewGET[Resp](path, name).
+//	result, _, err := httpc.NewJSONGET[MyResp]("GetItem", "/items/123").
+//	    Execute(ctx, client, httpc.Void{})
+func NewJSONGET[Resp any](name, path string) Endpoint[Void, Resp] {
+	return NewGET[Resp](name, path).
 		SetDecoder(JSONDecoder[Resp]()).
 		SetAccept("application/json")
 }
@@ -214,10 +139,10 @@ func NewJSONGET[Resp any](path, name string) Endpoint[struct{}, Resp] {
 // NewJSONPOST creates a POST endpoint pre-configured with a JSON encoder, JSON decoder,
 // and Accept header. This is a convenience for the common case of a JSON request/response POST:
 //
-//	result, _, err := httpc.NewJSONPOST[CreateReq, CreateResp]("/items", "CreateItem").
+//	result, _, err := httpc.NewJSONPOST[CreateReq, CreateResp]("CreateItem", "/items").
 //	    Execute(ctx, client, body)
-func NewJSONPOST[Req, Resp any](path, name string) Endpoint[Req, Resp] {
-	return NewPOST[Req, Resp](path, name).
+func NewJSONPOST[Req, Resp any](name, path string) Endpoint[Req, Resp] {
+	return NewPOST[Req, Resp](name, path).
 		SetEncoder(JSONEncoder[Req]()).
 		SetDecoder(JSONDecoder[Resp]()).
 		SetAccept("application/json")
@@ -225,8 +150,8 @@ func NewJSONPOST[Req, Resp any](path, name string) Endpoint[Req, Resp] {
 
 // NewJSONPUT creates a PUT endpoint pre-configured with a JSON encoder, JSON decoder,
 // and Accept header.
-func NewJSONPUT[Req, Resp any](path, name string) Endpoint[Req, Resp] {
-	return NewPUT[Req, Resp](path, name).
+func NewJSONPUT[Req, Resp any](name, path string) Endpoint[Req, Resp] {
+	return NewPUT[Req, Resp](name, path).
 		SetEncoder(JSONEncoder[Req]()).
 		SetDecoder(JSONDecoder[Resp]()).
 		SetAccept("application/json")
@@ -234,8 +159,8 @@ func NewJSONPUT[Req, Resp any](path, name string) Endpoint[Req, Resp] {
 
 // NewJSONPATCH creates a PATCH endpoint pre-configured with a JSON encoder, JSON decoder,
 // and Accept header.
-func NewJSONPATCH[Req, Resp any](path, name string) Endpoint[Req, Resp] {
-	return NewPATCH[Req, Resp](path, name).
+func NewJSONPATCH[Req, Resp any](name, path string) Endpoint[Req, Resp] {
+	return NewPATCH[Req, Resp](name, path).
 		SetEncoder(JSONEncoder[Req]()).
 		SetDecoder(JSONDecoder[Resp]()).
 		SetAccept("application/json")
@@ -243,8 +168,8 @@ func NewJSONPATCH[Req, Resp any](path, name string) Endpoint[Req, Resp] {
 
 // NewJSONDELETE creates a DELETE endpoint pre-configured with a JSON decoder and Accept header.
 // Useful for DELETE endpoints that return a JSON response body.
-func NewJSONDELETE[Resp any](path, name string) Endpoint[struct{}, Resp] {
-	return NewDELETE[Resp](path, name).
+func NewJSONDELETE[Resp any](name, path string) Endpoint[Void, Resp] {
+	return NewDELETE[Resp](name, path).
 		SetDecoder(JSONDecoder[Resp]()).
 		SetAccept("application/json")
 }
@@ -274,7 +199,7 @@ func (e Endpoint[Req, Resp]) SetAccept(accept string) Endpoint[Req, Resp] {
 // template (e.g. "/items/{itemId}/version/{version}") and each call fills in one
 // parameter by name, so arguments may be provided in any order:
 //
-//	var ep = httpc.NewGET[Resp]("/items/{itemId}/version/{version}", "GetItem")
+//	var ep = httpc.NewGET[Resp]("GetItem", "/items/{itemId}/version/{version}")
 //
 //	// These two are equivalent:
 //	ep.WithPathParam("itemId", id).WithPathParam("version", v)
@@ -284,7 +209,7 @@ func (e Endpoint[Req, Resp]) SetAccept(accept string) Endpoint[Req, Resp] {
 // (e.g. {filePath*}) preserves slashes in the value while still escaping each
 // individual path segment:
 //
-//	var ep = httpc.NewGET[Resp]("/files/{filePath*}", "GetFile")
+//	var ep = httpc.NewGET[Resp]("GetFile", "/files/{filePath*}")
 //	ep.WithPathParam("filePath", "dir/sub dir/file.txt")
 //	// produces path: /files/dir/sub%20dir/file.txt
 //
@@ -388,15 +313,11 @@ func (e Endpoint[Req, Resp]) Execute(ctx context.Context, client Client, body Re
 
 	// Store RPC method name on context for tracing/metrics middleware.
 	if e.name != "" {
-		ctx = context.WithValue(ctx, rpcMethodNameKey{}, e.name)
+		ctx = ContextWithRPCMethodName(ctx, e.name)
 	}
 
 	// Inject buffer pool from client into context for use by encoders/decoders.
-	if pp, ok := client.(poolProvider); ok {
-		if pool := pp.getBufferPool(); pool != nil {
-			ctx = context.WithValue(ctx, bufferPoolKey{}, pool)
-		}
-	}
+	ctx = contextWithClientBufferPool(ctx, client)
 
 	// Build request with path-only URL; Client prepends base URI.
 	req, err := http.NewRequestWithContext(ctx, e.method, e.path, nil)
@@ -453,10 +374,15 @@ func (e Endpoint[Req, Resp]) Execute(ctx context.Context, client Client, body Re
 	// 2. context.WithTimeout enforces the deadline for Client implementations
 	//    that don't go through doOnce (e.g., plain http.Client wrappers).
 	if e.overrides.timeout != nil {
-		ctx = ContextWithRequestTimeout(ctx, *e.overrides.timeout)
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, *e.overrides.timeout)
-		defer cancel()
+		timeout := *e.overrides.timeout
+		// A zero timeout opts out of context cancellation while still signaling
+		// doOnce to drop the client-level Timeout via ContextWithRequestTimeout.
+		ctx = ContextWithRequestTimeout(ctx, timeout)
+		if timeout != 0 {
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithTimeout(ctx, timeout)
+			defer cancel()
+		}
 		req = req.WithContext(ctx)
 	}
 
@@ -480,15 +406,14 @@ func (e Endpoint[Req, Resp]) Execute(ctx context.Context, client Client, body Re
 		return zero, nil, err
 	}
 
-	// Error decoding: per-request first, then client-level.
-	ed := e.overrides.errorDecoder
-	if ed == nil {
-		ed = clientErrorDecoder
-	}
-	if ed != nil && ed.Handles(resp) {
-		decodeErr := ed.DecodeError(resp)
-		drainBody(ctx, resp)
-		return zero, resp, decodeErr
+	// Error decoding: per-request first, then client-level. A per-request decoder
+	// that returns Handles=false falls through to the client decoder.
+	for _, ed := range [...]ErrorDecoder{e.overrides.errorDecoder, clientErrorDecoder} {
+		if ed != nil && ed.Handles(resp) {
+			decodeErr := ed.DecodeError(resp)
+			drainBody(ctx, resp)
+			return zero, resp, decodeErr
+		}
 	}
 
 	// Decode response.
@@ -507,12 +432,6 @@ func (e Endpoint[Req, Resp]) Execute(ctx context.Context, client Client, body Re
 	// No decoder: drain body.
 	drainBody(ctx, resp)
 	return zero, resp, nil
-}
-
-// ExecuteVoid is a convenience wrapper for executing endpoints with no request body
-// (Req = struct{}), avoiding the need to pass an explicit struct{}{} at every call site.
-func ExecuteVoid[Resp any](ctx context.Context, client Client, ep Endpoint[struct{}, Resp]) (Resp, *http.Response, error) {
-	return ep.Execute(ctx, client, struct{}{})
 }
 
 // WithTraceHeader sets the X-B3-TraceId header on any RequestOverrides value.

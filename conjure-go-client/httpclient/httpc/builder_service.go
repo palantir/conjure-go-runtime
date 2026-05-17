@@ -17,7 +17,6 @@ package httpc
 import (
 	"context"
 	"encoding/base64"
-	"fmt"
 	"net/http"
 	"time"
 
@@ -27,23 +26,21 @@ import (
 	werror "github.com/palantir/witchcraft-go-error"
 )
 
-// ServiceBuilder is an F-bounded interface for configuring service-level HTTP client settings.
-// It covers identity, base URLs, authentication, headers, middleware, timeouts, retry,
-// metrics, tracing, and error handling.
+// ServiceBuilder is an F-bounded interface for configuring service-level HTTP client
+// settings: identity, base URLs, auth, headers, middleware, timeouts, retry, metrics,
+// tracing, and error handling. It is the largest slice of [ClientBuilder]; see the
+// package doc for the full hierarchy.
 //
-// Like all builders in this package, ServiceBuilder is mutable: setter methods modify
-// the receiver and return it for chaining. Use Clone to fork an independent copy.
+// Many settings support both static and refreshable setters (SetFoo / SetFooRefreshable):
+// the refreshable variant updates at runtime without rebuilding the client.
+// Clone preserves refreshable links (original and clone observe the same source);
+// calling the static SetFoo replaces the link with a fixed value.
 //
-// Many settings support dual setters: SetFoo(T) for static values and
-// SetFooRefreshable(Refreshable[T]) for values that update at runtime without
-// rebuilding the client. Clone preserves refreshable links (both the original and
-// the clone observe the same dynamic source). Calling the static SetFoo overrides
-// the refreshable link with a fixed value.
-//
-// Generic functions can accept any ServiceBuilder and return the same concrete type:
+// The type parameter B is the concrete implementing type, so generic functions
+// can configure any ServiceBuilder and return the same concrete type:
 //
 //	func ApplyDefaults[B ServiceBuilder[B]](b B) B {
-//	    return b.SetTimeout(30 * time.Second).SetMaxRetries(3)
+//	    return b.SetTimeout(30 * time.Second).SetMaxAttempts(new(3))
 //	}
 type ServiceBuilder[B ServiceBuilder[B]] interface {
 	// Clone returns a deep copy of the builder. The copy is fully independent:
@@ -212,31 +209,43 @@ type ServiceBuilder[B ServiceBuilder[B]] interface {
 	SetBytesBufferPool(bytesbuffers.Pool) B
 }
 
+// SetServiceName sets the logical service name used in metrics tags and log fields.
 func (b *Builder) SetServiceName(s string) *Builder {
 	b.serviceName = refreshable.New(s)
 	return b
 }
 
+// SetServiceNameRefreshable sets a refreshable logical service name.
 func (b *Builder) SetServiceNameRefreshable(r refreshable.Refreshable[string]) *Builder {
 	b.serviceName = r
 	return b
 }
 
+// SetBaseURLs sets the static list of base URLs for the service. Each request is
+// prefixed with one of these URLs (chosen by the URI scoring strategy).
 func (b *Builder) SetBaseURLs(urls ...string) *Builder {
 	b.uris = refreshable.New(urls)
 	return b
 }
 
+// SetBaseURLsRefreshable sets a refreshable list of base URLs, enabling dynamic
+// service discovery updates without rebuilding the client.
 func (b *Builder) SetBaseURLsRefreshable(r refreshable.Refreshable[[]string]) *Builder {
 	b.uris = r
 	return b
 }
 
+// SetAllowCreateWithEmptyURIs allows building a client with no base URIs configured.
+// By default, Build fails if no URIs are set. Requests against an empty-URI client
+// fail with ErrEmptyURIs.
 func (b *Builder) SetAllowCreateWithEmptyURIs(allow bool) *Builder {
 	b.allowEmptyURIs = allow
 	return b
 }
 
+// SetURIScoringStrategy sets the strategy for selecting among multiple base URIs.
+// URIScoringBalanced (the default) routes away from slow or erroring hosts;
+// URIScoringRandom selects uniformly at random.
 func (b *Builder) SetURIScoringStrategy(s URIScoringStrategy) *Builder {
 	switch s {
 	case URIScoringRandom:
@@ -249,75 +258,110 @@ func (b *Builder) SetURIScoringStrategy(s URIScoringStrategy) *Builder {
 	return b
 }
 
+// authHeaderFunc returns the Authorization header value for a request, or
+// empty to skip setting the header. ctx is the request's context.
+type authHeaderFunc func(ctx context.Context) (string, error)
+
+// authHeaderMiddleware wraps a provider with the standard Authorization-header
+// dance: skip if the header is already set, skip if the provider returns empty,
+// propagate provider errors.
+func authHeaderMiddleware(provider authHeaderFunc) Middleware {
+	return MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+		if req.Header.Get("Authorization") == "" {
+			v, err := provider(req.Context())
+			if err != nil {
+				return nil, err
+			}
+			if v != "" {
+				req.Header.Set("Authorization", v)
+			}
+		}
+		return next.RoundTrip(req)
+	})
+}
+
+func bearerAuthHeader(token string) string {
+	if token == "" {
+		return ""
+	}
+	return "Bearer " + token
+}
+
+func basicAuthHeader(user, password string) string {
+	return "Basic " + base64.StdEncoding.EncodeToString([]byte(user+":"+password))
+}
+
+// SetAuthToken sets a static bearer token for request authentication.
+// The token is sent as "Authorization: Bearer <token>" on every request unless
+// the Authorization header is already set on the request.
 func (b *Builder) SetAuthToken(t string) *Builder {
-	b.authMiddleware = MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
-		if t != "" {
-			req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", t))
-		}
-		return next.RoundTrip(req)
-	})
+	b.authHeader = func(context.Context) (string, error) {
+		return bearerAuthHeader(t), nil
+	}
 	return b
 }
 
+// SetAuthTokenProvider sets a function that provides a bearer token per-request.
+// The provider is called once per request; an error is returned to the caller.
 func (b *Builder) SetAuthTokenProvider(p TokenProvider) *Builder {
-	b.authMiddleware = MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
-		token, err := p(req.Context())
+	b.authHeader = func(ctx context.Context) (string, error) {
+		token, err := p(ctx)
 		if err != nil {
-			return nil, err
+			return "", err
 		}
-		if token != "" {
-			req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
-		}
-		return next.RoundTrip(req)
-	})
+		return bearerAuthHeader(token), nil
+	}
 	return b
 }
 
+// SetAuthTokenRefreshable sets a refreshable bearer token. A nil *string disables auth
+// (no Authorization header is sent); a non-nil *string supplies the token value.
 func (b *Builder) SetAuthTokenRefreshable(r refreshable.Refreshable[*string]) *Builder {
-	b.authMiddleware = MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
-		if s := r.Current(); s != nil && *s != "" {
-			req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", *s))
+	b.authHeader = func(context.Context) (string, error) {
+		s := r.Current()
+		if s == nil {
+			return "", nil
 		}
-		return next.RoundTrip(req)
-	})
+		return bearerAuthHeader(*s), nil
+	}
 	return b
 }
 
+// SetBasicAuth sets static basic auth credentials.
 func (b *Builder) SetBasicAuth(user, password string) *Builder {
-	b.authMiddleware = MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
-		setBasicAuthHeader(req.Header, user, password)
-		return next.RoundTrip(req)
-	})
+	b.authHeader = func(context.Context) (string, error) {
+		return basicAuthHeader(user, password), nil
+	}
 	return b
 }
 
+// SetBasicAuthProvider sets a function that provides basic auth credentials per-request.
 func (b *Builder) SetBasicAuthProvider(p BasicAuthProvider) *Builder {
-	b.authMiddleware = MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
-		auth, err := p(req.Context())
+	b.authHeader = func(ctx context.Context) (string, error) {
+		auth, err := p(ctx)
 		if err != nil {
-			return nil, err
+			return "", err
 		}
-		setBasicAuthHeader(req.Header, auth.User, auth.Password)
-		return next.RoundTrip(req)
-	})
+		return basicAuthHeader(auth.User, auth.Password), nil
+	}
 	return b
 }
 
+// SetBasicAuthRefreshable sets refreshable basic auth credentials. A nil *BasicAuth
+// disables auth; a non-nil *BasicAuth supplies the credentials.
 func (b *Builder) SetBasicAuthRefreshable(r refreshable.Refreshable[*BasicAuth]) *Builder {
-	b.authMiddleware = MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
-		if auth := r.Current(); auth != nil {
-			setBasicAuthHeader(req.Header, auth.User, auth.Password)
+	b.authHeader = func(context.Context) (string, error) {
+		auth := r.Current()
+		if auth == nil {
+			return "", nil
 		}
-		return next.RoundTrip(req)
-	})
+		return basicAuthHeader(auth.User, auth.Password), nil
+	}
 	return b
 }
 
-func setBasicAuthHeader(h http.Header, username, password string) {
-	basicAuthBytes := []byte(username + ":" + password)
-	h.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString(basicAuthBytes))
-}
-
+// AddHeader appends a header value to every request. Multiple values for the same key
+// are allowed. For per-request headers, use Overrides.AddHeader or Endpoint.AddHeader.
 func (b *Builder) AddHeader(key, value string) *Builder {
 	return b.AddInnerMiddleware(MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
 		req.Header.Add(key, value)
@@ -325,6 +369,8 @@ func (b *Builder) AddHeader(key, value string) *Builder {
 	}))
 }
 
+// SetHeader sets a header value on every request, replacing any existing values.
+// For per-request headers, use Overrides.SetHeader or Endpoint.SetHeader.
 func (b *Builder) SetHeader(key, value string) *Builder {
 	return b.AddInnerMiddleware(MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
 		req.Header.Set(key, value)
@@ -332,10 +378,13 @@ func (b *Builder) SetHeader(key, value string) *Builder {
 	}))
 }
 
+// SetUserAgent sets the User-Agent header on every request.
 func (b *Builder) SetUserAgent(s string) *Builder {
 	return b.SetHeader("User-Agent", s)
 }
 
+// SetOverrideRequestHost overrides the Host header on every request, decoupling
+// it from the URL host. Useful for virtual-host routing.
 func (b *Builder) SetOverrideRequestHost(host string) *Builder {
 	return b.AddInnerMiddleware(MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
 		req.Host = host
@@ -343,108 +392,151 @@ func (b *Builder) SetOverrideRequestHost(host string) *Builder {
 	}))
 }
 
+// AddMiddleware appends a middleware that wraps all previously added middleware.
+// The last-added middleware is outermost: it sees the request first and the response last.
 func (b *Builder) AddMiddleware(m Middleware) *Builder {
 	b.middlewares = append(b.middlewares, m)
 	return b
 }
 
+// AddInnerMiddleware prepends an inner middleware that runs closest to the transport,
+// inside metrics and tracing. The last-added inner middleware is innermost.
 func (b *Builder) AddInnerMiddleware(m Middleware) *Builder {
 	b.innerMiddlewares = append([]Middleware{m}, b.innerMiddlewares...)
 	return b
 }
 
+// SetTimeout sets the per-attempt timeout (applied to *http.Client.Timeout, so it
+// covers the entire request including reading the body). Default: 60s.
 func (b *Builder) SetTimeout(d time.Duration) *Builder {
 	b.timeout = refreshable.New(d)
 	return b
 }
 
+// SetTimeoutRefreshable sets a refreshable per-attempt timeout.
 func (b *Builder) SetTimeoutRefreshable(r refreshable.Refreshable[time.Duration]) *Builder {
 	b.timeout = r
 	return b
 }
 
+// SetMaxAttempts sets the maximum number of total attempts (initial + retries).
+// Pass nil to use the default (2 attempts per base URL). A non-nil pointer to 0
+// means unlimited attempts; n > 0 means exactly n total attempts.
 func (b *Builder) SetMaxAttempts(p *int) *Builder {
 	b.maxAttempts = refreshable.New(p)
 	return b
 }
 
+// SetMaxAttemptsRefreshable sets a refreshable maximum number of total attempts.
+// See SetMaxAttempts for the value semantics.
 func (b *Builder) SetMaxAttemptsRefreshable(r refreshable.Refreshable[*int]) *Builder {
 	b.maxAttempts = r
 	return b
 }
 
+// SetInitialBackoff sets the initial retry backoff duration. Default: 250ms.
 func (b *Builder) SetInitialBackoff(d time.Duration) *Builder {
 	b.initialBackoff = refreshable.New(d)
 	return b
 }
 
+// SetInitialBackoffRefreshable sets a refreshable initial retry backoff duration.
 func (b *Builder) SetInitialBackoffRefreshable(r refreshable.Refreshable[time.Duration]) *Builder {
 	b.initialBackoff = r
 	return b
 }
 
+// SetMaxBackoff sets the maximum retry backoff duration. Default: 2s.
 func (b *Builder) SetMaxBackoff(d time.Duration) *Builder {
 	b.maxBackoff = refreshable.New(d)
 	return b
 }
 
+// SetMaxBackoffRefreshable sets a refreshable maximum retry backoff duration.
 func (b *Builder) SetMaxBackoffRefreshable(r refreshable.Refreshable[time.Duration]) *Builder {
 	b.maxBackoff = r
 	return b
 }
 
+// SetMetrics enables request metrics with the given additional tag providers.
+// The built-in service-name, method, status-family, and RPC-method tags are
+// always emitted; providers add further tags. See README.md for the full
+// metrics catalog.
 func (b *Builder) SetMetrics(providers ...TagsProvider) *Builder {
 	b.disableMetrics = refreshable.New(false)
 	b.metricsTagProviders = providers
 	return b
 }
 
+// SetDisableMetrics disables request metrics collection.
 func (b *Builder) SetDisableMetrics(disable bool) *Builder {
 	b.disableMetrics = refreshable.New(disable)
 	return b
 }
 
+// SetDisableMetricsRefreshable sets a refreshable toggle for disabling metrics.
 func (b *Builder) SetDisableMetricsRefreshable(r refreshable.Refreshable[bool]) *Builder {
 	b.disableMetrics = r
 	return b
 }
 
+// DisableTracing disables creation of per-request tracing spans.
+// Trace header propagation is controlled separately via DisableTraceHeaderPropagation.
 func (b *Builder) DisableTracing() *Builder {
 	b.disableRequestSpan = true
 	return b
 }
 
+// DisableTraceHeaderPropagation disables propagation of B3 trace headers
+// (X-B3-TraceId, etc.) to downstream services.
 func (b *Builder) DisableTraceHeaderPropagation() *Builder {
 	b.disableTraceHeaders = true
 	return b
 }
 
+// SetErrorDecoder sets a custom error decoder for responses. Replaces the
+// default decoder (which handles status >= 307); pass nil or call
+// DisableRestErrors to disable error decoding entirely.
 func (b *Builder) SetErrorDecoder(d ErrorDecoder) *Builder {
 	b.errorDecoder = d
 	return b
 }
 
+// DisableRestErrors disables the default REST error decoder. With this set,
+// all responses (including 4xx/5xx) are returned to the caller as successful
+// (resp, nil); the caller is responsible for inspecting StatusCode.
 func (b *Builder) DisableRestErrors() *Builder {
 	b.errorDecoder = nil
 	return b
 }
 
+// DisablePanicRecovery disables panic recovery in the middleware chain.
+// By default, a panic in middleware or transport is recovered and returned as an error.
 func (b *Builder) DisablePanicRecovery() *Builder {
 	b.disableRecovery = true
 	return b
 }
 
+// SetTransport injects a fully-configured http.RoundTripper, bypassing the
+// dialer, TLS, and transport builders. Useful for tests or for wrapping a
+// custom transport. The injected transport is still wrapped with the
+// middleware stack (auth, metrics, tracing, recovery, URI scoring, retries).
 func (b *Builder) SetTransport(rt http.RoundTripper) *Builder {
 	b.transport = rt
 	return b
 }
 
+// SetBytesBufferPool sets a buffer pool used by codecs (notably JSONEncoder) to
+// reduce per-request allocations.
 func (b *Builder) SetBytesBufferPool(pool bytesbuffers.Pool) *Builder {
 	b.bytesBufferPool = pool
 	return b
 }
 
-// Build constructs a Client from the current builder configuration.
+// Build constructs a [ConfigurableClient] from the current builder configuration.
+// Returns an error if required settings are missing (no base URLs, unless
+// SetAllowCreateWithEmptyURIs(true) was called) or if any deferred validation
+// errors accumulated during setter calls (e.g., invalid proxy URLs).
 func (b *Builder) Build(ctx context.Context) (ConfigurableClient[*Builder], error) {
 	if err := b.buildError(ctx); err != nil {
 		return nil, err
@@ -505,8 +597,8 @@ func (b *Builder) BuildHTTPClient(ctx context.Context) (refreshable.Refreshable[
 	}
 
 	// Wrap with auth middleware (innermost, closest to transport).
-	if b.authMiddleware != nil {
-		transport = wrapTransport(transport, b.authMiddleware)
+	if b.authHeader != nil {
+		transport = wrapTransport(transport, authHeaderMiddleware(b.authHeader))
 	}
 	// Wrap with inner middlewares.
 	transport = wrapTransport(transport, b.innerMiddlewares...)

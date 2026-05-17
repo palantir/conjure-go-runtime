@@ -66,19 +66,19 @@ type GetItemResponse struct {
 // Package-level endpoint descriptors. Path templates use {param} placeholders
 // matching the Conjure definition. These are safe to share across goroutines.
 var (
-	createItemEndpoint = httpc.NewPOST[CreateItemRequest, CreateItemResponse]("/api/v1/items", "CreateItem").
+	createItemEndpoint = httpc.NewPOST[CreateItemRequest, CreateItemResponse]("CreateItem", "/api/v1/items").
 				SetEncoder(httpc.JSONEncoder[CreateItemRequest]()).
 				SetDecoder(httpc.JSONDecoder[CreateItemResponse]()).
 				SetAccept("application/json")
 
-	getItemEndpoint = httpc.NewGET[GetItemResponse]("/api/v1/items/{itemId}", "GetItem").
+	getItemEndpoint = httpc.NewGET[GetItemResponse]("GetItem", "/api/v1/items/{itemId}").
 			SetDecoder(httpc.JSONDecoder[GetItemResponse]()).
 			SetAccept("application/json")
 
-	deleteItemEndpoint = httpc.NewDELETE[struct{}]("/api/v1/items/{itemId}", "DeleteItem").
+	deleteItemEndpoint = httpc.NewDELETE[struct{}]("DeleteItem", "/api/v1/items/{itemId}").
 				SetDecoder(httpc.VoidDecoder())
 
-	downloadItemEndpoint = httpc.NewGET[io.ReadCloser]("/api/v1/items/{itemId}/download", "DownloadItem").
+	downloadItemEndpoint = httpc.NewGET[io.ReadCloser]("DownloadItem", "/api/v1/items/{itemId}/download").
 				SetDecoder(httpc.BinaryDecoder()).
 				SetAccept("application/octet-stream")
 )
@@ -134,26 +134,26 @@ func (c *itemServiceClient) CreateItem(ctx context.Context, req CreateItemReques
 }
 
 func (c *itemServiceClient) GetItem(ctx context.Context, itemId string) (GetItemResponse, error) {
-	resp, _, err := httpc.ExecuteVoid(ctx, c.client,
-		getItemEndpoint.
-			WithPathParam("itemId", itemId).
-			WithOverrides(c.overrides))
+	resp, _, err := getItemEndpoint.
+		WithPathParam("itemId", itemId).
+		WithOverrides(c.overrides).
+		Execute(ctx, c.client, httpc.Void{})
 	return resp, err
 }
 
 func (c *itemServiceClient) DeleteItem(ctx context.Context, itemId string) error {
-	_, _, err := httpc.ExecuteVoid(ctx, c.client,
-		deleteItemEndpoint.
-			WithPathParam("itemId", itemId).
-			WithOverrides(c.overrides))
+	_, _, err := deleteItemEndpoint.
+		WithPathParam("itemId", itemId).
+		WithOverrides(c.overrides).
+		Execute(ctx, c.client, httpc.Void{})
 	return err
 }
 
 func (c *itemServiceClient) DownloadItem(ctx context.Context, itemId string) (io.ReadCloser, error) {
-	resp, _, err := httpc.ExecuteVoid(ctx, c.client,
-		downloadItemEndpoint.
-			WithPathParam("itemId", itemId).
-			WithOverrides(c.overrides))
+	resp, _, err := downloadItemEndpoint.
+		WithPathParam("itemId", itemId).
+		WithOverrides(c.overrides).
+		Execute(ctx, c.client, httpc.Void{})
 	return resp, err
 }
 
@@ -266,7 +266,7 @@ func TestExampleService_PathParamEscaping(t *testing.T) {
 // path parameters fill them in by name, regardless of call order.
 func TestExampleService_MultiplePathParams(t *testing.T) {
 	// A contrived endpoint with two path params to test named replacement.
-	ep := httpc.NewGET[GetItemResponse]("/orgs/{orgId}/items/{itemId}", "GetOrgItem").
+	ep := httpc.NewGET[GetItemResponse]("GetOrgItem", "/orgs/{orgId}/items/{itemId}").
 		SetDecoder(httpc.JSONDecoder[GetItemResponse]()).
 		SetAccept("application/json")
 
@@ -280,8 +280,8 @@ func TestExampleService_MultiplePathParams(t *testing.T) {
 	client := &httpTestClient{server: server}
 
 	// Fill in params in reverse order — should still work because replacement is by name.
-	resp, _, err := httpc.ExecuteVoid(context.Background(), client,
-		ep.WithPathParam("itemId", "widget-1").WithPathParam("orgId", "acme"))
+	resp, _, err := ep.WithPathParam("itemId", "widget-1").WithPathParam("orgId", "acme").
+		Execute(context.Background(), client, httpc.Void{})
 	require.NoError(t, err)
 	assert.Equal(t, "widget-1", resp.ID)
 }
@@ -289,7 +289,7 @@ func TestExampleService_MultiplePathParams(t *testing.T) {
 // TestExampleService_GreedyPathParam verifies that a {param*} placeholder preserves
 // slashes in the value while still escaping individual segments.
 func TestExampleService_GreedyPathParam(t *testing.T) {
-	ep := httpc.NewGET[GetItemResponse]("/files/{filePath*}", "GetFile").
+	ep := httpc.NewGET[GetItemResponse]("GetFile", "/files/{filePath*}").
 		SetDecoder(httpc.JSONDecoder[GetItemResponse]()).
 		SetAccept("application/json")
 
@@ -302,8 +302,8 @@ func TestExampleService_GreedyPathParam(t *testing.T) {
 		t.Cleanup(server.Close)
 		client := &httpTestClient{server: server}
 
-		resp, _, err := httpc.ExecuteVoid(context.Background(), client,
-			ep.WithPathParam("filePath", "dir/subdir/file.txt"))
+		resp, _, err := ep.WithPathParam("filePath", "dir/subdir/file.txt").
+			Execute(context.Background(), client, httpc.Void{})
 		require.NoError(t, err)
 		assert.Equal(t, "file.txt", resp.ID)
 	})
@@ -319,14 +319,14 @@ func TestExampleService_GreedyPathParam(t *testing.T) {
 		t.Cleanup(server.Close)
 		client := &httpTestClient{server: server}
 
-		resp, _, err := httpc.ExecuteVoid(context.Background(), client,
-			ep.WithPathParam("filePath", "my docs/sub dir/file.txt"))
+		resp, _, err := ep.WithPathParam("filePath", "my docs/sub dir/file.txt").
+			Execute(context.Background(), client, httpc.Void{})
 		require.NoError(t, err)
 		assert.Equal(t, "file.txt", resp.ID)
 	})
 
 	t.Run("greedy param with prefix", func(t *testing.T) {
-		ep2 := httpc.NewGET[GetItemResponse]("/repos/{repoId}/files/{filePath*}", "GetRepoFile").
+		ep2 := httpc.NewGET[GetItemResponse]("GetRepoFile", "/repos/{repoId}/files/{filePath*}").
 			SetDecoder(httpc.JSONDecoder[GetItemResponse]()).
 			SetAccept("application/json")
 
@@ -338,8 +338,8 @@ func TestExampleService_GreedyPathParam(t *testing.T) {
 		t.Cleanup(server.Close)
 		client := &httpTestClient{server: server}
 
-		resp, _, err := httpc.ExecuteVoid(context.Background(), client,
-			ep2.WithPathParam("repoId", "my-repo").WithPathParam("filePath", "src/main/app.go"))
+		resp, _, err := ep2.WithPathParam("repoId", "my-repo").WithPathParam("filePath", "src/main/app.go").
+			Execute(context.Background(), client, httpc.Void{})
 		require.NoError(t, err)
 		assert.Equal(t, "app.go", resp.ID)
 	})
@@ -353,8 +353,8 @@ func TestExampleService_GreedyPathParam(t *testing.T) {
 		t.Cleanup(server.Close)
 		client := &httpTestClient{server: server}
 
-		resp, _, err := httpc.ExecuteVoid(context.Background(), client,
-			ep.WithPathParam("filePath", "simple.txt"))
+		resp, _, err := ep.WithPathParam("filePath", "simple.txt").
+			Execute(context.Background(), client, httpc.Void{})
 		require.NoError(t, err)
 		assert.Equal(t, "simple.txt", resp.ID)
 	})
@@ -430,10 +430,10 @@ func TestExampleService_WithOverridesOnEndpoint(t *testing.T) {
 		AddHeader("X-Custom", "custom-value").
 		WithBasicAuth("admin", "secret")
 
-	resp, _, err := httpc.ExecuteVoid(context.Background(), client,
-		getItemEndpoint.
-			WithPathParam("itemId", "1").
-			WithOverrides(overrides))
+	resp, _, err := getItemEndpoint.
+		WithPathParam("itemId", "1").
+		WithOverrides(overrides).
+		Execute(context.Background(), client, httpc.Void{})
 	require.NoError(t, err)
 	assert.Equal(t, "1", resp.ID)
 }
@@ -654,8 +654,8 @@ func TestExample_SetTransport_FullClient(t *testing.T) {
 		Build(context.Background())
 	require.NoError(t, err)
 
-	resp, _, err := httpc.ExecuteVoid(context.Background(), client,
-		getItemEndpoint.WithPathParam("itemId", "1"))
+	resp, _, err := getItemEndpoint.WithPathParam("itemId", "1").
+		Execute(context.Background(), client, httpc.Void{})
 	require.NoError(t, err)
 	assert.Equal(t, "1", resp.ID)
 	assert.True(t, customTransportUsed)

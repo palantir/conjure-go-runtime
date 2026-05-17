@@ -47,7 +47,7 @@ func TestBuilder_BasicBuild(t *testing.T) {
 		Build(context.Background())
 	require.NoError(t, err)
 
-	ep := httpc.NewEndpoint[struct{}, builderTestPayload](http.MethodGet, "/api/test", "GetTest").
+	ep := httpc.NewEndpoint[struct{}, builderTestPayload](http.MethodGet, "GetTest", "/api/test").
 		SetDecoder(httpc.JSONDecoder[builderTestPayload]()).
 		SetAccept("application/json")
 
@@ -113,7 +113,7 @@ func TestBuilder_ConfigurableClient(t *testing.T) {
 		Build(context.Background())
 	require.NoError(t, err)
 
-	ep := httpc.NewEndpoint[struct{}, builderTestPayload](http.MethodGet, "/test", "Test").
+	ep := httpc.NewEndpoint[struct{}, builderTestPayload](http.MethodGet, "Test", "/test").
 		SetDecoder(httpc.JSONDecoder[builderTestPayload]()).
 		SetAccept("application/json")
 
@@ -168,7 +168,7 @@ func TestBuilder_Middleware(t *testing.T) {
 		Build(context.Background())
 	require.NoError(t, err)
 
-	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "/mw", "MW").
+	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "MW", "/mw").
 		SetDecoder(httpc.VoidDecoder())
 
 	_, _, err = ep.Execute(context.Background(), client, struct{}{})
@@ -194,7 +194,7 @@ func TestBuilder_PostWithBody(t *testing.T) {
 		Build(context.Background())
 	require.NoError(t, err)
 
-	ep := httpc.NewEndpoint[builderTestPayload, builderTestPayload](http.MethodPost, "/create", "Create").
+	ep := httpc.NewEndpoint[builderTestPayload, builderTestPayload](http.MethodPost, "Create", "/create").
 		SetEncoder(httpc.JSONEncoder[builderTestPayload]()).
 		SetDecoder(httpc.JSONDecoder[builderTestPayload]()).
 		SetAccept("application/json")
@@ -235,7 +235,7 @@ func TestBuilder_ErrorDecoder(t *testing.T) {
 		Build(context.Background())
 	require.NoError(t, err)
 
-	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "/fail", "Fail").
+	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "Fail", "/fail").
 		SetDecoder(httpc.VoidDecoder())
 
 	_, _, err = ep.Execute(context.Background(), client, struct{}{})
@@ -280,7 +280,7 @@ func TestBuilder_Headers(t *testing.T) {
 		Build(context.Background())
 	require.NoError(t, err)
 
-	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "/headers", "Headers").
+	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "Headers", "/headers").
 		SetDecoder(httpc.VoidDecoder())
 
 	_, _, err = ep.Execute(context.Background(), client, struct{}{})
@@ -299,7 +299,7 @@ func TestBuilder_DefaultErrorDecoder_StatusCode(t *testing.T) {
 		Build(context.Background())
 	require.NoError(t, err)
 
-	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "/fail", "Fail").
+	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "Fail", "/fail").
 		SetDecoder(httpc.VoidDecoder())
 
 	_, _, err = ep.Execute(context.Background(), client, struct{}{})
@@ -324,7 +324,7 @@ func TestBuilder_DefaultErrorDecoder_NonJSONBody(t *testing.T) {
 		Build(context.Background())
 	require.NoError(t, err)
 
-	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "/fail", "Fail").
+	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "Fail", "/fail").
 		SetDecoder(httpc.VoidDecoder())
 
 	_, _, err = ep.Execute(context.Background(), client, struct{}{})
@@ -358,7 +358,7 @@ func TestBuilder_DefaultErrorDecoder_ConjureJSON(t *testing.T) {
 		Build(context.Background())
 	require.NoError(t, err)
 
-	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "/missing", "GetMissing").
+	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "GetMissing", "/missing").
 		SetDecoder(httpc.VoidDecoder())
 
 	_, _, err = ep.Execute(context.Background(), client, struct{}{})
@@ -384,7 +384,7 @@ func TestBuilder_DefaultErrorDecoder_EmptyBody(t *testing.T) {
 		Build(context.Background())
 	require.NoError(t, err)
 
-	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "/down", "Down").
+	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "Down", "/down").
 		SetDecoder(httpc.VoidDecoder())
 
 	_, _, err = ep.Execute(context.Background(), client, struct{}{})
@@ -544,7 +544,7 @@ func TestRefreshable_URIPropagation(t *testing.T) {
 		Build(context.Background())
 	require.NoError(t, err)
 
-	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "/test", "Test").
+	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "Test", "/test").
 		SetDecoder(httpc.VoidDecoder())
 
 	_, _, err = ep.Execute(context.Background(), client, struct{}{})

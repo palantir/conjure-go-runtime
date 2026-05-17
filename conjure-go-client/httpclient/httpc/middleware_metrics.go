@@ -110,7 +110,12 @@ type metricsMiddleware struct {
 	tags        []TagsProvider
 }
 
-// MetricsMiddleware emits client.response timer metrics.
+// MetricsMiddleware returns a standalone Middleware that emits the full set of
+// client metrics (response timer, in-flight counter, connection/DNS/TLS/TCP
+// timing, etc.) for the given service name and tag providers.
+//
+// Clients built via Builder install this middleware automatically; use this
+// function only when composing middleware manually outside of Builder.
 func MetricsMiddleware(serviceName string, tagProviders ...TagsProvider) (Middleware, error) {
 	return &metricsMiddleware{serviceName: refreshable.New(serviceName), tags: tagProviders}, nil
 }

@@ -308,10 +308,12 @@ func TestBinaryEncoder(t *testing.T) {
 		data, err := io.ReadAll(req.Body)
 		require.NoError(t, err)
 		assert.Equal(t, content, string(data))
+		require.NoError(t, req.Body.Close())
 
-		// Replay via GetBody.
+		// Replay via GetBody after the original request body has been closed.
 		replay, err := req.GetBody()
 		require.NoError(t, err)
+		defer func() { _ = replay.Close() }()
 		replayData, err := io.ReadAll(replay)
 		require.NoError(t, err)
 		assert.Equal(t, content, string(replayData))
@@ -337,10 +339,12 @@ func TestBinaryEncoder(t *testing.T) {
 		data, err := io.ReadAll(req.Body)
 		require.NoError(t, err)
 		assert.Equal(t, "payload", string(data))
+		require.NoError(t, req.Body.Close())
 
-		// Replay seeks back to offset 7, not 0.
+		// Replay reopens the file and seeks back to offset 7, not 0.
 		replay, err := req.GetBody()
 		require.NoError(t, err)
+		defer func() { _ = replay.Close() }()
 		replayData, err := io.ReadAll(replay)
 		require.NoError(t, err)
 		assert.Equal(t, "payload", string(replayData))
@@ -357,18 +361,11 @@ func TestBinaryEncoder(t *testing.T) {
 		require.NoError(t, err)
 
 		assert.Equal(t, int64(-1), req.ContentLength, "no Stat() means no Content-Length")
-		require.NotNil(t, req.GetBody, "Seeker should enable GetBody")
+		assert.Nil(t, req.GetBody, "generic Seeker cannot be safely replayed after Close")
 
 		data, err := io.ReadAll(req.Body)
 		require.NoError(t, err)
 		assert.Equal(t, "seekable", string(data))
-
-		// Replay.
-		replay, err := req.GetBody()
-		require.NoError(t, err)
-		replayData, err := io.ReadAll(replay)
-		require.NoError(t, err)
-		assert.Equal(t, "seekable", string(replayData))
 	})
 
 	t.Run("statter without Seeker", func(t *testing.T) {

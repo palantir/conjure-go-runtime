@@ -25,8 +25,20 @@ import (
 	werror "github.com/palantir/witchcraft-go-error"
 )
 
+// ErrorDecoder determines whether an HTTP response represents an error
+// and decodes it into a Go error value.
+type ErrorDecoder interface {
+	// Handles returns true if this decoder should handle the given response.
+	Handles(resp *http.Response) bool
+	// DecodeError decodes the response into an error. Called only when Handles returns true.
+	DecodeError(resp *http.Response) error
+}
+
+// ErrEmptyURIs is returned by Build (and by Client.Do) when the client has no
+// configured base URIs. Use errors.Is or a type assertion to detect it.
 type ErrEmptyURIs struct{}
 
+// Error implements error.
 func (ErrEmptyURIs) Error() string {
 	return "httpclient URLs must not be empty"
 }

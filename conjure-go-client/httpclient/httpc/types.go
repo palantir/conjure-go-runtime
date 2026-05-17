@@ -74,15 +74,6 @@ func (f MiddlewareFunc) RoundTrip(req *http.Request, next http.RoundTripper) (*h
 	return f(req, next)
 }
 
-// ErrorDecoder determines whether an HTTP response represents an error
-// and decodes it into a Go error value.
-type ErrorDecoder interface {
-	// Handles returns true if this decoder should handle the given response.
-	Handles(resp *http.Response) bool
-	// DecodeError decodes the response into an error. Called only when Handles returns true.
-	DecodeError(resp *http.Response) error
-}
-
 // TagsProvider produces metric tags from an HTTP request/response pair.
 type TagsProvider interface {
 	Tags(req *http.Request, resp *http.Response, err error) metrics.Tags
@@ -96,11 +87,17 @@ func (f TagsProviderFunc) Tags(req *http.Request, resp *http.Response, err error
 	return f(req, resp, err)
 }
 
+// StaticTagsProvider is a TagsProvider that returns the same set of tags for every request.
+// Wrap a metrics.Tags value with this type to attach static tags to all emitted metrics.
 type StaticTagsProvider metrics.Tags
 
+// Tags implements TagsProvider.
 func (s StaticTagsProvider) Tags(req *http.Request, resp *http.Response, err error) metrics.Tags {
 	return metrics.Tags(s)
 }
+
+// Void is the Req or Resp type for endpoints with no request or response body.
+type Void = struct{}
 
 // TokenProvider returns a bearer token for request authentication.
 type TokenProvider func(ctx context.Context) (string, error)

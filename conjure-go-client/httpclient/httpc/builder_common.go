@@ -19,7 +19,6 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
-	"fmt"
 	"net/http"
 	"slices"
 	"time"
@@ -49,9 +48,9 @@ type baseB[B baseB[B]] interface {
 // Param is a reusable, composable configuration function for a builder or service client.
 // Params are applied via the Apply method and typically wrap one or more setter calls:
 //
-//	func WithDefaults[B httpc.ClientBuilder[B]]() httpc.Param[B] {
+//	func WithDefaults[B httpc.ServiceBuilder[B]]() httpc.Param[B] {
 //	    return func(b B) B {
-//	        return b.SetTimeout(30 * time.Second).SetMaxRetries(3)
+//	        return b.SetTimeout(30 * time.Second).SetMaxAttempts(new(3))
 //	    }
 //	}
 //
@@ -59,47 +58,49 @@ type baseB[B baseB[B]] interface {
 // RequestOverrides methods rather than mutating setters. See Overrides for details.
 type Param[B baseB[B]] func(B) B
 
+// Param0 wraps a zero-argument builder method as a Param.
+// Example: Param0((*Builder).DisableHTTP2).
 func Param0[B baseB[B]](p func(B) B) Param[B] {
 	return func(b B) B {
 		return p(b)
 	}
 }
 
+// Param1 wraps a one-argument builder method and its argument as a Param.
+// Example: Param1((*Builder).SetTimeout, 30*time.Second).
 func Param1[B baseB[B], X any](p func(B, X) B, x X) Param[B] {
 	return func(b B) B {
 		return p(b, x)
 	}
 }
 
+// Param2 wraps a two-argument builder method and its arguments as a Param.
+// Example: Param2((*Builder).SetBasicAuth, "user", "pass").
 func Param2[B baseB[B], X any, Y any](p func(B, X, Y) B, x X, y Y) Param[B] {
 	return func(b B) B { return p(b, x, y) }
 }
 
-// ParamVarArgs creates a Param from a variadic builder method and a slice of arguments.
+// ParamVarArgs wraps a variadic builder method and a slice of arguments as a Param.
+// Example: ParamVarArgs((*Builder).SetBaseURLs, []string{"https://a", "https://b"}).
 func ParamVarArgs[B baseB[B], X any](p func(B, ...X) B, xs []X) Param[B] {
 	return func(b B) B { return p(b, xs...) }
 }
 
 // ClientBuilder is the top-level builder interface for constructing HTTP clients.
-// It composes DialerBuilder, TLSConfigBuilder, TransportBuilder, and ServiceBuilder
-// into a single unified builder covering all layers of the HTTP stack.
-//
-// Like all builders in this package, ClientBuilder is mutable: setter methods modify
-// the receiver and return it for chaining. Use Clone to fork an independent copy.
-//
-// The Build method (inherited from ServiceBuilder) constructs the client by:
-//  1. Building a net.Dialer from DialerBuilder settings
-//  2. Building a *tls.Config from TLSConfigBuilder settings
-//  3. Building an *http.Transport from TransportBuilder settings + dialer + TLS
-//  4. Injecting the transport via SetTransport
-//  5. Wrapping with the middleware stack and returning a Client
-//
-// Generic configuration functions can accept any ClientBuilder and return the
-// same concrete type, enabling reusable configuration libraries:
+// It composes [DialerBuilder], [TLSConfigBuilder], [TransportBuilder], and
+// [ServiceBuilder] into a single unified builder covering all layers of the
+// HTTP stack. [Builder] is the concrete implementation; in application code
+// you usually work with *Builder directly. The interface is provided so that
+// generic helpers can configure any ClientBuilder and return the same concrete
+// type:
 //
 //	func ApplyDefaults[B ClientBuilder[B]](b B) B {
-//	    return b.SetTimeout(30 * time.Second).SetMaxRetries(3)
+//	    return b.SetTimeout(30 * time.Second).SetMaxAttempts(new(3))
 //	}
+//
+// Build (inherited from ServiceBuilder) constructs the client by building the
+// dialer, TLS config, and transport from their respective settings, then
+// wrapping the transport with the middleware stack.
 type ClientBuilder[B ClientBuilder[B]] interface {
 	DialerBuilder[B]
 	TLSConfigBuilder[B]
@@ -122,13 +123,14 @@ const (
 	defaultMaxBackoff            = 2 * time.Second
 )
 
-// Builder implements ClientBuilder by directly managing
-// transport, dialer, TLS, and service-level configuration.
+// Builder is the concrete [ClientBuilder] returned by [NewBuilder]. It carries
+// the full set of dialer, TLS, transport, and service-level settings, and
+// exposes additional methods for building intermediate artifacts (BuildDialer,
+// BuildTLSConfig, BuildTransport, BuildHTTPClient).
 //
 // Builder is NOT safe for concurrent use. All setter methods mutate the
-// receiver and return it for fluent chaining. To share configuration across
-// goroutines, call Clone to create an independent copy for each goroutine
-// before mutating.
+// receiver and return it for fluent chaining; to share configuration across
+// goroutines, call [Builder.Clone] before mutating in each goroutine.
 type Builder struct {
 	serviceName     refreshable.Refreshable[string]
 	timeout         refreshable.Refreshable[time.Duration]
@@ -138,9 +140,9 @@ type Builder struct {
 	tlsFileParams   refreshable.Refreshable[tlsFileParams] // TLS file/flag settings
 	tlsCABytes      refreshable.Refreshable[[][]byte]
 
-	middlewares      []Middleware // outer: applied after built-in middleware
-	innerMiddlewares []Middleware // inner: applied before built-in middleware
-	authMiddleware   Middleware   // single auth slot: replaced (not accumulated) by Set*Auth* methods
+	middlewares      []Middleware   // outer: applied after built-in middleware
+	innerMiddlewares []Middleware   // inner: applied before built-in middleware
+	authHeader       authHeaderFunc // single auth slot: replaced (not accumulated) by Set*Auth* methods
 
 	disableMetrics      refreshable.Refreshable[bool]
 	metricsTagProviders []TagsProvider
@@ -225,7 +227,7 @@ func (b *Builder) Clone() *Builder {
 		tlsCABytes:          b.tlsCABytes,
 		middlewares:         slices.Clone(b.middlewares),
 		innerMiddlewares:    slices.Clone(b.innerMiddlewares),
-		authMiddleware:      b.authMiddleware,
+		authHeader:          b.authHeader,
 		disableMetrics:      b.disableMetrics,
 		metricsTagProviders: slices.Clone(b.metricsTagProviders),
 		disableRequestSpan:  b.disableRequestSpan,
@@ -532,19 +534,26 @@ func (b *Builder) ApplyConfigRefreshable(ctx context.Context, config refreshable
 		return existingDisableMetrics.Current()
 	})
 
-	// Auth: install a single combined middleware for the refreshable case, since
-	// the config may switch between token and basic auth on refresh.
-	// The middleware checks the current values and becomes a no-op when both are nil.
+	// Auth: install a single combined header provider for the refreshable case,
+	// since the config may switch between token and basic auth on refresh. When
+	// both refreshable values are nil, fall back to any provider installed by a
+	// prior SetAuth*/SetBasicAuth* call so that builder-level auth survives
+	// configs that omit credentials.
+	existingAuth := b.authHeader
 	apiToken := refreshable.MapFromValidatedAuto(validParams, func(p validatedClientParams) *string { return p.apiToken })
 	basicAuthR := refreshable.MapFromValidatedAuto(validParams, func(p validatedClientParams) *BasicAuth { return p.basicAuth })
-	b.authMiddleware = MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
-		if s := apiToken.Current(); s != nil && *s != "" {
-			req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", *s))
-		} else if auth := basicAuthR.Current(); auth != nil {
-			setBasicAuthHeader(req.Header, auth.User, auth.Password)
+	b.authHeader = func(ctx context.Context) (string, error) {
+		if s := apiToken.Current(); s != nil {
+			return bearerAuthHeader(*s), nil
 		}
-		return next.RoundTrip(req)
-	})
+		if auth := basicAuthR.Current(); auth != nil {
+			return basicAuthHeader(auth.User, auth.Password), nil
+		}
+		if existingAuth != nil {
+			return existingAuth(ctx)
+		}
+		return "", nil
+	}
 
 	// Metrics tags via closure over validated refreshable.
 	b.metricsTagProviders = append(b.metricsTagProviders, TagsProviderFunc(func(*http.Request, *http.Response, error) metrics.Tags {

@@ -53,7 +53,7 @@ client, err := httpc.NewBuilder().
     SetBaseURLs("https://host1", "https://host2").
     SetAuthToken("token").
     SetTimeout(30 * time.Second).
-    SetMaxAttempts(intPtr(4)). // see "Retry configuration" below
+    SetMaxAttempts(new(4)). // see "Retry configuration" below
     Build(ctx)
 ```
 
@@ -92,18 +92,18 @@ resp, err := client.Do(ctx,
 
 ```go
 // Package-level endpoint definition (once per RPC).
-var getItem = httpc.NewGET[GetItemResp]("/api/v1/items/{itemId}", "GetItem").
+var getItem = httpc.NewGET[GetItemResp]("GetItem", "/api/v1/items/{itemId}").
     SetDecoder(httpc.JSONDecoder[GetItemResp]()).
     SetAccept("application/json")
 
-var createItem = httpc.NewPOST[CreateReq, CreateResp]("/api/v1/items", "CreateItem").
+var createItem = httpc.NewPOST[CreateReq, CreateResp]("CreateItem", "/api/v1/items").
     SetEncoder(httpc.JSONEncoder[CreateReq]()).
     SetDecoder(httpc.JSONDecoder[CreateResp]()).
     SetAccept("application/json")
 
 // At call site:
-resp, _, err := httpc.ExecuteVoid(ctx, client,
-    getItem.WithPathParam("itemId", itemId))
+resp, _, err := getItem.WithPathParam("itemId", itemId).
+    Execute(ctx, client, httpc.Void{})
 
 resp, _, err := createItem.Execute(ctx, client, body)
 ```
@@ -114,7 +114,8 @@ Key differences:
 - Path parameters are filled by name (`WithPathParam("itemId", id)`) with automatic
   URL escaping, instead of manual `url.PathEscape` + string concatenation.
 - The response is returned as a typed value, not written to a pointer.
-- `ExecuteVoid` is used for endpoints with no request body (avoids passing `struct{}{}`).
+- `httpc.Void` is an alias for `struct{}`, used as the body argument for endpoints
+  with no request body: `ep.Execute(ctx, client, httpc.Void{})`.
 
 ## Feature mapping
 
@@ -141,7 +142,7 @@ Key differences:
 | `WithHTTP2ReadIdleTimeout(d)` | `SetHTTP2ReadIdleTimeout(d)` | |
 | `WithHTTP2PingTimeout(d)` | `SetHTTP2PingTimeout(d)` | |
 | `WithMaxRetries(n)` | `SetMaxAttempts(p)` | **Different semantics, see below** |
-| `WithUnlimitedRetries()` | `SetMaxAttempts(intPtr(0))` | 0 = unlimited |
+| `WithUnlimitedRetries()` | `SetMaxAttempts(new(0))` | 0 = unlimited |
 | `WithInitialBackoff(d)` | `SetInitialBackoff(d)` | |
 | `WithMaxBackoff(d)` | `SetMaxBackoff(d)` | |
 | `WithProxyFromEnvironment()` | `SetProxyFromEnvironment()` | |
@@ -262,15 +263,15 @@ attempts was `n + 1`. The new `SetMaxAttempts(*int)` sets the total number of
 
 | Old | New | Total attempts |
 |-----|-----|----------------|
-| `WithMaxRetries(2)` | `SetMaxAttempts(intPtr(3))` | 3 |
-| `WithMaxRetries(0)` | `SetMaxAttempts(intPtr(1))` | 1 (no retries) |
-| `WithUnlimitedRetries()` | `SetMaxAttempts(intPtr(0))` | Unlimited |
+| `WithMaxRetries(2)` | `SetMaxAttempts(new(3))` | 3 |
+| `WithMaxRetries(0)` | `SetMaxAttempts(new(1))` | 1 (no retries) |
+| `WithUnlimitedRetries()` | `SetMaxAttempts(new(0))` | Unlimited |
 | _(default: 2 * len(URIs))_ | _(default: `nil` = 2 per URI)_ | Same |
 
 The `SetMaxAttempts` parameter is a `*int`:
 - `nil` (default): 2 attempts per base URL
-- `intPtr(0)`: unlimited attempts
-- `intPtr(n)`: exactly n total attempts
+- `new(0)`: unlimited attempts
+- `new(n)`: exactly n total attempts
 
 ### Proxy configuration is split
 
@@ -421,13 +422,14 @@ Path templates use `{param}` placeholders (Conjure style). Greedy parameters
    method, path template, encoder, decoder, and accept header.
 
 3. **Replace `client.Do` calls**: Replace inline `client.Do(ctx, params...)` with
-   `endpoint.Execute(ctx, client, body)` or `httpc.ExecuteVoid(ctx, client, ep)`.
+   `endpoint.Execute(ctx, client, body)`. Use `httpc.Void{}` as the body for
+   endpoints with no request body.
 
 4. **Migrate request params to Overrides**: Convert per-request `WithHeader`,
    `WithRequestTimeout`, `WithRequestBasicAuth`, etc. to `Overrides` methods.
 
 5. **Update retry configuration**: Convert `WithMaxRetries(n)` to
-   `SetMaxAttempts(intPtr(n+1))`.
+   `SetMaxAttempts(new(n+1))`.
 
 6. **Update proxy configuration**: Split `WithProxyURL` calls by protocol.
 

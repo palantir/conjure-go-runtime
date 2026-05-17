@@ -27,13 +27,12 @@ import (
 	"golang.org/x/net/http2"
 )
 
-// TransportBuilder is an F-bounded interface for configuring HTTP transport settings
-// including connection pooling, timeouts, HTTP/2, and proxy configuration.
+// TransportBuilder is an F-bounded interface for configuring HTTP transport settings:
+// connection pooling, timeouts, HTTP/2, and HTTP(S) proxy. It is one of the slices
+// that compose [ClientBuilder]; see the package doc for the full hierarchy.
 //
-// Like all builders in this package, TransportBuilder is mutable: setter methods modify
-// the receiver and return it for chaining. Use Clone to fork an independent copy.
-//
-// Generic functions can accept any TransportBuilder and return the same concrete type:
+// The type parameter B is the concrete implementing type, so generic functions
+// can configure any TransportBuilder and return the same concrete type:
 //
 //	func ConfigureTransport[B TransportBuilder[B]](b B) B {
 //	    return b.SetMaxIdleConnsPerHost(50).SetIdleConnTimeout(60 * time.Second)
@@ -99,6 +98,7 @@ type TransportBuilder[B TransportBuilder[B]] interface {
 	SetProxyFromEnvironment() B
 }
 
+// SetMaxIdleConns sets the maximum total number of idle connections across all hosts. Default: 200.
 func (b *Builder) SetMaxIdleConns(n int) *Builder {
 	b.transportParams = refreshable.View(b.transportParams, func(p transportParams) transportParams {
 		p.MaxIdleConns = n
@@ -107,6 +107,7 @@ func (b *Builder) SetMaxIdleConns(n int) *Builder {
 	return b
 }
 
+// SetMaxIdleConnsPerHost sets the maximum number of idle connections per host. Default: 100.
 func (b *Builder) SetMaxIdleConnsPerHost(n int) *Builder {
 	b.transportParams = refreshable.View(b.transportParams, func(p transportParams) transportParams {
 		p.MaxIdleConnsPerHost = n
@@ -115,6 +116,7 @@ func (b *Builder) SetMaxIdleConnsPerHost(n int) *Builder {
 	return b
 }
 
+// DisableKeepAlives disables HTTP keep-alive connections, forcing a new connection per request.
 func (b *Builder) DisableKeepAlives() *Builder {
 	b.transportParams = refreshable.View(b.transportParams, func(p transportParams) transportParams {
 		p.DisableKeepAlives = true
@@ -123,6 +125,7 @@ func (b *Builder) DisableKeepAlives() *Builder {
 	return b
 }
 
+// SetIdleConnTimeout sets how long idle connections remain in the pool before closing. Default: 90s.
 func (b *Builder) SetIdleConnTimeout(d time.Duration) *Builder {
 	b.transportParams = refreshable.View(b.transportParams, func(p transportParams) transportParams {
 		p.IdleConnTimeout = d
@@ -131,6 +134,7 @@ func (b *Builder) SetIdleConnTimeout(d time.Duration) *Builder {
 	return b
 }
 
+// SetExpectContinueTimeout sets the timeout for waiting for a 100 Continue response. Default: 1s.
 func (b *Builder) SetExpectContinueTimeout(d time.Duration) *Builder {
 	b.transportParams = refreshable.View(b.transportParams, func(p transportParams) transportParams {
 		p.ExpectContinueTimeout = d
@@ -139,6 +143,7 @@ func (b *Builder) SetExpectContinueTimeout(d time.Duration) *Builder {
 	return b
 }
 
+// SetResponseHeaderTimeout sets the timeout for reading response headers. Default: 0 (no timeout).
 func (b *Builder) SetResponseHeaderTimeout(d time.Duration) *Builder {
 	b.transportParams = refreshable.View(b.transportParams, func(p transportParams) transportParams {
 		p.ResponseHeaderTimeout = d
@@ -147,6 +152,7 @@ func (b *Builder) SetResponseHeaderTimeout(d time.Duration) *Builder {
 	return b
 }
 
+// SetTLSHandshakeTimeout sets the timeout for the TLS handshake. Default: 10s.
 func (b *Builder) SetTLSHandshakeTimeout(d time.Duration) *Builder {
 	b.transportParams = refreshable.View(b.transportParams, func(p transportParams) transportParams {
 		p.TLSHandshakeTimeout = d
@@ -155,6 +161,7 @@ func (b *Builder) SetTLSHandshakeTimeout(d time.Duration) *Builder {
 	return b
 }
 
+// DisableHTTP2 disables HTTP/2 support, forcing HTTP/1.1.
 func (b *Builder) DisableHTTP2() *Builder {
 	b.transportParams = refreshable.View(b.transportParams, func(p transportParams) transportParams {
 		p.DisableHTTP2 = true
@@ -163,6 +170,8 @@ func (b *Builder) DisableHTTP2() *Builder {
 	return b
 }
 
+// SetHTTP2ReadIdleTimeout sets the idle interval after which an HTTP/2 connection is health-checked
+// with a ping. Default: 30s.
 func (b *Builder) SetHTTP2ReadIdleTimeout(d time.Duration) *Builder {
 	b.transportParams = refreshable.View(b.transportParams, func(p transportParams) transportParams {
 		p.HTTP2ReadIdleTimeout = d
@@ -171,6 +180,8 @@ func (b *Builder) SetHTTP2ReadIdleTimeout(d time.Duration) *Builder {
 	return b
 }
 
+// SetHTTP2PingTimeout sets the timeout for HTTP/2 ping health checks. Default: 15s.
+// Only meaningful when HTTP2ReadIdleTimeout > 0.
 func (b *Builder) SetHTTP2PingTimeout(d time.Duration) *Builder {
 	b.transportParams = refreshable.View(b.transportParams, func(p transportParams) transportParams {
 		p.HTTP2PingTimeout = d
@@ -179,6 +190,8 @@ func (b *Builder) SetHTTP2PingTimeout(d time.Duration) *Builder {
 	return b
 }
 
+// SetHTTPProxyURL sets an HTTP/HTTPS proxy URL for requests. Pass "" to clear.
+// Use SetSocksProxyURL for socks5:// proxies.
 func (b *Builder) SetHTTPProxyURL(s string) *Builder {
 	if s == "" {
 		b.transportParams = refreshable.View(b.transportParams, func(p transportParams) transportParams {
@@ -199,6 +212,7 @@ func (b *Builder) SetHTTPProxyURL(s string) *Builder {
 	return b
 }
 
+// SetNoProxy clears all proxy configuration (HTTP, SOCKS, and environment).
 func (b *Builder) SetNoProxy() *Builder {
 	b.dialerParams = refreshable.View(b.dialerParams, func(p dialerParams) dialerParams {
 		p.SocksProxyURL = nil
@@ -212,6 +226,8 @@ func (b *Builder) SetNoProxy() *Builder {
 	return b
 }
 
+// SetProxyFromEnvironment configures the proxy from HTTP_PROXY, HTTPS_PROXY, and NO_PROXY
+// environment variables.
 func (b *Builder) SetProxyFromEnvironment() *Builder {
 	b.transportParams = refreshable.View(b.transportParams, func(p transportParams) transportParams {
 		p.ProxyFromEnvironment = true

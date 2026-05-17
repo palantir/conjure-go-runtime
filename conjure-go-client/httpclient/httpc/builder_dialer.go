@@ -26,12 +26,12 @@ import (
 	"golang.org/x/net/proxy"
 )
 
-// DialerBuilder is an F-bounded interface for configuring TCP dialer settings.
+// DialerBuilder is an F-bounded interface for configuring TCP dialer settings:
+// dial timeout, keep-alive, and SOCKS proxy. It is one of the slices that
+// compose [ClientBuilder]; see the package doc for the full hierarchy.
 //
-// Like all builders in this package, DialerBuilder is mutable: setter methods modify
-// the receiver and return it for chaining. Use Clone to fork an independent copy.
-//
-// Generic functions can accept any DialerBuilder and return the same concrete type:
+// The type parameter B is the concrete implementing type, so generic functions
+// can configure any DialerBuilder and return the same concrete type:
 //
 //	func ConfigureDialer[B DialerBuilder[B]](b B) B {
 //	    return b.SetDialTimeout(5 * time.Second).SetKeepAlive(15 * time.Second)
@@ -60,6 +60,7 @@ type DialerBuilder[B DialerBuilder[B]] interface {
 	SetSocksProxyURL(string) B
 }
 
+// SetDialTimeout sets the maximum duration for establishing a TCP connection. Default: 10s.
 func (b *Builder) SetDialTimeout(d time.Duration) *Builder {
 	b.dialerParams = refreshable.View(b.dialerParams, func(p dialerParams) dialerParams {
 		p.DialTimeout = d
@@ -68,6 +69,7 @@ func (b *Builder) SetDialTimeout(d time.Duration) *Builder {
 	return b
 }
 
+// SetKeepAlive sets the interval between TCP keep-alive probes. Default: 30s.
 func (b *Builder) SetKeepAlive(d time.Duration) *Builder {
 	b.dialerParams = refreshable.View(b.dialerParams, func(p dialerParams) dialerParams {
 		p.KeepAlive = d
@@ -76,6 +78,8 @@ func (b *Builder) SetKeepAlive(d time.Duration) *Builder {
 	return b
 }
 
+// SetSocksProxyURL sets a SOCKS5 proxy URL for TCP connections. Pass "" to clear.
+// Only socks5:// URLs are supported; use SetHTTPProxyURL for http(s) proxies.
 func (b *Builder) SetSocksProxyURL(s string) *Builder {
 	if s == "" {
 		b.dialerParams = refreshable.View(b.dialerParams, func(p dialerParams) dialerParams {

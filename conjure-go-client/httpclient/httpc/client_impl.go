@@ -17,6 +17,7 @@ package httpc
 import (
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpclient/internal"
@@ -99,8 +100,7 @@ func (c *fluentClient) Do(req *http.Request) (*http.Response, error) {
 		if err != nil {
 			svc1log.FromContext(ctx).Debug("Retrying request", svc1log.Stacktrace(err))
 		} else if resp != nil {
-			svc1log.FromContext(ctx).Debug("Retrying request",
-				svc1log.SafeParam("statusCode", resp.StatusCode))
+			svc1log.FromContext(ctx).Debug("Retrying request", svc1log.SafeParam("statusCode", resp.StatusCode))
 		}
 	}
 }
@@ -121,17 +121,12 @@ func (c *fluentClient) doOnce(
 		return nil, false, werror.WrapWithContextParams(ctx, err, "invalid URL")
 	}
 	if useBaseURIOnly {
-		req.URL = baseURL
+		req.URL = new(*baseURL)
 	} else {
-		// Use JoinPath().String() and re-parse to produce a correct url.URL.
-		// JoinPath on a URL with an empty path (e.g., http://host) returns a URL
-		// whose Path field lacks a leading slash, which results in an invalid
-		// HTTP/1.1 request-target. Re-parsing the string representation fixes this.
-		joinedURL, err := url.Parse(baseURL.JoinPath(origReq.URL.Path).String())
+		joinedURL, err := joinBaseAndRequestURL(baseURL, origReq.URL)
 		if err != nil {
 			return nil, false, werror.WrapWithContextParams(ctx, err, "failed to construct request URL")
 		}
-		joinedURL.RawQuery = origReq.URL.RawQuery
 		req.URL = joinedURL
 	}
 	req.Host = baseURL.Host
@@ -184,4 +179,25 @@ func (c *fluentClient) doOnce(
 // meaning the request can be safely retried.
 func isRetryableBody(req *http.Request) bool {
 	return req.Body == nil || req.Body == http.NoBody || req.GetBody != nil
+}
+
+func joinBaseAndRequestURL(baseURL, reqURL *url.URL) (*url.URL, error) {
+	joined := new(*baseURL)
+	if escapedPath := reqURL.EscapedPath(); escapedPath != "" {
+		if basePath := baseURL.EscapedPath(); basePath != "" {
+			escapedPath = strings.TrimRight(basePath, "/") + "/" + strings.TrimLeft(escapedPath, "/")
+		}
+		path, err := url.PathUnescape(escapedPath)
+		if err != nil {
+			return nil, err
+		}
+		joined.Path = path
+		joined.RawPath = ""
+		if (&url.URL{Path: path}).EscapedPath() != escapedPath {
+			joined.RawPath = escapedPath
+		}
+	}
+
+	joined.RawQuery = reqURL.RawQuery
+	return joined, nil
 }

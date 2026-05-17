@@ -23,6 +23,7 @@ import (
 	"io"
 	"io/fs"
 	"net/http"
+	"os"
 
 	"github.com/golang/snappy"
 	"github.com/palantir/pkg/bytesbuffers"
@@ -105,6 +106,15 @@ func bufferPoolFromContext(ctx context.Context) bytesbuffers.Pool {
 	return pool
 }
 
+func contextWithClientBufferPool(ctx context.Context, client Client) context.Context {
+	if pp, ok := client.(poolProvider); ok {
+		if pool := pp.getBufferPool(); pool != nil {
+			ctx = context.WithValue(ctx, bufferPoolKey{}, pool)
+		}
+	}
+	return ctx
+}
+
 // JSONEncoder returns a BodyEncoder that serializes the request body as JSON
 // and sets Content-Type to "application/json". When a buffer pool is available
 // via the request context (injected by Endpoint.Execute from the client),
@@ -178,12 +188,17 @@ func OptionalJSONDecoder[Resp any]() BodyDecoder[*Resp] {
 
 // VoidDecoder returns a BodyDecoder that discards the response body.
 func VoidDecoder() BodyDecoder[struct{}] {
-	return NewBodyDecoderFunc[struct{}](func(_ context.Context, resp *http.Response) (struct{}, error) {
+	return DiscardDecoder[struct{}]()
+}
+
+// DiscardDecoder returns a BodyDecoder that discards the response body.
+func DiscardDecoder[T any]() BodyDecoder[T] {
+	return NewBodyDecoderFunc[T](func(_ context.Context, resp *http.Response) (T, error) {
 		if resp.Body != nil {
 			_, _ = io.Copy(io.Discard, resp.Body)
 			_ = resp.Body.Close()
 		}
-		return struct{}{}, nil
+		return *new(T), nil
 	})
 }
 
@@ -234,8 +249,8 @@ func OptionalBinaryDecoder() BodyDecoder[io.ReadCloser] {
 //   - If the body implements fs.File (or any interface with a Stat() method returning
 //     fs.FileInfo), Content-Length is set from FileInfo.Size(), adjusted for the
 //     current read offset if the body is also an io.Seeker.
-//   - If the body implements io.Seeker, GetBody is set to a function that seeks
-//     back to the initial offset, making the request retryable.
+//   - If the body is an *os.File or otherwise exposes a filesystem name, GetBody
+//     reopens the file and seeks back to the initial offset, making the request retryable.
 //   - If neither is satisfied, Content-Length is -1 (chunked) and GetBody is nil
 //     (not retryable).
 //
@@ -267,13 +282,24 @@ func BinaryEncoder(contentType string) BodyEncoder[io.ReadCloser] {
 			}
 		}
 
-		// Set GetBody for retryability if the body is seekable.
+		// Set GetBody for retryability only when the body can be reopened.
+		type namedFile interface {
+			Name() string
+		}
 		if seekable {
-			req.GetBody = func() (io.ReadCloser, error) {
-				if _, err := seeker.Seek(startOffset, io.SeekStart); err != nil {
-					return nil, err
+			if named, ok := body.(namedFile); ok && named.Name() != "" {
+				name := named.Name()
+				req.GetBody = func() (io.ReadCloser, error) {
+					f, err := os.Open(name)
+					if err != nil {
+						return nil, err
+					}
+					if _, err := f.Seek(startOffset, io.SeekStart); err != nil {
+						_ = f.Close()
+						return nil, err
+					}
+					return f, nil
 				}
-				return body, nil
 			}
 		}
 		return nil

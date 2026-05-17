@@ -15,6 +15,7 @@
 package httpc
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
@@ -26,24 +27,20 @@ import (
 	"github.com/palantir/witchcraft-go-logging/wlog/svclog/svc1log"
 )
 
-// TLSConfigBuilder is an F-bounded interface for configuring TLS settings.
+// TLSConfigBuilder is an F-bounded interface for configuring TLS settings. It is
+// one of the slices that compose [ClientBuilder]; see the package doc for the full
+// hierarchy.
 //
-// Like all builders in this package, TLSConfigBuilder is mutable: setter methods modify
-// the receiver and return it for chaining. Use Clone to fork an independent copy.
-//
-// Root CA configuration is additive: all Add* calls contribute certificates to a single
-// pool. System CAs are included by default; call SetIncludeSystemCAs(false) to use only
-// explicitly configured CAs.
-//
-// Client certificate configuration (for mutual TLS) uses Set* semantics — last write wins.
+// Root CA configuration is additive: all Add* calls contribute certificates to a
+// single pool. System CAs are included by default; call SetIncludeSystemCAs(false)
+// to use only explicitly configured CAs. Client certificate configuration uses
+// last-write-wins Set* semantics.
 //
 // SetTLSConfig is an escape hatch that replaces all other TLS settings with a
-// caller-provided *tls.Config. When set, all other TLS builder methods are ignored.
+// caller-provided *tls.Config. Changes to refreshable CA sources or watched
+// certificate files trigger an automatic rebuild of the TLS configuration.
 //
-// Changes to refreshable CA sources or watched certificate files trigger an automatic
-// rebuild of the TLS configuration and underlying http.Transport.
-//
-// Generic functions can accept any TLSConfigBuilder and return the same concrete type:
+// The type parameter B is the concrete implementing type:
 //
 //	func ConfigureMTLS[B TLSConfigBuilder[B]](b B) B {
 //	    return b.
@@ -102,6 +99,8 @@ type TLSConfigBuilder[B TLSConfigBuilder[B]] interface {
 	SetDynamicCertReload(bool) B
 }
 
+// SetTLSConfig replaces all TLS settings with the provided *tls.Config (cloned).
+// When set, all Add* and Set* TLS methods on this builder are ignored.
 func (b *Builder) SetTLSConfig(cfg *tls.Config) *Builder {
 	if cfg == nil {
 		b.tlsConfig = nil
@@ -111,6 +110,7 @@ func (b *Builder) SetTLSConfig(cfg *tls.Config) *Builder {
 	return b
 }
 
+// SetInsecureSkipVerify controls whether the client verifies the server's certificate.
 func (b *Builder) SetInsecureSkipVerify(skip bool) *Builder {
 	if b.tlsConfig != nil {
 		b.tlsConfig.InsecureSkipVerify = skip
@@ -122,11 +122,15 @@ func (b *Builder) SetInsecureSkipVerify(skip bool) *Builder {
 	return b
 }
 
+// SetIncludeSystemCAs controls whether the host system's trusted CA certificates
+// are included in the root CA pool. Default: true.
 func (b *Builder) SetIncludeSystemCAs(include bool) *Builder {
 	b.includeSystemCAs = include
 	return b
 }
 
+// AddCACertFiles adds CA certificates from PEM file paths. Files are watched for
+// changes; updates trigger a TLS config and transport rebuild.
 func (b *Builder) AddCACertFiles(files ...string) *Builder {
 	b.tlsFileParams = refreshable.View(b.tlsFileParams, func(p tlsFileParams) tlsFileParams {
 		p.CAFiles = append(p.CAFiles, files...)
@@ -135,11 +139,16 @@ func (b *Builder) AddCACertFiles(files ...string) *Builder {
 	return b
 }
 
+// AddCACertBytes adds PEM-encoded CA certificate bytes to the pool. A single PEM blob
+// may contain multiple certificates.
 func (b *Builder) AddCACertBytes(certBytes []byte) *Builder {
 	b.caByteSlices = append(b.caByteSlices, certBytes)
 	return b
 }
 
+// AddCACertBytesRefreshable adds a refreshable source of PEM-encoded CA certificate bytes.
+// When the refreshable updates, the pool is rebuilt with the new certificates combined
+// with all other CA sources.
 func (b *Builder) AddCACertBytesRefreshable(r refreshable.Refreshable[[][]byte]) *Builder {
 	if b.tlsCABytes != nil {
 		b.tlsCABytes = refreshable.MergeAuto(b.tlsCABytes, r, func(existingBytes, newBytes [][]byte) [][]byte {
@@ -154,6 +163,7 @@ func (b *Builder) AddCACertBytesRefreshable(r refreshable.Refreshable[[][]byte])
 	return b
 }
 
+// AddCACerts adds parsed certificates to the pool.
 func (b *Builder) AddCACerts(certs ...*x509.Certificate) *Builder {
 	for _, cert := range certs {
 		pemBlock := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert.Raw})
@@ -162,6 +172,9 @@ func (b *Builder) AddCACerts(certs ...*x509.Certificate) *Builder {
 	return b
 }
 
+// SetClientCertFiles sets client certificate and key file paths for mutual TLS.
+// Files are watched for changes; updates trigger a TLS config rebuild. For
+// per-handshake re-reading of rotated files, also call SetDynamicCertReload(true).
 func (b *Builder) SetClientCertFiles(keyFile, certFile string) *Builder {
 	b.clientCertKey = nil
 	b.clientCertCert = nil
@@ -173,12 +186,20 @@ func (b *Builder) SetClientCertFiles(keyFile, certFile string) *Builder {
 	return b
 }
 
+// SetClientCertBytes sets client certificate and key bytes for mutual TLS.
 func (b *Builder) SetClientCertBytes(keyBytes, certBytes []byte) *Builder {
-	b.clientCertKey = keyBytes
-	b.clientCertCert = certBytes
+	b.clientCertKey = bytes.Clone(keyBytes)
+	b.clientCertCert = bytes.Clone(certBytes)
+	b.tlsFileParams = refreshable.View(b.tlsFileParams, func(p tlsFileParams) tlsFileParams {
+		p.KeyFile = ""
+		p.CertFile = ""
+		return p
+	})
 	return b
 }
 
+// SetDynamicCertReload controls whether client cert/key files are re-read on each
+// TLS handshake. Useful for environments with frequent cert rotation.
 func (b *Builder) SetDynamicCertReload(enabled bool) *Builder {
 	b.tlsFileParams = refreshable.View(b.tlsFileParams, func(p tlsFileParams) tlsFileParams {
 		p.DynamicCertReload = enabled
@@ -354,8 +375,11 @@ func newTLSConfig(ctx context.Context, p tlsParams) (*tls.Config, error) {
 			}
 		}
 		tlsClientParams = append(tlsClientParams, tlsconfig.ClientRootCAs(tlsconfig.CertPoolFromCertPoolOptions(certPoolOptions)))
+	} else {
+		// Neither system CAs nor explicit CAs configured: install an empty pool
+		// so Go's default fallback to the system store is suppressed.
+		tlsClientParams = append(tlsClientParams, tlsconfig.ClientRootCAs(tlsconfig.CertPoolFromCertPoolOptions(nil)))
 	}
-	// else: no ClientRootCAs — Go default uses system CAs.
 	if len(p.CertBytes) > 0 && len(p.KeyBytes) > 0 {
 		certBytes, keyBytes := p.CertBytes, p.KeyBytes
 		tlsClientParams = append(tlsClientParams, tlsconfig.ClientKeyPair(func() (tls.Certificate, error) {
