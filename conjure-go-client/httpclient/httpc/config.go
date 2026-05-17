@@ -25,19 +25,17 @@ import (
 	werror "github.com/palantir/witchcraft-go-error"
 )
 
-// ServicesConfig is the top-level configuration struct for all HTTP clients. It supports
-// setting default values and overriding those values per-service. Use ClientConfig(serviceName)
-// to retrieve a specific service's configuration, and the httpclient.WithConfig() param to
-// construct a Client using that configuration. The fields of this struct should generally not
-// be read directly by application code.
+// ServicesConfig is a top-level configuration that supports defaults plus
+// per-service overrides. Use [ServicesConfig.ClientConfig] to obtain the merged
+// configuration for a given service name and pass it to [Builder.ApplyConfig].
 type ServicesConfig struct {
-	// Default values will be used for any field which is not set for a specific client.
+	// Default is applied to any field not set on a specific service.
 	Default ClientConfig `json:",inline" yaml:",inline"`
-	// Services is a map of serviceName (e.g. "my-api") to service-specific configuration.
+	// Services maps service name (e.g. "my-api") to its per-service overrides.
 	Services map[string]ClientConfig `json:"services,omitempty" yaml:"services,omitempty"`
 }
 
-// ClientConfig represents the configuration for a single REST client.
+// ClientConfig is the YAML/JSON configuration for a single REST client.
 type ClientConfig struct {
 	ServiceName string `json:"-" yaml:"-"`
 	// URIs is a list of fully specified base URIs for the service. These can optionally include a path
@@ -112,11 +110,9 @@ type ClientConfig struct {
 	Security SecurityConfig `json:"security" yaml:"security,omitempty"`
 }
 
-// BasicAuth represents the configuration for HTTP Basic Authorization
+// BasicAuth is the YAML/JSON configuration for HTTP Basic Authorization.
 type BasicAuth struct {
-	// User is a string representing the user
-	User string `json:"user,omitempty" yaml:"user,omitempty"`
-	// Password is a string representing the password
+	User     string `json:"user,omitempty" yaml:"user,omitempty"`
 	Password string `json:"password,omitempty" yaml:"password,omitempty"`
 }
 
@@ -225,27 +221,23 @@ func mergeOptionalConfigSlice[T any](conf *[]T, defaults []T) {
 	}
 }
 
-// validatedClientParams holds validated, converted fields from a ClientConfig.
-// Pointer/nil fields indicate "not set by config"; only non-nil fields should
-// be applied to the builder, allowing ApplyConfig to compose with other builder
-// calls without stomping unrelated settings.
+// validatedClientParams is a validated, converted ClientConfig. Nil/zero
+// fields mean "not specified by config" so ApplyConfig can skip them and
+// leave existing builder settings alone.
 type validatedClientParams struct {
-	serviceName string   // set if non-empty
-	uris        []string // non-nil = set (even if empty after filtering)
+	serviceName string
+	uris        []string // non-nil even if empty after filtering
 
-	// Auth — at most one of apiToken or basicAuth is set.
+	// At most one of apiToken / basicAuth is set.
 	apiToken  *string
 	basicAuth *BasicAuth
 
-	// Timeout — set only when ReadTimeout or WriteTimeout is in config.
-	timeout *time.Duration
+	timeout *time.Duration // set only when ReadTimeout or WriteTimeout is in config
 
-	// Dialer fields — nil means "not specified in config".
 	connectTimeout *time.Duration
 	keepAlive      *time.Duration
 	socksProxyURL  *url.URL
 
-	// Transport fields — nil means "not specified in config".
 	maxIdleConns          *int
 	maxIdleConnsPerHost   *int
 	disableHTTP2          *bool
@@ -258,32 +250,27 @@ type validatedClientParams struct {
 	http2ReadIdleTimeout  *time.Duration
 	http2PingTimeout      *time.Duration
 
-	// TLS — individual fields; zero values mean "not specified".
 	caFiles            []string
 	certFile           string
 	keyFile            string
 	insecureSkipVerify *bool
 	dynamicCertReload  *bool
 
-	// Retry
 	maxAttempts    *int
 	initialBackoff *time.Duration
 	maxBackoff     *time.Duration
 
-	// Metrics
 	disableMetrics *bool
 	metricsTags    metrics.Tags
 }
 
-// newValidatedClientParams validates a ClientConfig and converts it to
-// httpc-native types. Only fields explicitly set in the config are populated;
-// unset fields remain at their zero/nil value.
+// newValidatedClientParams validates a ClientConfig and converts it to httpc
+// types. Only fields explicitly set in the config are populated.
 func newValidatedClientParams(config ClientConfig) (validatedClientParams, error) {
 	var p validatedClientParams
 
 	p.serviceName = config.ServiceName
 
-	// URIs — validate and filter.
 	if len(config.URIs) > 0 {
 		uris := make([]string, 0, len(config.URIs))
 		for _, uriStr := range config.URIs {
@@ -299,7 +286,7 @@ func newValidatedClientParams(config ClientConfig) (validatedClientParams, error
 		p.uris = uris
 	}
 
-	// Auth — APIToken > APITokenFile > BasicAuth.
+	// Auth precedence: APIToken > APITokenFile > BasicAuth.
 	if config.APIToken != nil {
 		p.apiToken = config.APIToken
 	} else if config.APITokenFile != nil {
@@ -316,7 +303,8 @@ func newValidatedClientParams(config ClientConfig) (validatedClientParams, error
 		}
 	}
 
-	// Timeout — only set when the config explicitly specifies read/write timeout.
+	// http.Client.Timeout is a single value; if the config supplies both
+	// read and write timeouts we take the larger.
 	if config.ReadTimeout != nil && config.WriteTimeout != nil {
 		p.timeout = new(max(*config.ReadTimeout, *config.WriteTimeout))
 	} else if config.ReadTimeout != nil {
@@ -325,7 +313,6 @@ func newValidatedClientParams(config ClientConfig) (validatedClientParams, error
 		p.timeout = new(*config.WriteTimeout)
 	}
 
-	// Proxy — validate and classify.
 	if config.ProxyURL != nil {
 		proxyURL, err := url.ParseRequestURI(*config.ProxyURL)
 		if err != nil {
@@ -341,11 +328,9 @@ func newValidatedClientParams(config ClientConfig) (validatedClientParams, error
 		}
 	}
 
-	// Dialer fields — pass through only if set.
 	p.connectTimeout = config.ConnectTimeout
 	p.keepAlive = config.KeepAlive
 
-	// Transport fields — pass through only if set.
 	p.maxIdleConns = config.MaxIdleConns
 	p.maxIdleConnsPerHost = config.MaxIdleConnsPerHost
 	p.disableHTTP2 = config.DisableHTTP2
@@ -357,21 +342,19 @@ func newValidatedClientParams(config ClientConfig) (validatedClientParams, error
 	p.http2ReadIdleTimeout = config.HTTP2ReadIdleTimeout
 	p.http2PingTimeout = config.HTTP2PingTimeout
 
-	// TLS
 	p.caFiles = config.Security.CAFiles
 	p.certFile = config.Security.CertFile
 	p.keyFile = config.Security.KeyFile
 	p.insecureSkipVerify = config.Security.InsecureSkipVerify
 	p.dynamicCertReload = config.Security.DynamicCertReload
 
-	// Retry — convert MaxNumRetries to maxAttempts.
+	// Translate retries → total attempts.
 	if config.MaxNumRetries != nil {
 		p.maxAttempts = new(*config.MaxNumRetries + 1)
 	}
 	p.initialBackoff = config.InitialBackoff
 	p.maxBackoff = config.MaxBackoff
 
-	// Metrics
 	if config.Metrics.Enabled != nil {
 		p.disableMetrics = new(!*config.Metrics.Enabled)
 	}

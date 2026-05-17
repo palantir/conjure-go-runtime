@@ -21,30 +21,43 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpclient/internal"
 	"github.com/palantir/conjure-go-runtime/v3/conjure-go-contract/errors"
 	werror "github.com/palantir/witchcraft-go-error"
 )
 
-// ErrorDecoder determines whether an HTTP response represents an error
-// and decodes it into a Go error value.
+// ErrorDecoder reports whether a response represents an error and, if so,
+// converts it to a Go error.
 type ErrorDecoder interface {
-	// Handles returns true if this decoder should handle the given response.
+	// Handles returns true if DecodeError should be called on resp.
 	Handles(resp *http.Response) bool
-	// DecodeError decodes the response into an error. Called only when Handles returns true.
 	DecodeError(resp *http.Response) error
 }
 
-// ErrEmptyURIs is returned by Build (and by Client.Do) when the client has no
-// configured base URIs. Use errors.Is or a type assertion to detect it.
+// ErrEmptyURIs is returned by Build and by Client.Do when the client has no
+// configured base URIs.
 type ErrEmptyURIs struct{}
 
-// Error implements error.
 func (ErrEmptyURIs) Error() string {
 	return "httpclient URLs must not be empty"
 }
 
+// StatusCodeFromError returns the 'statusCode' werror parameter, or ok=false
+// if the error has none. [DefaultErrorDecoder] sets this parameter; custom
+// decoders may not.
+func StatusCodeFromError(err error) (statusCode int, ok bool) {
+	return internal.StatusCodeFromError(err)
+}
+
+// LocationFromError returns the 'location' werror parameter, or ok=false if
+// the error has none. [DefaultErrorDecoder] sets this on 3xx responses that
+// carry a Location header.
+func LocationFromError(err error) (location string, ok bool) {
+	return internal.LocationFromError(err)
+}
+
 // unwrapURLError converts a *url.Error to a werror, preserving any werror
-// params on the underlying error.
+// params already on the underlying error.
 func unwrapURLError(ctx context.Context, respErr error) error {
 	if respErr == nil {
 		return nil
@@ -62,19 +75,17 @@ func unwrapURLError(ctx context.Context, respErr error) error {
 	return werror.WrapWithContextParams(ctx, urlErr.Err, "httpclient request failed", params...)
 }
 
-// DefaultErrorDecoder returns an ErrorDecoder that handles responses with status
-// code >= 307. For JSON responses, it attempts to unmarshal the body as a Conjure
-// error. For non-JSON responses or failed unmarshal, it includes the raw body as
-// an unsafe parameter. For 3xx responses, it extracts the Location header.
-//
-// Use StatusCodeFromError(err) to retrieve the code from the error,
-// and DisableRestErrors() to disable this decoder on your client.
+// DefaultErrorDecoder handles responses with status >= 307. For JSON responses
+// it tries to unmarshal a Conjure error; otherwise it includes the raw body as
+// an unsafe parameter. 3xx responses also carry the Location header. Use
+// [StatusCodeFromError] to read back the status; disable via
+// [Builder.DisableRestErrors].
 func DefaultErrorDecoder() ErrorDecoder {
 	return defaultRestErrorDecoder{}
 }
 
-// DefaultErrorDecoderWithConjure returns an ErrorDecoder like DefaultErrorDecoder
-// but uses the provided ConjureErrorDecoder to unmarshal Conjure-typed errors.
+// DefaultErrorDecoderWithConjure is [DefaultErrorDecoder] using the provided
+// ConjureErrorDecoder to unmarshal typed errors.
 func DefaultErrorDecoderWithConjure(ced errors.ConjureErrorDecoder) ErrorDecoder {
 	return defaultRestErrorDecoder{conjureErrorDecoder: ced}
 }
@@ -110,7 +121,6 @@ func (d defaultRestErrorDecoder) DecodeError(resp *http.Response) error {
 		return werror.Error(resp.Status, wSafeParams, wUnsafeParams)
 	}
 
-	// If JSON, try to unmarshal as Conjure error.
 	if isJSON := strings.Contains(resp.Header.Get("Content-Type"), ContentTypeJSON); !isJSON {
 		return werror.Error(resp.Status, wSafeParams, wUnsafeParams, werror.UnsafeParam("responseBody", string(body)))
 	}

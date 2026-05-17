@@ -34,41 +34,30 @@ const (
 	ContentTypeOctetStream = "application/octet-stream"
 )
 
-// BodyEncoder encodes a request body of type Req into an HTTP request.
-// Implementations set the Content-Type header on req directly if appropriate.
-// This gives encoders full control over the header value and timing — for example,
-// a multipart encoder can set the boundary parameter after generating it.
+// BodyEncoder serializes a request body of type Req into req, setting the
+// Content-Type header and request body as appropriate.
 type BodyEncoder[Req any] interface {
-	// Encode serializes body and writes it into req, setting the Content-Type
-	// header and request body as needed.
 	Encode(req *http.Request, body Req) error
 }
 
-// BodyDecoder decodes an HTTP response body into a value of type Resp.
-// The Accept header (if any) is not the decoder's responsibility; set it on
-// the Endpoint via SetAccept.
+// BodyDecoder reads the response body and returns the decoded value.
 type BodyDecoder[Resp any] interface {
-	// Decode reads the response body and returns the decoded value.
 	Decode(ctx context.Context, resp *http.Response) (Resp, error)
 }
 
-// BodyEncoderFunc is a convenience adapter for the BodyEncoder interface.
-// If contentType is non-empty, it is set as the Content-Type header before
-// calling the encode function.
+// BodyEncoderFunc adapts a function to [BodyEncoder]. If contentType is
+// non-empty it is set as the Content-Type header before calling the function;
+// pass "" for encoders that set Content-Type themselves (e.g. multipart).
 type BodyEncoderFunc[Req any] struct {
 	contentType string
 	encodeFn    func(req *http.Request, body Req) error
 }
 
-// NewBodyEncoderFunc creates a BodyEncoderFunc. If contentType is non-empty,
-// Encode sets it as the Content-Type header before calling encode.
-// Pass "" for encoders that set Content-Type themselves (e.g., multipart).
+// NewBodyEncoderFunc creates a [BodyEncoderFunc].
 func NewBodyEncoderFunc[Req any](contentType string, encode func(req *http.Request, body Req) error) BodyEncoderFunc[Req] {
 	return BodyEncoderFunc[Req]{contentType: contentType, encodeFn: encode}
 }
 
-// Encode implements BodyEncoder. Sets Content-Type (if configured) then delegates
-// to the encode function.
 func (f BodyEncoderFunc[Req]) Encode(req *http.Request, body Req) error {
 	if f.contentType != "" {
 		req.Header.Set("Content-Type", f.contentType)
@@ -76,31 +65,27 @@ func (f BodyEncoderFunc[Req]) Encode(req *http.Request, body Req) error {
 	return f.encodeFn(req, body)
 }
 
-// BodyDecoderFunc is a function adapter for the BodyDecoder interface.
+// BodyDecoderFunc adapts a function to [BodyDecoder].
 type BodyDecoderFunc[Resp any] struct {
 	decodeFn func(ctx context.Context, resp *http.Response) (Resp, error)
 }
 
-// NewBodyDecoderFunc creates a BodyDecoderFunc backed by the given function.
+// NewBodyDecoderFunc creates a [BodyDecoderFunc].
 func NewBodyDecoderFunc[Resp any](decode func(ctx context.Context, resp *http.Response) (Resp, error)) BodyDecoderFunc[Resp] {
 	return BodyDecoderFunc[Resp]{decodeFn: decode}
 }
 
-// Decode implements BodyDecoder.
 func (f BodyDecoderFunc[Resp]) Decode(ctx context.Context, resp *http.Response) (Resp, error) {
 	return f.decodeFn(ctx, resp)
 }
 
-// poolProvider is implemented by clients that provide a buffer pool.
-// Endpoint.Execute type-asserts the client to check for pool availability.
+// poolProvider is implemented by clients that expose a buffer pool to encoders.
 type poolProvider interface {
 	getBufferPool() bytesbuffers.Pool
 }
 
-// bufferPoolKey is the context key for the buffer pool injected by Endpoint.Execute.
 type bufferPoolKey struct{}
 
-// bufferPoolFromContext retrieves the buffer pool from the context, if set.
 func bufferPoolFromContext(ctx context.Context) bytesbuffers.Pool {
 	pool, _ := ctx.Value(bufferPoolKey{}).(bytesbuffers.Pool)
 	return pool
@@ -129,11 +114,10 @@ func JSONEncoder[Req any]() BodyEncoder[Req] {
 				pool.Put(buf)
 				return err
 			}
-			// json.Encoder.Encode appends a trailing newline; trim it for consistency with json.Marshal.
+			// Trim json.Encoder's trailing newline so output matches json.Marshal.
 			trimmed := bytes.TrimRight(buf.Bytes(), "\n")
-			// Copy out of pool buffer so it can be returned immediately.
-			// This avoids tying the buffer lifetime to the request body,
-			// which the retry loop may replace via GetBody.
+			// Copy out of the pool buffer so we can return it now; the retry
+			// loop may re-read req.Body via GetBody at any later point.
 			data := make([]byte, len(trimmed))
 			copy(data, trimmed)
 			pool.Put(buf)
@@ -158,8 +142,7 @@ func JSONEncoder[Req any]() BodyEncoder[Req] {
 	})
 }
 
-// JSONDecoder returns a BodyDecoder that deserializes the response body from JSON.
-// Use SetAccept("application/json") on the Endpoint to set the Accept header.
+// JSONDecoder deserializes the response body as JSON.
 func JSONDecoder[Resp any]() BodyDecoder[Resp] {
 	return NewBodyDecoderFunc[Resp](func(_ context.Context, resp *http.Response) (Resp, error) {
 		var result Resp
@@ -170,9 +153,8 @@ func JSONDecoder[Resp any]() BodyDecoder[Resp] {
 	})
 }
 
-// OptionalJSONDecoder returns a BodyDecoder that deserializes the response body from JSON,
-// returning nil when the response has no content.
-// Use SetAccept("application/json") on the Endpoint to set the Accept header.
+// OptionalJSONDecoder deserializes the response body as JSON, returning nil on
+// 204 No Content.
 func OptionalJSONDecoder[Resp any]() BodyDecoder[*Resp] {
 	return NewBodyDecoderFunc[*Resp](func(_ context.Context, resp *http.Response) (*Resp, error) {
 		if resp.StatusCode == http.StatusNoContent {
@@ -186,12 +168,12 @@ func OptionalJSONDecoder[Resp any]() BodyDecoder[*Resp] {
 	})
 }
 
-// VoidDecoder returns a BodyDecoder that discards the response body.
+// VoidDecoder discards the response body.
 func VoidDecoder() BodyDecoder[struct{}] {
 	return DiscardDecoder[struct{}]()
 }
 
-// DiscardDecoder returns a BodyDecoder that discards the response body.
+// DiscardDecoder discards the response body and returns the zero value of T.
 func DiscardDecoder[T any]() BodyDecoder[T] {
 	return NewBodyDecoderFunc[T](func(_ context.Context, resp *http.Response) (T, error) {
 		if resp.Body != nil {
@@ -202,23 +184,20 @@ func DiscardDecoder[T any]() BodyDecoder[T] {
 	})
 }
 
-// rawBodyDecoder is implemented by decoders that return the response body
-// directly to the caller. Endpoint.Execute will not drain the body after
-// calling such a decoder.
+// rawBodyDecoder marks decoders that hand the body to the caller. Endpoint.Execute
+// does not drain the body when the decoder satisfies this interface.
 type rawBodyDecoder interface {
 	rawBody()
 }
 
-// binaryDecoderFunc is a BodyDecoderFunc that implements rawBodyDecoder.
 type binaryDecoderFunc struct {
 	BodyDecoderFunc[io.ReadCloser]
 }
 
 func (binaryDecoderFunc) rawBody() {}
 
-// BinaryDecoder returns a BodyDecoder that returns the response body as an io.ReadCloser.
-// Use SetAccept("application/octet-stream") on the Endpoint to set the Accept header.
-// The caller is responsible for closing the returned reader.
+// BinaryDecoder returns the response body as an io.ReadCloser. The caller is
+// responsible for closing it.
 func BinaryDecoder() BodyDecoder[io.ReadCloser] {
 	return binaryDecoderFunc{
 		BodyDecoderFunc: NewBodyDecoderFunc[io.ReadCloser](func(_ context.Context, resp *http.Response) (io.ReadCloser, error) {
@@ -227,10 +206,8 @@ func BinaryDecoder() BodyDecoder[io.ReadCloser] {
 	}
 }
 
-// OptionalBinaryDecoder returns a BodyDecoder that returns the response body as an io.ReadCloser,
-// returning nil when the response has no content.
-// Use SetAccept("application/octet-stream") on the Endpoint to set the Accept header.
-// The caller is responsible for closing the returned reader.
+// OptionalBinaryDecoder returns the response body as an io.ReadCloser, or nil
+// on 204 No Content. The caller is responsible for closing the reader.
 func OptionalBinaryDecoder() BodyDecoder[io.ReadCloser] {
 	return binaryDecoderFunc{
 		BodyDecoderFunc: NewBodyDecoderFunc[io.ReadCloser](func(_ context.Context, resp *http.Response) (io.ReadCloser, error) {
@@ -242,25 +219,21 @@ func OptionalBinaryDecoder() BodyDecoder[io.ReadCloser] {
 	}
 }
 
-// BinaryEncoder returns a BodyEncoder that sets the request body to the provided
-// io.ReadCloser. Content-Type is set to the provided value.
+// BinaryEncoder sends the io.ReadCloser as the request body with the given
+// Content-Type. The encoder probes the body for two optional capabilities:
+//   - Stat() fs.FileInfo: sets Content-Length from the size (adjusted for the
+//     current offset if the body is also an io.Seeker).
+//   - Name() string + io.Seeker: enables GetBody, which reopens the file and
+//     seeks back to the starting offset on retry.
 //
-// The encoder probes the body for additional capabilities:
-//   - If the body implements fs.File (or any interface with a Stat() method returning
-//     fs.FileInfo), Content-Length is set from FileInfo.Size(), adjusted for the
-//     current read offset if the body is also an io.Seeker.
-//   - If the body is an *os.File or otherwise exposes a filesystem name, GetBody
-//     reopens the file and seeks back to the initial offset, making the request retryable.
-//   - If neither is satisfied, Content-Length is -1 (chunked) and GetBody is nil
-//     (not retryable).
-//
-// An *os.File satisfies both, so passing one gives both Content-Length and retryability.
+// An *os.File satisfies both, so passing one yields Content-Length and a
+// retryable request. Otherwise Content-Length is -1 (chunked) and GetBody is
+// nil (not retryable).
 func BinaryEncoder(contentType string) BodyEncoder[io.ReadCloser] {
 	return NewBodyEncoderFunc[io.ReadCloser](contentType, func(req *http.Request, body io.ReadCloser) error {
 		req.Body = body
 		req.ContentLength = -1
 
-		// Probe for io.Seeker to record starting offset and enable replay.
 		var startOffset int64
 		seeker, seekable := body.(io.Seeker)
 		if seekable {
@@ -272,7 +245,6 @@ func BinaryEncoder(contentType string) BodyEncoder[io.ReadCloser] {
 			}
 		}
 
-		// Probe for Stat() to set Content-Length.
 		type statter interface {
 			Stat() (fs.FileInfo, error)
 		}
@@ -282,7 +254,6 @@ func BinaryEncoder(contentType string) BodyEncoder[io.ReadCloser] {
 			}
 		}
 
-		// Set GetBody for retryability only when the body can be reopened.
 		type namedFile interface {
 			Name() string
 		}
@@ -306,10 +277,9 @@ func BinaryEncoder(contentType string) BodyEncoder[io.ReadCloser] {
 	})
 }
 
-// BinaryEncoderWithReplay returns a BodyEncoder that sets the request body from a
-// func() (io.ReadCloser, error) factory. GetBody IS set using the factory,
-// so the request IS retryable. Content-Type is set to the provided value.
-// Content-Length is not set (chunked transfer encoding).
+// BinaryEncoderWithReplay sends the body produced by bodyFn with the given
+// Content-Type. GetBody is set to bodyFn, making the request retryable.
+// Content-Length is left at -1 (chunked transfer encoding).
 func BinaryEncoderWithReplay(contentType string) BodyEncoder[func() (io.ReadCloser, error)] {
 	return NewBodyEncoderFunc[func() (io.ReadCloser, error)](contentType, func(req *http.Request, bodyFn func() (io.ReadCloser, error)) error {
 		body, err := bodyFn()
@@ -323,8 +293,7 @@ func BinaryEncoderWithReplay(contentType string) BodyEncoder[func() (io.ReadClos
 	})
 }
 
-// ZLIBEncoder wraps a BodyEncoder with zlib (deflate) compression.
-// Sets Content-Encoding: deflate. Content-Type is preserved from the inner encoder.
+// ZLIBEncoder wraps inner with zlib (deflate) compression and sets Content-Encoding: deflate.
 func ZLIBEncoder[Req any](inner BodyEncoder[Req]) BodyEncoder[Req] {
 	return NewBodyEncoderFunc[Req]("", func(req *http.Request, body Req) error {
 		if err := inner.Encode(req, body); err != nil {
@@ -336,8 +305,7 @@ func ZLIBEncoder[Req any](inner BodyEncoder[Req]) BodyEncoder[Req] {
 	})
 }
 
-// SnappyEncoder wraps a BodyEncoder with Snappy compression.
-// Sets Content-Encoding: snappy. Content-Type is preserved from the inner encoder.
+// SnappyEncoder wraps inner with Snappy compression and sets Content-Encoding: snappy.
 func SnappyEncoder[Req any](inner BodyEncoder[Req]) BodyEncoder[Req] {
 	return NewBodyEncoderFunc[Req]("", func(req *http.Request, body Req) error {
 		if err := inner.Encode(req, body); err != nil {
@@ -349,8 +317,7 @@ func SnappyEncoder[Req any](inner BodyEncoder[Req]) BodyEncoder[Req] {
 	})
 }
 
-// GZIPEncoder wraps a BodyEncoder with gzip compression.
-// Sets Content-Encoding: gzip. Content-Type is preserved from the inner encoder.
+// GZIPEncoder wraps inner with gzip compression and sets Content-Encoding: gzip.
 func GZIPEncoder[Req any](inner BodyEncoder[Req]) BodyEncoder[Req] {
 	return NewBodyEncoderFunc[Req]("", func(req *http.Request, body Req) error {
 		if err := inner.Encode(req, body); err != nil {
@@ -362,15 +329,10 @@ func GZIPEncoder[Req any](inner BodyEncoder[Req]) BodyEncoder[Req] {
 	})
 }
 
-// compressRequestBody replaces req.Body with a streaming compressed reader
-// that pipes the original body through the compressor on-the-fly. Sets the
-// Content-Encoding header and ContentLength to -1 (chunked), since the
-// compressed size is not known ahead of time.
-//
-// If the original request had a GetBody (meaning the uncompressed body is
-// replayable), the compressed body is also replayable: GetBody returns a
-// fresh compressed stream wrapping a fresh uncompressed body. If the original
-// body was not replayable, GetBody is nil and the request is not retryable.
+// compressRequestBody wraps req.Body in a streaming compressor and sets
+// Content-Encoding. Compressed size is unknown so ContentLength becomes -1
+// (chunked). Retryability is preserved: if the original GetBody is set, the
+// new one wraps a fresh inner body in a fresh compressor.
 func compressRequestBody(req *http.Request, encoding string, newWriter func(io.Writer) io.WriteCloser) error {
 	if req.Body == nil {
 		return nil
@@ -395,10 +357,9 @@ func compressRequestBody(req *http.Request, encoding string, newWriter func(io.W
 	return nil
 }
 
-// newCompressedReader returns an io.ReadCloser that streams src through the
-// compressor produced by newWriter. A background goroutine drives the
-// compression; closing the returned reader cancels the goroutine and releases
-// all resources.
+// newCompressedReader streams src through the compressor produced by newWriter.
+// A background goroutine drives compression; closing the returned reader
+// cancels it and releases src.
 func newCompressedReader(src io.ReadCloser, newWriter func(io.Writer) io.WriteCloser) io.ReadCloser {
 	pr, pw := io.Pipe()
 	go func() {

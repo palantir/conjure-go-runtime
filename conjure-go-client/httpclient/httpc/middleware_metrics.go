@@ -29,62 +29,11 @@ import (
 )
 
 const (
-	// metricClientResponse is a Timer (microseconds) measuring the total round-trip duration of each HTTP request.
-	// Tags: service-name, family (1xx-5xx/timeout/other), method, method-name.
-	metricClientResponse = "client.response"
-	// metricRequestInFlight is a Counter tracking the number of HTTP requests currently in progress.
-	// Tags: service-name.
-	metricRequestInFlight = "client.request.in-flight"
-	// metricConnCreate is a Counter incremented each time a connection is obtained for a request.
-	// Tags: service-name, reused (true/false).
-	metricConnCreate = "client.connection.create"
-	// metricConnAcquire is a Timer (microseconds) measuring the time from requesting a connection (GetConn)
-	// to obtaining one (GotConn). This includes pool wait time, and for new connections: DNS, TCP dial, and TLS.
-	// Tags: service-name, reused (true/false).
-	metricConnAcquire = "client.connection.acquire"
-	// metricConnIdleReturnError is a Meter counting connections that failed to return to the idle pool.
-	// A spike indicates connection pool saturation or broken connections.
-	// Tags: service-name.
-	metricConnIdleReturnError = "client.connection.idle-return-error"
-
-	// metricDNSLookup is a Timer (microseconds) measuring DNS resolution duration.
-	// Tags: service-name.
-	metricDNSLookup = "client.dns.lookup"
-	// metricDNSLookupError is a Meter counting DNS resolution failures.
-	// Tags: service-name.
-	metricDNSLookupError = "client.dns.lookup-error"
-
-	// metricTCPConnect is a Timer (microseconds) measuring TCP dial duration (ConnectStart to ConnectDone).
-	// Tags: service-name, network (e.g. "tcp", "tcp4", "tcp6").
-	metricTCPConnect = "client.tcp.connect"
-	// metricTCPConnectError is a Meter counting TCP connection failures.
-	// Tags: service-name, network.
-	metricTCPConnectError = "client.tcp.connect-error"
-
-	// metricTLSHandshakeAttempt is a Meter counting TLS handshake attempts.
-	// Tags: service-name.
-	metricTLSHandshakeAttempt = "tls.handshake.attempt"
-	// metricTLSHandshakeFailure is a Meter counting TLS handshake failures.
-	// Tags: service-name, cipher, next_protocol, tls_version (when available).
-	metricTLSHandshakeFailure = "tls.handshake.failure"
-	// metricTLSHandshake is a Meter counting successful TLS handshakes.
-	// Tags: service-name, cipher, next_protocol, tls_version.
-	metricTLSHandshake = "tls.handshake"
-
-	// metricTimeToFirstByte is a Timer (microseconds) measuring the interval from request fully written (WroteRequest)
-	// to the first response byte received (GotFirstResponseByte). Approximates server-side processing time.
-	// Tags: service-name.
-	metricTimeToFirstByte = "client.time-to-first-byte"
-	// metricRequestWriteError is a Meter counting failures when writing the request to the connection.
-	// Tags: service-name.
-	metricRequestWriteError = "client.request.write-error"
-
-	metricTagServiceName = "service-name"
-	metricTagFamily      = "family"
-	metricTagMethod      = "method"
-	metricTagMethodName  = "method-name"
-	metricTagNetwork     = "network"
-
+	metricTagServiceName  = "service-name"
+	metricTagFamily       = "family"
+	metricTagMethod       = "method"
+	metricTagMethodName   = "method-name"
+	metricTagNetwork      = "network"
 	metricTagCipher       = "cipher"
 	metricTagNextProtocol = "next_protocol"
 	metricTagTLSVersion   = "tls_version"
@@ -103,19 +52,16 @@ var (
 	metricTagFamilyTimeout = metrics.MustNewTag(metricTagFamily, "timeout")
 )
 
-// metricsMiddleware emits client.response timer metrics.
+// metricsMiddleware emits the full catalog of client metrics (see the constants above).
 type metricsMiddleware struct {
 	disabled    refreshable.Refreshable[bool]
 	serviceName refreshable.Refreshable[string]
 	tags        []TagsProvider
 }
 
-// MetricsMiddleware returns a standalone Middleware that emits the full set of
-// client metrics (response timer, in-flight counter, connection/DNS/TLS/TCP
-// timing, etc.) for the given service name and tag providers.
-//
-// Clients built via Builder install this middleware automatically; use this
-// function only when composing middleware manually outside of Builder.
+// MetricsMiddleware is a standalone constructor for [metricsMiddleware] for
+// callers composing the middleware stack manually. Clients built via [Builder]
+// install this automatically.
 func MetricsMiddleware(serviceName string, tagProviders ...TagsProvider) (Middleware, error) {
 	return &metricsMiddleware{serviceName: refreshable.New(serviceName), tags: tagProviders}, nil
 }
@@ -124,6 +70,10 @@ func (m *metricsMiddleware) RoundTrip(req *http.Request, next http.RoundTripper)
 	if m.disabled != nil && m.disabled.Current() {
 		return next.RoundTrip(req)
 	}
+	const (
+		metricClientResponse  = "client.response"          // Timer; full round-trip; +method, method-name, family
+		metricRequestInFlight = "client.request.in-flight" // Counter; concurrent requests
+	)
 	serviceNameTag := metrics.NewTagWithFallbackValue(metricTagServiceName, m.serviceName.Current(), "unknown")
 	registry := metrics.FromContext(req.Context())
 
@@ -134,40 +84,41 @@ func (m *metricsMiddleware) RoundTrip(req *http.Request, next http.RoundTripper)
 	duration := time.Since(start)
 	registry.Counter(metricRequestInFlight, serviceNameTag).Dec(1)
 
-	tags := m.appendTags([]metrics.Tag{serviceNameTag}, req, resp, err)
+	tags := []metrics.Tag{
+		serviceNameTag,
+		tagStatusFamily(resp, err),
+		metrics.NewTagWithFallbackValue(metricTagMethod, req.Method, "unknown"),
+		tagMethodName(req),
+	}
+	for _, tp := range m.tags {
+		tags = append(tags, tp.Tags(req, resp, err)...)
+	}
+
 	registry.Timer(metricClientResponse, tags...).Update(duration / time.Microsecond)
 	return resp, err
 }
 
-func (m *metricsMiddleware) appendTags(tags metrics.Tags, req *http.Request, resp *http.Response, err error) metrics.Tags {
-	// status family
-	tags = append(tags, tagStatusFamily(resp, err)...)
-	// method
-	tags = append(tags, metrics.MustNewTag(metricTagMethod, req.Method))
-	// RPC method name
-	if name, ok := RPCMethodName(req.Context()); ok && name != "" {
-		if tag, tagErr := metrics.NewTag(metricTagMethodName, name); tagErr == nil {
-			tags = append(tags, tag)
-		} else {
-			tags = append(tags, metrics.MustNewTag(metricTagMethodName, "RPCMethodNameInvalid"))
-		}
-	} else {
-		tags = append(tags, metrics.MustNewTag(metricTagMethodName, "RPCMethodNameMissing"))
-	}
-	// custom tags
-	for _, tp := range m.tags {
-		tags = append(tags, tp.Tags(req, resp, err)...)
-	}
-	return tags
-}
-
 func (*metricsMiddleware) tlsTraceContext(ctx context.Context, registry metrics.Registry, serviceNameTag metrics.Tag) context.Context {
-	// Local timing variables shared across closures. ClientTrace callbacks are invoked
-	// sequentially on the goroutine that owns the request, so no synchronization is needed.
+	const (
+		metricConnCreate          = "client.connection.create"            // Counter; +reused (true/false)
+		metricConnAcquire         = "client.connection.acquire"           // Timer; GetConn → GotConn; +reused
+		metricConnIdleReturnError = "client.connection.idle-return-error" // Meter; failed returns to idle pool
+		metricDNSLookup           = "client.dns.lookup"                   // Timer
+		metricDNSLookupError      = "client.dns.lookup-error"             // Meter
+		metricTCPConnect          = "client.tcp.connect"                  // Timer; +network (tcp/tcp4/tcp6)
+		metricTCPConnectError     = "client.tcp.connect-error"            // Meter; +network
+		metricTLSHandshakeAttempt = "tls.handshake.attempt"               // Meter
+		metricTLSHandshakeFailure = "tls.handshake.failure"               // Meter; +cipher, next_protocol, tls_version
+		metricTLSHandshake        = "tls.handshake"                       // Meter; +cipher, next_protocol, tls_version
+		metricTimeToFirstByte     = "client.time-to-first-byte"           // Timer; WroteRequest → GotFirstResponseByte
+		metricRequestWriteError   = "client.request.write-error"          // Meter
+	)
+	// ClientTrace callbacks run sequentially on the request's owning goroutine,
+	// so these closure-shared locals need no synchronization.
 	var (
 		getConnStart   time.Time
 		dnsStart       time.Time
-		connectStarts  = map[string]time.Time{} // keyed by network+addr for Happy Eyeballs
+		connectStarts  = map[string]time.Time{} // network+addr keyed for Happy Eyeballs
 		wroteRequestAt time.Time
 	)
 	return httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{
@@ -205,8 +156,8 @@ func (*metricsMiddleware) tlsTraceContext(ctx context.Context, registry metrics.
 				registry.Meter(metricDNSLookupError, serviceNameTag).Mark(1)
 			}
 		},
-		// ConnectStart/ConnectDone may be called multiple times with Happy Eyeballs
-		// (dual-stack IPv4/IPv6), so we key start times by network+addr.
+		// Happy Eyeballs may produce multiple ConnectStart/ConnectDone pairs,
+		// so we key start times by network+addr.
 		ConnectStart: func(network, addr string) {
 			connectStarts[network+addr] = time.Now()
 		},
@@ -241,8 +192,8 @@ func (*metricsMiddleware) tlsTraceContext(ctx context.Context, registry metrics.
 				registry.Meter(metricTLSHandshake, tags...).Mark(1)
 			}
 		},
-		// WroteRequest may be called multiple times for retried requests. We always
-		// record the latest time so that TTFB measures from the successful write.
+		// Record the latest WroteRequest so TTFB measures from the successful write
+		// (the callback can fire multiple times on retried requests).
 		WroteRequest: func(info httptrace.WroteRequestInfo) {
 			wroteRequestAt = time.Now()
 			if info.Err != nil {
@@ -252,24 +203,32 @@ func (*metricsMiddleware) tlsTraceContext(ctx context.Context, registry metrics.
 	})
 }
 
-func tagStatusFamily(resp *http.Response, err error) metrics.Tags {
+func tagMethodName(req *http.Request) metrics.Tag {
+	if name, ok := RPCMethodName(req.Context()); ok && name != "" {
+		return metrics.NewTagWithFallbackValue(metricTagMethodName, name, "RPCMethodNameInvalid")
+	}
+	return metrics.MustNewTag(metricTagMethodName, "RPCMethodNameMissing"))
+}
+
+func tagStatusFamily(resp *http.Response, err error) metrics.Tag {
 	switch {
 	case isTimeoutError(err):
-		return metrics.Tags{metricTagFamilyTimeout}
-	case resp == nil, resp.StatusCode < 100, resp.StatusCode > 599:
-		return metrics.Tags{metricTagFamilyOther}
+		return metricTagFamilyTimeout
+	case resp == nil, resp.StatusCode < 100:
+		return metricTagFamilyOther
 	case resp.StatusCode < 200:
-		return metrics.Tags{metricTagFamily1xx}
+		return metricTagFamily1xx
 	case resp.StatusCode < 300:
-		return metrics.Tags{metricTagFamily2xx}
+		return metricTagFamily2xx
 	case resp.StatusCode < 400:
-		return metrics.Tags{metricTagFamily3xx}
+		return metricTagFamily3xx
 	case resp.StatusCode < 500:
-		return metrics.Tags{metricTagFamily4xx}
+		return metricTagFamily4xx
 	case resp.StatusCode < 600:
-		return metrics.Tags{metricTagFamily5xx}
+		return metricTagFamily5xx
+	default:
+		return metricTagFamilyOther
 	}
-	return metrics.Tags{}
 }
 
 func tlsVersionString(version uint16) string {

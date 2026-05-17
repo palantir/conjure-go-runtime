@@ -20,26 +20,19 @@ import (
 	"time"
 )
 
-// basicAuthOverride holds basic auth credentials for per-request overrides.
 type basicAuthOverride struct {
 	user     string
 	password string
 }
 
-// Overrides holds per-request configuration that can be applied to an Endpoint
-// or embedded in a generated service client struct. All methods use
-// copy-on-write semantics: they return a new Overrides value without modifying
-// the original.
+// Overrides is per-request configuration applied to an [Endpoint] via
+// [Endpoint.WithOverrides], or embedded in a generated service client struct.
+// All methods are copy-on-write, so Overrides is safe to share across
+// goroutines.
 //
-// Overrides is safe for concurrent use: multiple goroutines may call methods on
-// the same Overrides value simultaneously, and each receives an independent copy.
-//
-// Headers and query parameters have both Set and Add variants:
-//   - SetHeader/SetQuery replaces all values for a key (last-wins semantics).
-//   - AddHeader/AddQuery accumulates values for a key.
-//
-// When both Set and Add are used for the same key, Set takes precedence:
-// calling SetHeader after AddHeader for the same key discards the Add values.
+// Headers and query parameters have Set and Add variants: SetHeader/SetQuery
+// replaces all values for a key; AddHeader/AddQuery accumulates. Calling
+// SetHeader after AddHeader for the same key discards the Add values (Set wins).
 type Overrides struct {
 	setHeaders   http.Header
 	addHeaders   http.Header
@@ -90,7 +83,6 @@ func (c Overrides) Clone() Overrides {
 }
 
 // AddHeader adds a request header. Multiple calls with the same key accumulate values.
-// Returns a new Overrides value; the original is unchanged.
 func (c Overrides) AddHeader(key, value string) Overrides {
 	c = c.Clone()
 	if c.addHeaders == nil {
@@ -101,14 +93,12 @@ func (c Overrides) AddHeader(key, value string) Overrides {
 }
 
 // SetHeader sets a request header, replacing any previously added or set values for the key.
-// Returns a new Overrides value; the original is unchanged.
 func (c Overrides) SetHeader(key, value string) Overrides {
 	c = c.Clone()
 	if c.setHeaders == nil {
 		c.setHeaders = make(http.Header)
 	}
 	c.setHeaders.Set(key, value)
-	// Set wins over prior Add for the same key.
 	if c.addHeaders != nil {
 		delete(c.addHeaders, http.CanonicalHeaderKey(key))
 	}
@@ -116,7 +106,6 @@ func (c Overrides) SetHeader(key, value string) Overrides {
 }
 
 // AddQuery adds a query parameter. Multiple calls with the same key accumulate values.
-// Returns a new Overrides value; the original is unchanged.
 func (c Overrides) AddQuery(key, value string) Overrides {
 	c = c.Clone()
 	if c.addQuery == nil {
@@ -127,7 +116,6 @@ func (c Overrides) AddQuery(key, value string) Overrides {
 }
 
 // SetQuery sets a query parameter, replacing any previously added or set values for the key.
-// Returns a new Overrides value; the original is unchanged.
 func (c Overrides) SetQuery(key, value string) Overrides {
 	c = c.Clone()
 	if c.setQuery == nil {
@@ -142,7 +130,6 @@ func (c Overrides) SetQuery(key, value string) Overrides {
 }
 
 // WithTimeout sets a per-request timeout that overrides the client-level timeout.
-// Returns a new Overrides value; the original is unchanged.
 func (c Overrides) WithTimeout(d time.Duration) Overrides {
 	c = c.Clone()
 	c.timeout = &d
@@ -150,7 +137,6 @@ func (c Overrides) WithTimeout(d time.Duration) Overrides {
 }
 
 // WithErrorDecoder sets a per-request error decoder that overrides the client-level decoder.
-// Returns a new Overrides value; the original is unchanged.
 func (c Overrides) WithErrorDecoder(d ErrorDecoder) Overrides {
 	c = c.Clone()
 	c.errorDecoder = d
@@ -158,7 +144,6 @@ func (c Overrides) WithErrorDecoder(d ErrorDecoder) Overrides {
 }
 
 // WithBasicAuth sets per-request basic auth credentials, overriding any client-level auth.
-// Returns a new Overrides value; the original is unchanged.
 func (c Overrides) WithBasicAuth(user, password string) Overrides {
 	c = c.Clone()
 	c.basicAuth = &basicAuthOverride{user: user, password: password}
@@ -166,25 +151,18 @@ func (c Overrides) WithBasicAuth(user, password string) Overrides {
 }
 
 // WithMiddleware appends a per-request middleware to the chain.
-// Returns a new Overrides value; the original is unchanged.
 func (c Overrides) WithMiddleware(m Middleware) Overrides {
 	c = c.Clone()
 	c.middlewares = append(c.middlewares, m)
 	return c
 }
 
-// merge returns a new Overrides that combines the receiver with o.
-//
-// Set headers/query from o replace the receiver's values for matching keys and
-// delete those keys from the receiver's add maps. Add headers/query from o
-// accumulate into the receiver's add maps.
-//
-// Timeout, error decoder, and basic auth use last-wins (o takes precedence if set).
-// Middlewares are appended.
+// merge combines the receiver with o: set headers/query from o replace and
+// clear matching add entries; add headers/query accumulate; timeout, error
+// decoder, and basic auth are last-wins (o wins if set); middlewares append.
 func (c Overrides) merge(o Overrides) Overrides {
 	out := c.Clone()
 
-	// Merge set headers: o's set headers replace receiver's set headers and clear add headers for those keys.
 	for k, vs := range o.setHeaders {
 		if out.setHeaders == nil {
 			out.setHeaders = make(http.Header)
@@ -194,8 +172,6 @@ func (c Overrides) merge(o Overrides) Overrides {
 			delete(out.addHeaders, k)
 		}
 	}
-
-	// Merge add headers: accumulate into receiver's add headers.
 	for k, vs := range o.addHeaders {
 		for _, v := range vs {
 			if out.addHeaders == nil {
@@ -205,7 +181,6 @@ func (c Overrides) merge(o Overrides) Overrides {
 		}
 	}
 
-	// Merge set query: o's set query replaces receiver's set query and clears add query for those keys.
 	for k, vs := range o.setQuery {
 		if out.setQuery == nil {
 			out.setQuery = make(url.Values)
@@ -215,8 +190,6 @@ func (c Overrides) merge(o Overrides) Overrides {
 			delete(out.addQuery, k)
 		}
 	}
-
-	// Merge add query: accumulate into receiver's add query.
 	for k, vs := range o.addQuery {
 		for _, v := range vs {
 			if out.addQuery == nil {

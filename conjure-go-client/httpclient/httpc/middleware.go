@@ -27,26 +27,22 @@ import (
 	"github.com/palantir/witchcraft-go-tracing/wtracing/propagation/b3"
 )
 
-// roundTripperFunc adapts a function to http.RoundTripper.
 type roundTripperFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
 
-// clientFunc adapts a function to Client.
 type clientFunc func(*http.Request) (*http.Response, error)
 
 func (f clientFunc) Do(req *http.Request) (*http.Response, error) { return f(req) }
 
-// wrapClientMiddleware wraps a Client with a Middleware.
 func wrapClientMiddleware(c Client, mw Middleware) Client {
 	return clientFunc(func(req *http.Request) (*http.Response, error) {
 		return mw.RoundTrip(req, roundTripperFunc(c.Do))
 	})
 }
 
-// wrapTransport composes middleware around a base http.RoundTripper.
-// Each middleware wraps the previous, creating a chain.
-// nil middleware values are skipped.
+// wrapTransport composes middlewares around base. Each successive middleware
+// wraps the previous, so the last in the list is outermost. Nil entries are skipped.
 func wrapTransport(base http.RoundTripper, middlewares ...Middleware) http.RoundTripper {
 	if base == nil {
 		base = http.DefaultTransport
@@ -68,7 +64,7 @@ func (w *wrappedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	return w.middleware.RoundTrip(req, w.base)
 }
 
-// recoveryMiddleware recovers panics during the request and returns them as errors.
+// recoveryMiddleware converts panics into errors.
 type recoveryMiddleware struct{}
 
 func (recoveryMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (resp *http.Response, err error) {
@@ -84,7 +80,7 @@ func (recoveryMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (
 	return next.RoundTrip(req)
 }
 
-// traceMiddleware injects tracing information into request headers.
+// traceMiddleware starts a per-request span and/or propagates B3 trace headers.
 type traceMiddleware struct {
 	serviceName         refreshable.Refreshable[string]
 	disableRequestSpan  bool
@@ -126,11 +122,9 @@ func (t *traceMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (
 	return next.RoundTrip(req)
 }
 
-// drainBody reads then closes a response's body if it is non-nil.
-// This function should be deferred before a response reference is
-// discarded.
+// drainBody is a best-effort drain-and-close used to free connections when a
+// response will be discarded.
 func drainBody(ctx context.Context, resp *http.Response) {
-	// drain and close treated as best-effort
 	if resp != nil && resp.Body != nil {
 		if bytes, err := io.Copy(io.Discard, resp.Body); err != nil {
 			svc1log.FromContext(ctx).Warn("Failed to drain entire response body",
@@ -140,7 +134,6 @@ func drainBody(ctx context.Context, resp *http.Response) {
 			svc1log.FromContext(ctx).Debug("Drained remaining response body",
 				svc1log.SafeParam("bytes", bytes))
 		}
-
 		if err := resp.Body.Close(); err != nil {
 			svc1log.FromContext(ctx).Warn("Failed to close response body",
 				svc1log.Stacktrace(err))

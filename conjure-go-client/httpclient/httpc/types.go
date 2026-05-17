@@ -21,55 +21,35 @@ import (
 	"github.com/palantir/pkg/metrics"
 )
 
-// Client is the minimal transport interface returned by ServiceBuilder.Build and ClientBuilder.Build.
-// It wraps an http.RoundTripper with the configured middleware stack, retries, and URI scoring.
+// Client is the transport interface returned by [Builder.Build]. Its signature
+// matches *http.Client.Do, so a plain *http.Client satisfies it.
 //
-// Endpoint.Execute builds the *http.Request (method, path, headers, encoded body),
-// sets the context via req.WithContext, and calls Client.Do. Response decoding and
-// per-request error handling are performed by the Endpoint after the round-trip completes.
-//
-// The signature matches *http.Client.Do, so a plain *http.Client satisfies this
-// interface and can be used directly wherever a Client is expected.
+// A built Client prepends a selected base URL (per URI scoring) to the request
+// path on each attempt, applies the middleware stack, enforces per-attempt
+// timeouts, and retries replayable requests. Endpoint.Execute is the typical
+// caller; it builds the request and decodes the response after Do returns.
 type Client interface {
-	// Do executes an HTTP request.
-	//
-	// If the Client is configured with base URLs, it selects one (via URI scoring)
-	// and prepends it to the request's path on each attempt. On retries, a different
-	// base URI may be selected. If no base URLs are configured and the request
-	// already has a fully qualified URL, the Client uses it as-is.
-	//
-	// The Client applies the configured middleware stack, enforces timeouts, and
-	// handles retry logic (including re-reading the request body) transparently.
-	// The request's context (req.Context()) is used for cancellation and deadlines.
 	Do(req *http.Request) (*http.Response, error)
 }
 
-// ConfigurableClient is a Client that retains its builder configuration.
-// Call Builder to obtain a new builder seeded with this client's settings,
-// modify it, and Build again to get a reconfigured client:
+// ConfigurableClient is a Client that exposes a fresh Builder seeded with its
+// configuration, allowing reconfiguration without starting from scratch:
 //
 //	newClient, err := client.Builder().SetTimeout(5 * time.Second).Build(ctx)
-//
-// ConfigurableClient embeds Client, so it can be used anywhere a plain Client
-// is accepted. Code that doesn't need reconfiguration can ignore Builder entirely.
 type ConfigurableClient[B ServiceBuilder[B]] interface {
 	Client
-	// Builder returns a new builder seeded with this client's configuration.
-	// Modifications to the returned builder do not affect this client.
 	Builder() B
 }
 
-// Middleware intercepts HTTP round-trips for cross-cutting concerns
-// such as authentication, metrics, tracing, and error handling.
+// Middleware wraps HTTP round-trips for cross-cutting concerns such as
+// authentication, metrics, tracing, and error handling.
 type Middleware interface {
-	// RoundTrip executes the middleware logic, delegating to next for the actual request.
 	RoundTrip(req *http.Request, next http.RoundTripper) (*http.Response, error)
 }
 
-// MiddlewareFunc is a function adapter for the Middleware interface.
+// MiddlewareFunc adapts a function to Middleware.
 type MiddlewareFunc func(req *http.Request, next http.RoundTripper) (*http.Response, error)
 
-// RoundTrip implements Middleware.
 func (f MiddlewareFunc) RoundTrip(req *http.Request, next http.RoundTripper) (*http.Response, error) {
 	return f(req, next)
 }
@@ -79,19 +59,16 @@ type TagsProvider interface {
 	Tags(req *http.Request, resp *http.Response, err error) metrics.Tags
 }
 
-// TagsProviderFunc is a function adapter for the TagsProvider interface.
+// TagsProviderFunc adapts a function to TagsProvider.
 type TagsProviderFunc func(req *http.Request, resp *http.Response, err error) metrics.Tags
 
-// Tags implements TagsProvider.
 func (f TagsProviderFunc) Tags(req *http.Request, resp *http.Response, err error) metrics.Tags {
 	return f(req, resp, err)
 }
 
-// StaticTagsProvider is a TagsProvider that returns the same set of tags for every request.
-// Wrap a metrics.Tags value with this type to attach static tags to all emitted metrics.
+// StaticTagsProvider attaches the same tags to every request.
 type StaticTagsProvider metrics.Tags
 
-// Tags implements TagsProvider.
 func (s StaticTagsProvider) Tags(req *http.Request, resp *http.Response, err error) metrics.Tags {
 	return metrics.Tags(s)
 }
@@ -109,8 +86,7 @@ type BasicAuthProvider func(ctx context.Context) (BasicAuth, error)
 type URIScoringStrategy int
 
 const (
-	// URIScoringBalanced scores URIs based on response latency and error rates,
-	// preferring faster and more reliable hosts.
+	// URIScoringBalanced prefers faster, more reliable hosts based on observed latency and error rates.
 	URIScoringBalanced URIScoringStrategy = iota
 	// URIScoringRandom selects URIs uniformly at random.
 	URIScoringRandom

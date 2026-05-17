@@ -19,27 +19,25 @@ import (
 	"time"
 )
 
-// rpcMethodNameKey is the context key for the RPC method name set by Endpoint.Execute.
-type rpcMethodNameKey struct{}
+type (
+	rpcMethodNameKey  struct{}
+	forUserAgentKey   struct{}
+	requestTimeoutKey struct{}
+)
 
-// forUserAgentKey is the context key for the For-User-Agent header value.
-type forUserAgentKey struct{}
-
-// requestTimeoutKey is the context key for per-request timeout overrides.
-type requestTimeoutKey struct{}
-
-// RPCMethodName extracts the RPC method name from the context, if set by Endpoint.Execute.
+// RPCMethodName returns the RPC name set on ctx by Endpoint.Execute, if any.
 func RPCMethodName(ctx context.Context) (string, bool) {
 	v, ok := ctx.Value(rpcMethodNameKey{}).(string)
 	return v, ok
 }
 
-// ContextWithRPCMethodName returns a new context with the RPC method name set for use in logging and metrics.
+// ContextWithRPCMethodName stores the RPC name on ctx for logging and metrics.
 func ContextWithRPCMethodName(ctx context.Context, name string) context.Context {
 	return context.WithValue(ctx, rpcMethodNameKey{}, name)
 }
 
-// ContextWithForUserAgent returns a new context with the For-User-Agent header value set.
+// ContextWithForUserAgent stores a For-User-Agent header value on ctx; the
+// tracing middleware sets the header on outgoing requests that don't already have it.
 func ContextWithForUserAgent(ctx context.Context, forUserAgent string) context.Context {
 	if forUserAgent == "" {
 		return ctx
@@ -52,15 +50,13 @@ func forUserAgentFromContext(ctx context.Context) (string, bool) {
 	return v, ok
 }
 
-// ContextWithRequestTimeout returns a new context carrying a per-request timeout
-// that overrides the client-level timeout for a single request attempt. This is
-// a low-level escape hatch; most callers should prefer [Overrides.WithTimeout]
-// or [Endpoint.WithTimeout] instead, which use this internally.
+// ContextWithRequestTimeout stores a per-attempt timeout that overrides the
+// client-level timeout. Most callers should prefer [Overrides.WithTimeout] or
+// [Endpoint.WithTimeout], which use this internally.
 func ContextWithRequestTimeout(ctx context.Context, d time.Duration) context.Context {
 	return context.WithValue(ctx, requestTimeoutKey{}, d)
 }
 
-// requestTimeoutFromContext extracts a per-request timeout from the context, if set.
 func requestTimeoutFromContext(ctx context.Context) (time.Duration, bool) {
 	v, ok := ctx.Value(requestTimeoutKey{}).(time.Duration)
 	return v, ok

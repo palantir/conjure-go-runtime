@@ -26,37 +26,18 @@ import (
 	"golang.org/x/net/proxy"
 )
 
-// DialerBuilder is an F-bounded interface for configuring TCP dialer settings:
-// dial timeout, keep-alive, and SOCKS proxy. It is one of the slices that
-// compose [ClientBuilder]; see the package doc for the full hierarchy.
-//
-// The type parameter B is the concrete implementing type, so generic functions
-// can configure any DialerBuilder and return the same concrete type:
-//
-//	func ConfigureDialer[B DialerBuilder[B]](b B) B {
-//	    return b.SetDialTimeout(5 * time.Second).SetKeepAlive(15 * time.Second)
-//	}
+// DialerBuilder configures TCP dialer settings (dial timeout, keep-alive,
+// SOCKS proxy). It is one slice of [ClientBuilder].
 type DialerBuilder[B DialerBuilder[B]] interface {
-	// Clone returns a deep copy of the builder. The copy is fully independent:
-	// mutations to either the original or the clone do not affect the other.
 	Clone() B
-
-	// Apply applies the given Param functions to the builder in sequence.
-	// Each Param may call setter methods to configure the builder.
-	// Because builders are mutable, this modifies the receiver in place.
 	Apply(...Param[B]) B
 
-	// SetDialTimeout sets the maximum duration for establishing a TCP connection.
-	// Default: 10s.
+	// SetDialTimeout sets the maximum duration for establishing a TCP connection. Default: 10s.
 	SetDialTimeout(time.Duration) B
-
-	// SetKeepAlive sets the interval between TCP keep-alive probes.
-	// Default: 30s.
+	// SetKeepAlive sets the interval between TCP keep-alive probes. Default: 30s.
 	SetKeepAlive(time.Duration) B
-
-	// SetSocksProxyURL sets a SOCKS5 proxy URL for TCP connections.
-	// Pass "" to clear. Only socks5:// URLs are supported.
-	// HTTP/HTTPS proxy configuration is on TransportBuilder.
+	// SetSocksProxyURL sets a socks5:// proxy URL. Pass "" to clear. Use
+	// TransportBuilder.SetHTTPProxyURL for http(s) proxies.
 	SetSocksProxyURL(string) B
 }
 
@@ -100,13 +81,13 @@ func (b *Builder) SetSocksProxyURL(s string) *Builder {
 	return b
 }
 
-// ContextDialer is the interface implemented by net.Dialer, proxy.Dialer, and others.
+// ContextDialer is the dialer interface returned by [Builder.BuildDialer];
+// implemented by net.Dialer and golang.org/x/net/proxy.Dialer.
 type ContextDialer interface {
 	DialContext(ctx context.Context, network, address string) (net.Conn, error)
 	Dial(network, address string) (net.Conn, error)
 }
 
-// dialerParams holds the parameters needed to build a TCP dialer.
 type dialerParams struct {
 	DialTimeout   time.Duration
 	KeepAlive     time.Duration
@@ -125,11 +106,10 @@ func (r *refreshableDialer) Dial(network, address string) (net.Conn, error) {
 	return r.Current().DialContext(context.TODO(), network, address)
 }
 
-// BuildDialer builds the configured TCP dialer from the builder's dialer parameters.
-// The returned ContextDialer automatically adapts when dial timeout, keep-alive,
-// or SOCKS proxy settings change via their refreshable sources.
+// BuildDialer returns the configured dialer. The result rebuilds automatically
+// when dialer settings change via their refreshable sources.
 func (b *Builder) BuildDialer(ctx context.Context) (ContextDialer, error) {
-	if err := b.buildError(ctx); err != nil {
+	if err := builderErrors(ctx, b.errs); err != nil {
 		return nil, err
 	}
 	rebuild := false
@@ -148,12 +128,11 @@ func (b *Builder) BuildDialer(ctx context.Context) (ContextDialer, error) {
 		}
 		proxyDialer, err := proxy.FromURL(p.SocksProxyURL, dialer)
 		if err != nil {
-			// should never happen; checked in the validating refreshable
+			// Unreachable: the SOCKS URL is validated in SetSocksProxyURL.
 			svc1log.FromContext(ctx).Error("Failed to construct socks5 dialer. Please report this as a bug in conjure-go-runtime.", svc1log.Stacktrace(err))
 			return dialer
 		}
-		// proxy.Dialer interface only has Dial(), but we need DialContext.
-		// The underlying dialer already implements DialContext, so we can safely cast if it's *net.Dialer.
+		// proxy.Dialer has only Dial; cast to ContextDialer if the impl supports it.
 		if contextDialer, ok := proxyDialer.(ContextDialer); ok {
 			return contextDialer
 		}

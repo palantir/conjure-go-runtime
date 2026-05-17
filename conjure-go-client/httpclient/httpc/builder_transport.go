@@ -27,78 +27,41 @@ import (
 	"golang.org/x/net/http2"
 )
 
-// TransportBuilder is an F-bounded interface for configuring HTTP transport settings:
-// connection pooling, timeouts, HTTP/2, and HTTP(S) proxy. It is one of the slices
-// that compose [ClientBuilder]; see the package doc for the full hierarchy.
-//
-// The type parameter B is the concrete implementing type, so generic functions
-// can configure any TransportBuilder and return the same concrete type:
-//
-//	func ConfigureTransport[B TransportBuilder[B]](b B) B {
-//	    return b.SetMaxIdleConnsPerHost(50).SetIdleConnTimeout(60 * time.Second)
-//	}
+// TransportBuilder configures HTTP transport settings: connection pooling,
+// timeouts, HTTP/2, and HTTP(S) proxy. It is one slice of [ClientBuilder].
 type TransportBuilder[B TransportBuilder[B]] interface {
-	// Clone returns a deep copy of the builder. The copy is fully independent:
-	// mutations to either the original or the clone do not affect the other.
 	Clone() B
-
-	// Apply applies the given Param functions to the builder in sequence.
-	// Each Param may call setter methods to configure the builder.
-	// Because builders are mutable, this modifies the receiver in place.
 	Apply(...Param[B]) B
 
-	// SetMaxIdleConns sets the maximum total number of idle connections across all hosts.
-	// Default: 200.
+	// SetMaxIdleConns sets the maximum total idle connections across hosts. Default: 200.
 	SetMaxIdleConns(int) B
-
-	// SetMaxIdleConnsPerHost sets the maximum number of idle connections per host.
-	// Default: 100.
+	// SetMaxIdleConnsPerHost sets the maximum idle connections per host. Default: 100.
 	SetMaxIdleConnsPerHost(int) B
-
-	// DisableKeepAlives disables HTTP keep-alive connections, forcing a new connection per request.
+	// DisableKeepAlives forces a new TCP connection per request.
 	DisableKeepAlives() B
-
-	// SetIdleConnTimeout sets how long idle connections remain in the pool before closing.
-	// Default: 90s.
+	// SetIdleConnTimeout sets how long idle pool connections live. Default: 90s.
 	SetIdleConnTimeout(time.Duration) B
-
-	// SetExpectContinueTimeout sets the timeout for waiting for a 100 Continue response.
-	// Default: 1s.
+	// SetExpectContinueTimeout sets the wait for a 100 Continue response. Default: 1s.
 	SetExpectContinueTimeout(time.Duration) B
-
-	// SetResponseHeaderTimeout sets the timeout for reading response headers.
-	// Default: 0 (no timeout).
+	// SetResponseHeaderTimeout sets the response-headers read timeout. Default: 0 (no timeout).
 	SetResponseHeaderTimeout(time.Duration) B
-
-	// SetTLSHandshakeTimeout sets the timeout for the TLS handshake.
-	// Default: 10s.
+	// SetTLSHandshakeTimeout sets the TLS handshake timeout. Default: 10s.
 	SetTLSHandshakeTimeout(time.Duration) B
-
-	// DisableHTTP2 disables HTTP/2 support, forcing HTTP/1.1.
+	// DisableHTTP2 forces HTTP/1.1.
 	DisableHTTP2() B
-
-	// SetHTTP2ReadIdleTimeout sets the timeout after which a health check is performed
-	// on idle HTTP/2 connections.
-	// Default: 30s.
+	// SetHTTP2ReadIdleTimeout sets the idle interval before pinging an HTTP/2 connection. Default: 30s.
 	SetHTTP2ReadIdleTimeout(time.Duration) B
-
-	// SetHTTP2PingTimeout sets the timeout for HTTP/2 ping health checks.
-	// Default: 15s.
+	// SetHTTP2PingTimeout sets the timeout for HTTP/2 ping responses. Default: 15s.
 	SetHTTP2PingTimeout(time.Duration) B
-
-	// SetHTTPProxyURL sets an HTTP/HTTPS proxy URL for requests.
-	// Pass "" to clear. SOCKS proxy configuration is on DialerBuilder.
+	// SetHTTPProxyURL sets an http(s):// proxy URL; "" clears it. SOCKS goes on DialerBuilder.
 	SetHTTPProxyURL(string) B
-
-	// SetNoProxy clears all proxy configuration.
+	// SetNoProxy clears all proxy configuration (HTTP, SOCKS, and environment).
 	SetNoProxy() B
-
-	// SetProxyFromEnvironment configures the proxy from environment variables
-	// (HTTP_PROXY, HTTPS_PROXY, NO_PROXY).
+	// SetProxyFromEnvironment configures the proxy from HTTP_PROXY, HTTPS_PROXY, NO_PROXY.
 	SetProxyFromEnvironment() B
 }
 
-// SetMaxIdleConns sets the maximum total number of idle connections across all hosts. Default: 200.
+// SetMaxIdleConns sets the maximum total idle connections across hosts. Default: 200.
 func (b *Builder) SetMaxIdleConns(n int) *Builder {
 	b.transportParams = refreshable.View(b.transportParams, func(p transportParams) transportParams {
 		p.MaxIdleConns = n
@@ -236,7 +199,6 @@ func (b *Builder) SetProxyFromEnvironment() *Builder {
 	return b
 }
 
-// transportParams holds the parameters needed to build an HTTP transport.
 type transportParams struct {
 	MaxIdleConns          int
 	MaxIdleConnsPerHost   int
@@ -252,8 +214,8 @@ type transportParams struct {
 	HTTP2PingTimeout      time.Duration
 }
 
-// refreshableTransport implements http.RoundTripper backed by a refreshable *http.Transport.
-// The transport and internal dialer are each rebuilt when any of their respective parameters are updated.
+// refreshableTransport is an http.RoundTripper that rebuilds its underlying
+// *http.Transport when transport, TLS, or dialer parameters change.
 type refreshableTransport struct {
 	Refreshable refreshable.Validated[*http.Transport]
 }
@@ -284,25 +246,16 @@ func newTransport(ctx context.Context, p transportParams, tlsConfig *tls.Config,
 	}
 
 	if !p.DisableHTTP2 {
-		// Attempt to configure net/http HTTP/1 Transport to use HTTP/2.
 		http2Transport, err := http2.ConfigureTransports(transport)
 		if err != nil {
-			// ConfigureTransport's only error as of this writing is the idempotent "protocol https already registered."
-			// It should never happen in our usage because this is immediately after creation.
-			// In case of something unexpected, log it and move on.
+			// ConfigureTransports' only documented error is the idempotent
+			// "protocol https already registered" — log defensively and continue.
 			svc1log.FromContext(ctx).Error("failed to configure transport for http2", svc1log.Stacktrace(err))
 		} else {
-			// ReadIdleTimeout is the amount of time to wait before running periodic health checks (pings)
-			// after not receiving a frame from the HTTP/2 connection.
-			// Setting this value will enable the health checks and allows broken idle
-			// connections to be pruned more quickly, preventing the client from
-			// attempting to re-use connections that will no longer work.
-			// ref: https://github.com/golang/go/issues/36026
+			// Setting ReadIdleTimeout enables periodic pings so broken idle HTTP/2
+			// connections are pruned (golang/go#36026). PingTimeout applies only
+			// when ReadIdleTimeout > 0.
 			http2Transport.ReadIdleTimeout = p.HTTP2ReadIdleTimeout
-
-			// PingTimeout configures the amount of time to wait for a ping response (health check)
-			// before closing an HTTP/2 connection. The PingTimeout is only valid if
-			// the above ReadIdleTimeout is > 0.
 			http2Transport.PingTimeout = p.HTTP2PingTimeout
 		}
 	}
@@ -310,15 +263,13 @@ func newTransport(ctx context.Context, p transportParams, tlsConfig *tls.Config,
 	return transport
 }
 
-// BuildTransport builds the configured HTTP transport from the builder's transport,
-// TLS, and dialer parameters. The returned http.RoundTripper automatically rebuilds
-// when any underlying refreshable configuration changes.
-//
-// If SetTransport was called, the injected transport is returned directly.
-// BuildTransport does NOT wrap the transport with middleware — use BuildHTTPClient
-// or Build for the full middleware stack.
+// BuildTransport returns the configured http.RoundTripper. It rebuilds when
+// transport, TLS, or dialer settings change. If [Builder.SetTransport] was
+// called, that transport is returned as-is. The returned value has no
+// middleware wrapping; use [Builder.BuildHTTPClient] or [Builder.Build] for
+// the full stack.
 func (b *Builder) BuildTransport(ctx context.Context) (http.RoundTripper, error) {
-	if err := b.buildError(ctx); err != nil {
+	if err := builderErrors(ctx, b.errs); err != nil {
 		return nil, err
 	}
 	if b.transport != nil {

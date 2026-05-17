@@ -28,13 +28,12 @@ import (
 	"github.com/palantir/witchcraft-go-logging/wlog/svclog/svc1log"
 )
 
-// fluentClient implements Client by wrapping a standard *http.Client with
-// retry and URI scoring logic.
+// fluentClient implements Client by wrapping an *http.Client with retry and URI scoring.
 type fluentClient struct {
 	serviceName    refreshable.Refreshable[string]
 	httpClient     refreshable.Refreshable[*http.Client]
 	middlewares    []Middleware
-	errorDecoder   ErrorDecoder // client-level error decoder
+	errorDecoder   ErrorDecoder
 	recoveryMW     Middleware
 	uriScorer      internal.URIScoringMiddleware
 	maxAttempts    refreshable.Refreshable[*int]
@@ -43,9 +42,9 @@ type fluentClient struct {
 	bufferPool     bytesbuffers.Pool
 }
 
+// configurableClient retains the builder so ConfigurableClient.Builder() can return a clone.
 type configurableClient[B ServiceBuilder[B]] struct {
 	fluentClient
-	// retains a reference to the builder for ConfigurableClient.Builder().
 	builder B
 }
 
@@ -53,13 +52,12 @@ func (c *configurableClient[B]) Builder() B {
 	return c.builder.Clone()
 }
 
-// getBufferPool returns the client's buffer pool, implementing poolProvider.
 func (c *fluentClient) getBufferPool() bytesbuffers.Pool {
 	return c.bufferPool
 }
 
-// errorDecoderProvider is implemented by clients that carry a client-level ErrorDecoder.
-// Endpoint.Execute uses this to extract the decoder before wrapping with per-endpoint middleware.
+// errorDecoderProvider lets Endpoint.Execute extract the client-level decoder
+// before wrapping the client in per-endpoint middleware.
 type errorDecoderProvider interface {
 	getErrorDecoder() ErrorDecoder
 }
@@ -95,7 +93,6 @@ func (c *fluentClient) Do(req *http.Request) (*http.Response, error) {
 		if uri == "" {
 			return resp, err
 		}
-		// Drain and close the retried response body to free resources.
 		drainBody(ctx, resp)
 		if err != nil {
 			svc1log.FromContext(ctx).Debug("Retrying request", svc1log.Stacktrace(err))
@@ -111,11 +108,8 @@ func (c *fluentClient) doOnce(
 	useBaseURIOnly bool,
 ) (_ *http.Response, retryable bool, _ error) {
 	ctx := origReq.Context()
-
-	// Clone the request for this attempt.
 	req := origReq.Clone(ctx)
 
-	// Construct the full URL by joining the base URI with the request's path.
 	baseURL, err := url.Parse(baseURI)
 	if err != nil {
 		return nil, false, werror.WrapWithContextParams(ctx, err, "invalid URL")
@@ -131,7 +125,7 @@ func (c *fluentClient) doOnce(
 	}
 	req.Host = baseURL.Host
 
-	// Reset body for retries via GetBody.
+	// Reset the body via GetBody so each retry starts from the beginning.
 	if origReq.GetBody != nil {
 		body, err := origReq.GetBody()
 		if err != nil {
@@ -140,17 +134,14 @@ func (c *fluentClient) doOnce(
 		req.Body = body
 	}
 
-	// Compose middleware stack using an iterative chain for flat stack traces.
-	// Shallow copy the http.Client so we can override Transport.
+	// Shallow-copy the http.Client so this attempt can override Transport and Timeout.
 	clientCopy := *c.httpClient.Current()
-
-	// Per-request timeout override via context.
 	if timeout, ok := requestTimeoutFromContext(ctx); ok {
 		clientCopy.Timeout = timeout
 	}
 
-	// Always block 307/308 redirects — the retrier handles these as QoS signals.
-	// 301/302/303 are still followed normally by http.Client.
+	// Block 307/308 — the retrier treats those as Conjure QoS redirects.
+	// 301/302/303 are still followed by http.Client.
 	clientCopy.CheckRedirect = func(redirectReq *http.Request, via []*http.Request) error {
 		if resp := redirectReq.Response; resp != nil {
 			if resp.StatusCode == http.StatusTemporaryRedirect || resp.StatusCode == http.StatusPermanentRedirect {
@@ -160,14 +151,11 @@ func (c *fluentClient) doOnce(
 		return nil
 	}
 
-	// Wrap transport with middleware: innermost first, outermost last.
-	// wrapTransport iterates forwards, wrapping each around the previous,
-	// so the last element ends up outermost.
+	// Wrap iteratively (last element is outermost).
 	clientCopy.Transport = wrapTransport(clientCopy.Transport, c.uriScorer)      // innermost
-	clientCopy.Transport = wrapTransport(clientCopy.Transport, c.middlewares...) // user MWs: last added = outermost
+	clientCopy.Transport = wrapTransport(clientCopy.Transport, c.middlewares...) // user middlewares
 	clientCopy.Transport = wrapTransport(clientCopy.Transport, c.recoveryMW)     // outermost
 
-	// Execute the request.
 	resp, respErr := clientCopy.Do(req)
 	if respErr != nil {
 		return nil, isRetryableBody(origReq), unwrapURLError(ctx, respErr)
@@ -175,8 +163,7 @@ func (c *fluentClient) doOnce(
 	return resp, resp.StatusCode >= 300 && isRetryableBody(origReq), nil
 }
 
-// isRetryableBody reports whether the request body is replayable (or absent),
-// meaning the request can be safely retried.
+// isRetryableBody reports whether the request body is replayable (absent or has GetBody).
 func isRetryableBody(req *http.Request) bool {
 	return req.Body == nil || req.Body == http.NoBody || req.GetBody != nil
 }

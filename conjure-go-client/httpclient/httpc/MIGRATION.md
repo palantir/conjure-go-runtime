@@ -367,22 +367,22 @@ The old `WithBasicAuthOptionalProvider(func(ctx) (*BasicAuth, error))` allowed
 returning nil to skip auth. Use `SetBasicAuthRefreshable(Refreshable[*BasicAuth])`
 in the new API, where a nil `*BasicAuth` disables auth.
 
-### Metrics names use underscores
+### Additional metrics emitted
 
-The old metrics used dots (e.g. `client.response`). The new metrics use underscores
-(e.g. `client_response`). The new package also emits additional metrics not present
-in the old package:
+Metric names are unchanged from the old package, but several new metrics are
+emitted that did not exist before. See README.md for the full catalog; the
+additions are:
 
-| New metric | Description |
+| Metric | Description |
 |---|---|
-| `client_conn_acquire` | Time from GetConn to GotConn |
-| `client_time_to_first_byte` | Server processing time |
-| `client_dns_lookup` | DNS resolution time |
-| `client_dns_lookup_error` | DNS resolution failures |
-| `client_tcp_connect` | TCP connection time |
-| `client_tcp_connect_error` | TCP connection failures |
-| `client_conn_idle_return_error` | Connection pool saturation |
-| `client_request_write_error` | Request write failures |
+| `client.connection.acquire` | Time from GetConn to GotConn |
+| `client.time-to-first-byte` | WroteRequest to GotFirstResponseByte |
+| `client.dns.lookup` | DNS resolution time |
+| `client.dns.lookup-error` | DNS resolution failures |
+| `client.tcp.connect` | TCP dial time |
+| `client.tcp.connect-error` | TCP dial failures |
+| `client.connection.idle-return-error` | Connection pool saturation |
+| `client.request.write-error` | Request write failures |
 
 ### `WithQueryValues` replaced by `AddQuery`/`SetQuery`
 
@@ -436,12 +436,9 @@ Path templates use `{param}` placeholders (Conjure style). Greedy parameters
 7. **Update TLS CA configuration**: CA configuration is now additive. Replace
    `WithCAFiles`/`WithTLSCABytes` with the corresponding `Add*` methods.
 
-8. **Update metrics consumers**: Change metric names from dot-separated to
-   underscore-separated.
-
-9. **Update error handling**: `StatusCodeFromError` and `LocationFromError` have
+8. **Update error handling**: `StatusCodeFromError` and `LocationFromError` have
    the same signatures but live in the `httpc` package.
 
-10. **Update tests**: Replace `*http.Response` assertions with typed response assertions.
+9. **Update tests**: Replace `*http.Response` assertions with typed response assertions.
     The new `Client` interface (`Do(*http.Request) (*http.Response, error)`) is easy
     to mock or satisfy with a test `httptest.Server`.
