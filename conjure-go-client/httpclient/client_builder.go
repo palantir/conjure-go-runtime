@@ -23,6 +23,7 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpclient/deadlines"
 	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpclient/internal"
 	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpclient/internal/refreshingclient"
 	"github.com/palantir/pkg/bytesbuffers"
@@ -84,9 +85,10 @@ type httpClientBuilder struct {
 
 	// These middleware options are not refreshed anywhere because they are not in ClientConfig,
 	// but they could be made refreshable if ever needed.
-	DisableRequestSpan  bool
-	DisableRecovery     bool
-	DisableTraceHeaders bool
+	DisableRequestSpan      bool
+	DisableRecovery         bool
+	DisableTraceHeaders     bool
+	ExpectWithinEnforcement deadlines.Enforcement
 }
 
 func (b *httpClientBuilder) Build(ctx context.Context, params ...HTTPClientParam) (refreshable.Refreshable[*http.Client], error) {
@@ -111,6 +113,7 @@ func (b *httpClientBuilder) Build(ctx context.Context, params ...HTTPClientParam
 	if !b.DisableRecovery {
 		transport = wrapTransport(transport, recoveryMiddleware{})
 	}
+	transport = wrapTransport(transport, newExpectWithinMiddleware(b.ExpectWithinEnforcement))
 	transport = wrapTransport(transport, b.Middlewares...)
 
 	return refreshingclient.NewRefreshableHTTPClient(transport, b.Timeout), nil
@@ -320,12 +323,13 @@ func newClientBuilder() *clientBuilder {
 				HTTP2ReadIdleTimeout:  defaultHTTP2ReadIdleTimeout,
 				HTTP2PingTimeout:      defaultHTTP2PingTimeout,
 			}),
-			Middlewares:         nil,
-			DisableMetrics:      refreshable.New(false),
-			MetricsTagProviders: nil,
-			DisableRecovery:     false,
-			DisableRequestSpan:  false,
-			DisableTraceHeaders: false,
+			Middlewares:             nil,
+			DisableMetrics:          refreshable.New(false),
+			MetricsTagProviders:     nil,
+			DisableRecovery:         false,
+			DisableRequestSpan:      false,
+			DisableTraceHeaders:     false,
+			ExpectWithinEnforcement: deadlines.EnforcementDefer,
 		},
 		URIs:            nil,
 		BytesBufferPool: nil,

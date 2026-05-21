@@ -21,6 +21,7 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpclient/deadlines"
 	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpclient/internal"
 	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpclient/internal/refreshingclient"
 	"github.com/palantir/pkg/bytesbuffers"
@@ -245,6 +246,30 @@ func WithDisableTraceHeaderPropagation() ClientOrHTTPClientParam {
 		b.DisableTraceHeaders = true
 		return nil
 	})
+}
+
+// WithExpectWithinEnforcement sets the enforcement strategy for the "Expect-Within" header.
+//
+// The enforcement parameter controls how the client handles deadline propagation:
+//   - deadlines.EnforcementDefer (default): Propagates deadline headers without enforcement,
+//     allowing downstream services to decide enforcement behavior.
+//   - deadlines.EnforcementEnforce: Enforces deadlines at this layer and signals downstream
+//     services to also enforce deadlines by setting the Expect-Within-Enforced header to "true".
+//   - deadlines.EnforcementDisable: Skips all Expect-Within middleware processing entirely,
+//     disabling deadline propagation for this client.
+func WithExpectWithinEnforcement(enforcement deadlines.Enforcement) ClientOrHTTPClientParam {
+	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
+		b.ExpectWithinEnforcement = enforcement
+		return nil
+	})
+}
+
+// WithDisableExpectWithinIntegration disables all behavior related to the "Expect-Within" header.
+// This is a convenience function equivalent to WithExpectWithinEnforcement(deadlines.EnforcementDisable).
+//
+// Deprecated: Use WithExpectWithinEnforcement(deadlines.EnforcementDisable) instead.
+func WithDisableExpectWithinIntegration() ClientOrHTTPClientParam {
+	return WithExpectWithinEnforcement(deadlines.EnforcementDisable)
 }
 
 // WithHTTPTimeout sets the timeout on the http client.

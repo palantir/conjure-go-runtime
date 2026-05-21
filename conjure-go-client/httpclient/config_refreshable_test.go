@@ -50,15 +50,16 @@ func TestRefreshableClientConfig(t *testing.T) {
 		assert.Equal(t, false, initialTransport.DisableKeepAlives)
 		assert.NotNil(t, initialTransport.Proxy)
 
-		if assert.Len(t, initialMiddlewares, 3) {
-			assert.IsType(t, recoveryMiddleware{}, initialMiddlewares[0])
-			if assert.IsType(t, traceMiddleware{}, initialMiddlewares[1]) {
-				traceM := initialMiddlewares[1].(traceMiddleware)
+		if assert.Len(t, initialMiddlewares, 4) {
+			assert.IsType(t, &expectWithinMiddleware{}, initialMiddlewares[0])
+			assert.IsType(t, recoveryMiddleware{}, initialMiddlewares[1])
+			if assert.IsType(t, traceMiddleware{}, initialMiddlewares[2]) {
+				traceM := initialMiddlewares[2].(traceMiddleware)
 				assert.False(t, traceM.DisableRequestSpan)
 				assert.False(t, traceM.DisableTraceHeaders)
 			}
-			if assert.IsType(t, &metricsMiddleware{}, initialMiddlewares[2]) {
-				metricsM := initialMiddlewares[2].(*metricsMiddleware)
+			if assert.IsType(t, &metricsMiddleware{}, initialMiddlewares[3]) {
+				metricsM := initialMiddlewares[3].(*metricsMiddleware)
 				assert.False(t, metricsM.Disabled.Current())
 				assert.Equal(t, serviceName, metricsM.ServiceName.Current())
 			}
