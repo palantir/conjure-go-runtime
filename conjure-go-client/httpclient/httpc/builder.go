@@ -38,10 +38,13 @@ import (
 //	    return b.SetTimeout(30 * time.Second).SetMaxAttempts(new(3))
 //	}
 type ClientBuilder[B ClientBuilder[B]] interface {
-	DialerBuilder[B]
-	TLSConfigBuilder[B]
-	TransportBuilder[B]
-	ServiceBuilder[B]
+	Clone() B
+	Apply(...Param[B]) B
+
+	BuildDialer(ctx context.Context) (ContextDialer, error)
+	BuildTLSConfig(ctx context.Context) (refreshable.Validated[*tls.Config], error)
+	BuildTransport(ctx context.Context) (http.RoundTripper, error)
+	Build(ctx context.Context) (ConfigurableClient[B], error)
 }
 
 // Builder is the concrete [ClientBuilder] returned by [NewBuilder]. In
@@ -68,6 +71,7 @@ type Builder struct {
 	disableRequestSpan  bool
 	disableRecovery     bool
 	disableTraceHeaders bool
+	disableTraceMetrics bool
 
 	uris             refreshable.Refreshable[[]string]
 	uriScorerBuilder func([]string) internal.URIScoringMiddleware
@@ -139,35 +143,37 @@ func (b *Builder) Clone() *Builder {
 		clonedTLSConfig = b.tlsConfig.Clone()
 	}
 	clone := &Builder{
-		serviceName:         b.serviceName,
-		timeout:             b.timeout,
-		dialerParams:        b.dialerParams,
-		transportParams:     b.transportParams,
-		tlsFileParams:       b.tlsFileParams,
-		tlsConfig:           clonedTLSConfig,
-		tlsCABytes:          b.tlsCABytes,
-		middlewares:         slices.Clone(b.middlewares),
-		innerMiddlewares:    slices.Clone(b.innerMiddlewares),
-		authHeader:          b.authHeader,
-		disableMetrics:      b.disableMetrics,
-		metricsTagProviders: slices.Clone(b.metricsTagProviders),
-		disableRequestSpan:  b.disableRequestSpan,
-		disableRecovery:     b.disableRecovery,
-		disableTraceHeaders: b.disableTraceHeaders,
-		uris:                b.uris,
-		uriScorerBuilder:    b.uriScorerBuilder,
-		allowEmptyURIs:      b.allowEmptyURIs,
-		errorDecoder:        b.errorDecoder,
-		bytesBufferPool:     b.bytesBufferPool,
-		maxAttempts:         b.maxAttempts,
-		initialBackoff:      b.initialBackoff,
-		maxBackoff:          b.maxBackoff,
-		transport:           b.transport,
-		caByteSlices:        slices.Clone(b.caByteSlices),
-		clientCertKey:       bytes.Clone(b.clientCertKey),
-		clientCertCert:      bytes.Clone(b.clientCertCert),
-		includeSystemCAs:    b.includeSystemCAs,
-		errs:                slices.Clone(b.errs),
+		serviceName:            b.serviceName,
+		timeout:                b.timeout,
+		dialerParams:           b.dialerParams,
+		transportParams:        b.transportParams,
+		tlsFileParams:          b.tlsFileParams,
+		tlsConfig:              clonedTLSConfig,
+		tlsCABytes:             b.tlsCABytes,
+		middlewares:            slices.Clone(b.middlewares),
+		innerMiddlewares:       slices.Clone(b.innerMiddlewares),
+		authHeader:             b.authHeader,
+		disableMetrics:         b.disableMetrics,
+		metricsTagProviders:    slices.Clone(b.metricsTagProviders),
+		disableRequestSpan:     b.disableRequestSpan,
+		disableRecovery:        b.disableRecovery,
+		disableTraceHeaders:    b.disableTraceHeaders,
+		uris:                   b.uris,
+		uriScorerBuilder:       b.uriScorerBuilder,
+		allowEmptyURIs:         b.allowEmptyURIs,
+		errorDecoder:           b.errorDecoder,
+		bytesBufferPool:        b.bytesBufferPool,
+		maxAttempts:            b.maxAttempts,
+		initialBackoff:         b.initialBackoff,
+		maxBackoff:             b.maxBackoff,
+		transport:              b.transport,
+		caByteSlices:           slices.Clone(b.caByteSlices),
+		clientCertKey:          bytes.Clone(b.clientCertKey),
+		clientCertCert:         bytes.Clone(b.clientCertCert),
+		includeSystemCAs:       b.includeSystemCAs,
+		errs:                   slices.Clone(b.errs),
+		hostLimiterFactory:     b.hostLimiterFactory,
+		endpointLimiterFactory: b.endpointLimiterFactory,
 	}
 	return clone
 }

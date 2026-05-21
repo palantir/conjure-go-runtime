@@ -377,6 +377,12 @@ func (b *Builder) DisableTraceHeaderPropagation() *Builder {
 	return b
 }
 
+// DisableClientTraceMetrics suppresses detailed metrics using httptrace.ClientTrace.
+func (b *Builder) DisableClientTraceMetrics() *Builder {
+	b.disableTraceMetrics = true
+	return b
+}
+
 // SetErrorDecoder replaces the client-level error decoder.
 func (b *Builder) SetErrorDecoder(d ErrorDecoder) *Builder {
 	b.errorDecoder = d
@@ -474,15 +480,13 @@ func (b *Builder) BuildHTTPClient(ctx context.Context) (refreshable.Refreshable[
 		transport = wrapTransport(transport, authHeaderMiddleware(b.authHeader))
 	}
 	transport = wrapTransport(transport, b.innerMiddlewares...)
-	transport = wrapTransport(transport, &metricsMiddleware{
-		disabled:    b.disableMetrics,
-		serviceName: b.serviceName,
-		tags:        b.metricsTagProviders,
-	})
-	transport = wrapTransport(transport, &traceMiddleware{
+	transport = wrapTransport(transport, &telemetryMiddleware{
 		serviceName:         b.serviceName,
+		disableMetrics:      b.disableMetrics,
 		disableRequestSpan:  b.disableRequestSpan,
 		disableTraceHeaders: b.disableTraceHeaders,
+		disableTraceMetrics: b.disableTraceMetrics,
+		tags:                b.metricsTagProviders,
 	})
 	mapped := refreshable.MapAuto(b.timeout, func(timeout time.Duration) *http.Client {
 		return &http.Client{

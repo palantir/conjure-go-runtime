@@ -454,3 +454,18 @@ copy for each goroutine before mutating.
 | Retry initial backoff | 250ms |
 | Retry max backoff | 2s |
 | Max attempts | 2 per base URL |
+
+---
+# TODOs
+
+- Advertise deadline like dialogue
+- Make buffer pool stored on endpoint not client
+- Built-in multipart and form-urlencoded encoders
+- Sticky Sessions
+- `Node-Selection-Strategy` response header for Server-Driven Node-Selection Switching
+- Unify limiter and scorer?
+- Add metrics to limiter? (scores, queue lengths)
+- **Lock retry/QoS semantics explicitly.** Dialogue is very specific: retryable QoS, 500 only for idempotent-ish methods, RetryHint.DO_NOT_RETRY, proxy attempt accounting, timeout
+policy, and 308 only when Location exists. httpc currently documents transport/429/503/307/308 only, parses Retry-After but does not use it, and treats 307/308 without
+Location as retry-next-host. I’d decide these before v1: validate RetryOther Location hosts, decide whether 307 is intentional Go legacy behavior, decide safe-method 500
+retries, wire or remove Retry-After, and add retry-hint/proxy-attempt handling if Go services depend on it.

@@ -53,6 +53,25 @@ var (
 	metricTagFamilyTimeout = metrics.MustNewTag(metricTagFamily, "timeout")
 )
 
+// TagsProvider produces metric tags from an HTTP request/response pair.
+type TagsProvider interface {
+	Tags(req *http.Request, resp *http.Response, err error) metrics.Tags
+}
+
+// TagsProviderFunc adapts a function to TagsProvider.
+type TagsProviderFunc func(req *http.Request, resp *http.Response, err error) metrics.Tags
+
+func (f TagsProviderFunc) Tags(req *http.Request, resp *http.Response, err error) metrics.Tags {
+	return f(req, resp, err)
+}
+
+// StaticTagsProvider attaches the same tags to every request.
+type StaticTagsProvider metrics.Tags
+
+func (s StaticTagsProvider) Tags(req *http.Request, resp *http.Response, err error) metrics.Tags {
+	return metrics.Tags(s)
+}
+
 // metricsMiddleware emits the full catalog of client metrics (see the constants above).
 type metricsMiddleware struct {
 	disabled    refreshable.Refreshable[bool]
@@ -68,37 +87,27 @@ func MetricsMiddleware(serviceName string, tagProviders ...TagsProvider) (Middle
 }
 
 func (m *metricsMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (*http.Response, error) {
-	if m.disabled != nil && m.disabled.Current() {
-		return next.RoundTrip(req)
-	}
 	const (
 		metricClientResponse  = "client.response"          // Timer; full round-trip; +method, method-name, family
 		metricRequestInFlight = "client.request.in-flight" // Counter; concurrent requests
 	)
-	serviceNameTag := metrics.NewTagWithFallbackValue(metricTagServiceName, m.serviceName.Current(), "unknown")
-	registry := metrics.FromContext(req.Context())
+	if m.disabled != nil && m.disabled.Current() {
+		return next.RoundTrip(req)
+	}
+	ctx := req.Context()
+	registry := metrics.FromContext(metrics.AddTags(ctx,
+		metrics.NewTagWithFallbackValue(metricTagServiceName, m.serviceName.Current(), "unknown")))
+	tlsCtx := httptrace.WithClientTrace(ctx, newMetricsClientTrace(registry, svc1log.FromContext(ctx)))
 
-	registry.Counter(metricRequestInFlight, serviceNameTag).Inc(1)
+	registry.Counter(metricRequestInFlight).Inc(1)
 	start := time.Now()
-	tlsCtx := m.tlsTraceContext(req.Context(), registry, serviceNameTag)
 	resp, err := next.RoundTrip(req.WithContext(tlsCtx))
-	registry.Counter(metricRequestInFlight, serviceNameTag).Dec(1)
-
-	tags := []metrics.Tag{
-		serviceNameTag,
-		tagStatusFamily(resp, err),
-		metrics.NewTagWithFallbackValue(metricTagMethod, req.Method, "unknown"),
-		tagMethodName(req),
-	}
-	for _, tp := range m.tags {
-		tags = append(tags, tp.Tags(req, resp, err)...)
-	}
-
-	registry.Timer(metricClientResponse, tags...).UpdateSince(start)
+	registry.Counter(metricRequestInFlight).Dec(1)
+	registry.Timer(metricClientResponse, responseMetricTags(m.tags, req, resp, err)...).UpdateSince(start)
 	return resp, err
 }
 
-func (*metricsMiddleware) tlsTraceContext(ctx context.Context, registry metrics.Registry, serviceNameTag metrics.Tag) context.Context {
+func newMetricsClientTrace(registry metrics.Registry, logger svc1log.Logger) *httptrace.ClientTrace {
 	const (
 		metricConnCreate          = "client.connection.create"            // Counter; +reused (true/false)
 		metricConnAcquire         = "client.connection.acquire"           // Timer; GetConn → GotConn; +reused
@@ -121,7 +130,7 @@ func (*metricsMiddleware) tlsTraceContext(ctx context.Context, registry metrics.
 		connectStarts  = map[string]time.Time{} // network+addr keyed for Happy Eyeballs
 		wroteRequestAt time.Time
 	)
-	return httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{
+	return &httptrace.ClientTrace{
 		GetConn: func(hostPort string) {
 			getConnStart = time.Now()
 		},
@@ -130,20 +139,20 @@ func (*metricsMiddleware) tlsTraceContext(ctx context.Context, registry metrics.
 			if info.Reused {
 				reuseTag = metricTagConnectionReused
 			}
-			registry.Counter(metricConnCreate, serviceNameTag, reuseTag).Inc(1)
+			registry.Counter(metricConnCreate, reuseTag).Inc(1)
 			if !getConnStart.IsZero() {
-				registry.Timer(metricConnAcquire, serviceNameTag, reuseTag).UpdateSince(getConnStart)
+				registry.Timer(metricConnAcquire, reuseTag).UpdateSince(getConnStart)
 			}
 		},
 		PutIdleConn: func(err error) {
 			if err != nil {
-				registry.Meter(metricConnIdleReturnError, serviceNameTag).Mark(1)
-				svc1log.FromContext(ctx).Warn("Idle connection return error", svc1log.Stacktrace(err))
+				registry.Meter(metricConnIdleReturnError).Mark(1)
+				logger.Warn("Idle connection return error", svc1log.Stacktrace(err))
 			}
 		},
 		GotFirstResponseByte: func() {
 			if !wroteRequestAt.IsZero() {
-				registry.Timer(metricTimeToFirstByte, serviceNameTag).UpdateSince(wroteRequestAt)
+				registry.Timer(metricTimeToFirstByte).UpdateSince(wroteRequestAt)
 			}
 		},
 		DNSStart: func(info httptrace.DNSStartInfo) {
@@ -151,11 +160,11 @@ func (*metricsMiddleware) tlsTraceContext(ctx context.Context, registry metrics.
 		},
 		DNSDone: func(info httptrace.DNSDoneInfo) {
 			if !dnsStart.IsZero() {
-				registry.Timer(metricDNSLookup, serviceNameTag).UpdateSince(dnsStart)
+				registry.Timer(metricDNSLookup).UpdateSince(dnsStart)
 			}
 			if info.Err != nil {
-				registry.Meter(metricDNSLookupError, serviceNameTag).Mark(1)
-				svc1log.FromContext(ctx).Warn("DNS Lookup error", svc1log.Stacktrace(info.Err))
+				registry.Meter(metricDNSLookupError).Mark(1)
+				logger.Warn("DNS Lookup error", svc1log.Stacktrace(info.Err))
 			}
 		},
 		// Happy Eyeballs may produce multiple ConnectStart/ConnectDone pairs, so we key start times by network+addr.
@@ -165,27 +174,26 @@ func (*metricsMiddleware) tlsTraceContext(ctx context.Context, registry metrics.
 		ConnectDone: func(network, addr string, err error) {
 			networkTag := metrics.NewTagWithFallbackValue(metricTagNetwork, network, "unknown")
 			if start, ok := connectStarts[network+addr]; ok {
-				registry.Timer(metricTCPConnect, serviceNameTag, networkTag).UpdateSince(start)
+				registry.Timer(metricTCPConnect, networkTag).UpdateSince(start)
 				delete(connectStarts, network+addr)
 			}
 			if err != nil {
-				registry.Meter(metricTCPConnectError, serviceNameTag, networkTag).Mark(1)
-				svc1log.FromContext(ctx).Warn("TCP Connect error", svc1log.Stacktrace(err))
+				registry.Meter(metricTCPConnectError, networkTag).Mark(1)
+				logger.Warn("TCP Connect error", svc1log.Stacktrace(err))
 			}
 		},
 		TLSHandshakeStart: func() {
-			registry.Meter(metricTLSHandshakeAttempt, serviceNameTag).Mark(1)
+			registry.Meter(metricTLSHandshakeAttempt).Mark(1)
 		},
 		TLSHandshakeDone: func(state tls.ConnectionState, err error) {
 			tags := []metrics.Tag{
-				serviceNameTag,
 				metrics.NewTagWithFallbackValue(metricTagCipher, tls.CipherSuiteName(state.CipherSuite), "unknown"),
 				metrics.NewTagWithFallbackValue(metricTagNextProtocol, state.NegotiatedProtocol, "unknown"),
 				metrics.NewTagWithFallbackValue(metricTagTLSVersion, tlsVersionString(state.Version), "unknown"),
 			}
 			if err != nil {
 				registry.Meter(metricTLSHandshakeFailure, tags...).Mark(1)
-				svc1log.FromContext(ctx).Warn("TLS Handshake error", svc1log.Stacktrace(err))
+				logger.Warn("TLS Handshake error", svc1log.Stacktrace(err))
 			} else {
 				registry.Meter(metricTLSHandshake, tags...).Mark(1)
 			}
@@ -195,11 +203,23 @@ func (*metricsMiddleware) tlsTraceContext(ctx context.Context, registry metrics.
 		WroteRequest: func(info httptrace.WroteRequestInfo) {
 			wroteRequestAt = time.Now()
 			if info.Err != nil {
-				registry.Meter(metricRequestWriteError, serviceNameTag).Mark(1)
-				svc1log.FromContext(ctx).Warn("Request Write error", svc1log.Stacktrace(info.Err))
+				registry.Meter(metricRequestWriteError).Mark(1)
+				logger.Warn("Request Write error", svc1log.Stacktrace(info.Err))
 			}
 		},
-	})
+	}
+}
+
+func responseMetricTags(providers []TagsProvider, req *http.Request, resp *http.Response, err error) metrics.Tags {
+	tags := []metrics.Tag{
+		tagStatusFamily(resp, err),
+		metrics.NewTagWithFallbackValue(metricTagMethod, req.Method, "unknown"),
+		tagMethodName(req),
+	}
+	for _, tp := range providers {
+		tags = append(tags, tp.Tags(req, resp, err)...)
+	}
+	return tags
 }
 
 func tagMethodName(req *http.Request) metrics.Tag {

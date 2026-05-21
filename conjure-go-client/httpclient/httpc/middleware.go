@@ -19,13 +19,29 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptrace"
+	"time"
 
+	"github.com/palantir/pkg/metrics"
 	"github.com/palantir/pkg/refreshable/v2"
 	werror "github.com/palantir/witchcraft-go-error"
 	"github.com/palantir/witchcraft-go-logging/wlog/svclog/svc1log"
 	"github.com/palantir/witchcraft-go-tracing/wtracing"
 	"github.com/palantir/witchcraft-go-tracing/wtracing/propagation/b3"
 )
+
+// Middleware wraps HTTP round-trips for cross-cutting concerns such as
+// authentication, metrics, tracing, and error handling.
+type Middleware interface {
+	RoundTrip(req *http.Request, next http.RoundTripper) (*http.Response, error)
+}
+
+// MiddlewareFunc adapts a function to Middleware.
+type MiddlewareFunc func(req *http.Request, next http.RoundTripper) (*http.Response, error)
+
+func (f MiddlewareFunc) RoundTrip(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+	return f(req, next)
+}
 
 type roundTripperFunc func(*http.Request) (*http.Response, error)
 
@@ -80,11 +96,14 @@ func (recoveryMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (
 	return next.RoundTrip(req)
 }
 
-// traceMiddleware starts a per-request span and/or propagates B3 trace headers.
-type traceMiddleware struct {
+// telemetryMiddleware increments metrics, starts a per-request span, and propagates B3 trace headers.
+type telemetryMiddleware struct {
 	serviceName         refreshable.Refreshable[string]
+	tags                []TagsProvider
+	disableMetrics      refreshable.Refreshable[bool]
 	disableRequestSpan  bool
 	disableTraceHeaders bool
+	disableTraceMetrics bool
 }
 
 const (
@@ -92,7 +111,7 @@ const (
 	forUserAgentHeaderKey = "For-User-Agent"
 )
 
-func (t *traceMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+func (t *telemetryMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (resp *http.Response, err error) {
 	ctx := req.Context()
 	span := wtracing.SpanFromContext(ctx)
 
@@ -117,6 +136,24 @@ func (t *traceMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (
 		if forUserAgent, ok := forUserAgentFromContext(ctx); ok && forUserAgent != "" && req.Header.Get(forUserAgentHeaderKey) == "" {
 			req.Header.Set(forUserAgentHeaderKey, forUserAgent)
 		}
+	}
+
+	if t.disableMetrics == nil || !t.disableMetrics.Current() {
+		const (
+			metricClientResponse  = "client.response"          // Timer; full round-trip; +method, method-name, family
+			metricRequestInFlight = "client.request.in-flight" // Counter; concurrent requests
+		)
+		serviceNameTag := metrics.NewTagWithFallbackValue(metricTagServiceName, t.serviceName.Current(), "unknown")
+		registry := metrics.FromContext(metrics.AddTags(ctx, serviceNameTag))
+		if !t.disableTraceMetrics {
+			req = req.WithContext(httptrace.WithClientTrace(ctx, newMetricsClientTrace(registry, svc1log.FromContext(ctx))))
+		}
+		registry.Counter(metricRequestInFlight).Inc(1)
+		start := time.Now()
+		defer func() {
+			registry.Counter(metricRequestInFlight).Dec(1)
+			registry.Timer(metricClientResponse, responseMetricTags(t.tags, req, resp, err)...).UpdateSince(start)
+		}()
 	}
 
 	return next.RoundTrip(req)
