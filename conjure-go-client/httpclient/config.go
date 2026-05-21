@@ -15,7 +15,7 @@
 package httpclient
 
 import (
-	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpclient/httpc"
+	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpc"
 )
 
 type ServicesConfig = httpc.ServicesConfig

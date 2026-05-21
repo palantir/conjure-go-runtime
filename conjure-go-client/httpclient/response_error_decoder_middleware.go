@@ -15,7 +15,7 @@
 package httpclient
 
 import (
-	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpclient/httpc"
+	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpc"
 )
 
 // ErrorDecoder implementations declare whether or not they should be used to handle certain http responses, and return

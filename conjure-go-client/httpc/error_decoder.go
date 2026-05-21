@@ -21,7 +21,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpclient/internal"
+	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/internal"
 	"github.com/palantir/conjure-go-runtime/v3/conjure-go-contract/errors"
 	werror "github.com/palantir/witchcraft-go-error"
 )

@@ -14,7 +14,9 @@
 
 package httpc
 
-import "github.com/palantir/pkg/bytesbuffers"
+import (
+	"github.com/palantir/pkg/bytesbuffers"
+)
 
 var (
 	BufferPoolSmall  = bytesbuffers.NewSyncPool(1024)

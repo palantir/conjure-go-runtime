@@ -15,7 +15,7 @@
 package httpclient
 
 import (
-	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpclient/httpc"
+	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpc"
 )
 
 // ContextWithRPCMethodName returns a copy of ctx with the rpcMethodName key set.

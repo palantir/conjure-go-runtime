@@ -15,7 +15,7 @@
 package httpclient
 
 import (
-	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpclient/httpc"
+	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpc"
 )
 
 // A Middleware wraps an http client's request and is able to read or modify the request and response.

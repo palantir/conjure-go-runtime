@@ -20,7 +20,7 @@ import (
 	"net/http"
 	"runtime"
 
-	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpclient/httpc"
+	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpc"
 	"github.com/palantir/pkg/bytesbuffers"
 	"github.com/palantir/pkg/refreshable/v2"
 )
