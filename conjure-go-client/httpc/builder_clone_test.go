@@ -36,7 +36,6 @@ import (
 // sanity loop in TestBuilder_ClonePreservesAllFields fails otherwise, which
 // in turn ensures the Clone preservation check actually exercises the field.
 func nonZeroBuilder() *Builder {
-	one := 1
 	return &Builder{
 		serviceName:     refreshable.New("svc"),
 		timeout:         refreshable.New(time.Second),
@@ -62,7 +61,7 @@ func nonZeroBuilder() *Builder {
 		uriScorerBuilder: func([]string) internal.URIScoringMiddleware { return nil },
 		allowEmptyURIs:   true,
 
-		maxAttempts:    refreshable.New(&one),
+		maxAttempts:    refreshable.New(new(1)),
 		initialBackoff: refreshable.New(time.Second),
 		maxBackoff:     refreshable.New(2 * time.Second),
 

@@ -267,11 +267,10 @@ func TestRetry_SucceedsOnSecondAttempt(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	maxAttempts := 3
 	client, err := httpc.NewBuilder().
 		SetBaseURLs(server.URL).
 		SetServiceName("retry-success-test").
-		SetMaxAttempts(&maxAttempts).
+		SetMaxAttempts(new(3)).
 		Build(t.Context())
 	require.NoError(t, err)
 
@@ -341,11 +340,10 @@ func TestRetry_NonRetryableBody(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	maxAttempts := 5
 	client, err := httpc.NewBuilder().
 		SetBaseURLs(server.URL).
 		SetServiceName("no-retry-test").
-		SetMaxAttempts(&maxAttempts).
+		SetMaxAttempts(new(5)).
 		Build(t.Context())
 	require.NoError(t, err)
 
@@ -406,11 +404,10 @@ func TestRetry_GZIPCompressedBody(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	maxAttempts := 3
 	client, err := httpc.NewBuilder().
 		SetBaseURLs(server.URL).
 		SetServiceName("gzip-retry-test").
-		SetMaxAttempts(&maxAttempts).
+		SetMaxAttempts(new(3)).
 		Build(t.Context())
 	require.NoError(t, err)
 
@@ -451,11 +448,10 @@ func TestRetry_SnappyCompressedBody(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	maxAttempts := 3
 	client, err := httpc.NewBuilder().
 		SetBaseURLs(server.URL).
 		SetServiceName("snappy-retry-test").
-		SetMaxAttempts(&maxAttempts).
+		SetMaxAttempts(new(3)).
 		Build(t.Context())
 	require.NoError(t, err)
 
@@ -494,11 +490,10 @@ func TestRetry_ZLIBCompressedBody(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	maxAttempts := 3
 	client, err := httpc.NewBuilder().
 		SetBaseURLs(server.URL).
 		SetServiceName("zlib-retry-test").
-		SetMaxAttempts(&maxAttempts).
+		SetMaxAttempts(new(3)).
 		Build(t.Context())
 	require.NoError(t, err)
 
@@ -538,11 +533,10 @@ func TestErrorDecoder_307WithLocation_RetriesAgainstLocation(t *testing.T) {
 	}))
 	t.Cleanup(originServer.Close)
 
-	maxAttempts := 3
 	client, err := httpc.NewBuilder().
 		SetBaseURLs(originServer.URL).
 		SetServiceName("redirect-test").
-		SetMaxAttempts(&maxAttempts).
+		SetMaxAttempts(new(3)).
 		Build(t.Context())
 	require.NoError(t, err)
 
@@ -572,11 +566,10 @@ func TestErrorDecoder_307NoLocation_Retries(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	maxAttempts := 3
 	client, err := httpc.NewBuilder().
 		SetBaseURLs(server.URL).
 		SetServiceName("307-no-location").
-		SetMaxAttempts(&maxAttempts).
+		SetMaxAttempts(new(3)).
 		Build(t.Context())
 	require.NoError(t, err)
 
@@ -642,11 +635,10 @@ func TestErrorDecoder_429_RetriesWithBackoff(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	maxAttempts := 3
 	client, err := httpc.NewBuilder().
 		SetBaseURLs(server.URL).
 		SetServiceName("throttle-test").
-		SetMaxAttempts(&maxAttempts).
+		SetMaxAttempts(new(3)).
 		Build(t.Context())
 	require.NoError(t, err)
 
@@ -675,11 +667,10 @@ func TestErrorDecoder_503_Retries(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	maxAttempts := 3
 	client, err := httpc.NewBuilder().
 		SetBaseURLs(server.URL).
 		SetServiceName("unavailable-test").
-		SetMaxAttempts(&maxAttempts).
+		SetMaxAttempts(new(3)).
 		Build(t.Context())
 	require.NoError(t, err)
 
@@ -703,11 +694,10 @@ func TestErrorDecoder_404_NotRetried(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	maxAttempts := 5
 	client, err := httpc.NewBuilder().
 		SetBaseURLs(server.URL).
 		SetServiceName("not-found-test").
-		SetMaxAttempts(&maxAttempts).
+		SetMaxAttempts(new(5)).
 		Build(t.Context())
 	require.NoError(t, err)
 

@@ -87,12 +87,10 @@ func (c Overrides) Clone() Overrides {
 		copy(out.middlewares, c.middlewares)
 	}
 	if c.timeout != nil {
-		t := *c.timeout
-		out.timeout = &t
+		out.timeout = new(*c.timeout)
 	}
 	if c.basicAuth != nil {
-		ba := *c.basicAuth
-		out.basicAuth = &ba
+		out.basicAuth = new(*c.basicAuth)
 	}
 	return out
 }

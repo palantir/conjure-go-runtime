@@ -67,8 +67,7 @@ func RequestBodyInMemory[T bytes.Buffer | bytes.Reader | strings.Reader](input *
 		contentLen := contentLengthInMemory(input)
 		snapshot := *input
 		getBody := func() (io.ReadCloser, error) {
-			r := snapshot
-			return io.NopCloser(any(&r).(io.Reader)), nil
+			return io.NopCloser(any(new(snapshot)).(io.Reader)), nil
 		}
 		firstBody, _ := getBody()
 		return contentLen, firstBody, getBody, nil
