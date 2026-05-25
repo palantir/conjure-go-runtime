@@ -88,11 +88,10 @@ func (b *Builder) SetTLSConfig(cfg *tls.Config) *Builder {
 	return b
 }
 
-// SetInsecureSkipVerify controls whether the client verifies the server's certificate.
+// SetInsecureSkipVerify controls whether the client verifies the server's
+// certificate. Ignored when [Builder.SetTLSConfig] installed an escape-hatch
+// config (the caller owns InsecureSkipVerify on that config).
 func (b *Builder) SetInsecureSkipVerify(skip bool) *Builder {
-	if b.tlsConfig != nil {
-		b.tlsConfig.InsecureSkipVerify = skip
-	}
 	b.tlsFileParams = refreshable.View(b.tlsFileParams, func(p tlsFileParams) tlsFileParams {
 		p.InsecureSkipVerify = skip
 		return p

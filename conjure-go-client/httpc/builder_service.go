@@ -106,12 +106,11 @@ type ServiceBuilder[B ServiceBuilder[B]] interface {
 	DisableTracing() B
 	// DisableTraceHeaderPropagation disables outbound B3 trace headers.
 	DisableTraceHeaderPropagation() B
+	// DisableClientTraceMetrics suppresses detailed metrics gathered via httptrace.ClientTrace.
+	DisableClientTraceMetrics() B
 
 	// DisablePanicRecovery disables the middleware-chain panic recovery layer.
 	DisablePanicRecovery() B
-
-	// SetTransport injects a pre-built http.RoundTripper, bypassing dialer/TLS/transport builders.
-	SetTransport(http.RoundTripper) B
 }
 
 // SetServiceName sets the logical service name used in metrics tags and log fields.

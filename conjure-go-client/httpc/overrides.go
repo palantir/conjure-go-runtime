@@ -195,7 +195,10 @@ func (c Overrides) WithConjureErrorDecoder(ced errors.ConjureErrorDecoder) Overr
 	return c.WithErrorDecoder(DefaultErrorDecoderWithConjure(ced))
 }
 
-// WithBasicAuth sets per-request basic auth credentials, overriding any client-level auth.
+// WithBasicAuth sets per-request basic auth credentials. Takes precedence
+// over any Authorization header set via WithHeader (basic auth is applied
+// after headers, replacing the Authorization value) and over the client-level
+// auth installed by [Builder.SetBasicAuth] / [Builder.SetAuthToken].
 func (c Overrides) WithBasicAuth(user, password string) Overrides {
 	c = c.Clone()
 	c.basicAuth = &basicAuthOverride{user: user, password: password}

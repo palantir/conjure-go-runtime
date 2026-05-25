@@ -97,17 +97,24 @@ func (m *metricsMiddleware) RoundTrip(req *http.Request, next http.RoundTripper)
 	return next.RoundTrip(req)
 }
 
+type metricsEmittedKey struct{}
+
 func NewMetricsResponseCallback(req *http.Request, serviceName string, disableClientTrace bool, tagsProviders ...TagsProvider) (*http.Request, func(resp *http.Response, err error)) {
+	// Guard against stacking with httpc's auto-installed telemetry: if metrics
+	// have already been started for this request, return a no-op callback.
+	if req.Context().Value(metricsEmittedKey{}) != nil {
+		return req, func(*http.Response, error) {}
+	}
 	const (
 		metricClientResponse  = "client.response"          // Timer; full round-trip; +method, method-name, family
 		metricRequestInFlight = "client.request.in-flight" // Counter; concurrent requests
 	)
-	ctx := req.Context()
+	ctx := context.WithValue(req.Context(), metricsEmittedKey{}, struct{}{})
 	registry := metrics.FromContext(metrics.AddTags(ctx, metrics.NewTagWithFallbackValue(metricTagServiceName, serviceName, "unknown")))
 	if !disableClientTrace {
 		ctx = httptrace.WithClientTrace(ctx, NewMetricsClientTrace(registry, svc1log.FromContext(ctx)))
-		req = req.WithContext(ctx)
 	}
+	req = req.WithContext(ctx)
 
 	registry.Counter(metricRequestInFlight).Inc(1)
 	start := time.Now()

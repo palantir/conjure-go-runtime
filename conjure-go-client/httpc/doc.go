@@ -49,9 +49,9 @@
 // [Builder.SetInitialBackoff], and [Builder.SetMaxBackoff].
 //
 // Responses with status >= 307 are converted to errors by [DefaultErrorDecoder].
-// Extract the status with [StatusCodeFromError]; disable via
-// [Builder.DisableRestErrors] or override per-request with
-// [Overrides.WithErrorDecoder].
+// Extract the status with [StatusCodeFromError]. Override the decoder per
+// endpoint or per request via WithErrorDecoder; pass [NoErrorDecoder] to
+// disable error decoding for that endpoint/call.
 //
 // # Concurrency
 //

@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/internal"
+	"github.com/palantir/conjure-go-runtime/v3/conjure-go-contract/errors"
 	"github.com/palantir/pkg/bytesbuffers"
 )
 
@@ -61,16 +62,23 @@ type RequestOverrides[D any] interface {
 	WithQuery(key, value string, additionalValues ...string) D
 	// WithAddedQuery appends one or more values to a query parameter.
 	WithAddedQuery(key, value string, additionalValues ...string) D
+	// WithAddedQueryValues appends every key/value pair in q to the request query.
+	WithAddedQueryValues(q url.Values) D
 	// WithTimeout sets a per-request timeout that overrides the client-level timeout.
 	WithTimeout(time.Duration) D
-	// WithErrorDecoder sets a per-request error decoder that overrides the client-level decoder.
+	// WithErrorDecoder sets a per-request error decoder; overrides the
+	// endpoint-level decoder and [DefaultErrorDecoder].
 	WithErrorDecoder(ErrorDecoder) D
+	// WithConjureErrorDecoder is a convenience for
+	// WithErrorDecoder([DefaultErrorDecoderWithConjure](ced)).
+	WithConjureErrorDecoder(ced errors.ConjureErrorDecoder) D
 	// WithBasicAuth sets per-request basic auth credentials, overriding any client-level auth.
 	WithBasicAuth(user, password string) D
 	// WithMiddleware appends a per-request middleware to the chain.
 	WithMiddleware(Middleware) D
 	// WithBufferPool sets a buffer pool that encoders may use to avoid
-	// per-request allocations. Pass nil to clear.
+	// per-request allocations. Pass nil to clear. The [bytesbuffers.Pool]
+	// dependency is intentional — mocks of this interface need to import it.
 	WithBufferPool(bytesbuffers.Pool) D
 }
 
@@ -264,6 +272,12 @@ func (e Endpoint[Req, Resp]) WithTimeout(d time.Duration) Endpoint[Req, Resp] {
 	return e
 }
 
+// WithConjureErrorDecoder is a convenience for
+// WithErrorDecoder([DefaultErrorDecoderWithConjure](ced)).
+func (e Endpoint[Req, Resp]) WithConjureErrorDecoder(ced errors.ConjureErrorDecoder) Endpoint[Req, Resp] {
+	return e.WithErrorDecoder(DefaultErrorDecoderWithConjure(ced))
+}
+
 // WithErrorDecoder sets a per-request error decoder that overrides the client-level decoder.
 func (e Endpoint[Req, Resp]) WithErrorDecoder(d ErrorDecoder) Endpoint[Req, Resp] {
 	e.overrides = e.overrides.WithErrorDecoder(d)
@@ -320,10 +334,12 @@ func (e Endpoint[Req, Resp]) Execute(ctx context.Context, client Client) (Resp, 
 	var zero Resp
 
 	if i := strings.IndexByte(e.path, '{'); i != -1 {
-		if j := strings.IndexByte(e.path[i:], '}'); j != -1 {
-			param := e.path[i : i+j+1]
-			return zero, nil, fmt.Errorf("httpc: path parameter %s not populated in %s %s", param, e.method, e.path)
+		j := strings.IndexByte(e.path[i:], '}')
+		if j == -1 {
+			return zero, nil, fmt.Errorf("httpc: unterminated path parameter starting at %q in %s %s", e.path[i:], e.method, e.path)
 		}
+		param := e.path[i : i+j+1]
+		return zero, nil, fmt.Errorf("httpc: path parameter %s not populated in %s %s", param, e.method, e.path)
 	}
 
 	if e.name != "" {
@@ -339,7 +355,10 @@ func (e Endpoint[Req, Resp]) Execute(ctx context.Context, client Client) (Resp, 
 		return zero, nil, err
 	}
 
-	if e.hasBody && e.encoder != nil {
+	if e.hasBody {
+		if e.encoder == nil {
+			return zero, nil, fmt.Errorf("httpc: endpoint %s has a body but no encoder; call SetEncoder before WithBody", e.name)
+		}
 		if err := e.encoder.Encode(req, e.body); err != nil {
 			return zero, nil, err
 		}
