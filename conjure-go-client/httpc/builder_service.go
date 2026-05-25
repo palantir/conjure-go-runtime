@@ -69,10 +69,10 @@ type ServiceBuilder[B ServiceBuilder[B]] interface {
 	// SetBasicAuthRefreshable supplies refreshable credentials; nil *BasicAuth disables auth.
 	SetBasicAuthRefreshable(refreshable.Refreshable[*BasicAuth]) B
 
-	// AddHeader appends a header value; multiple values for one key are allowed.
-	AddHeader(key, value string) B
-	// SetHeader replaces all values for the key.
-	SetHeader(key, value string) B
+	// AddHeader appends one or more values to a header. Multiple values for one key are allowed.
+	AddHeader(key, value string, additionalValues ...string) B
+	// SetHeader replaces all values for the key with the given value(s).
+	SetHeader(key, value string, additionalValues ...string) B
 	SetUserAgent(string) B
 	// SetOverrideRequestHost overrides the Host header on all requests.
 	SetOverrideRequestHost(string) B
@@ -279,20 +279,27 @@ func (b *Builder) SetBasicAuthRefreshable(r refreshable.Refreshable[*BasicAuth])
 	return b
 }
 
-// AddHeader appends a header value to every request. For per-request headers,
-// use [Overrides.AddHeader] or [Endpoint.AddHeader].
-func (b *Builder) AddHeader(key, value string) *Builder {
+// AddHeader appends one or more values to a header on every request. For
+// per-request headers, use [Overrides.WithAddedHeader] or [Endpoint.WithAddedHeader].
+func (b *Builder) AddHeader(key, value string, additionalValues ...string) *Builder {
 	return b.AddInnerMiddleware(MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
 		req.Header.Add(key, value)
+		for _, v := range additionalValues {
+			req.Header.Add(key, v)
+		}
 		return next.RoundTrip(req)
 	}))
 }
 
-// SetHeader sets a header on every request, replacing any prior values. For
-// per-request headers, use [Overrides.SetHeader] or [Endpoint.SetHeader].
-func (b *Builder) SetHeader(key, value string) *Builder {
+// SetHeader sets a header on every request to the given value(s), replacing
+// any prior values. For per-request headers, use [Overrides.WithHeader] or
+// [Endpoint.WithHeader].
+func (b *Builder) SetHeader(key, value string, additionalValues ...string) *Builder {
 	return b.AddInnerMiddleware(MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
 		req.Header.Set(key, value)
+		for _, v := range additionalValues {
+			req.Header.Add(key, v)
+		}
 		return next.RoundTrip(req)
 	}))
 }

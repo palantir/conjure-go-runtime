@@ -42,9 +42,10 @@ type basicAuthOverride struct {
 // All methods are copy-on-write, so Overrides is safe to share across
 // goroutines.
 //
-// Headers and query parameters have Set and Add variants: SetHeader/SetQuery
-// replaces all values for a key; AddHeader/AddQuery accumulates. Calling
-// SetHeader after AddHeader for the same key discards the Add values (Set wins).
+// Headers and query parameters have set and add variants: WithHeader/WithQuery
+// replaces all values for a key; WithAddedHeader/WithAddedQuery accumulates.
+// Calling WithHeader after WithAddedHeader for the same key discards the
+// added values (Set wins).
 type Overrides struct {
 	setHeaders   http.Header
 	addHeaders   http.Header
@@ -94,42 +95,71 @@ func (c Overrides) Clone() Overrides {
 	return out
 }
 
-// AddHeader adds a request header. Multiple calls with the same key accumulate values.
-func (c Overrides) AddHeader(key, value string) Overrides {
-	c = c.Clone()
-	if c.addHeaders == nil {
-		c.addHeaders = make(http.Header)
-	}
-	c.addHeaders.Add(key, value)
-	return c
-}
-
-// SetHeader sets a request header, replacing any previously added or set values for the key.
-func (c Overrides) SetHeader(key, value string) Overrides {
+// WithHeader sets a request header to the given value(s), replacing any
+// previously added or set values for the key.
+func (c Overrides) WithHeader(key, value string, additionalValues ...string) Overrides {
 	c = c.Clone()
 	if c.setHeaders == nil {
 		c.setHeaders = make(http.Header)
 	}
 	c.setHeaders.Set(key, value)
+	for _, v := range additionalValues {
+		c.setHeaders.Add(key, v)
+	}
 	if c.addHeaders != nil {
 		delete(c.addHeaders, http.CanonicalHeaderKey(key))
 	}
 	return c
 }
 
-// AddQuery adds a query parameter. Multiple calls with the same key accumulate values.
-func (c Overrides) AddQuery(key, value string) Overrides {
+// WithAddedHeader appends one or more values to a request header. Multiple
+// calls with the same key accumulate values.
+func (c Overrides) WithAddedHeader(key, value string, additionalValues ...string) Overrides {
+	c = c.Clone()
+	if c.addHeaders == nil {
+		c.addHeaders = make(http.Header)
+	}
+	c.addHeaders.Add(key, value)
+	for _, v := range additionalValues {
+		c.addHeaders.Add(key, v)
+	}
+	return c
+}
+
+// WithQuery sets a query parameter to the given value(s), replacing any
+// previously added or set values for the key.
+func (c Overrides) WithQuery(key, value string, additionalValues ...string) Overrides {
+	c = c.Clone()
+	if c.setQuery == nil {
+		c.setQuery = make(url.Values)
+	}
+	c.setQuery.Set(key, value)
+	for _, v := range additionalValues {
+		c.setQuery.Add(key, v)
+	}
+	if c.addQuery != nil {
+		delete(c.addQuery, key)
+	}
+	return c
+}
+
+// WithAddedQuery appends one or more values to a query parameter. Multiple
+// calls with the same key accumulate values.
+func (c Overrides) WithAddedQuery(key, value string, additionalValues ...string) Overrides {
 	c = c.Clone()
 	if c.addQuery == nil {
 		c.addQuery = make(url.Values)
 	}
 	c.addQuery.Add(key, value)
+	for _, v := range additionalValues {
+		c.addQuery.Add(key, v)
+	}
 	return c
 }
 
-// AddQueryValues appends every key/value pair in q to the request query.
-// Equivalent to calling AddQuery once per value; preserves multi-value keys.
-func (c Overrides) AddQueryValues(q url.Values) Overrides {
+// WithAddedQueryValues appends every key/value pair in q to the request
+// query; preserves multi-value keys.
+func (c Overrides) WithAddedQueryValues(q url.Values) Overrides {
 	if len(q) == 0 {
 		return c
 	}
@@ -141,20 +171,6 @@ func (c Overrides) AddQueryValues(q url.Values) Overrides {
 		for _, v := range vs {
 			c.addQuery.Add(k, v)
 		}
-	}
-	return c
-}
-
-// SetQuery sets a query parameter, replacing any previously added or set values for the key.
-func (c Overrides) SetQuery(key, value string) Overrides {
-	c = c.Clone()
-	if c.setQuery == nil {
-		c.setQuery = make(url.Values)
-	}
-	c.setQuery.Set(key, value)
-	// Set wins over prior Add for the same key.
-	if c.addQuery != nil {
-		delete(c.addQuery, key)
 	}
 	return c
 }

@@ -29,9 +29,9 @@ import (
 // [Overrides]. Every method is copy-on-write: it returns a new value with the
 // override applied, so deriving variants from a shared base is safe:
 //
-//	base := ep.AddHeader("X-Tenant", "acme")
-//	v1 := base.AddHeader("Api-Version", "1")
-//	v2 := base.AddHeader("Api-Version", "2") // base and v1 are unaffected
+//	base := ep.WithAddedHeader("X-Tenant", "acme")
+//	v1 := base.WithAddedHeader("Api-Version", "1")
+//	v2 := base.WithAddedHeader("Api-Version", "2") // base and v1 are unaffected
 //
 // The type parameter D is the concrete implementing type, so methods on
 // Endpoint return Endpoint and methods on Overrides return Overrides.
@@ -49,14 +49,17 @@ import (
 // Headers and query parameters accumulate across both layers; scalar values
 // (timeout, error decoder, basic auth) are last-wins.
 type RequestOverrides[D any] interface {
-	// AddHeader adds a request header. Multiple calls with the same key accumulate values.
-	AddHeader(key, value string) D
-	// SetHeader sets a request header, replacing any previously added or set values for the key.
-	SetHeader(key, value string) D
-	// AddQuery adds a query parameter. Multiple calls with the same key accumulate values.
-	AddQuery(key, value string) D
-	// SetQuery sets a query parameter, replacing any previously added or set values for the key.
-	SetQuery(key, value string) D
+	// WithHeader sets a request header to the given value(s), replacing any
+	// previously added or set values for the key.
+	WithHeader(key, value string, additionalValues ...string) D
+	// WithAddedHeader appends one or more values to a request header.
+	// Multiple calls with the same key accumulate values.
+	WithAddedHeader(key, value string, additionalValues ...string) D
+	// WithQuery sets a query parameter to the given value(s), replacing any
+	// previously added or set values for the key.
+	WithQuery(key, value string, additionalValues ...string) D
+	// WithAddedQuery appends one or more values to a query parameter.
+	WithAddedQuery(key, value string, additionalValues ...string) D
 	// WithTimeout sets a per-request timeout that overrides the client-level timeout.
 	WithTimeout(time.Duration) D
 	// WithErrorDecoder sets a per-request error decoder that overrides the client-level decoder.
@@ -76,7 +79,7 @@ type RequestOverrides[D any] interface {
 // called with httpc.Void{}.
 //
 //	var createItem = httpc.NewJSONPOST[CreateReq, CreateResp]("CreateItem", "/api/v1/items")
-//	resp, _, err := createItem.AddHeader("Idempotency-Key", key).Execute(ctx, client, req)
+//	resp, _, err := createItem.WithAddedHeader("Idempotency-Key", key).Execute(ctx, client, req)
 //
 // Endpoint implements all of [RequestOverrides]; values set this way are
 // static defaults attached to the package-level descriptor. Caller-supplied
@@ -184,7 +187,7 @@ func (e Endpoint[Req, Resp]) SetDecoder(dec BodyDecoder[Resp]) Endpoint[Req, Res
 }
 
 // SetAccept sets the Accept header. Pass "" to send no Accept header (the default).
-// Per-request SetHeader("Accept", ...) overrides this.
+// Per-request WithHeader("Accept", ...) overrides this.
 func (e Endpoint[Req, Resp]) SetAccept(accept string) Endpoint[Req, Resp] {
 	e.accept = accept
 	return e
@@ -216,33 +219,36 @@ func (e Endpoint[Req, Resp]) WithPathParam(key string, value any) Endpoint[Req, 
 	return e
 }
 
-// AddHeader adds a header value; multiple calls with the same key accumulate.
-func (e Endpoint[Req, Resp]) AddHeader(key, value string) Endpoint[Req, Resp] {
-	e.overrides = e.overrides.AddHeader(key, value)
+// WithHeader sets a header to the given value(s), replacing any previously
+// added or set values for the key.
+func (e Endpoint[Req, Resp]) WithHeader(key, value string, additionalValues ...string) Endpoint[Req, Resp] {
+	e.overrides = e.overrides.WithHeader(key, value, additionalValues...)
 	return e
 }
 
-// SetHeader sets a header value, replacing any previously added or set values for the key.
-func (e Endpoint[Req, Resp]) SetHeader(key, value string) Endpoint[Req, Resp] {
-	e.overrides = e.overrides.SetHeader(key, value)
+// WithAddedHeader appends one or more values to a header; multiple calls with
+// the same key accumulate.
+func (e Endpoint[Req, Resp]) WithAddedHeader(key, value string, additionalValues ...string) Endpoint[Req, Resp] {
+	e.overrides = e.overrides.WithAddedHeader(key, value, additionalValues...)
 	return e
 }
 
-// AddQuery adds a query parameter; multiple calls with the same key accumulate.
-func (e Endpoint[Req, Resp]) AddQuery(key, value string) Endpoint[Req, Resp] {
-	e.overrides = e.overrides.AddQuery(key, value)
+// WithQuery sets a query parameter to the given value(s), replacing any
+// previously added or set values for the key.
+func (e Endpoint[Req, Resp]) WithQuery(key, value string, additionalValues ...string) Endpoint[Req, Resp] {
+	e.overrides = e.overrides.WithQuery(key, value, additionalValues...)
 	return e
 }
 
-// AddQueryValues appends every key/value pair in q to the request query.
-func (e Endpoint[Req, Resp]) AddQueryValues(q url.Values) Endpoint[Req, Resp] {
-	e.overrides = e.overrides.AddQueryValues(q)
+// WithAddedQuery appends one or more values to a query parameter.
+func (e Endpoint[Req, Resp]) WithAddedQuery(key, value string, additionalValues ...string) Endpoint[Req, Resp] {
+	e.overrides = e.overrides.WithAddedQuery(key, value, additionalValues...)
 	return e
 }
 
-// SetQuery sets a query parameter, replacing any previously added or set values for the key.
-func (e Endpoint[Req, Resp]) SetQuery(key, value string) Endpoint[Req, Resp] {
-	e.overrides = e.overrides.SetQuery(key, value)
+// WithAddedQueryValues appends every key/value pair in q to the request query.
+func (e Endpoint[Req, Resp]) WithAddedQueryValues(q url.Values) Endpoint[Req, Resp] {
+	e.overrides = e.overrides.WithAddedQueryValues(q)
 	return e
 }
 
@@ -406,13 +412,13 @@ func (e Endpoint[Req, Resp]) Execute(ctx context.Context, client Client, body Re
 
 // WithTraceHeader sets the X-B3-TraceId header on any RequestOverrides value.
 func WithTraceHeader[D RequestOverrides[D]](d D, traceID string) D {
-	return d.SetHeader("X-B3-TraceId", traceID)
+	return d.WithHeader("X-B3-TraceId", traceID)
 }
 
-// WithStandardHeaders SetHeaders every key/value pair from headers on d.
+// WithStandardHeaders sets every key/value pair from headers on d.
 func WithStandardHeaders[D RequestOverrides[D]](d D, headers map[string]string) D {
 	for k, v := range headers {
-		d = d.SetHeader(k, v)
+		d = d.WithHeader(k, v)
 	}
 	return d
 }

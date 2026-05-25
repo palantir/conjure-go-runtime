@@ -85,8 +85,8 @@ func TestEndpointExecute_Headers(t *testing.T) {
 
 	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "Test", "/test").
 		SetDecoder(httpc.VoidDecoder()).
-		AddHeader("X-Custom", "val1").
-		AddHeader("X-Other", "val2")
+		WithAddedHeader("X-Custom", "val1").
+		WithAddedHeader("X-Other", "val2")
 
 	client := &httpTestClient{server: server}
 	_, _, err := ep.Execute(context.Background(), client, struct{}{})
@@ -102,8 +102,8 @@ func TestEndpointExecute_QueryParams(t *testing.T) {
 
 	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "Search", "/search").
 		SetDecoder(httpc.VoidDecoder()).
-		AddQuery("foo", "bar").
-		AddQuery("page", "2")
+		WithAddedQuery("foo", "bar").
+		WithAddedQuery("page", "2")
 
 	client := &httpTestClient{server: server}
 	_, _, err := ep.Execute(context.Background(), client, struct{}{})
@@ -397,7 +397,7 @@ func TestEndpointExecute_ForUserAgentDoesNotOverrideHeader(t *testing.T) {
 	ctx := httpc.ContextWithForUserAgent(t.Context(), "context-value")
 	_, _, err = httpc.NewGET[httpc.Void]("ForUserAgent", "/test").
 		SetDecoder(httpc.VoidDecoder()).
-		SetHeader("For-User-Agent", "request-value").
+		WithHeader("For-User-Agent", "request-value").
 		Execute(ctx, client, httpc.Void{})
 	require.NoError(t, err)
 	assert.Equal(t, "request-value", got)
@@ -414,8 +414,8 @@ func TestEndpointExecute_CopyOnWrite(t *testing.T) {
 		SetAccept("application/json")
 
 	// Derive two variants from the same base.
-	v1 := base.AddHeader("X-Version", "1")
-	v2 := base.AddHeader("X-Version", "2")
+	v1 := base.WithAddedHeader("X-Version", "1")
+	v2 := base.WithAddedHeader("X-Version", "2")
 
 	client := &httpTestClient{server: server}
 

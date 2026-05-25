@@ -115,11 +115,15 @@ func WithInnerMiddleware(h Middleware) ClientOrHTTPClientParam {
 }
 
 func WithAddHeader(key, value string) ClientOrHTTPClientParam {
-	return builderClientOrHTTPClientParam(httpc.Param2((*httpc.Builder).AddHeader, key, value))
+	return builderClientOrHTTPClientParam(func(b *httpc.Builder) *httpc.Builder {
+		return b.AddHeader(key, value)
+	})
 }
 
 func WithSetHeader(key, value string) ClientOrHTTPClientParam {
-	return builderClientOrHTTPClientParam(httpc.Param2((*httpc.Builder).SetHeader, key, value))
+	return builderClientOrHTTPClientParam(func(b *httpc.Builder) *httpc.Builder {
+		return b.SetHeader(key, value)
+	})
 }
 
 // WithAuthToken sets the Authorization header to a static bearerToken.

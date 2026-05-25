@@ -222,7 +222,7 @@ The old API used option functions (`WithFoo(value)`) that were applied once duri
 returns a new value:
 
 ```go
-base := httpc.Overrides{}.AddHeader("X-Tenant", "acme")
+base := httpc.Overrides{}.WithAddedHeader("X-Tenant", "acme")
 withTimeout := base.WithTimeout(5 * time.Second)
 // base does NOT have the timeout; withTimeout does.
 ```
@@ -275,18 +275,21 @@ additions are:
 | `client.connection.idle-return-error` | Connection pool saturation |
 | `client.request.write-error` | Request write failures |
 
-### `WithQueryValues` replaced by `AddQuery`/`SetQuery`
+### `WithQueryValues` replaced by `WithQuery`/`WithAddedQuery`/`WithAddedQueryValues`
 
 The old `WithQueryValues(url.Values{...})` set all query params at once. The new
-API adds them one at a time via `AddQuery(key, value)` (which accumulates) or
-`SetQuery(key, value)` (which replaces):
+API has `WithQuery(key, values...)` (replaces) and `WithAddedQuery(key, values...)`
+(accumulates), plus `WithAddedQueryValues(url.Values)` for bulk:
 
 ```go
 // Old:
-httpclient.WithQueryValues(url.Values{"page": {"1"}, "size": {"10"}})
+httpclient.WithQueryValues(url.Values{"page": {"1"}, "size": {"10"}, "tag": {"a", "b"}})
 
-// New:
-ep.AddQuery("page", "1").AddQuery("size", "10")
+// New (per-key):
+ep.WithAddedQuery("page", "1").WithAddedQuery("size", "10").WithAddedQuery("tag", "a", "b")
+
+// New (bulk):
+ep.WithAddedQueryValues(url.Values{"page": {"1"}, "size": {"10"}, "tag": {"a", "b"}})
 ```
 
 ### Path construction uses named templates

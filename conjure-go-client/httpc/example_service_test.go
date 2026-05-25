@@ -374,8 +374,8 @@ func TestExampleService_OverridesApplied(t *testing.T) {
 
 	client := &httpTestClient{server: server}
 	overrides := httpc.Overrides{}.
-		AddHeader("X-Tenant", "acme-corp").
-		AddHeader("Authorization", "token-abc")
+		WithAddedHeader("X-Tenant", "acme-corp").
+		WithAddedHeader("Authorization", "token-abc")
 
 	svc := &itemServiceClient{client: client, overrides: overrides}
 
@@ -397,7 +397,7 @@ func TestExampleService_PerCallOverride(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	client := &httpTestClient{server: server}
-	overrides := httpc.Overrides{}.AddHeader("X-Tenant", "acme-corp")
+	overrides := httpc.Overrides{}.WithAddedHeader("X-Tenant", "acme-corp")
 	svc := &itemServiceClient{client: client, overrides: overrides}
 
 	// Two calls; both should carry the tenant header.
@@ -427,7 +427,7 @@ func TestExampleService_WithOverridesOnEndpoint(t *testing.T) {
 
 	// Build overrides externally and apply to an endpoint.
 	overrides := httpc.Overrides{}.
-		AddHeader("X-Custom", "custom-value").
+		WithAddedHeader("X-Custom", "custom-value").
 		WithBasicAuth("admin", "secret")
 
 	resp, _, err := getItemEndpoint.

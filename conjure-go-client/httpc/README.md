@@ -130,8 +130,10 @@ func (c *myServiceClient) GetItem(ctx context.Context, id string) (Resp, error) 
 ```
 
 Both `Endpoint` and `Overrides` implement the `RequestOverrides[D]` interface,
-which provides: `AddHeader`, `SetHeader`, `AddQuery`, `SetQuery`, `WithTimeout`,
-`WithErrorDecoder`, `WithBasicAuth`, and `WithMiddleware`.
+which provides: `WithHeader`/`WithAddedHeader`, `WithQuery`/`WithAddedQuery`,
+`WithTimeout`, `WithErrorDecoder`, `WithBasicAuth`, and `WithMiddleware`. Header
+and query setters accept one or more values: `WithHeader(key, v1, v2, v3)`
+replaces the key with the three values in one call; `WithAddedHeader` appends.
 
 The two implementations represent two configuration layers that compose at
 execute time:
