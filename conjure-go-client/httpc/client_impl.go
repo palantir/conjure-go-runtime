@@ -28,6 +28,26 @@ import (
 	"github.com/palantir/witchcraft-go-logging/wlog/svclog/svc1log"
 )
 
+// Client is the transport interface returned by [Builder.Build]. Its signature
+// matches *http.Client.Do, so a plain *http.Client satisfies it.
+//
+// A built Client prepends a selected base URL (per URI scoring) to the request
+// path on each attempt, applies the middleware stack, enforces per-attempt
+// timeouts, and retries replayable requests. Endpoint.Execute is the typical
+// caller; it builds the request and decodes the response after Do returns.
+type Client interface {
+	Do(req *http.Request) (*http.Response, error)
+}
+
+// ConfigurableClient is a Client that exposes a fresh Builder seeded with its
+// configuration, allowing reconfiguration without starting from scratch:
+//
+//	newClient, err := client.Builder().SetTimeout(5 * time.Second).Build(ctx)
+type ConfigurableClient[B ServiceBuilder[B]] interface {
+	Client
+	Builder() B
+}
+
 // fluentClient implements Client by wrapping an *http.Client with retry and URI scoring.
 type fluentClient struct {
 	serviceName    refreshable.Refreshable[string]

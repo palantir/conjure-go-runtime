@@ -90,7 +90,7 @@ type ServiceBuilder[B ServiceBuilder[B]] interface {
 	SetMaxBackoff(time.Duration) B
 	SetMaxBackoffRefreshable(refreshable.Refreshable[time.Duration]) B
 
-	// SetMetrics enables request metrics with optional tag providers.
+	// SetMetrics enables request metrics and appends the given tag providers.
 	SetMetrics(...TagsProvider) B
 	SetDisableMetrics(bool) B
 	SetDisableMetricsRefreshable(refreshable.Refreshable[bool]) B
@@ -346,11 +346,12 @@ func (b *Builder) SetMaxBackoffRefreshable(r refreshable.Refreshable[time.Durati
 	return b
 }
 
-// SetMetrics enables request metrics with the given additional tag providers.
-// See README.md for the full metrics catalog.
+// SetMetrics enables request metrics and appends the given tag providers to
+// any already installed (e.g. by [Builder.ApplyConfig]). See README.md for the
+// full metrics catalog.
 func (b *Builder) SetMetrics(providers ...TagsProvider) *Builder {
 	b.disableMetrics = refreshable.New(false)
-	b.metricsTagProviders = providers
+	b.metricsTagProviders = append(b.metricsTagProviders, providers...)
 	return b
 }
 

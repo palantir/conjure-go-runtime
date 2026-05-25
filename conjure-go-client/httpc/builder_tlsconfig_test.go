@@ -35,6 +35,23 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TestSetTLSConfig_Nil verifies SetTLSConfig(nil) does not panic and clears any
+// previously installed escape-hatch config.
+func TestSetTLSConfig_Nil(t *testing.T) {
+	b := httpc.NewBuilder().
+		SetTLSConfig(&tls.Config{MinVersion: tls.VersionTLS13}).
+		SetTLSConfig(nil)
+
+	tlsResult, err := b.BuildTLSConfig(context.Background())
+	require.NoError(t, err)
+
+	cfg, validErr := tlsResult.Validation()
+	require.NoError(t, validErr)
+	// With escape-hatch cleared, normal path runs and produces a non-nil config.
+	require.NotNil(t, cfg)
+	assert.NotEqual(t, uint16(tls.VersionTLS13), cfg.MinVersion, "prior escape-hatch config should be cleared")
+}
+
 // TestBuildTLSConfig_EscapeHatch_PreservesUserConfig verifies that path 1 (SetTLSConfig)
 // returns the user-provided config as-is. The caller owns the config and is responsible
 // for setting secure defaults.

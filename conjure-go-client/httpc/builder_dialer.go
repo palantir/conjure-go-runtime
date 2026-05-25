@@ -27,7 +27,9 @@ import (
 )
 
 // DialerBuilder configures TCP dialer settings (dial timeout, keep-alive,
-// SOCKS proxy). It is one slice of [ClientBuilder].
+// SOCKS proxy) and is one slice of [ClientBuilder]. A configured *Builder can
+// produce a standalone [ContextDialer] via [Builder.BuildDialer], or provide
+// one for a full [Client] via [Builder.Build].
 type DialerBuilder[B DialerBuilder[B]] interface {
 	Clone() B
 	Apply(...Param[B]) B
@@ -39,6 +41,26 @@ type DialerBuilder[B DialerBuilder[B]] interface {
 	// SetSocksProxyURL sets a socks5:// proxy URL. Pass "" to clear. Use
 	// TransportBuilder.SetHTTPProxyURL for http(s) proxies.
 	SetSocksProxyURL(string) B
+
+	// SetDialer installs a caller-provided dialer. [DialerBuilder.BuildDialer]
+	// returns it as-is, skipping construction from SetDialTimeout/SetKeepAlive/
+	// SetSocksProxyURL. Pass nil to clear and re-enable internal construction.
+	SetDialer(ContextDialer) B
+	// BuildDialer returns the configured dialer. If [DialerBuilder.SetDialer]
+	// was called with a non-nil dialer, it is returned directly and the
+	// SetDialTimeout/SetKeepAlive/SetSocksProxyURL settings are ignored.
+	// Otherwise a fresh dialer is built from those settings and rebuilds
+	// automatically when any refreshable source changes.
+	BuildDialer(ctx context.Context) (ContextDialer, error)
+}
+
+// SetDialer installs a caller-provided dialer. [Builder.BuildDialer] (and the
+// transport built by [Builder.Build]) returns it as-is, skipping the internal
+// SetDialTimeout/SetKeepAlive/SetSocksProxyURL construction path. Pass nil to
+// re-enable internal construction.
+func (b *Builder) SetDialer(d ContextDialer) *Builder {
+	b.dialerOverride = d
+	return b
 }
 
 // SetDialTimeout sets the maximum duration for establishing a TCP connection. Default: 10s.
@@ -106,11 +128,17 @@ func (r *refreshableDialer) Dial(network, address string) (net.Conn, error) {
 	return r.Current().DialContext(context.TODO(), network, address)
 }
 
-// BuildDialer returns the configured dialer. The result rebuilds automatically
-// when dialer settings change via their refreshable sources.
+// BuildDialer returns the configured dialer. If [Builder.SetDialer] was
+// called with a non-nil value, that dialer is returned as-is and the
+// SetDialTimeout/SetKeepAlive/SetSocksProxyURL settings are ignored.
+// Otherwise the dialer is built from those settings and rebuilds
+// automatically when any refreshable source changes.
 func (b *Builder) BuildDialer(ctx context.Context) (ContextDialer, error) {
 	if err := builderErrors(ctx, b.errs); err != nil {
 		return nil, err
+	}
+	if b.dialerOverride != nil {
+		return b.dialerOverride, nil
 	}
 	rebuild := false
 	mapped := refreshable.MapAuto(b.dialerParams, func(p dialerParams) ContextDialer {

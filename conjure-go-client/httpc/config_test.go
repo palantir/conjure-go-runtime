@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpc"
+	"github.com/palantir/pkg/metrics"
 	"github.com/palantir/pkg/refreshable/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -47,7 +48,7 @@ func TestApplyConfig_StaticRoundTrip(t *testing.T) {
 	}
 
 	client, err := httpc.NewBuilder().
-		ApplyConfig(cfg).
+		ApplyConfig(context.Background(), cfg).
 		DisableRestErrors().
 		Build(context.Background())
 	require.NoError(t, err)
@@ -70,7 +71,7 @@ func TestApplyConfig_MinimalConfig(t *testing.T) {
 	}
 
 	client, err := httpc.NewBuilder().
-		ApplyConfig(cfg).
+		ApplyConfig(context.Background(), cfg).
 		DisableRestErrors().
 		Build(context.Background())
 	require.NoError(t, err)
@@ -99,7 +100,7 @@ func TestApplyConfig_AuthPrecedence_APITokenOverBasicAuth(t *testing.T) {
 	}
 
 	client, err := httpc.NewBuilder().
-		ApplyConfig(cfg).
+		ApplyConfig(context.Background(), cfg).
 		DisableRestErrors().
 		Build(context.Background())
 	require.NoError(t, err)
@@ -133,7 +134,7 @@ func TestApplyConfig_AuthPrecedence_APITokenFileOverBasicAuth(t *testing.T) {
 	}
 
 	client, err := httpc.NewBuilder().
-		ApplyConfig(cfg).
+		ApplyConfig(context.Background(), cfg).
 		DisableRestErrors().
 		Build(context.Background())
 	require.NoError(t, err)
@@ -162,7 +163,7 @@ func TestApplyConfig_BasicAuth(t *testing.T) {
 	}
 
 	client, err := httpc.NewBuilder().
-		ApplyConfig(cfg).
+		ApplyConfig(context.Background(), cfg).
 		DisableRestErrors().
 		Build(context.Background())
 	require.NoError(t, err)
@@ -180,7 +181,7 @@ func TestApplyConfig_ValidationErrors_InvalidURI(t *testing.T) {
 	}
 
 	_, err := httpc.NewBuilder().
-		ApplyConfig(cfg).
+		ApplyConfig(context.Background(), cfg).
 		Build(context.Background())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid url")
@@ -193,7 +194,7 @@ func TestApplyConfig_ValidationErrors_InvalidProxyURL(t *testing.T) {
 	}
 
 	_, err := httpc.NewBuilder().
-		ApplyConfig(cfg).
+		ApplyConfig(context.Background(), cfg).
 		Build(context.Background())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid proxy url")
@@ -206,7 +207,7 @@ func TestApplyConfig_ValidationErrors_UnsupportedProxyScheme(t *testing.T) {
 	}
 
 	_, err := httpc.NewBuilder().
-		ApplyConfig(cfg).
+		ApplyConfig(context.Background(), cfg).
 		Build(context.Background())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "only http(s) and socks5 are supported")
@@ -219,7 +220,7 @@ func TestApplyConfig_ValidationErrors_MissingTokenFile(t *testing.T) {
 	}
 
 	_, err := httpc.NewBuilder().
-		ApplyConfig(cfg).
+		ApplyConfig(context.Background(), cfg).
 		Build(context.Background())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to read api-token-file")
@@ -267,7 +268,7 @@ func TestApplyConfig_MaxNumRetries(t *testing.T) {
 			}
 
 			client, err := httpc.NewBuilder().
-				ApplyConfig(cfg).
+				ApplyConfig(context.Background(), cfg).
 				Build(context.Background())
 			require.NoError(t, err)
 
@@ -293,7 +294,7 @@ func TestApplyConfig_EmptyURIsFiltered(t *testing.T) {
 	}
 
 	client, err := httpc.NewBuilder().
-		ApplyConfig(cfg).
+		ApplyConfig(context.Background(), cfg).
 		DisableRestErrors().
 		Build(context.Background())
 	require.NoError(t, err)
@@ -313,7 +314,7 @@ func TestApplyConfig_TimeoutFromConfig(t *testing.T) {
 
 	// Build should succeed. The timeout should be max(read, write) = 20s.
 	_, err := httpc.NewBuilder().
-		ApplyConfig(cfg).
+		ApplyConfig(context.Background(), cfg).
 		DisableRestErrors().
 		Build(context.Background())
 	require.NoError(t, err)
@@ -333,7 +334,7 @@ func TestApplyConfig_MetricsDisabled(t *testing.T) {
 	}
 
 	client, err := httpc.NewBuilder().
-		ApplyConfig(cfg).
+		ApplyConfig(context.Background(), cfg).
 		DisableRestErrors().
 		Build(context.Background())
 	require.NoError(t, err)
@@ -342,6 +343,61 @@ func TestApplyConfig_MetricsDisabled(t *testing.T) {
 		SetDecoder(httpc.VoidDecoder())
 	_, _, err = ep.Execute(context.Background(), client, struct{}{})
 	require.NoError(t, err)
+}
+
+// TestApplyConfig_SetMetricsAppendsTagProviders verifies that calling SetMetrics
+// after ApplyConfig does not drop the StaticTagsProvider installed by config.Metrics.Tags.
+func TestApplyConfig_SetMetricsAppendsTagProviders(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	cfg := httpc.ClientConfig{
+		ServiceName: "my-service",
+		URIs:        []string{server.URL},
+		Metrics: httpc.MetricsConfig{
+			Tags: map[string]string{"from-config": "yes"},
+		},
+	}
+
+	probeTag := metrics.MustNewTag("from-setmetrics", "yes")
+	probe := httpc.TagsProviderFunc(func(_ *http.Request, _ *http.Response, _ error) metrics.Tags {
+		return metrics.Tags{probeTag}
+	})
+
+	client, err := httpc.NewBuilder().
+		ApplyConfig(context.Background(), cfg).
+		SetMetrics(probe).
+		Build(context.Background())
+	require.NoError(t, err)
+
+	ctx := metrics.WithRegistry(context.Background(), metrics.NewRootMetricsRegistry())
+	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "Test", "/test").
+		SetDecoder(httpc.VoidDecoder())
+	_, _, err = ep.Execute(ctx, client, struct{}{})
+	require.NoError(t, err)
+
+	registry := metrics.FromContext(ctx)
+	var found bool
+	registry.Each(func(name string, tags metrics.Tags, _ metrics.MetricVal) {
+		if name != "client.response" {
+			return
+		}
+		found = true
+		var hasConfigTag, hasProbeTag bool
+		for _, tag := range tags {
+			if tag.Key() == "from-config" && tag.Value() == "yes" {
+				hasConfigTag = true
+			}
+			if tag.Key() == "from-setmetrics" && tag.Value() == "yes" {
+				hasProbeTag = true
+			}
+		}
+		assert.True(t, hasConfigTag, "config-installed tag provider should still be active after SetMetrics")
+		assert.True(t, hasProbeTag, "SetMetrics-installed tag provider should be active")
+	})
+	assert.True(t, found, "client.response metric should be emitted")
 }
 
 func TestApplyConfigRefreshable_BasicRoundTrip(t *testing.T) {
@@ -466,7 +522,7 @@ func TestApplyConfig_ComposesWithExistingSettings(t *testing.T) {
 	client, err := httpc.NewBuilder().
 		SetUserAgent("my-agent").
 		SetTimeout(5 * time.Second).
-		ApplyConfig(cfg).
+		ApplyConfig(context.Background(), cfg).
 		DisableRestErrors().
 		Build(context.Background())
 	require.NoError(t, err)
@@ -564,7 +620,7 @@ func TestApplyConfig_ProxyHTTPS(t *testing.T) {
 
 	// Should succeed — https is a valid proxy scheme.
 	_, err := httpc.NewBuilder().
-		ApplyConfig(cfg).
+		ApplyConfig(context.Background(), cfg).
 		DisableRestErrors().
 		Build(context.Background())
 	require.NoError(t, err)
@@ -578,7 +634,7 @@ func TestApplyConfig_ProxySocks5(t *testing.T) {
 
 	// Should succeed — socks5 is a valid proxy scheme.
 	_, err := httpc.NewBuilder().
-		ApplyConfig(cfg).
+		ApplyConfig(context.Background(), cfg).
 		DisableRestErrors().
 		Build(context.Background())
 	require.NoError(t, err)

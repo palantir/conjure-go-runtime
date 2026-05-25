@@ -26,25 +26,26 @@ import (
 	"github.com/palantir/pkg/bytesbuffers"
 	"github.com/palantir/pkg/metrics"
 	"github.com/palantir/pkg/refreshable/v2"
+	werror "github.com/palantir/witchcraft-go-error"
 )
 
-// ClientBuilder is the top-level builder interface, composing [DialerBuilder],
-// [TLSConfigBuilder], [TransportBuilder], and [ServiceBuilder]. [Builder] is
-// the concrete implementation; application code usually uses *Builder
-// directly. The interface exists so generic helpers can configure any
-// ClientBuilder and return its concrete type:
+// ClientBuilder is the top-level builder interface. It composes
+// [DialerBuilder], [TLSConfigBuilder], [TransportBuilder], and [ServiceBuilder]
+// so a value satisfying ClientBuilder can be used wherever any of the four
+// narrower interfaces is required.
+//
+// [Builder] is the concrete implementation; application code usually uses
+// *Builder directly. The interfaces exist for generic helpers and mock
+// generation:
 //
 //	func ApplyDefaults[B ClientBuilder[B]](b B) B {
 //	    return b.SetTimeout(30 * time.Second).SetMaxAttempts(new(3))
 //	}
 type ClientBuilder[B ClientBuilder[B]] interface {
-	Clone() B
-	Apply(...Param[B]) B
-
-	BuildDialer(ctx context.Context) (ContextDialer, error)
-	BuildTLSConfig(ctx context.Context) (refreshable.Validated[*tls.Config], error)
-	BuildTransport(ctx context.Context) (http.RoundTripper, error)
-	Build(ctx context.Context) (ConfigurableClient[B], error)
+	DialerBuilder[B]
+	TLSConfigBuilder[B]
+	TransportBuilder[B]
+	ServiceBuilder[B]
 }
 
 // Builder is the concrete [ClientBuilder] returned by [NewBuilder]. In
@@ -56,6 +57,7 @@ type ClientBuilder[B ClientBuilder[B]] interface {
 type Builder struct {
 	serviceName     refreshable.Refreshable[string]
 	timeout         refreshable.Refreshable[time.Duration]
+	dialerOverride  ContextDialer // escape hatch: replaces dialer construction
 	dialerParams    refreshable.Refreshable[dialerParams]
 	tlsConfig       *tls.Config // escape hatch: replaces all other TLS settings
 	transportParams refreshable.Refreshable[transportParams]
@@ -143,37 +145,37 @@ func (b *Builder) Clone() *Builder {
 		clonedTLSConfig = b.tlsConfig.Clone()
 	}
 	clone := &Builder{
-		serviceName:            b.serviceName,
-		timeout:                b.timeout,
-		dialerParams:           b.dialerParams,
-		transportParams:        b.transportParams,
-		tlsFileParams:          b.tlsFileParams,
-		tlsConfig:              clonedTLSConfig,
-		tlsCABytes:             b.tlsCABytes,
-		middlewares:            slices.Clone(b.middlewares),
-		innerMiddlewares:       slices.Clone(b.innerMiddlewares),
-		authHeader:             b.authHeader,
-		disableMetrics:         b.disableMetrics,
-		metricsTagProviders:    slices.Clone(b.metricsTagProviders),
-		disableRequestSpan:     b.disableRequestSpan,
-		disableRecovery:        b.disableRecovery,
-		disableTraceHeaders:    b.disableTraceHeaders,
-		uris:                   b.uris,
-		uriScorerBuilder:       b.uriScorerBuilder,
-		allowEmptyURIs:         b.allowEmptyURIs,
-		errorDecoder:           b.errorDecoder,
-		bytesBufferPool:        b.bytesBufferPool,
-		maxAttempts:            b.maxAttempts,
-		initialBackoff:         b.initialBackoff,
-		maxBackoff:             b.maxBackoff,
-		transport:              b.transport,
-		caByteSlices:           slices.Clone(b.caByteSlices),
-		clientCertKey:          bytes.Clone(b.clientCertKey),
-		clientCertCert:         bytes.Clone(b.clientCertCert),
-		includeSystemCAs:       b.includeSystemCAs,
-		errs:                   slices.Clone(b.errs),
-		hostLimiterFactory:     b.hostLimiterFactory,
-		endpointLimiterFactory: b.endpointLimiterFactory,
+		serviceName:         b.serviceName,
+		timeout:             b.timeout,
+		dialerOverride:      b.dialerOverride,
+		dialerParams:        b.dialerParams,
+		transportParams:     b.transportParams,
+		tlsFileParams:       b.tlsFileParams,
+		tlsConfig:           clonedTLSConfig,
+		tlsCABytes:          b.tlsCABytes,
+		middlewares:         slices.Clone(b.middlewares),
+		innerMiddlewares:    slices.Clone(b.innerMiddlewares),
+		authHeader:          b.authHeader,
+		disableMetrics:      b.disableMetrics,
+		metricsTagProviders: slices.Clone(b.metricsTagProviders),
+		disableRequestSpan:  b.disableRequestSpan,
+		disableRecovery:     b.disableRecovery,
+		disableTraceHeaders: b.disableTraceHeaders,
+		disableTraceMetrics: b.disableTraceMetrics,
+		uris:                b.uris,
+		uriScorerBuilder:    b.uriScorerBuilder,
+		allowEmptyURIs:      b.allowEmptyURIs,
+		errorDecoder:        b.errorDecoder,
+		bytesBufferPool:     b.bytesBufferPool,
+		maxAttempts:         b.maxAttempts,
+		initialBackoff:      b.initialBackoff,
+		maxBackoff:          b.maxBackoff,
+		transport:           b.transport,
+		caByteSlices:        slices.Clone(b.caByteSlices),
+		clientCertKey:       bytes.Clone(b.clientCertKey),
+		clientCertCert:      bytes.Clone(b.clientCertCert),
+		includeSystemCAs:    b.includeSystemCAs,
+		errs:                slices.Clone(b.errs),
 	}
 	return clone
 }
@@ -193,10 +195,10 @@ func (b *Builder) Apply(params ...Param[*Builder]) *Builder {
 // left at whatever the builder already has (from NewBuilder defaults or prior
 // setter calls), preserving composability. Validation errors are deferred and
 // surfaced when Build is called.
-func (b *Builder) ApplyConfig(config ClientConfig) *Builder {
+func (b *Builder) ApplyConfig(ctx context.Context, config ClientConfig) *Builder {
 	params, err := newValidatedClientParams(config)
 	if err != nil {
-		b.errs = append(b.errs, err)
+		b.errs = append(b.errs, werror.WrapWithContextParams(ctx, err, "invalid client config"))
 		return b
 	}
 	if params.serviceName != "" {

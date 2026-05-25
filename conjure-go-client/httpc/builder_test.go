@@ -18,6 +18,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -560,3 +561,62 @@ func TestRefreshable_URIPropagation(t *testing.T) {
 	assert.Equal(t, 1, server1Hits)
 	assert.Equal(t, 1, server2Hits)
 }
+
+// sentinelDialer is a probe ContextDialer; the test only asserts BuildDialer
+// returns this exact value.
+type sentinelDialer struct{ net.Dialer }
+
+// TestBuilder_SetDialer_ShortCircuits verifies SetDialer makes BuildDialer
+// return the caller-provided dialer as-is and ignore SetDialTimeout etc.
+func TestBuilder_SetDialer_ShortCircuits(t *testing.T) {
+	custom := &sentinelDialer{}
+	dialer, err := httpc.NewBuilder().
+		SetDialTimeout(99 * time.Hour). // would otherwise show up in the built dialer
+		SetDialer(custom).
+		BuildDialer(context.Background())
+	require.NoError(t, err)
+	assert.Same(t, custom, dialer, "BuildDialer should return the SetDialer value unchanged")
+}
+
+// TestBuilder_SetTransport_FullClientPathWithCustomRoundTripper exercises the
+// "use httpc for everything except the transport" pattern, e.g. an httptest
+// recorder calling a handler directly without going through TCP. The
+// middleware stack (auth, metrics, tracing, retry) still wraps the custom
+// transport.
+func TestBuilder_SetTransport_FullClientPathWithCustomRoundTripper(t *testing.T) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "Bearer test-token", r.Header.Get("Authorization"), "auth middleware should still run")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"message":"in-process"}`))
+	})
+
+	// roundTripperFn calls the handler in-process via httptest.NewRecorder.
+	var calls int
+	rt := roundTripperFn(func(req *http.Request) (*http.Response, error) {
+		calls++
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		return rec.Result(), nil
+	})
+
+	client, err := httpc.NewBuilder().
+		SetServiceName("in-process").
+		SetBaseURLs("http://example.invalid").
+		SetAuthToken("test-token").
+		SetTransport(rt).
+		Build(context.Background())
+	require.NoError(t, err)
+
+	ep := httpc.NewEndpoint[struct{}, builderTestPayload](http.MethodGet, "GetTest", "/api/test").
+		SetDecoder(httpc.JSONDecoder[builderTestPayload]()).
+		SetAccept("application/json")
+
+	result, _, err := ep.Execute(context.Background(), client, struct{}{})
+	require.NoError(t, err)
+	assert.Equal(t, 1, calls, "custom transport should have been invoked exactly once")
+	assert.Equal(t, "in-process", result.Message)
+}
+
+type roundTripperFn func(*http.Request) (*http.Response, error)
+
+func (f roundTripperFn) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }

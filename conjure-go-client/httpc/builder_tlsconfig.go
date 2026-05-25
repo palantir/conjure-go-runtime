@@ -27,18 +27,25 @@ import (
 	"github.com/palantir/witchcraft-go-logging/wlog/svclog/svc1log"
 )
 
-// TLSConfigBuilder configures TLS settings: one slice of [ClientBuilder].
+// TLSConfigBuilder configures TLS settings and is one slice of [ClientBuilder].
 // Root CA configuration is additive across all Add* calls. System CAs are
 // included by default; call SetIncludeSystemCAs(false) to use only explicit
 // CAs. Client cert configuration uses last-write-wins Set* semantics.
-// SetTLSConfig is an escape hatch that replaces all other TLS settings.
 // Changes to refreshable CA sources or watched cert/key files trigger an
-// automatic TLS rebuild.
+// automatic TLS rebuild. SetTLSConfig is an escape hatch that replaces all
+// other TLS settings — see [TLSConfigBuilder.BuildTLSConfig].
+//
+// A configured *Builder can produce a standalone *tls.Config via
+// [Builder.BuildTLSConfig], or provide one for a full [Client] via
+// [Builder.Build].
 type TLSConfigBuilder[B TLSConfigBuilder[B]] interface {
 	Clone() B
 	Apply(...Param[B]) B
 
-	// SetTLSConfig replaces all TLS settings with the provided (cloned) *tls.Config.
+	// SetTLSConfig installs a caller-provided *tls.Config (cloned).
+	// [TLSConfigBuilder.BuildTLSConfig] returns this config as-is, skipping
+	// CA/client-cert/InsecureSkipVerify construction. Pass nil to clear and
+	// re-enable internal construction.
 	SetTLSConfig(*tls.Config) B
 	// SetInsecureSkipVerify controls whether the client verifies the server's certificate.
 	SetInsecureSkipVerify(bool) B
@@ -58,6 +65,13 @@ type TLSConfigBuilder[B TLSConfigBuilder[B]] interface {
 	SetClientCertBytes(keyBytes, certBytes []byte) B
 	// SetDynamicCertReload controls whether cert/key files are re-read on each handshake.
 	SetDynamicCertReload(bool) B
+
+	// BuildTLSConfig returns the configured TLS config. If [TLSConfigBuilder.SetTLSConfig]
+	// was called with a non-nil value, that config (cloned) is returned and the
+	// CA / client-cert / InsecureSkipVerify settings are ignored. Otherwise the
+	// config is built from those settings and rebuilds automatically when CA
+	// files, refreshable CA byte sources, or TLS file params change.
+	BuildTLSConfig(ctx context.Context) (refreshable.Validated[*tls.Config], error)
 }
 
 // SetTLSConfig replaces all TLS settings with the provided *tls.Config (cloned).
@@ -191,10 +205,12 @@ type tlsParams struct {
 	DynamicCertReload  bool
 }
 
-// BuildTLSConfig returns the configured TLS config. It rebuilds when CA files,
-// refreshable CA byte sources, or TLS file params change. If [Builder.SetTLSConfig]
-// was called, that config is returned as-is (as a static validated refreshable).
-// Errors if CA files cannot be read or system CAs cannot be loaded.
+// BuildTLSConfig returns the configured TLS config. If [Builder.SetTLSConfig]
+// was called with a non-nil value, that config (cloned) is returned as a static
+// validated refreshable, and the CA / client-cert / InsecureSkipVerify settings
+// are ignored. Otherwise the config is built and rebuilds when CA files,
+// refreshable CA byte sources, or TLS file params change. Errors if CA files
+// cannot be read or system CAs cannot be loaded.
 func (b *Builder) BuildTLSConfig(ctx context.Context) (refreshable.Validated[*tls.Config], error) {
 	if err := builderErrors(ctx, b.errs); err != nil {
 		return nil, err

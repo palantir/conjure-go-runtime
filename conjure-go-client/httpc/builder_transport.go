@@ -27,8 +27,15 @@ import (
 	"golang.org/x/net/http2"
 )
 
-// TransportBuilder configures HTTP transport settings: connection pooling,
-// timeouts, HTTP/2, and HTTP(S) proxy. It is one slice of [ClientBuilder].
+// TransportBuilder configures HTTP transport settings (connection pooling,
+// timeouts, HTTP/2, HTTP(S) proxy) and is one slice of [ClientBuilder].
+//
+// A configured *Builder can produce a standalone [http.RoundTripper] via
+// [Builder.BuildTransport], or provide one for a full [Client] via
+// [Builder.Build]. [TransportBuilder.SetTransport] short-circuits transport
+// construction and uses the caller-provided RoundTripper instead — useful for
+// testing (e.g. an httptest recorder) or production cases that need a custom
+// transport (custom auth, instrumentation, etc.).
 type TransportBuilder[B TransportBuilder[B]] interface {
 	Clone() B
 	Apply(...Param[B]) B
@@ -59,6 +66,20 @@ type TransportBuilder[B TransportBuilder[B]] interface {
 	SetNoProxy() B
 	// SetProxyFromEnvironment configures the proxy from HTTP_PROXY, HTTPS_PROXY, NO_PROXY.
 	SetProxyFromEnvironment() B
+
+	// SetTransport installs a caller-provided RoundTripper.
+	// [TransportBuilder.BuildTransport] returns it as-is, bypassing the
+	// dialer / TLS / transport construction path. The middleware stack still
+	// wraps the transport when used through [Builder.Build]. Pass nil to
+	// re-enable internal construction.
+	SetTransport(http.RoundTripper) B
+	// BuildTransport returns the configured RoundTripper. If
+	// [TransportBuilder.SetTransport] was called with a non-nil value, that
+	// transport is returned as-is and the dialer / TLS / transport settings
+	// are ignored. Otherwise a transport is built from those settings and
+	// rebuilds when transport, TLS, or dialer parameters change. The returned
+	// value has no middleware wrapping; use [Builder.Build] for the full stack.
+	BuildTransport(ctx context.Context) (http.RoundTripper, error)
 }
 
 // SetMaxIdleConns sets the maximum total idle connections across hosts. Default: 200.
@@ -263,11 +284,12 @@ func newTransport(ctx context.Context, p transportParams, tlsConfig *tls.Config,
 	return transport
 }
 
-// BuildTransport returns the configured http.RoundTripper. It rebuilds when
-// transport, TLS, or dialer settings change. If [Builder.SetTransport] was
-// called, that transport is returned as-is. The returned value has no
-// middleware wrapping; use [Builder.BuildHTTPClient] or [Builder.Build] for
-// the full stack.
+// BuildTransport returns the configured http.RoundTripper. If
+// [Builder.SetTransport] was called with a non-nil value, that transport is
+// returned as-is and the dialer / TLS / transport settings are ignored.
+// Otherwise the transport is built and rebuilds when transport, TLS, or dialer
+// parameters change. The returned value has no middleware wrapping; use
+// [Builder.BuildHTTPClient] or [Builder.Build] for the full stack.
 func (b *Builder) BuildTransport(ctx context.Context) (http.RoundTripper, error) {
 	if err := builderErrors(ctx, b.errs); err != nil {
 		return nil, err

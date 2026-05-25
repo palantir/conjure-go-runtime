@@ -241,17 +241,27 @@ from setter methods without writing closures by hand.
 
 ### Builder hierarchy
 
-The builder is decomposed into focused interfaces for use in generic code:
+The builder is decomposed into focused interfaces. `ClientBuilder` composes
+them; `*Builder` is the concrete implementation that satisfies all four:
 
-- **`DialerBuilder[B]`** -- TCP dial timeout, keep-alive, SOCKS proxy
-- **`TLSConfigBuilder[B]`** -- TLS config, CAs, client certs, InsecureSkipVerify
-- **`TransportBuilder[B]`** -- Connection pool sizes, HTTP/2, proxy, idle timeouts
-- **`ServiceBuilder[B]`** -- Everything above plus auth, middleware, retry, metrics, tracing
-- **`ClientBuilder[B]`** -- Composes all of the above
+- **`DialerBuilder[B]`** -- TCP dial timeout, keep-alive, SOCKS proxy. Exposes
+  `SetDialer(ContextDialer)` to inject a caller-provided dialer, and
+  `BuildDialer(ctx)` to produce one standalone.
+- **`TLSConfigBuilder[B]`** -- TLS config, CAs, client certs, InsecureSkipVerify.
+  Exposes `SetTLSConfig(*tls.Config)` to inject a caller-provided config, and
+  `BuildTLSConfig(ctx)` to produce one standalone.
+- **`TransportBuilder[B]`** -- Connection pool sizes, HTTP/2, proxy, idle
+  timeouts. Exposes `SetTransport(http.RoundTripper)` to inject a custom
+  transport, and `BuildTransport(ctx)` to produce one standalone.
+- **`ServiceBuilder[B]`** -- Service name, URIs, auth, middleware, retry,
+  metrics, tracing, error handling. Exposes `Build(ctx)` for the full client.
+- **`ClientBuilder[B]`** -- Embeds all four sub-interfaces.
 
-`Builder` implements `ClientBuilder` and exposes additional methods for
-building intermediate artifacts: `BuildDialer`, `BuildTLSConfig`, `BuildTransport`,
-and `BuildHTTPClient`.
+Each `Set<X>` override on the sub-interfaces short-circuits the corresponding
+`Build<X>` and the matching `Set*`/`Add*` settings in that domain are ignored.
+This makes the package usable in three modes: full client (`Build`), partial
+client with caller-supplied sub-component (`SetDialer`/`SetTLSConfig`/`SetTransport`),
+or just the sub-component on its own (`BuildDialer`/`BuildTLSConfig`/`BuildTransport`).
 
 ## Middleware
 
@@ -463,6 +473,7 @@ copy for each goroutine before mutating.
 - Built-in multipart and form-urlencoded encoders
 - Sticky Sessions
 - `Node-Selection-Strategy` response header for Server-Driven Node-Selection Switching
+- Move proto support to `httpc/proto` sub-package so non-proto callers don't transitively depend on protobuf
 - Unify limiter and scorer?
 - Add metrics to limiter? (scores, queue lengths)
 - **Lock retry/QoS semantics explicitly.** Dialogue is very specific: retryable QoS, 500 only for idempotent-ish methods, RetryHint.DO_NOT_RETRY, proxy attempt accounting, timeout
