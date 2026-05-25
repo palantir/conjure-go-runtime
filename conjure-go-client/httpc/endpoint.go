@@ -153,56 +153,56 @@ func NewPATCH[Req, Resp any](name, path string) Endpoint[Req, Resp] {
 // NewJSONGET is NewGET preconfigured with a JSON decoder and Accept: application/json.
 func NewJSONGET[Resp any](name, path string) Endpoint[Void, Resp] {
 	return NewGET[Resp](name, path).
-		SetDecoder(JSONDecoder[Resp]()).
-		SetAccept("application/json")
+		WithDecoder(JSONDecoder[Resp]()).
+		WithAccept("application/json")
 }
 
 // NewJSONPOST is NewPOST preconfigured with JSON encoder, JSON decoder, and Accept: application/json.
 func NewJSONPOST[Req, Resp any](name, path string) Endpoint[Req, Resp] {
 	return NewPOST[Req, Resp](name, path).
-		SetEncoder(JSONEncoder[Req]()).
-		SetDecoder(JSONDecoder[Resp]()).
-		SetAccept("application/json")
+		WithEncoder(JSONEncoder[Req]()).
+		WithDecoder(JSONDecoder[Resp]()).
+		WithAccept("application/json")
 }
 
 // NewJSONPUT is NewPUT preconfigured with JSON encoder, JSON decoder, and Accept: application/json.
 func NewJSONPUT[Req, Resp any](name, path string) Endpoint[Req, Resp] {
 	return NewPUT[Req, Resp](name, path).
-		SetEncoder(JSONEncoder[Req]()).
-		SetDecoder(JSONDecoder[Resp]()).
-		SetAccept("application/json")
+		WithEncoder(JSONEncoder[Req]()).
+		WithDecoder(JSONDecoder[Resp]()).
+		WithAccept("application/json")
 }
 
 // NewJSONPATCH is NewPATCH preconfigured with JSON encoder, JSON decoder, and Accept: application/json.
 func NewJSONPATCH[Req, Resp any](name, path string) Endpoint[Req, Resp] {
 	return NewPATCH[Req, Resp](name, path).
-		SetEncoder(JSONEncoder[Req]()).
-		SetDecoder(JSONDecoder[Resp]()).
-		SetAccept("application/json")
+		WithEncoder(JSONEncoder[Req]()).
+		WithDecoder(JSONDecoder[Resp]()).
+		WithAccept("application/json")
 }
 
 // NewJSONDELETE is NewDELETE preconfigured with a JSON decoder and Accept: application/json.
 func NewJSONDELETE[Resp any](name, path string) Endpoint[Void, Resp] {
 	return NewDELETE[Resp](name, path).
-		SetDecoder(JSONDecoder[Resp]()).
-		SetAccept("application/json")
+		WithDecoder(JSONDecoder[Resp]()).
+		WithAccept("application/json")
 }
 
-// SetEncoder sets the body encoder for the request.
-func (e Endpoint[Req, Resp]) SetEncoder(enc BodyEncoder[Req]) Endpoint[Req, Resp] {
+// WithEncoder sets the body encoder for the request.
+func (e Endpoint[Req, Resp]) WithEncoder(enc BodyEncoder[Req]) Endpoint[Req, Resp] {
 	e.encoder = enc
 	return e
 }
 
-// SetDecoder sets the body decoder for the response.
-func (e Endpoint[Req, Resp]) SetDecoder(dec BodyDecoder[Resp]) Endpoint[Req, Resp] {
+// WithDecoder sets the body decoder for the response.
+func (e Endpoint[Req, Resp]) WithDecoder(dec BodyDecoder[Resp]) Endpoint[Req, Resp] {
 	e.decoder = dec
 	return e
 }
 
-// SetAccept sets the Accept header. Pass "" to send no Accept header (the default).
+// WithAccept sets the Accept header. Pass "" to send no Accept header (the default).
 // Per-request WithHeader("Accept", ...) overrides this.
-func (e Endpoint[Req, Resp]) SetAccept(accept string) Endpoint[Req, Resp] {
+func (e Endpoint[Req, Resp]) WithAccept(accept string) Endpoint[Req, Resp] {
 	e.accept = accept
 	return e
 }
@@ -357,7 +357,7 @@ func (e Endpoint[Req, Resp]) Execute(ctx context.Context, client Client) (Resp, 
 
 	if e.hasBody {
 		if e.encoder == nil {
-			return zero, nil, fmt.Errorf("httpc: endpoint %s has a body but no encoder; call SetEncoder before WithBody", e.name)
+			return zero, nil, fmt.Errorf("httpc: endpoint %s has a body but no encoder; call WithEncoder before WithBody", e.name)
 		}
 		if err := e.encoder.Encode(req, e.body); err != nil {
 			return zero, nil, err

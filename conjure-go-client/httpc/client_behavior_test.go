@@ -80,7 +80,7 @@ func TestMiddlewareStackOrder(t *testing.T) {
 	require.NoError(t, err)
 
 	ep := httpc.NewGET[struct{}]("OrderTest", "/test").
-		SetDecoder(httpc.VoidDecoder()).
+		WithDecoder(httpc.VoidDecoder()).
 		WithMiddleware(perRequestMW)
 
 	_, _, err = ep.Execute(t.Context(), client)
@@ -129,7 +129,7 @@ func TestMiddlewareStackOrder_MultipleOuterAndInner(t *testing.T) {
 	require.NoError(t, err)
 
 	ep := httpc.NewGET[struct{}]("MultiMW", "/test").
-		SetDecoder(httpc.VoidDecoder())
+		WithDecoder(httpc.VoidDecoder())
 
 	_, _, err = ep.Execute(t.Context(), client)
 	require.NoError(t, err)
@@ -235,8 +235,8 @@ func TestRetry_ExhaustsMaxAttempts(t *testing.T) {
 	require.NoError(t, err)
 
 	ep := httpc.NewPOST[testRetryPayload, struct{}]("RetryTest", "/test").
-		SetEncoder(httpc.JSONEncoder[testRetryPayload]()).
-		SetDecoder(httpc.VoidDecoder())
+		WithEncoder(httpc.JSONEncoder[testRetryPayload]()).
+		WithDecoder(httpc.VoidDecoder())
 
 	_, _, err = ep.WithBody(testRetryPayload{Value: "hello"}).Execute(t.Context(), client)
 	require.Error(t, err)
@@ -349,8 +349,8 @@ func TestRetry_NonRetryableBody(t *testing.T) {
 
 	// Use BinaryEncoder with a non-seekable reader — GetBody won't be set.
 	ep := httpc.NewEndpoint[io.ReadCloser, struct{}](http.MethodPost, "NoRetry", "/test").
-		SetEncoder(httpc.BinaryEncoder("application/octet-stream")).
-		SetDecoder(httpc.VoidDecoder())
+		WithEncoder(httpc.BinaryEncoder("application/octet-stream")).
+		WithDecoder(httpc.VoidDecoder())
 
 	body := io.NopCloser(readerFunc(func(p []byte) (int, error) {
 		copy(p, "data")
@@ -412,9 +412,9 @@ func TestRetry_GZIPCompressedBody(t *testing.T) {
 	require.NoError(t, err)
 
 	ep := httpc.NewPOST[testRetryPayload, testRetryPayload]("GZIPRetry", "/test").
-		SetEncoder(httpc.GZIPEncoder(httpc.JSONEncoder[testRetryPayload]())).
-		SetDecoder(httpc.JSONDecoder[testRetryPayload]()).
-		SetAccept("application/json")
+		WithEncoder(httpc.GZIPEncoder(httpc.JSONEncoder[testRetryPayload]())).
+		WithDecoder(httpc.JSONDecoder[testRetryPayload]()).
+		WithAccept("application/json")
 
 	resp, _, err := ep.WithBody(testRetryPayload{Value: "compressed-retry"}).Execute(t.Context(), client)
 	require.NoError(t, err)
@@ -456,9 +456,9 @@ func TestRetry_SnappyCompressedBody(t *testing.T) {
 	require.NoError(t, err)
 
 	ep := httpc.NewPOST[testRetryPayload, testRetryPayload]("SnappyRetry", "/test").
-		SetEncoder(httpc.SnappyEncoder(httpc.JSONEncoder[testRetryPayload]())).
-		SetDecoder(httpc.JSONDecoder[testRetryPayload]()).
-		SetAccept("application/json")
+		WithEncoder(httpc.SnappyEncoder(httpc.JSONEncoder[testRetryPayload]())).
+		WithDecoder(httpc.JSONDecoder[testRetryPayload]()).
+		WithAccept("application/json")
 
 	resp, _, err := ep.WithBody(testRetryPayload{Value: "compressed-retry"}).Execute(t.Context(), client)
 	require.NoError(t, err)
@@ -498,9 +498,9 @@ func TestRetry_ZLIBCompressedBody(t *testing.T) {
 	require.NoError(t, err)
 
 	ep := httpc.NewPOST[testRetryPayload, testRetryPayload]("ZLIBRetry", "/test").
-		SetEncoder(httpc.ZLIBEncoder(httpc.JSONEncoder[testRetryPayload]())).
-		SetDecoder(httpc.JSONDecoder[testRetryPayload]()).
-		SetAccept("application/json")
+		WithEncoder(httpc.ZLIBEncoder(httpc.JSONEncoder[testRetryPayload]())).
+		WithDecoder(httpc.JSONDecoder[testRetryPayload]()).
+		WithAccept("application/json")
 
 	resp, _, err := ep.WithBody(testRetryPayload{Value: "compressed-retry"}).Execute(t.Context(), client)
 	require.NoError(t, err)
@@ -541,8 +541,8 @@ func TestErrorDecoder_307WithLocation_RetriesAgainstLocation(t *testing.T) {
 	require.NoError(t, err)
 
 	ep := httpc.NewGET[testRetryPayload]("RedirectTest", "/test").
-		SetDecoder(httpc.JSONDecoder[testRetryPayload]()).
-		SetAccept("application/json")
+		WithDecoder(httpc.JSONDecoder[testRetryPayload]()).
+		WithAccept("application/json")
 
 	resp, _, err := ep.Execute(t.Context(), client)
 	require.NoError(t, err)
@@ -574,8 +574,8 @@ func TestErrorDecoder_307NoLocation_Retries(t *testing.T) {
 	require.NoError(t, err)
 
 	ep := httpc.NewGET[testRetryPayload]("NoLocationTest", "/test").
-		SetDecoder(httpc.JSONDecoder[testRetryPayload]()).
-		SetAccept("application/json")
+		WithDecoder(httpc.JSONDecoder[testRetryPayload]()).
+		WithAccept("application/json")
 
 	resp, _, err := ep.Execute(t.Context(), client)
 	require.NoError(t, err)
@@ -610,8 +610,8 @@ func TestErrorDecoder_301Redirect_FollowedByHTTPClient(t *testing.T) {
 	require.NoError(t, err)
 
 	ep := httpc.NewGET[testRetryPayload]("MovedTest", "/test").
-		SetDecoder(httpc.JSONDecoder[testRetryPayload]()).
-		SetAccept("application/json")
+		WithDecoder(httpc.JSONDecoder[testRetryPayload]()).
+		WithAccept("application/json")
 
 	resp, _, err := ep.Execute(t.Context(), client)
 	require.NoError(t, err)
@@ -643,8 +643,8 @@ func TestErrorDecoder_429_RetriesWithBackoff(t *testing.T) {
 	require.NoError(t, err)
 
 	ep := httpc.NewGET[testRetryPayload]("ThrottleTest", "/test").
-		SetDecoder(httpc.JSONDecoder[testRetryPayload]()).
-		SetAccept("application/json")
+		WithDecoder(httpc.JSONDecoder[testRetryPayload]()).
+		WithAccept("application/json")
 
 	resp, _, err := ep.Execute(t.Context(), client)
 	require.NoError(t, err)
@@ -675,8 +675,8 @@ func TestErrorDecoder_503_Retries(t *testing.T) {
 	require.NoError(t, err)
 
 	ep := httpc.NewGET[testRetryPayload]("UnavailableTest", "/test").
-		SetDecoder(httpc.JSONDecoder[testRetryPayload]()).
-		SetAccept("application/json")
+		WithDecoder(httpc.JSONDecoder[testRetryPayload]()).
+		WithAccept("application/json")
 
 	resp, _, err := ep.Execute(t.Context(), client)
 	require.NoError(t, err)
@@ -702,7 +702,7 @@ func TestErrorDecoder_404_NotRetried(t *testing.T) {
 	require.NoError(t, err)
 
 	ep := httpc.NewGET[struct{}]("NotFoundTest", "/missing").
-		SetDecoder(httpc.VoidDecoder())
+		WithDecoder(httpc.VoidDecoder())
 
 	_, _, err = ep.Execute(t.Context(), client)
 	require.Error(t, err)
@@ -734,8 +734,8 @@ func TestRetry_GZIPCompressedBody_AllFail(t *testing.T) {
 	require.NoError(t, err)
 
 	ep := httpc.NewPOST[testRetryPayload, struct{}]("GZIPRetryFail", "/test").
-		SetEncoder(httpc.GZIPEncoder(httpc.JSONEncoder[testRetryPayload]())).
-		SetDecoder(httpc.VoidDecoder())
+		WithEncoder(httpc.GZIPEncoder(httpc.JSONEncoder[testRetryPayload]())).
+		WithDecoder(httpc.VoidDecoder())
 
 	_, _, err = ep.WithBody(testRetryPayload{Value: "will-fail"}).Execute(t.Context(), client)
 	require.Error(t, err)

@@ -18,8 +18,8 @@ client, err := httpc.NewBuilder().
 
 // 2. Define an endpoint (typically a package-level var).
 var getItem = httpc.NewGET[GetItemResponse]("GetItem", "/api/v1/items/{itemId}").
-    SetDecoder(httpc.JSONDecoder[GetItemResponse]()).
-    SetAccept("application/json")
+    WithDecoder(httpc.JSONDecoder[GetItemResponse]()).
+    WithAccept("application/json")
 
 // 3. Execute.
 resp, _, err := getItem.
@@ -76,9 +76,9 @@ call `Execute(ctx, client)` directly (no `WithBody`).
 
 **Configuration** (each returns a new `Endpoint`):
 
-- `SetEncoder(BodyEncoder[Req])` -- serialization for request body
-- `SetDecoder(BodyDecoder[Resp])` -- deserialization for response body
-- `SetAccept(string)` -- sets the Accept header
+- `WithEncoder(BodyEncoder[Req])` -- serialization for request body
+- `WithDecoder(BodyDecoder[Resp])` -- deserialization for response body
+- `WithAccept(string)` -- sets the Accept header
 
 **Path parameters** use named replacement in Conjure-style templates:
 
@@ -405,16 +405,16 @@ The intended pattern for generated Conjure service clients:
 // Package-level endpoint descriptors (immutable, safe for concurrent use).
 var (
     createItem = httpc.NewPOST[CreateReq, CreateResp]("CreateItem", "/api/v1/items").
-        SetEncoder(httpc.JSONEncoder[CreateReq]()).
-        SetDecoder(httpc.JSONDecoder[CreateResp]()).
-        SetAccept("application/json")
+        WithEncoder(httpc.JSONEncoder[CreateReq]()).
+        WithDecoder(httpc.JSONDecoder[CreateResp]()).
+        WithAccept("application/json")
 
     getItem = httpc.NewGET[GetItemResp]("GetItem", "/api/v1/items/{itemId}").
-        SetDecoder(httpc.JSONDecoder[GetItemResp]()).
-        SetAccept("application/json")
+        WithDecoder(httpc.JSONDecoder[GetItemResp]()).
+        WithAccept("application/json")
 
     deleteItem = httpc.NewDELETE[struct{}]("DeleteItem", "/api/v1/items/{itemId}").
-        SetDecoder(httpc.VoidDecoder())
+        WithDecoder(httpc.VoidDecoder())
 )
 
 // Service client holds transport + per-client overrides.

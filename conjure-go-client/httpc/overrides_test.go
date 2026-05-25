@@ -47,7 +47,7 @@ func TestOverrides_Clone_Independence(t *testing.T) {
 	})
 
 	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "Test", "/test").
-		SetDecoder(httpc.VoidDecoder()).
+		WithDecoder(httpc.VoidDecoder()).
 		WithOverrides(original)
 
 	client := &httpTestClient{server: server}
@@ -67,7 +67,7 @@ func TestOverrides_CopyOnWrite(t *testing.T) {
 	})
 
 	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "Test", "/test").
-		SetDecoder(httpc.VoidDecoder()).
+		WithDecoder(httpc.VoidDecoder()).
 		WithOverrides(base)
 
 	client := &httpTestClient{server: server}
@@ -82,7 +82,7 @@ func TestOverrides_CopyOnWrite(t *testing.T) {
 	})
 
 	ep2 := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "Test", "/test").
-		SetDecoder(httpc.VoidDecoder()).
+		WithDecoder(httpc.VoidDecoder()).
 		WithOverrides(derived)
 
 	client2 := &httpTestClient{server: server2}
@@ -99,7 +99,7 @@ func TestOverrides_WithOverrides_Merge(t *testing.T) {
 		})
 
 		base := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "Test", "/test").
-			SetDecoder(httpc.VoidDecoder()).
+			WithDecoder(httpc.VoidDecoder()).
 			WithAddedHeader("X-A", "v1")
 
 		overrides := httpc.Overrides{}.WithAddedHeader("X-B", "v2")
@@ -118,7 +118,7 @@ func TestOverrides_WithOverrides_Merge(t *testing.T) {
 		})
 
 		base := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "Test", "/test").
-			SetDecoder(httpc.VoidDecoder()).
+			WithDecoder(httpc.VoidDecoder()).
 			WithAddedQuery("p1", "a")
 
 		overrides := httpc.Overrides{}.WithAddedQuery("p2", "b")
@@ -137,7 +137,7 @@ func TestOverrides_WithOverrides_Merge(t *testing.T) {
 		})
 
 		base := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "Test", "/test").
-			SetDecoder(httpc.VoidDecoder()).
+			WithDecoder(httpc.VoidDecoder()).
 			WithTimeout(10 * time.Second)
 
 		overrides := httpc.Overrides{}.WithTimeout(50 * time.Millisecond)
@@ -159,7 +159,7 @@ func TestOverrides_WithOverrides_Merge(t *testing.T) {
 		})
 
 		base := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "Test", "/test").
-			SetDecoder(httpc.VoidDecoder()).
+			WithDecoder(httpc.VoidDecoder()).
 			WithBasicAuth("original-user", "original-pass")
 
 		overrides := httpc.Overrides{}.WithBasicAuth("override-user", "override-pass")
@@ -186,7 +186,7 @@ func TestOverrides_WithOverrides_Merge(t *testing.T) {
 		})
 
 		base := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "Test", "/test").
-			SetDecoder(httpc.VoidDecoder()).
+			WithDecoder(httpc.VoidDecoder()).
 			WithMiddleware(mw1)
 
 		overrides := httpc.Overrides{}.WithMiddleware(mw2)
@@ -209,7 +209,7 @@ func TestOverrides_WithOverrides_Merge(t *testing.T) {
 		overrideDecoder := &countingErrorDecoder{}
 
 		base := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "Test", "/test").
-			SetDecoder(httpc.VoidDecoder()).
+			WithDecoder(httpc.VoidDecoder()).
 			WithErrorDecoder(originalDecoder)
 
 		overrides := httpc.Overrides{}.WithErrorDecoder(overrideDecoder)
@@ -234,7 +234,7 @@ func TestOverrides_EmptyMergeIsIdentity(t *testing.T) {
 	})
 
 	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "Test", "/test").
-		SetDecoder(httpc.VoidDecoder()).
+		WithDecoder(httpc.VoidDecoder()).
 		WithAddedHeader("X-Custom", "v1").
 		WithAddedQuery("foo", "bar").
 		WithBasicAuth("user", "pass")
@@ -268,7 +268,7 @@ func TestOverrides_WithHeader(t *testing.T) {
 	})
 
 	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "Test", "/test").
-		SetDecoder(httpc.VoidDecoder()).
+		WithDecoder(httpc.VoidDecoder()).
 		WithHeader("X-Single", "only-value")
 
 	client := &httpTestClient{server: server}
@@ -283,7 +283,7 @@ func TestOverrides_WithQuery(t *testing.T) {
 	})
 
 	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "Test", "/test").
-		SetDecoder(httpc.VoidDecoder()).
+		WithDecoder(httpc.VoidDecoder()).
 		WithQuery("key", "final")
 
 	client := &httpTestClient{server: server}
@@ -299,7 +299,7 @@ func TestOverrides_WithHeaderClearsAdded(t *testing.T) {
 	})
 
 	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "Test", "/test").
-		SetDecoder(httpc.VoidDecoder()).
+		WithDecoder(httpc.VoidDecoder()).
 		WithAddedHeader("X-Key", "1").
 		WithHeader("X-Key", "2")
 
@@ -315,7 +315,7 @@ func TestOverrides_WithQueryClearsAdded(t *testing.T) {
 	})
 
 	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "Test", "/test").
-		SetDecoder(httpc.VoidDecoder()).
+		WithDecoder(httpc.VoidDecoder()).
 		WithAddedQuery("q", "first").
 		WithQuery("q", "final")
 
@@ -332,7 +332,7 @@ func TestOverrides_Merge_WithHeaderClearsAdded(t *testing.T) {
 	})
 
 	base := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "Test", "/test").
-		SetDecoder(httpc.VoidDecoder()).
+		WithDecoder(httpc.VoidDecoder()).
 		WithAddedHeader("X-Key", "original")
 
 	overrides := httpc.Overrides{}.WithHeader("X-Key", "replaced")

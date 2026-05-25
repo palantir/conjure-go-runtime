@@ -67,20 +67,20 @@ type GetItemResponse struct {
 // matching the Conjure definition. These are safe to share across goroutines.
 var (
 	createItemEndpoint = httpc.NewPOST[CreateItemRequest, CreateItemResponse]("CreateItem", "/api/v1/items").
-				SetEncoder(httpc.JSONEncoder[CreateItemRequest]()).
-				SetDecoder(httpc.JSONDecoder[CreateItemResponse]()).
-				SetAccept("application/json")
+				WithEncoder(httpc.JSONEncoder[CreateItemRequest]()).
+				WithDecoder(httpc.JSONDecoder[CreateItemResponse]()).
+				WithAccept("application/json")
 
 	getItemEndpoint = httpc.NewGET[GetItemResponse]("GetItem", "/api/v1/items/{itemId}").
-			SetDecoder(httpc.JSONDecoder[GetItemResponse]()).
-			SetAccept("application/json")
+			WithDecoder(httpc.JSONDecoder[GetItemResponse]()).
+			WithAccept("application/json")
 
 	deleteItemEndpoint = httpc.NewDELETE[struct{}]("DeleteItem", "/api/v1/items/{itemId}").
-				SetDecoder(httpc.VoidDecoder())
+				WithDecoder(httpc.VoidDecoder())
 
 	downloadItemEndpoint = httpc.NewGET[io.ReadCloser]("DownloadItem", "/api/v1/items/{itemId}/download").
-				SetDecoder(httpc.BinaryDecoder()).
-				SetAccept("application/octet-stream")
+				WithDecoder(httpc.BinaryDecoder()).
+				WithAccept("application/octet-stream")
 )
 
 // ItemServiceClient is the public interface for the item service.
@@ -268,8 +268,8 @@ func TestExampleService_PathParamEscaping(t *testing.T) {
 func TestExampleService_MultiplePathParams(t *testing.T) {
 	// A contrived endpoint with two path params to test named replacement.
 	ep := httpc.NewGET[GetItemResponse]("GetOrgItem", "/orgs/{orgId}/items/{itemId}").
-		SetDecoder(httpc.JSONDecoder[GetItemResponse]()).
-		SetAccept("application/json")
+		WithDecoder(httpc.JSONDecoder[GetItemResponse]()).
+		WithAccept("application/json")
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "/orgs/acme/items/widget-1", r.URL.Path)
@@ -291,8 +291,8 @@ func TestExampleService_MultiplePathParams(t *testing.T) {
 // slashes in the value while still escaping individual segments.
 func TestExampleService_GreedyPathParam(t *testing.T) {
 	ep := httpc.NewGET[GetItemResponse]("GetFile", "/files/{filePath*}").
-		SetDecoder(httpc.JSONDecoder[GetItemResponse]()).
-		SetAccept("application/json")
+		WithDecoder(httpc.JSONDecoder[GetItemResponse]()).
+		WithAccept("application/json")
 
 	t.Run("simple nested path", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -328,8 +328,8 @@ func TestExampleService_GreedyPathParam(t *testing.T) {
 
 	t.Run("greedy param with prefix", func(t *testing.T) {
 		ep2 := httpc.NewGET[GetItemResponse]("GetRepoFile", "/repos/{repoId}/files/{filePath*}").
-			SetDecoder(httpc.JSONDecoder[GetItemResponse]()).
-			SetAccept("application/json")
+			WithDecoder(httpc.JSONDecoder[GetItemResponse]()).
+			WithAccept("application/json")
 
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			assert.Equal(t, "/repos/my-repo/files/src/main/app.go", r.URL.Path)

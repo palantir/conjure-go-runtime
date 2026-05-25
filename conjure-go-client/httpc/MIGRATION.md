@@ -93,13 +93,13 @@ resp, err := client.Do(ctx,
 ```go
 // Package-level endpoint definition (once per RPC).
 var getItem = httpc.NewGET[GetItemResp]("GetItem", "/api/v1/items/{itemId}").
-    SetDecoder(httpc.JSONDecoder[GetItemResp]()).
-    SetAccept("application/json")
+    WithDecoder(httpc.JSONDecoder[GetItemResp]()).
+    WithAccept("application/json")
 
 var createItem = httpc.NewPOST[CreateReq, CreateResp]("CreateItem", "/api/v1/items").
-    SetEncoder(httpc.JSONEncoder[CreateReq]()).
-    SetDecoder(httpc.JSONDecoder[CreateResp]()).
-    SetAccept("application/json")
+    WithEncoder(httpc.JSONEncoder[CreateReq]()).
+    WithDecoder(httpc.JSONDecoder[CreateResp]()).
+    WithAccept("application/json")
 
 // At call site:
 resp, _, err := getItem.WithPathParam("itemId", itemId).

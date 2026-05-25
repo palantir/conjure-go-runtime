@@ -54,7 +54,7 @@ func TestMiddlewareChain_Order(t *testing.T) {
 
 	// Each WithMiddleware wraps the previous, so mw3 is outermost.
 	ep := httpc.NewGET[struct{}]("Order", "/test").
-		SetDecoder(httpc.VoidDecoder()).
+		WithDecoder(httpc.VoidDecoder()).
 		WithMiddleware(mw1).
 		WithMiddleware(mw2).
 		WithMiddleware(mw3)
@@ -84,7 +84,7 @@ func TestMiddlewareChain_NilSkipped(t *testing.T) {
 
 	// Mix nil and non-nil middleware.
 	ep := httpc.NewGET[struct{}]("NilSkip", "/test").
-		SetDecoder(httpc.VoidDecoder()).
+		WithDecoder(httpc.VoidDecoder()).
 		WithMiddleware(nil).
 		WithMiddleware(mw).
 		WithMiddleware(nil)
@@ -105,8 +105,8 @@ func TestMiddlewareChain_EmptyPassthrough(t *testing.T) {
 
 	// No middleware at all.
 	ep := httpc.NewGET[testPayload]("Empty", "/test").
-		SetDecoder(httpc.JSONDecoder[testPayload]()).
-		SetAccept("application/json")
+		WithDecoder(httpc.JSONDecoder[testPayload]()).
+		WithAccept("application/json")
 
 	client := &httpTestClient{server: server}
 	result, _, err := ep.Execute(t.Context(), client)
@@ -141,8 +141,8 @@ func TestMiddlewareChain_BuiltClient(t *testing.T) {
 	require.NoError(t, err)
 
 	ep := httpc.NewGET[testPayload]("ChainTest", "/test").
-		SetDecoder(httpc.JSONDecoder[testPayload]()).
-		SetAccept("application/json")
+		WithDecoder(httpc.JSONDecoder[testPayload]()).
+		WithAccept("application/json")
 
 	result, _, err := ep.Execute(t.Context(), client)
 	require.NoError(t, err)
