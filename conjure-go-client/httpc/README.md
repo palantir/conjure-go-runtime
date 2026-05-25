@@ -385,6 +385,27 @@ var rawEndpoint = httpc.NewGET[*http.Response]("Raw", "/api/raw").
 overrides := httpc.Overrides{}.WithErrorDecoder(httpc.NoErrorDecoder())
 ```
 
+## Auth precedence
+
+Multiple layers can set the `Authorization` header. From highest to lowest
+priority on each request:
+
+1. **`Overrides.WithBasicAuth(user, pw)`** -- per-call basic auth from the
+   service-client struct's `Overrides`. Applied by `Endpoint.Execute` after
+   all `WithHeader` values are written, so it overrides any explicit
+   `Authorization` header.
+2. **`Endpoint.WithBasicAuth(user, pw)`** -- static basic auth baked into the
+   endpoint descriptor. Same mechanism as (1); merged via `WithOverrides`
+   semantics (Overrides wins when both are set).
+3. **`Overrides.WithHeader("Authorization", ...)`** -- explicit caller header.
+   Wins over `Endpoint.WithHeader` for the same key.
+4. **`Endpoint.WithHeader("Authorization", ...)`** -- explicit static header.
+5. **`Builder.SetBasicAuth` / `SetAuthToken` / `SetAuthTokenProvider` /
+   `SetBasicAuthOptionalProvider` / `Set*Refreshable`** -- client-level
+   middleware. Sets `Authorization` only when the header is still empty after
+   layers (1)-(4), so it's the fallback for endpoints/calls that didn't set
+   their own.
+
 ## Tracing
 
 Tracing is enabled by default using `witchcraft-go-tracing`:

@@ -337,8 +337,15 @@ func (b *Builder) SetTimeoutRefreshable(r refreshable.Refreshable[time.Duration]
 }
 
 // SetMaxAttempts sets total attempts (initial + retries). nil = default
-// (2 per base URL); pointer to 0 = unlimited; n > 0 = exactly n.
+// (2 per base URL); pointer to 0 = unlimited; n > 0 = exactly n. Negative
+// values defer an error to Build.
 func (b *Builder) SetMaxAttempts(p *int) *Builder {
+	if p != nil && *p < 0 {
+		b.errs = append(b.errs, werror.ErrorWithContextParams(context.Background(),
+			"SetMaxAttempts: value must be nil, 0 (unlimited), or positive",
+			werror.SafeParam("value", *p)))
+		return b
+	}
 	b.maxAttempts = refreshable.New(p)
 	return b
 }

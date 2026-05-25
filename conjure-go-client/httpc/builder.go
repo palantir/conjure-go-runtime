@@ -307,6 +307,11 @@ func (b *Builder) ApplyServicesConfigRefreshable(ctx context.Context, services r
 // ApplyConfigRefreshable wires up refreshable overlays for each field the
 // config sets; unset fields fall back to the builder's value at call time.
 // Validation errors are deferred until Build.
+//
+// Caveat: subsequent calls to static SetAuthToken / SetBasicAuth (and other
+// static SetFoo setters) replace the refreshable wiring for that field. To
+// avoid losing dynamic updates, call refreshable-aware setters first or set
+// final values on the builder before applying refreshable config.
 func (b *Builder) ApplyConfigRefreshable(ctx context.Context, config refreshable.Refreshable[ClientConfig]) *Builder {
 	validParams, err := refreshable.MapWithErrorAuto(ctx, config, func(_ context.Context, config ClientConfig) (validatedClientParams, error) {
 		return newValidatedClientParams(config)
