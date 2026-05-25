@@ -21,7 +21,6 @@ import (
 	"time"
 
 	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/internal"
-	"github.com/palantir/pkg/bytesbuffers"
 	"github.com/palantir/pkg/refreshable/v2"
 	"github.com/palantir/pkg/retry"
 	werror "github.com/palantir/witchcraft-go-error"
@@ -53,13 +52,11 @@ type fluentClient struct {
 	serviceName    refreshable.Refreshable[string]
 	httpClient     refreshable.Refreshable[*http.Client]
 	middlewares    []Middleware
-	errorDecoder   ErrorDecoder
 	recoveryMW     Middleware
 	uriScorer      internal.URIScoringMiddleware
 	maxAttempts    refreshable.Refreshable[*int]
 	initialBackoff refreshable.Refreshable[time.Duration]
 	maxBackoff     refreshable.Refreshable[time.Duration]
-	bufferPool     bytesbuffers.Pool
 }
 
 // configurableClient retains the builder so ConfigurableClient.Builder() can return a clone.
@@ -70,20 +67,6 @@ type configurableClient[B ServiceBuilder[B]] struct {
 
 func (c *configurableClient[B]) Builder() B {
 	return c.builder.Clone()
-}
-
-func (c *fluentClient) getBufferPool() bytesbuffers.Pool {
-	return c.bufferPool
-}
-
-// errorDecoderProvider lets Endpoint.Execute extract the client-level decoder
-// before wrapping the client in per-endpoint middleware.
-type errorDecoderProvider interface {
-	getErrorDecoder() ErrorDecoder
-}
-
-func (c *fluentClient) getErrorDecoder() ErrorDecoder {
-	return c.errorDecoder
 }
 
 func (c *fluentClient) Do(req *http.Request) (*http.Response, error) {

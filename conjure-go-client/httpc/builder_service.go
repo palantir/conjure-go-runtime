@@ -21,7 +21,6 @@ import (
 	"time"
 
 	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/internal"
-	"github.com/palantir/pkg/bytesbuffers"
 	"github.com/palantir/pkg/refreshable/v2"
 	werror "github.com/palantir/witchcraft-go-error"
 )
@@ -35,8 +34,8 @@ import (
 // Refreshable counterparts exist only for settings surfaced through
 // [ClientConfig] (and therefore tunable from external configuration). The
 // no-argument Disable* setters (DisableTracing, DisableTraceHeaderPropagation,
-// DisablePanicRecovery, DisableRestErrors, DisableClientTraceMetrics) are
-// code-API-only and have no refreshable variant by design.
+// DisablePanicRecovery, DisableClientTraceMetrics) are code-API-only and have
+// no refreshable variant by design.
 type ServiceBuilder[B ServiceBuilder[B]] interface {
 	Clone() B
 	Apply(...Param[B]) B
@@ -108,17 +107,11 @@ type ServiceBuilder[B ServiceBuilder[B]] interface {
 	// DisableTraceHeaderPropagation disables outbound B3 trace headers.
 	DisableTraceHeaderPropagation() B
 
-	// SetErrorDecoder replaces the client-level error decoder.
-	SetErrorDecoder(ErrorDecoder) B
-	// DisableRestErrors disables error decoding; all responses return (resp, nil).
-	DisableRestErrors() B
 	// DisablePanicRecovery disables the middleware-chain panic recovery layer.
 	DisablePanicRecovery() B
 
 	// SetTransport injects a pre-built http.RoundTripper, bypassing dialer/TLS/transport builders.
 	SetTransport(http.RoundTripper) B
-	// SetBytesBufferPool supplies a buffer pool for codecs to reuse.
-	SetBytesBufferPool(bytesbuffers.Pool) B
 }
 
 // SetServiceName sets the logical service name used in metrics tags and log fields.
@@ -420,19 +413,6 @@ func (b *Builder) DisableClientTraceMetrics() *Builder {
 	return b
 }
 
-// SetErrorDecoder replaces the client-level error decoder.
-func (b *Builder) SetErrorDecoder(d ErrorDecoder) *Builder {
-	b.errorDecoder = d
-	return b
-}
-
-// DisableRestErrors disables error decoding; the caller receives (resp, nil)
-// for every response and is responsible for inspecting StatusCode.
-func (b *Builder) DisableRestErrors() *Builder {
-	b.errorDecoder = nil
-	return b
-}
-
 // DisablePanicRecovery removes the outer panic-recovery middleware layer.
 func (b *Builder) DisablePanicRecovery() *Builder {
 	b.disableRecovery = true
@@ -443,12 +423,6 @@ func (b *Builder) DisablePanicRecovery() *Builder {
 // TLS, and transport builders. The middleware stack still wraps it.
 func (b *Builder) SetTransport(rt http.RoundTripper) *Builder {
 	b.transport = rt
-	return b
-}
-
-// SetBytesBufferPool supplies a buffer pool used by codecs (notably JSONEncoder).
-func (b *Builder) SetBytesBufferPool(pool bytesbuffers.Pool) *Builder {
-	b.bytesBufferPool = pool
 	return b
 }
 
@@ -488,13 +462,11 @@ func (b *Builder) Build(ctx context.Context) (ConfigurableClient[*Builder], erro
 			serviceName:    b.serviceName,
 			httpClient:     httpClient,
 			middlewares:    b.middlewares,
-			errorDecoder:   b.errorDecoder,
 			recoveryMW:     recovery,
 			uriScorer:      uriScorer,
 			maxAttempts:    b.maxAttempts,
 			initialBackoff: b.initialBackoff,
 			maxBackoff:     b.maxBackoff,
-			bufferPool:     b.bytesBufferPool,
 		},
 		builder: b.Clone(),
 	}, nil

@@ -10,7 +10,7 @@
 // distributed under the License is distributed on an "AS IS" BASIS,
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
-// limitations under the License.
+// limitations under the License
 
 package httpc_test
 
@@ -49,7 +49,6 @@ func TestApplyConfig_StaticRoundTrip(t *testing.T) {
 
 	client, err := httpc.NewBuilder().
 		ApplyConfig(context.Background(), cfg).
-		DisableRestErrors().
 		Build(context.Background())
 	require.NoError(t, err)
 
@@ -72,7 +71,6 @@ func TestApplyConfig_MinimalConfig(t *testing.T) {
 
 	client, err := httpc.NewBuilder().
 		ApplyConfig(context.Background(), cfg).
-		DisableRestErrors().
 		Build(context.Background())
 	require.NoError(t, err)
 
@@ -101,7 +99,6 @@ func TestApplyConfig_AuthPrecedence_APITokenOverBasicAuth(t *testing.T) {
 
 	client, err := httpc.NewBuilder().
 		ApplyConfig(context.Background(), cfg).
-		DisableRestErrors().
 		Build(context.Background())
 	require.NoError(t, err)
 
@@ -135,7 +132,6 @@ func TestApplyConfig_AuthPrecedence_APITokenFileOverBasicAuth(t *testing.T) {
 
 	client, err := httpc.NewBuilder().
 		ApplyConfig(context.Background(), cfg).
-		DisableRestErrors().
 		Build(context.Background())
 	require.NoError(t, err)
 
@@ -164,7 +160,6 @@ func TestApplyConfig_BasicAuth(t *testing.T) {
 
 	client, err := httpc.NewBuilder().
 		ApplyConfig(context.Background(), cfg).
-		DisableRestErrors().
 		Build(context.Background())
 	require.NoError(t, err)
 
@@ -295,7 +290,6 @@ func TestApplyConfig_EmptyURIsFiltered(t *testing.T) {
 
 	client, err := httpc.NewBuilder().
 		ApplyConfig(context.Background(), cfg).
-		DisableRestErrors().
 		Build(context.Background())
 	require.NoError(t, err)
 
@@ -315,7 +309,6 @@ func TestApplyConfig_TimeoutFromConfig(t *testing.T) {
 	// Build should succeed. The timeout should be max(read, write) = 20s.
 	_, err := httpc.NewBuilder().
 		ApplyConfig(context.Background(), cfg).
-		DisableRestErrors().
 		Build(context.Background())
 	require.NoError(t, err)
 }
@@ -335,7 +328,6 @@ func TestApplyConfig_MetricsDisabled(t *testing.T) {
 
 	client, err := httpc.NewBuilder().
 		ApplyConfig(context.Background(), cfg).
-		DisableRestErrors().
 		Build(context.Background())
 	require.NoError(t, err)
 
@@ -413,7 +405,6 @@ func TestApplyConfigRefreshable_BasicRoundTrip(t *testing.T) {
 
 	client, err := httpc.NewBuilder().
 		ApplyConfigRefreshable(context.Background(), cfg).
-		DisableRestErrors().
 		Build(context.Background())
 	require.NoError(t, err)
 
@@ -438,7 +429,6 @@ func TestApplyConfigRefreshable_AuthUpdate(t *testing.T) {
 
 	client, err := httpc.NewBuilder().
 		ApplyConfigRefreshable(context.Background(), cfg).
-		DisableRestErrors().
 		Build(context.Background())
 	require.NoError(t, err)
 
@@ -488,7 +478,6 @@ func TestApplyConfigRefreshable_InvalidRefreshRetainsPrevious(t *testing.T) {
 
 	client, err := httpc.NewBuilder().
 		ApplyConfigRefreshable(context.Background(), cfg).
-		DisableRestErrors().
 		Build(context.Background())
 	require.NoError(t, err)
 
@@ -523,7 +512,6 @@ func TestApplyConfig_ComposesWithExistingSettings(t *testing.T) {
 		SetUserAgent("my-agent").
 		SetTimeout(5 * time.Second).
 		ApplyConfig(context.Background(), cfg).
-		DisableRestErrors().
 		Build(context.Background())
 	require.NoError(t, err)
 
@@ -555,7 +543,6 @@ func TestApplyConfigRefreshable_ComposesWithExistingSettings(t *testing.T) {
 		SetUserAgent("my-agent").
 		SetTimeout(5*time.Second).
 		ApplyConfigRefreshable(context.Background(), cfg).
-		DisableRestErrors().
 		Build(context.Background())
 	require.NoError(t, err)
 
@@ -586,7 +573,6 @@ func TestApplyConfigRefreshable_AuthFallsBackToExistingSetting(t *testing.T) {
 		SetAuthToken("fallback-token").
 		SetTransport(transport).
 		ApplyConfigRefreshable(context.Background(), cfg).
-		DisableRestErrors().
 		Build(context.Background())
 	require.NoError(t, err)
 
@@ -621,7 +607,6 @@ func TestApplyConfig_ProxyHTTPS(t *testing.T) {
 	// Should succeed — https is a valid proxy scheme.
 	_, err := httpc.NewBuilder().
 		ApplyConfig(context.Background(), cfg).
-		DisableRestErrors().
 		Build(context.Background())
 	require.NoError(t, err)
 }
@@ -635,7 +620,6 @@ func TestApplyConfig_ProxySocks5(t *testing.T) {
 	// Should succeed — socks5 is a valid proxy scheme.
 	_, err := httpc.NewBuilder().
 		ApplyConfig(context.Background(), cfg).
-		DisableRestErrors().
 		Build(context.Background())
 	require.NoError(t, err)
 }
@@ -684,7 +668,6 @@ func TestApplyConfigRefreshable_URIPropagation(t *testing.T) {
 
 	client, err := httpc.NewBuilder().
 		ApplyConfigRefreshable(context.Background(), cfg).
-		DisableRestErrors().
 		Build(context.Background())
 	require.NoError(t, err)
 

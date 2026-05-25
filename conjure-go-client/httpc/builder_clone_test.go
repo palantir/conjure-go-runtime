@@ -62,11 +62,9 @@ func nonZeroBuilder() *Builder {
 		uriScorerBuilder: func([]string) internal.URIScoringMiddleware { return nil },
 		allowEmptyURIs:   true,
 
-		errorDecoder:    defaultRestErrorDecoder{},
-		bytesBufferPool: BufferPoolSmall,
-		maxAttempts:     refreshable.New(&one),
-		initialBackoff:  refreshable.New(time.Second),
-		maxBackoff:      refreshable.New(2 * time.Second),
+		maxAttempts:    refreshable.New(&one),
+		initialBackoff: refreshable.New(time.Second),
+		maxBackoff:     refreshable.New(2 * time.Second),
 
 		transport:        http.DefaultTransport,
 		caByteSlices:     [][]byte{{1, 2, 3}},

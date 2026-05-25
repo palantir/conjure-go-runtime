@@ -79,11 +79,6 @@ func (f BodyDecoderFunc[Resp]) Decode(ctx context.Context, resp *http.Response) 
 	return f.decodeFn(ctx, resp)
 }
 
-// poolProvider is implemented by clients that expose a buffer pool to encoders.
-type poolProvider interface {
-	getBufferPool() bytesbuffers.Pool
-}
-
 type bufferPoolKey struct{}
 
 func bufferPoolFromContext(ctx context.Context) bytesbuffers.Pool {
@@ -91,13 +86,8 @@ func bufferPoolFromContext(ctx context.Context) bytesbuffers.Pool {
 	return pool
 }
 
-func contextWithClientBufferPool(ctx context.Context, client Client) context.Context {
-	if pp, ok := client.(poolProvider); ok {
-		if pool := pp.getBufferPool(); pool != nil {
-			ctx = context.WithValue(ctx, bufferPoolKey{}, pool)
-		}
-	}
-	return ctx
+func contextWithBufferPool(ctx context.Context, pool bytesbuffers.Pool) context.Context {
+	return context.WithValue(ctx, bufferPoolKey{}, pool)
 }
 
 // JSONEncoder returns a BodyEncoder that serializes the request body as JSON

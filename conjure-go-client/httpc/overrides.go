@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/palantir/conjure-go-runtime/v3/conjure-go-contract/errors"
+	"github.com/palantir/pkg/bytesbuffers"
 )
 
 type basicAuthOverride struct {
@@ -55,6 +56,7 @@ type Overrides struct {
 	errorDecoder ErrorDecoder
 	basicAuth    *basicAuthOverride
 	middlewares  []Middleware
+	bufferPool   bytesbuffers.Pool
 }
 
 // Clone returns a deep copy of the Overrides value.
@@ -209,6 +211,15 @@ func (c Overrides) WithMiddleware(m Middleware) Overrides {
 	return c
 }
 
+// WithBufferPool sets a [bytesbuffers.Pool] that encoders may use to avoid
+// per-request allocations. Overrides the pool set on the [Endpoint], if any.
+// Pass nil to clear.
+func (c Overrides) WithBufferPool(p bytesbuffers.Pool) Overrides {
+	c = c.Clone()
+	c.bufferPool = p
+	return c
+}
+
 // merge combines the receiver with o: set headers/query from o replace and
 // clear matching add entries; add headers/query accumulate; timeout, error
 // decoder, and basic auth are last-wins (o wins if set); middlewares append.
@@ -259,6 +270,9 @@ func (c Overrides) merge(o Overrides) Overrides {
 	}
 	if o.basicAuth != nil {
 		out.basicAuth = o.basicAuth
+	}
+	if o.bufferPool != nil {
+		out.bufferPool = o.bufferPool
 	}
 	out.middlewares = append(out.middlewares, o.middlewares...)
 	return out

@@ -10,7 +10,7 @@
 // distributed under the License is distributed on an "AS IS" BASIS,
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
-// limitations under the License.
+// limitations under the License
 
 package httpc_test
 
@@ -76,7 +76,6 @@ func TestMiddlewareStackOrder(t *testing.T) {
 		AddInnerMiddleware(innerMW).
 		DisableTracing().
 		DisablePanicRecovery().
-		DisableRestErrors().
 		Build(t.Context())
 	require.NoError(t, err)
 
@@ -126,7 +125,6 @@ func TestMiddlewareStackOrder_MultipleOuterAndInner(t *testing.T) {
 		AddInnerMiddleware(makeMW("inner2")).
 		DisableTracing().
 		DisablePanicRecovery().
-		DisableRestErrors().
 		Build(t.Context())
 	require.NoError(t, err)
 
@@ -233,7 +231,6 @@ func TestRetry_ExhaustsMaxAttempts(t *testing.T) {
 		SetBaseURLs(server.URL).
 		SetServiceName("retry-test").
 		SetMaxAttempts(&maxAttempts).
-		DisableRestErrors().
 		Build(t.Context())
 	require.NoError(t, err)
 
@@ -275,7 +272,6 @@ func TestRetry_SucceedsOnSecondAttempt(t *testing.T) {
 		SetBaseURLs(server.URL).
 		SetServiceName("retry-success-test").
 		SetMaxAttempts(&maxAttempts).
-		DisableRestErrors().
 		Build(t.Context())
 	require.NoError(t, err)
 
@@ -312,7 +308,6 @@ func TestRetry_MultipleURIs(t *testing.T) {
 		SetBaseURLs(server1.URL, server2.URL).
 		SetServiceName("multi-uri-retry").
 		SetURIScoringStrategy(httpc.URIScoringRandom).
-		DisableRestErrors().
 		Build(t.Context())
 	require.NoError(t, err)
 
@@ -351,7 +346,6 @@ func TestRetry_NonRetryableBody(t *testing.T) {
 		SetBaseURLs(server.URL).
 		SetServiceName("no-retry-test").
 		SetMaxAttempts(&maxAttempts).
-		DisableRestErrors().
 		Build(t.Context())
 	require.NoError(t, err)
 
@@ -417,7 +411,6 @@ func TestRetry_GZIPCompressedBody(t *testing.T) {
 		SetBaseURLs(server.URL).
 		SetServiceName("gzip-retry-test").
 		SetMaxAttempts(&maxAttempts).
-		DisableRestErrors().
 		Build(t.Context())
 	require.NoError(t, err)
 
@@ -463,7 +456,6 @@ func TestRetry_SnappyCompressedBody(t *testing.T) {
 		SetBaseURLs(server.URL).
 		SetServiceName("snappy-retry-test").
 		SetMaxAttempts(&maxAttempts).
-		DisableRestErrors().
 		Build(t.Context())
 	require.NoError(t, err)
 
@@ -507,7 +499,6 @@ func TestRetry_ZLIBCompressedBody(t *testing.T) {
 		SetBaseURLs(server.URL).
 		SetServiceName("zlib-retry-test").
 		SetMaxAttempts(&maxAttempts).
-		DisableRestErrors().
 		Build(t.Context())
 	require.NoError(t, err)
 
@@ -749,7 +740,6 @@ func TestRetry_GZIPCompressedBody_AllFail(t *testing.T) {
 		SetBaseURLs(server.URL).
 		SetServiceName("gzip-retry-fail").
 		SetMaxAttempts(&maxAttempts).
-		DisableRestErrors().
 		Build(t.Context())
 	require.NoError(t, err)
 

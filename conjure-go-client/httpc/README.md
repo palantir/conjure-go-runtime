@@ -368,12 +368,22 @@ if code, ok := httpc.StatusCodeFromError(err); ok { ... }
 if loc, ok := httpc.LocationFromError(err); ok { ... }
 ```
 
-Custom error decoders can be set at the builder level (`SetErrorDecoder`) or
-per-request (`WithErrorDecoder` on `Endpoint` or `Overrides`). Per-request error
-decoders take priority over the client-level decoder; if the per-request decoder
-does not handle a response, the client-level decoder is consulted as a fallback.
+Custom error decoders are set on `Endpoint` (static default for the RPC) or
+`Overrides` (per-call), both via `WithErrorDecoder`. The Overrides decoder
+takes priority; if neither is set, `Endpoint.Execute` falls back to
+`DefaultErrorDecoder()`.
 
-Use `DisableRestErrors()` on the builder to disable the default error decoder entirely.
+To opt out of error decoding for a specific endpoint or call, pass
+`NoErrorDecoder()`:
+
+```go
+// Per-endpoint static opt-out:
+var rawEndpoint = httpc.NewGET[*http.Response]("Raw", "/api/raw").
+    WithErrorDecoder(httpc.NoErrorDecoder())
+
+// Per-call opt-out via service-client Overrides:
+overrides := httpc.Overrides{}.WithErrorDecoder(httpc.NoErrorDecoder())
+```
 
 ## Tracing
 
@@ -482,7 +492,6 @@ copy for each goroutine before mutating.
 # TODOs
 
 - Advertise deadline like dialogue
-- Make buffer pool stored on endpoint not client
 - Built-in multipart and form-urlencoded encoders
 - Sticky Sessions
 - `Node-Selection-Strategy` response header for Server-Driven Node-Selection Switching

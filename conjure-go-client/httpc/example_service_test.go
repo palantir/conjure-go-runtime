@@ -10,7 +10,7 @@
 // distributed under the License is distributed on an "AS IS" BASIS,
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
-// limitations under the License.
+// limitations under the License
 
 package httpc_test
 
@@ -23,7 +23,7 @@ package httpc_test
 //  3. Each method fills in path params via WithPathParam, merges client-level
 //     overrides via WithOverrides, then calls Execute.
 //  4. Callers use the With* methods on Overrides to derive customized clients
-//     without mutating the original.
+//     without mutating the original
 
 import (
 	"context"
@@ -650,7 +650,6 @@ func TestExample_SetTransport_FullClient(t *testing.T) {
 	client, err := httpc.NewBuilder().
 		SetTransport(custom).
 		SetBaseURLs(server.URL).
-		DisableRestErrors().
 		Build(context.Background())
 	require.NoError(t, err)
 

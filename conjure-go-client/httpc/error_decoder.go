@@ -78,8 +78,9 @@ func unwrapURLError(ctx context.Context, respErr error) error {
 // DefaultErrorDecoder handles responses with status >= 307. For JSON responses
 // it tries to unmarshal a Conjure error; otherwise it includes the raw body as
 // an unsafe parameter. 3xx responses also carry the Location header. Use
-// [StatusCodeFromError] to read back the status; disable via
-// [Builder.DisableRestErrors].
+// [StatusCodeFromError] to read back the status. This is the fallback used by
+// [Endpoint.Execute] when neither the endpoint nor [Overrides] provides one;
+// to opt out, set [NoErrorDecoder] on the endpoint or overrides.
 func DefaultErrorDecoder() ErrorDecoder {
 	return defaultRestErrorDecoder{}
 }
@@ -88,6 +89,20 @@ func DefaultErrorDecoder() ErrorDecoder {
 // ConjureErrorDecoder to unmarshal typed errors.
 func DefaultErrorDecoderWithConjure(ced errors.ConjureErrorDecoder) ErrorDecoder {
 	return defaultRestErrorDecoder{conjureErrorDecoder: ced}
+}
+
+// NoErrorDecoder returns an [ErrorDecoder] that handles no responses. Set it
+// on an [Endpoint] or [Overrides] to bypass [DefaultErrorDecoder] and have
+// [Endpoint.Execute] return the raw response for every status code.
+func NoErrorDecoder() ErrorDecoder {
+	return noErrorDecoder{}
+}
+
+type noErrorDecoder struct{}
+
+func (noErrorDecoder) Handles(*http.Response) bool { return false }
+func (noErrorDecoder) DecodeError(*http.Response) error {
+	return nil // unreachable; Handles always returns false.
 }
 
 type defaultRestErrorDecoder struct {

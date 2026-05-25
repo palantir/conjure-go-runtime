@@ -10,7 +10,7 @@
 // distributed under the License is distributed on an "AS IS" BASIS,
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
-// limitations under the License.
+// limitations under the License
 
 package httpc_test
 
@@ -44,7 +44,6 @@ func TestBuilder_BasicBuild(t *testing.T) {
 	client, err := httpc.NewBuilder().
 		SetServiceName("test-service").
 		SetBaseURLs(server.URL).
-		DisableRestErrors().
 		Build(context.Background())
 	require.NoError(t, err)
 
@@ -70,9 +69,9 @@ func TestBuilder_Clone(t *testing.T) {
 	// Both should build independently.
 	b1.SetAllowCreateWithEmptyURIs(true)
 	b2.SetAllowCreateWithEmptyURIs(true)
-	_, err := b1.DisableRestErrors().Build(context.Background())
+	_, err := b1.Build(context.Background())
 	require.NoError(t, err)
-	_, err = b2.DisableRestErrors().Build(context.Background())
+	_, err = b2.Build(context.Background())
 	require.NoError(t, err)
 }
 
@@ -83,8 +82,7 @@ func TestBuilder_Apply(t *testing.T) {
 
 	b := httpc.NewBuilder().
 		SetBaseURLs("http://localhost:1234").
-		Apply(setCustomTimeout).
-		DisableRestErrors()
+		Apply(setCustomTimeout)
 
 	_, err := b.Build(context.Background())
 	require.NoError(t, err)
@@ -100,7 +98,6 @@ func TestBuilder_ConfigurableClient(t *testing.T) {
 	client, err := httpc.NewBuilder().
 		SetServiceName("test-service").
 		SetBaseURLs(server.URL).
-		DisableRestErrors().
 		Build(context.Background())
 	require.NoError(t, err)
 
@@ -130,8 +127,7 @@ func TestBuilder_BuilderSnapshotsAtBuildTime(t *testing.T) {
 	b := httpc.NewBuilder().
 		SetServiceName("original").
 		SetBaseURLs("http://localhost:1234").
-		SetTimeout(5 * time.Second).
-		DisableRestErrors()
+		SetTimeout(5 * time.Second)
 
 	client, err := b.Build(context.Background())
 	require.NoError(t, err)
@@ -165,7 +161,6 @@ func TestBuilder_Middleware(t *testing.T) {
 		SetServiceName("mw-service").
 		SetBaseURLs(server.URL).
 		AddMiddleware(mw).
-		DisableRestErrors().
 		Build(context.Background())
 	require.NoError(t, err)
 
@@ -191,7 +186,6 @@ func TestBuilder_PostWithBody(t *testing.T) {
 	client, err := httpc.NewBuilder().
 		SetServiceName("post-service").
 		SetBaseURLs(server.URL).
-		DisableRestErrors().
 		Build(context.Background())
 	require.NoError(t, err)
 
@@ -217,7 +211,6 @@ func TestBuilder_AllowEmptyURIs(t *testing.T) {
 		SetServiceName("empty-ok").
 		SetBaseURLs().
 		SetAllowCreateWithEmptyURIs(true).
-		DisableRestErrors().
 		Build(context.Background())
 	require.NoError(t, err)
 }
@@ -232,12 +225,12 @@ func TestBuilder_ErrorDecoder(t *testing.T) {
 	client, err := httpc.NewBuilder().
 		SetServiceName("err-service").
 		SetBaseURLs(server.URL).
-		SetErrorDecoder(&builderTestErrorDecoder{}).
 		Build(context.Background())
 	require.NoError(t, err)
 
 	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "Fail", "/fail").
-		SetDecoder(httpc.VoidDecoder())
+		SetDecoder(httpc.VoidDecoder()).
+		WithErrorDecoder(&builderTestErrorDecoder{})
 
 	_, _, err = ep.Execute(context.Background(), client, struct{}{})
 	require.Error(t, err)
@@ -277,7 +270,6 @@ func TestBuilder_Headers(t *testing.T) {
 		SetBaseURLs(server.URL).
 		SetUserAgent("custom-agent").
 		AddHeader("X-Custom", "val1").
-		DisableRestErrors().
 		Build(context.Background())
 	require.NoError(t, err)
 
@@ -541,7 +533,6 @@ func TestRefreshable_URIPropagation(t *testing.T) {
 	uris := refreshable.New([]string{server1.URL})
 	client, err := httpc.NewBuilder().
 		SetBaseURLsRefreshable(uris).
-		DisableRestErrors().
 		Build(context.Background())
 	require.NoError(t, err)
 

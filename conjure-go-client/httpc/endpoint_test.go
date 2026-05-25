@@ -10,7 +10,7 @@
 // distributed under the License is distributed on an "AS IS" BASIS,
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
-// limitations under the License.
+// limitations under the License
 
 package httpc_test
 
@@ -147,7 +147,6 @@ func TestEndpointExecute_BasicAuthOverridesClientAuth(t *testing.T) {
 			return "", assert.AnError
 		}).
 		SetTransport(transport).
-		DisableRestErrors().
 		Build(context.Background())
 	require.NoError(t, err)
 
@@ -213,30 +212,43 @@ func TestEndpointExecute_ErrorDecoder(t *testing.T) {
 	assert.Contains(t, err.Error(), "test error: Forbidden")
 }
 
-func TestEndpointExecute_ErrorDecoderFallsBackToClientDecoder(t *testing.T) {
-	transport := &roundTripFunc{fn: func(req *http.Request) (*http.Response, error) {
-		return &http.Response{
-			StatusCode: http.StatusForbidden,
-			Status:     "403 Forbidden",
-			Header:     make(http.Header),
-			Body:       io.NopCloser(strings.NewReader("forbidden")),
-			Request:    req,
-		}, nil
-	}}
-	client, err := httpc.NewBuilder().
-		SetBaseURLs("https://example.com").
-		SetTransport(transport).
-		SetErrorDecoder(&testErrorDecoder{}).
-		Build(context.Background())
-	require.NoError(t, err)
+// TestEndpointExecute_ErrorDecoderFallsBackToDefault verifies that when
+// neither the endpoint nor an Overrides supplies an ErrorDecoder, Execute
+// falls back to DefaultErrorDecoder().
+func TestEndpointExecute_ErrorDecoderFallsBackToDefault(t *testing.T) {
+	server := newTestServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte("forbidden"))
+	})
+
+	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "Err", "/err").
+		SetDecoder(httpc.VoidDecoder())
+
+	client := &httpTestClient{server: server}
+	_, _, err := ep.Execute(context.Background(), client, struct{}{})
+	require.Error(t, err)
+	code, ok := httpc.StatusCodeFromError(err)
+	require.True(t, ok)
+	assert.Equal(t, http.StatusForbidden, code)
+}
+
+// TestEndpointExecute_NoErrorDecoderBypassesDefault verifies that explicitly
+// installing NoErrorDecoder() opts out of error decoding entirely.
+func TestEndpointExecute_NoErrorDecoderBypassesDefault(t *testing.T) {
+	server := newTestServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte("forbidden"))
+	})
 
 	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "Err", "/err").
 		SetDecoder(httpc.VoidDecoder()).
-		WithErrorDecoder(neverErrorDecoder{})
+		WithErrorDecoder(httpc.NoErrorDecoder())
 
-	_, _, err = ep.Execute(context.Background(), client, struct{}{})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "test error: Forbidden")
+	client := &httpTestClient{server: server}
+	_, httpResp, err := ep.Execute(context.Background(), client, struct{}{})
+	require.NoError(t, err)
+	require.NotNil(t, httpResp)
+	assert.Equal(t, http.StatusForbidden, httpResp.StatusCode)
 }
 
 type testErrorDecoder struct{}
@@ -259,14 +271,6 @@ func (e *testError) Error() string {
 	return "test error: " + http.StatusText(e.statusCode)
 }
 
-type neverErrorDecoder struct{}
-
-func (neverErrorDecoder) Handles(*http.Response) bool { return false }
-
-func (neverErrorDecoder) DecodeError(*http.Response) error {
-	return assert.AnError
-}
-
 type clientFunc func(*http.Request) (*http.Response, error)
 
 func (f clientFunc) Do(req *http.Request) (*http.Response, error) { return f(req) }
@@ -285,7 +289,6 @@ func TestClientDo_PreservesEscapedPathSegments(t *testing.T) {
 	client, err := httpc.NewBuilder().
 		SetBaseURLs("https://example.com/base%2Froot").
 		SetTransport(transport).
-		DisableRestErrors().
 		Build(context.Background())
 	require.NoError(t, err)
 
@@ -369,7 +372,6 @@ func TestEndpointExecute_ForUserAgentFromContext(t *testing.T) {
 	client, err := httpc.NewBuilder().
 		SetBaseURLs(server.URL).
 		SetServiceName("test-service").
-		DisableRestErrors().
 		Build(t.Context())
 	require.NoError(t, err)
 
@@ -390,7 +392,6 @@ func TestEndpointExecute_ForUserAgentDoesNotOverrideHeader(t *testing.T) {
 	client, err := httpc.NewBuilder().
 		SetBaseURLs(server.URL).
 		SetServiceName("test-service").
-		DisableRestErrors().
 		Build(t.Context())
 	require.NoError(t, err)
 
@@ -687,7 +688,7 @@ func TestEndpointExecute_BinaryEncoderOnce(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// Test buffer pool from client using the full builder path.
+// Test buffer pool from client using the full builder path
 
 func TestEndpointExecute_BufferPoolFromClient(t *testing.T) {
 	pool := newTrackingPool()
@@ -702,17 +703,16 @@ func TestEndpointExecute_BufferPoolFromClient(t *testing.T) {
 	client, err := httpc.NewBuilder().
 		SetBaseURLs(server.URL).
 		SetServiceName("pool-test").
-		SetBytesBufferPool(pool).
 		DisableTracing().
 		DisablePanicRecovery().
-		DisableRestErrors().
 		Build(t.Context())
 	require.NoError(t, err)
 
 	ep := httpc.NewPOST[testPayload, testPayload]("PoolTest", "/test").
 		SetEncoder(httpc.JSONEncoder[testPayload]()).
 		SetDecoder(httpc.JSONDecoder[testPayload]()).
-		SetAccept("application/json")
+		SetAccept("application/json").
+		WithBufferPool(pool)
 
 	result, _, err := ep.Execute(t.Context(), client, testPayload{Name: "pooled", Value: 7})
 	require.NoError(t, err)
@@ -791,17 +791,16 @@ func TestEndpointExecute_PoolWithCompression(t *testing.T) {
 	client, err := httpc.NewBuilder().
 		SetBaseURLs(server.URL).
 		SetServiceName("pool-zlib-test").
-		SetBytesBufferPool(pool).
 		DisableTracing().
 		DisablePanicRecovery().
-		DisableRestErrors().
 		Build(t.Context())
 	require.NoError(t, err)
 
 	ep := httpc.NewPOST[testPayload, testPayload]("PoolZlib", "/test").
 		SetEncoder(httpc.ZLIBEncoder(httpc.JSONEncoder[testPayload]())).
 		SetDecoder(httpc.JSONDecoder[testPayload]()).
-		SetAccept("application/json")
+		SetAccept("application/json").
+		WithBufferPool(pool)
 
 	result, _, err := ep.Execute(t.Context(), client, testPayload{Name: "pool-zlib", Value: 9})
 	require.NoError(t, err)
@@ -843,7 +842,7 @@ func TestEndpointExecute_PartialPathParams(t *testing.T) {
 	ep := httpc.NewGET[struct{}]("GetOrgItem", "/orgs/{orgId}/items/{itemId}").
 		SetDecoder(httpc.VoidDecoder()).
 		WithPathParam("orgId", "acme")
-	// itemId is still unfilled.
+	// itemId is still unfilled
 
 	client := &httpTestClient{server: newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		t.Fatal("handler should not be called")

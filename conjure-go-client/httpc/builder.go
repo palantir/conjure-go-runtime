@@ -23,7 +23,6 @@ import (
 	"time"
 
 	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/internal"
-	"github.com/palantir/pkg/bytesbuffers"
 	"github.com/palantir/pkg/metrics"
 	"github.com/palantir/pkg/refreshable/v2"
 	werror "github.com/palantir/witchcraft-go-error"
@@ -79,9 +78,7 @@ type Builder struct {
 	uriScorerBuilder func([]string) internal.URIScoringMiddleware
 	allowEmptyURIs   bool
 
-	errorDecoder    ErrorDecoder
-	bytesBufferPool bytesbuffers.Pool
-	maxAttempts     refreshable.Refreshable[*int]
+	maxAttempts    refreshable.Refreshable[*int]
 	initialBackoff  refreshable.Refreshable[time.Duration]
 	maxBackoff      refreshable.Refreshable[time.Duration]
 
@@ -130,7 +127,6 @@ func NewBuilder() *Builder {
 		}),
 		tlsFileParams:    refreshable.New(tlsFileParams{}),
 		disableMetrics:   refreshable.New(false),
-		errorDecoder:     defaultRestErrorDecoder{},
 		initialBackoff:   refreshable.New(defaultInitialBackoff),
 		maxBackoff:       refreshable.New(defaultMaxBackoff),
 		includeSystemCAs: true,
@@ -165,8 +161,6 @@ func (b *Builder) Clone() *Builder {
 		uris:                b.uris,
 		uriScorerBuilder:    b.uriScorerBuilder,
 		allowEmptyURIs:      b.allowEmptyURIs,
-		errorDecoder:        b.errorDecoder,
-		bytesBufferPool:     b.bytesBufferPool,
 		maxAttempts:         b.maxAttempts,
 		initialBackoff:      b.initialBackoff,
 		maxBackoff:          b.maxBackoff,

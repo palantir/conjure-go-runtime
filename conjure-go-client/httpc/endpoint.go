@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/internal"
+	"github.com/palantir/pkg/bytesbuffers"
 )
 
 // RequestOverrides is the per-request configuration shared by [Endpoint] and
@@ -68,6 +69,9 @@ type RequestOverrides[D any] interface {
 	WithBasicAuth(user, password string) D
 	// WithMiddleware appends a per-request middleware to the chain.
 	WithMiddleware(Middleware) D
+	// WithBufferPool sets a buffer pool that encoders may use to avoid
+	// per-request allocations. Pass nil to clear.
+	WithBufferPool(bytesbuffers.Pool) D
 }
 
 // Endpoint is a copy-on-write descriptor pairing an HTTP method and path with
@@ -276,6 +280,14 @@ func (e Endpoint[Req, Resp]) WithMiddleware(m Middleware) Endpoint[Req, Resp] {
 	return e
 }
 
+// WithBufferPool sets a buffer pool that encoders may use to avoid per-request
+// allocations. Conjure-generated code sets this from endpoint tags such as
+// request-buffer-medium. Pass nil to clear.
+func (e Endpoint[Req, Resp]) WithBufferPool(p bytesbuffers.Pool) Endpoint[Req, Resp] {
+	e.overrides = e.overrides.WithBufferPool(p)
+	return e
+}
+
 // WithOverrides merges o into the endpoint's per-request configuration: set
 // headers/query replace and clear matching adds; add headers/query accumulate;
 // timeout, error decoder, and basic auth are last-wins; middlewares append.
@@ -304,7 +316,9 @@ func (e Endpoint[Req, Resp]) Execute(ctx context.Context, client Client, body Re
 	if e.name != "" {
 		ctx = ContextWithRPCMethodName(ctx, e.name)
 	}
-	ctx = contextWithClientBufferPool(ctx, client)
+	if e.overrides.bufferPool != nil {
+		ctx = contextWithBufferPool(ctx, e.overrides.bufferPool)
+	}
 
 	// Request is path-only; Client prepends the base URI on each attempt.
 	req, err := http.NewRequestWithContext(ctx, e.method, e.path, nil)
@@ -364,13 +378,6 @@ func (e Endpoint[Req, Resp]) Execute(ctx context.Context, client Client, body Re
 		req = req.WithContext(ctx)
 	}
 
-	// Extract the client error decoder before wrapping with middleware (which
-	// hides the concrete type).
-	var clientErrorDecoder ErrorDecoder
-	if edp, ok := client.(errorDecoderProvider); ok {
-		clientErrorDecoder = edp.getErrorDecoder()
-	}
-
 	// Wrap with per-endpoint middleware (last added is outermost).
 	c := client
 	for _, mw := range e.overrides.middlewares {
@@ -384,14 +391,17 @@ func (e Endpoint[Req, Resp]) Execute(ctx context.Context, client Client, body Re
 		return zero, nil, err
 	}
 
-	// Per-request decoder first; if it doesn't Handle the response, fall through
-	// to the client-level decoder.
-	for _, ed := range [...]ErrorDecoder{e.overrides.errorDecoder, clientErrorDecoder} {
-		if ed != nil && ed.Handles(resp) {
-			decodeErr := ed.DecodeError(resp)
-			internal.DrainBody(ctx, resp)
-			return zero, resp, decodeErr
-		}
+	// Resolve error decoder: per-request override wins, else fall back to the
+	// package-level default. Callers wanting no error decoding for this call
+	// should pass NoErrorDecoder().
+	decoder := e.overrides.errorDecoder
+	if decoder == nil {
+		decoder = DefaultErrorDecoder()
+	}
+	if decoder.Handles(resp) {
+		decodeErr := decoder.DecodeError(resp)
+		internal.DrainBody(ctx, resp)
+		return zero, resp, decodeErr
 	}
 
 	if e.decoder != nil {
