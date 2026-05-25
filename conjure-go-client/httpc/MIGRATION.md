@@ -173,6 +173,15 @@ The new `AddCACertFiles`, `AddCACertBytes`, `AddCACertBytesRefreshable`, and
 packages now include system CAs by default. Call `SetIncludeSystemCAs(false)`
 to use only explicitly configured CAs.
 
+### Client cert argument order: cert first, key second
+
+The old `WithKeyAndCertFile(keyFile, certFile)` put **key** first. The new
+`SetClientCertFiles(certFile, keyFile)` and `SetClientCertBytes(certBytes,
+keyBytes)` match the Go standard library convention (`tls.LoadX509KeyPair` /
+`tls.X509KeyPair` take cert first, key second). The legacy
+`httpclient.WithKeyAndCertFile` wrapper keeps its existing signature and
+flips internally for the bridge.
+
 ### Response body is returned, not written to a pointer
 
 The old API wrote decoded responses into a pointer passed via `WithJSONResponse(&result)`.

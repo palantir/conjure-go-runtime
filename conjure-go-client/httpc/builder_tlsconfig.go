@@ -53,16 +53,19 @@ type TLSConfigBuilder[B TLSConfigBuilder[B]] interface {
 	SetIncludeSystemCAs(bool) B
 	// AddCACertFiles adds CA certs from PEM file paths; files are watched for changes.
 	AddCACertFiles(...string) B
-	// AddCACertBytes adds PEM-encoded CA cert bytes (may contain multiple certs).
-	AddCACertBytes([]byte) B
+	// AddCACertBytes adds PEM-encoded CA cert bytes; each blob may contain
+	// multiple certs.
+	AddCACertBytes(...[]byte) B
 	// AddCACertBytesRefreshable adds a refreshable source of PEM-encoded CA cert bytes.
 	AddCACertBytesRefreshable(refreshable.Refreshable[[][]byte]) B
 	// AddCACerts adds parsed certificates to the pool.
 	AddCACerts(...*x509.Certificate) B
 	// SetClientCertFiles sets client cert and key file paths for mutual TLS.
-	SetClientCertFiles(keyFile, certFile string) B
+	// Matches [tls.LoadX509KeyPair] argument order (cert first, key second).
+	SetClientCertFiles(certFile, keyFile string) B
 	// SetClientCertBytes sets client cert and key bytes for mutual TLS.
-	SetClientCertBytes(keyBytes, certBytes []byte) B
+	// Matches [tls.X509KeyPair] argument order (cert first, key second).
+	SetClientCertBytes(certBytes, keyBytes []byte) B
 	// SetDynamicCertReload controls whether cert/key files are re-read on each handshake.
 	SetDynamicCertReload(bool) B
 
@@ -114,10 +117,10 @@ func (b *Builder) AddCACertFiles(files ...string) *Builder {
 	return b
 }
 
-// AddCACertBytes adds PEM-encoded CA certificate bytes to the pool. A single PEM blob
+// AddCACertBytes adds PEM-encoded CA certificate bytes to the pool. Each blob
 // may contain multiple certificates.
-func (b *Builder) AddCACertBytes(certBytes []byte) *Builder {
-	b.caByteSlices = append(b.caByteSlices, certBytes)
+func (b *Builder) AddCACertBytes(certBytes ...[]byte) *Builder {
+	b.caByteSlices = append(b.caByteSlices, certBytes...)
 	return b
 }
 
@@ -148,9 +151,10 @@ func (b *Builder) AddCACerts(certs ...*x509.Certificate) *Builder {
 }
 
 // SetClientCertFiles sets client certificate and key file paths for mutual TLS.
+// Argument order matches [tls.LoadX509KeyPair]: cert first, key second.
 // Files are watched for changes; updates trigger a TLS config rebuild. For
 // per-handshake re-reading of rotated files, also call SetDynamicCertReload(true).
-func (b *Builder) SetClientCertFiles(keyFile, certFile string) *Builder {
+func (b *Builder) SetClientCertFiles(certFile, keyFile string) *Builder {
 	b.clientCertKey = nil
 	b.clientCertCert = nil
 	b.tlsFileParams = refreshable.View(b.tlsFileParams, func(p tlsFileParams) tlsFileParams {
@@ -162,7 +166,8 @@ func (b *Builder) SetClientCertFiles(keyFile, certFile string) *Builder {
 }
 
 // SetClientCertBytes sets client certificate and key bytes for mutual TLS.
-func (b *Builder) SetClientCertBytes(keyBytes, certBytes []byte) *Builder {
+// Argument order matches [tls.X509KeyPair]: cert first, key second.
+func (b *Builder) SetClientCertBytes(certBytes, keyBytes []byte) *Builder {
 	b.clientCertKey = bytes.Clone(keyBytes)
 	b.clientCertCert = bytes.Clone(certBytes)
 	b.tlsFileParams = refreshable.View(b.tlsFileParams, func(p tlsFileParams) tlsFileParams {

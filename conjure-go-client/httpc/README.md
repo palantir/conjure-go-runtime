@@ -133,10 +133,21 @@ Both `Endpoint` and `Overrides` implement the `RequestOverrides[D]` interface,
 which provides: `AddHeader`, `SetHeader`, `AddQuery`, `SetQuery`, `WithTimeout`,
 `WithErrorDecoder`, `WithBasicAuth`, and `WithMiddleware`.
 
+The two implementations represent two configuration layers that compose at
+execute time:
+
+- On `Endpoint`, these methods set **static defaults** baked into the
+  package-level descriptor — useful for headers or middlewares that are part
+  of the RPC's definition.
+- On `Overrides`, they capture **caller-supplied per-request values** that a
+  service-client struct merges in via `WithOverrides` — useful for headers
+  derived from the call site context.
+
 When an `Overrides` is merged into an `Endpoint`:
-- Headers and query params are **additive**
-- Timeout, error decoder, and basic auth use **last-wins**
-- Middlewares are **appended**
+- Headers and query params are **additive** across both layers
+- Timeout, error decoder, and basic auth use **last-wins** (Overrides wins
+  over the Endpoint default)
+- Middlewares are **appended** (Endpoint defaults first, then Overrides)
 
 ### Codecs
 

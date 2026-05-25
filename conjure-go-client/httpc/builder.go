@@ -269,7 +269,7 @@ func (b *Builder) ApplyConfig(ctx context.Context, config ClientConfig) *Builder
 		b.AddCACertFiles(params.caFiles...)
 	}
 	if params.certFile != "" && params.keyFile != "" {
-		b.SetClientCertFiles(params.keyFile, params.certFile)
+		b.SetClientCertFiles(params.certFile, params.keyFile)
 	}
 	if params.insecureSkipVerify != nil {
 		b.SetInsecureSkipVerify(*params.insecureSkipVerify)
@@ -293,6 +293,23 @@ func (b *Builder) ApplyConfig(ctx context.Context, config ClientConfig) *Builder
 		b.metricsTagProviders = append(b.metricsTagProviders, StaticTagsProvider(params.metricsTags))
 	}
 	return b
+}
+
+// ApplyServicesConfig looks up the merged [ClientConfig] for serviceName via
+// [ServicesConfig.ClientConfig] and applies it. Equivalent to
+// b.ApplyConfig(ctx, services.ClientConfig(serviceName)).
+func (b *Builder) ApplyServicesConfig(ctx context.Context, services ServicesConfig, serviceName string) *Builder {
+	return b.ApplyConfig(ctx, services.ClientConfig(serviceName))
+}
+
+// ApplyServicesConfigRefreshable is the refreshable analog of
+// [Builder.ApplyServicesConfig]: it derives a refreshable [ClientConfig] for
+// serviceName and applies it via [Builder.ApplyConfigRefreshable].
+func (b *Builder) ApplyServicesConfigRefreshable(ctx context.Context, services refreshable.Refreshable[ServicesConfig], serviceName string) *Builder {
+	clientConfig := refreshable.MapAuto(services, func(s ServicesConfig) ClientConfig {
+		return s.ClientConfig(serviceName)
+	})
+	return b.ApplyConfigRefreshable(ctx, clientConfig)
 }
 
 // ApplyConfigRefreshable validates the initial config and wires up refreshable

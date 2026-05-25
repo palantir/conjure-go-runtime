@@ -18,6 +18,8 @@ import (
 	"net/http"
 	"net/url"
 	"time"
+
+	"github.com/palantir/conjure-go-runtime/v3/conjure-go-contract/errors"
 )
 
 type basicAuthOverride struct {
@@ -25,8 +27,18 @@ type basicAuthOverride struct {
 	password string
 }
 
-// Overrides is per-request configuration applied to an [Endpoint] via
-// [Endpoint.WithOverrides], or embedded in a generated service client struct.
+// Overrides is caller-supplied per-request configuration that merges into an
+// [Endpoint] via [Endpoint.WithOverrides]. It is the second of the two
+// [RequestOverrides] layers: where the same-named methods on [Endpoint] set
+// static defaults baked into the package-level descriptor, Overrides captures
+// values that vary per call (e.g. headers derived from the request context),
+// typically stored as a field on a generated service-client struct.
+//
+// At merge time the two layers compose: headers and query parameters
+// accumulate across both; scalar values (timeout, error decoder, basic auth)
+// are last-wins with the Overrides value taking precedence over the
+// Endpoint-level default; middlewares append.
+//
 // All methods are copy-on-write, so Overrides is safe to share across
 // goroutines.
 //
@@ -115,6 +127,24 @@ func (c Overrides) AddQuery(key, value string) Overrides {
 	return c
 }
 
+// AddQueryValues appends every key/value pair in q to the request query.
+// Equivalent to calling AddQuery once per value; preserves multi-value keys.
+func (c Overrides) AddQueryValues(q url.Values) Overrides {
+	if len(q) == 0 {
+		return c
+	}
+	c = c.Clone()
+	if c.addQuery == nil {
+		c.addQuery = make(url.Values, len(q))
+	}
+	for k, vs := range q {
+		for _, v := range vs {
+			c.addQuery.Add(k, v)
+		}
+	}
+	return c
+}
+
 // SetQuery sets a query parameter, replacing any previously added or set values for the key.
 func (c Overrides) SetQuery(key, value string) Overrides {
 	c = c.Clone()
@@ -141,6 +171,12 @@ func (c Overrides) WithErrorDecoder(d ErrorDecoder) Overrides {
 	c = c.Clone()
 	c.errorDecoder = d
 	return c
+}
+
+// WithConjureErrorDecoder is a convenience for WithErrorDecoder(
+// [DefaultErrorDecoderWithConjure](ced)).
+func (c Overrides) WithConjureErrorDecoder(ced errors.ConjureErrorDecoder) Overrides {
+	return c.WithErrorDecoder(DefaultErrorDecoderWithConjure(ced))
 }
 
 // WithBasicAuth sets per-request basic auth credentials, overriding any client-level auth.

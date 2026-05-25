@@ -15,17 +15,11 @@
 package httpc
 
 import (
-	"context"
 	"fmt"
-	"io"
 	"net/http"
-	"net/http/httptrace"
-	"time"
 
-	"github.com/palantir/pkg/metrics"
 	"github.com/palantir/pkg/refreshable/v2"
 	werror "github.com/palantir/witchcraft-go-error"
-	"github.com/palantir/witchcraft-go-logging/wlog/svclog/svc1log"
 	"github.com/palantir/witchcraft-go-tracing/wtracing"
 	"github.com/palantir/witchcraft-go-tracing/wtracing/propagation/b3"
 )
@@ -139,41 +133,12 @@ func (t *telemetryMiddleware) RoundTrip(req *http.Request, next http.RoundTrippe
 	}
 
 	if t.disableMetrics == nil || !t.disableMetrics.Current() {
-		const (
-			metricClientResponse  = "client.response"          // Timer; full round-trip; +method, method-name, family
-			metricRequestInFlight = "client.request.in-flight" // Counter; concurrent requests
-		)
-		serviceNameTag := metrics.NewTagWithFallbackValue(metricTagServiceName, t.serviceName.Current(), "unknown")
-		registry := metrics.FromContext(metrics.AddTags(ctx, serviceNameTag))
-		if !t.disableTraceMetrics {
-			req = req.WithContext(httptrace.WithClientTrace(ctx, newMetricsClientTrace(registry, svc1log.FromContext(ctx))))
-		}
-		registry.Counter(metricRequestInFlight).Inc(1)
-		start := time.Now()
+		metricsReq, callback := NewMetricsResponseCallback(req, t.serviceName.Current(), t.disableTraceMetrics, t.tags...)
 		defer func() {
-			registry.Counter(metricRequestInFlight).Dec(1)
-			registry.Timer(metricClientResponse, responseMetricTags(t.tags, req, resp, err)...).UpdateSince(start)
+			callback(resp, err)
 		}()
+		req = metricsReq
 	}
 
 	return next.RoundTrip(req)
-}
-
-// drainBody is a best-effort drain-and-close used to free connections when a
-// response will be discarded.
-func drainBody(ctx context.Context, resp *http.Response) {
-	if resp != nil && resp.Body != nil {
-		if bytes, err := io.Copy(io.Discard, resp.Body); err != nil {
-			svc1log.FromContext(ctx).Warn("Failed to drain entire response body",
-				svc1log.SafeParam("bytes", bytes),
-				svc1log.Stacktrace(err))
-		} else if bytes > 0 {
-			svc1log.FromContext(ctx).Debug("Drained remaining response body",
-				svc1log.SafeParam("bytes", bytes))
-		}
-		if err := resp.Body.Close(); err != nil {
-			svc1log.FromContext(ctx).Warn("Failed to close response body",
-				svc1log.Stacktrace(err))
-		}
-	}
 }

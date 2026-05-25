@@ -57,4 +57,6 @@ func (s StaticTagsProvider) Tags(_ *http.Request, _ *http.Response, _ error) met
 // By default, metrics are tagged with 'service-name', 'method', and 'family' (of the
 // status code). This metric name and tag set matches http-remoting's DefaultHostMetrics:
 // https://github.com/palantir/http-remoting/blob/develop/okhttp-clients/src/main/java/com/palantir/remoting3/okhttp/DefaultHostMetrics.java
-var MetricsMiddleware = httpc.MetricsMiddleware
+var MetricsMiddleware = func(serviceName string, tagProviders ...TagsProvider) (Middleware, error) {
+	return httpc.MetricsMiddleware(serviceName, tagProviders...), nil
+}

@@ -82,32 +82,42 @@ type metricsMiddleware struct {
 // MetricsMiddleware is a standalone constructor for [metricsMiddleware] for
 // callers composing the middleware stack manually. Clients built via [Builder]
 // install this automatically.
-func MetricsMiddleware(serviceName string, tagProviders ...TagsProvider) (Middleware, error) {
-	return &metricsMiddleware{serviceName: refreshable.New(serviceName), tags: tagProviders}, nil
+func MetricsMiddleware(serviceName string, tagProviders ...TagsProvider) Middleware {
+	return &metricsMiddleware{serviceName: refreshable.New(serviceName), tags: tagProviders}
 }
 
-func (m *metricsMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+func (m *metricsMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (resp *http.Response, err error) {
+	if m.disabled == nil || !m.disabled.Current() {
+		newReq, callback := NewMetricsResponseCallback(req, m.serviceName.Current(), false, m.tags...)
+		defer func() {
+			callback(resp, err)
+		}()
+		req = newReq
+	}
+	return next.RoundTrip(req)
+}
+
+func NewMetricsResponseCallback(req *http.Request, serviceName string, disableClientTrace bool, tagsProviders ...TagsProvider) (*http.Request, func(resp *http.Response, err error)) {
 	const (
 		metricClientResponse  = "client.response"          // Timer; full round-trip; +method, method-name, family
 		metricRequestInFlight = "client.request.in-flight" // Counter; concurrent requests
 	)
-	if m.disabled != nil && m.disabled.Current() {
-		return next.RoundTrip(req)
-	}
 	ctx := req.Context()
-	registry := metrics.FromContext(metrics.AddTags(ctx,
-		metrics.NewTagWithFallbackValue(metricTagServiceName, m.serviceName.Current(), "unknown")))
-	tlsCtx := httptrace.WithClientTrace(ctx, newMetricsClientTrace(registry, svc1log.FromContext(ctx)))
+	registry := metrics.FromContext(metrics.AddTags(ctx, metrics.NewTagWithFallbackValue(metricTagServiceName, serviceName, "unknown")))
+	if !disableClientTrace {
+		ctx = httptrace.WithClientTrace(ctx, NewMetricsClientTrace(registry, svc1log.FromContext(ctx)))
+		req = req.WithContext(ctx)
+	}
 
 	registry.Counter(metricRequestInFlight).Inc(1)
 	start := time.Now()
-	resp, err := next.RoundTrip(req.WithContext(tlsCtx))
-	registry.Counter(metricRequestInFlight).Dec(1)
-	registry.Timer(metricClientResponse, responseMetricTags(m.tags, req, resp, err)...).UpdateSince(start)
-	return resp, err
+	return req, func(resp *http.Response, err error) {
+		registry.Counter(metricRequestInFlight).Dec(1)
+		registry.Timer(metricClientResponse, responseMetricTags(tagsProviders, req, resp, err)...).UpdateSince(start)
+	}
 }
 
-func newMetricsClientTrace(registry metrics.Registry, logger svc1log.Logger) *httptrace.ClientTrace {
+func NewMetricsClientTrace(registry metrics.Registry, logger svc1log.Logger) *httptrace.ClientTrace {
 	const (
 		metricConnCreate          = "client.connection.create"            // Counter; +reused (true/false)
 		metricConnAcquire         = "client.connection.acquire"           // Timer; GetConn → GotConn; +reused

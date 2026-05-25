@@ -113,7 +113,7 @@ func (c *fluentClient) Do(req *http.Request) (*http.Response, error) {
 		if uri == "" {
 			return resp, err
 		}
-		drainBody(ctx, resp)
+		internal.DrainBody(ctx, resp)
 		if err != nil {
 			svc1log.FromContext(ctx).Debug("Retrying request", svc1log.Stacktrace(err))
 		} else if resp != nil {
@@ -156,7 +156,7 @@ func (c *fluentClient) doOnce(
 
 	// Shallow-copy the http.Client so this attempt can override Transport and Timeout.
 	clientCopy := *c.httpClient.Current()
-	if timeout, ok := requestTimeoutFromContext(ctx); ok {
+	if timeout, ok := internal.RequestTimeoutFromContext(ctx); ok {
 		clientCopy.Timeout = timeout
 	}
 

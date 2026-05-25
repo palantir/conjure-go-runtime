@@ -27,6 +27,10 @@ type TokenProvider func(ctx context.Context) (string, error)
 // BasicAuthProvider returns basic auth credentials for request authentication.
 type BasicAuthProvider func(ctx context.Context) (BasicAuth, error)
 
+// BasicAuthOptionalProvider returns basic auth credentials or nil to skip
+// setting the Authorization header for this request.
+type BasicAuthOptionalProvider func(ctx context.Context) (*BasicAuth, error)
+
 // URIScoringStrategy controls how base URIs are selected for requests.
 type URIScoringStrategy int
 

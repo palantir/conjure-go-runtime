@@ -277,6 +277,18 @@ func BinaryEncoder(contentType string) BodyEncoder[io.ReadCloser] {
 	})
 }
 
+// BinaryEncoderOnce sends the io.ReadCloser as the request body once. Unlike
+// [BinaryEncoder] it does not probe for Stat/Seek/Name, so Content-Length is
+// always -1 (chunked) and GetBody is nil (the request is not retryable).
+// Use this for non-seekable single-use streams.
+func BinaryEncoderOnce(contentType string) BodyEncoder[io.ReadCloser] {
+	return NewBodyEncoderFunc[io.ReadCloser](contentType, func(req *http.Request, body io.ReadCloser) error {
+		req.Body = body
+		req.ContentLength = -1
+		return nil
+	})
+}
+
 // BinaryEncoderWithReplay sends the body produced by bodyFn with the given
 // Content-Type. GetBody is set to bodyFn, making the request retryable.
 // Content-Length is left at -1 (chunked transfer encoding).

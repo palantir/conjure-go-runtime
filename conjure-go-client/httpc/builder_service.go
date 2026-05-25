@@ -31,6 +31,12 @@ import (
 // handling. Settings often have refreshable counterparts (SetFooRefreshable)
 // for runtime updates; Clone preserves the refreshable link, while a static
 // SetFoo replaces it with a fixed value.
+//
+// Refreshable counterparts exist only for settings surfaced through
+// [ClientConfig] (and therefore tunable from external configuration). The
+// no-argument Disable* setters (DisableTracing, DisableTraceHeaderPropagation,
+// DisablePanicRecovery, DisableRestErrors, DisableClientTraceMetrics) are
+// code-API-only and have no refreshable variant by design.
 type ServiceBuilder[B ServiceBuilder[B]] interface {
 	Clone() B
 	Apply(...Param[B]) B
@@ -58,6 +64,8 @@ type ServiceBuilder[B ServiceBuilder[B]] interface {
 	SetAuthTokenRefreshable(refreshable.Refreshable[*string]) B
 	SetBasicAuth(user, password string) B
 	SetBasicAuthProvider(BasicAuthProvider) B
+	// SetBasicAuthOptionalProvider installs a provider that may return nil to skip auth this request.
+	SetBasicAuthOptionalProvider(BasicAuthOptionalProvider) B
 	// SetBasicAuthRefreshable supplies refreshable credentials; nil *BasicAuth disables auth.
 	SetBasicAuthRefreshable(refreshable.Refreshable[*BasicAuth]) B
 
@@ -241,6 +249,23 @@ func (b *Builder) SetBasicAuthProvider(p BasicAuthProvider) *Builder {
 	return b
 }
 
+// SetBasicAuthOptionalProvider installs a provider that may return nil to
+// skip basic auth for an individual request (the Authorization header is left
+// unset). Use this when auth is optional or conditional on request context.
+func (b *Builder) SetBasicAuthOptionalProvider(p BasicAuthOptionalProvider) *Builder {
+	b.authHeader = func(ctx context.Context) (string, error) {
+		auth, err := p(ctx)
+		if err != nil {
+			return "", err
+		}
+		if auth == nil {
+			return "", nil
+		}
+		return basicAuthHeader(auth.User, auth.Password), nil
+	}
+	return b
+}
+
 // SetBasicAuthRefreshable supplies refreshable basic auth credentials. A nil
 // current value disables auth.
 func (b *Builder) SetBasicAuthRefreshable(r refreshable.Refreshable[*BasicAuth]) *Builder {
@@ -355,6 +380,10 @@ func (b *Builder) SetMetrics(providers ...TagsProvider) *Builder {
 	return b
 }
 
+// SetDisableMetrics toggles request metric emission. Refreshable counterpart:
+// [Builder.SetDisableMetricsRefreshable]. Refreshable support exists for this
+// flag (and not the other Disable* setters) because metrics emission is
+// surfaced in [MetricsConfig] and can be toggled from config at runtime.
 func (b *Builder) SetDisableMetrics(disable bool) *Builder {
 	b.disableMetrics = refreshable.New(disable)
 	return b

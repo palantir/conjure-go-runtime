@@ -117,7 +117,7 @@ func (c *clientImpl) Do(ctx context.Context, params ...RequestParam) (*http.Resp
 
 	// 6. Per-request timeout -> context
 	if b.requestTimeout != nil {
-		req = req.WithContext(httpc.ContextWithRequestTimeout(req.Context(), *b.requestTimeout))
+		req = req.WithContext(internal.ContextWithRequestTimeout(req.Context(), *b.requestTimeout))
 	}
 
 	// 7. Execute (httpc handles retry, URI scoring, middleware; returns raw responses)

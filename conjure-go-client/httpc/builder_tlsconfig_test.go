@@ -125,7 +125,7 @@ func TestBuildTLSConfig_CertBytes_SecureDefaults(t *testing.T) {
 	certPEM, keyPEM := generateTestKeyPair(t)
 
 	tlsResult, err := httpc.NewBuilder().
-		SetClientCertBytes(keyPEM, certPEM).
+		SetClientCertBytes(certPEM, keyPEM).
 		BuildTLSConfig(context.Background())
 	require.NoError(t, err)
 
@@ -141,7 +141,7 @@ func TestBuildTLSConfig_CertBytes_InsecureSkipVerify(t *testing.T) {
 	certPEM, keyPEM := generateTestKeyPair(t)
 
 	tlsResult, err := httpc.NewBuilder().
-		SetClientCertBytes(keyPEM, certPEM).
+		SetClientCertBytes(certPEM, keyPEM).
 		SetInsecureSkipVerify(true).
 		BuildTLSConfig(context.Background())
 	require.NoError(t, err)
@@ -157,8 +157,8 @@ func TestBuildTLSConfig_ClientCertBytesOverrideClientCertFiles(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	tlsResult, err := httpc.NewBuilder().
-		SetClientCertFiles(filepath.Join(tmpDir, "missing.key"), filepath.Join(tmpDir, "missing.crt")).
-		SetClientCertBytes(keyPEM, certPEM).
+		SetClientCertFiles(filepath.Join(tmpDir, "missing.crt"), filepath.Join(tmpDir, "missing.key")).
+		SetClientCertBytes(certPEM, keyPEM).
 		BuildTLSConfig(context.Background())
 	require.NoError(t, err)
 
@@ -238,7 +238,7 @@ func TestBuildTLSConfig_FileBased_CertFileRefresh(t *testing.T) {
 
 	tlsResult, err := httpc.NewBuilder().
 		AddCACertFiles(caFile).
-		SetClientCertFiles(keyFile, certFile).
+		SetClientCertFiles(certFile, keyFile).
 		BuildTLSConfig(context.Background())
 	require.NoError(t, err)
 
@@ -296,7 +296,7 @@ func TestBuildTLSConfig_DynamicCertReload(t *testing.T) {
 	require.NoError(t, os.WriteFile(keyFile, keyPEM1, 0600))
 
 	tlsResult, err := httpc.NewBuilder().
-		SetClientCertFiles(keyFile, certFile).
+		SetClientCertFiles(certFile, keyFile).
 		SetDynamicCertReload(true).
 		BuildTLSConfig(context.Background())
 	require.NoError(t, err)

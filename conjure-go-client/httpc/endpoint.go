@@ -21,6 +21,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/internal"
 )
 
 // RequestOverrides is the per-request configuration shared by [Endpoint] and
@@ -33,6 +35,19 @@ import (
 //
 // The type parameter D is the concrete implementing type, so methods on
 // Endpoint return Endpoint and methods on Overrides return Overrides.
+//
+// The two implementations represent two configuration layers that are
+// composed at execute time:
+//
+//   - On [Endpoint], these methods set static defaults baked into the
+//     package-level descriptor (e.g. a constant Accept-Language header for
+//     every call to a given RPC).
+//   - On [Overrides], they capture caller-supplied per-request values that
+//     a service-client struct merges in via [Endpoint.WithOverrides]
+//     (e.g. headers derived from the call site context).
+//
+// Headers and query parameters accumulate across both layers; scalar values
+// (timeout, error decoder, basic auth) are last-wins.
 type RequestOverrides[D any] interface {
 	// AddHeader adds a request header. Multiple calls with the same key accumulate values.
 	AddHeader(key, value string) D
@@ -63,8 +78,11 @@ type RequestOverrides[D any] interface {
 //	var createItem = httpc.NewJSONPOST[CreateReq, CreateResp]("CreateItem", "/api/v1/items")
 //	resp, _, err := createItem.AddHeader("Idempotency-Key", key).Execute(ctx, client, req)
 //
-// Endpoint also implements all of [RequestOverrides], plus [Endpoint.WithOverrides]
-// for merging a separately built [Overrides] value.
+// Endpoint implements all of [RequestOverrides]; values set this way are
+// static defaults attached to the package-level descriptor. Caller-supplied
+// per-request configuration belongs on a separate [Overrides] value merged in
+// via [Endpoint.WithOverrides]; the two layers compose at execute time
+// (additive for headers/query, last-wins for scalars).
 type Endpoint[Req, Resp any] struct {
 	method    string
 	path      string
@@ -216,6 +234,12 @@ func (e Endpoint[Req, Resp]) AddQuery(key, value string) Endpoint[Req, Resp] {
 	return e
 }
 
+// AddQueryValues appends every key/value pair in q to the request query.
+func (e Endpoint[Req, Resp]) AddQueryValues(q url.Values) Endpoint[Req, Resp] {
+	e.overrides = e.overrides.AddQueryValues(q)
+	return e
+}
+
 // SetQuery sets a query parameter, replacing any previously added or set values for the key.
 func (e Endpoint[Req, Resp]) SetQuery(key, value string) Endpoint[Req, Resp] {
 	e.overrides = e.overrides.SetQuery(key, value)
@@ -318,14 +342,14 @@ func (e Endpoint[Req, Resp]) Execute(ctx context.Context, client Client, body Re
 		req.SetBasicAuth(e.overrides.basicAuth.user, e.overrides.basicAuth.password)
 	}
 
-	// Per-request timeout uses two mechanisms: ContextWithRequestTimeout signals
+	// Per-request timeout uses two mechanisms: the internal context key signals
 	// doOnce to override clientCopy.Timeout (so the client-level timeout doesn't
 	// cap us), and context.WithTimeout enforces the deadline for Clients that
 	// bypass doOnce (e.g. a plain *http.Client). A zero timeout drops the
 	// client-level Timeout without imposing a context deadline.
 	if e.overrides.timeout != nil {
 		timeout := *e.overrides.timeout
-		ctx = ContextWithRequestTimeout(ctx, timeout)
+		ctx = internal.ContextWithRequestTimeout(ctx, timeout)
 		if timeout != 0 {
 			var cancel context.CancelFunc
 			ctx, cancel = context.WithTimeout(ctx, timeout)
@@ -359,7 +383,7 @@ func (e Endpoint[Req, Resp]) Execute(ctx context.Context, client Client, body Re
 	for _, ed := range [...]ErrorDecoder{e.overrides.errorDecoder, clientErrorDecoder} {
 		if ed != nil && ed.Handles(resp) {
 			decodeErr := ed.DecodeError(resp)
-			drainBody(ctx, resp)
+			internal.DrainBody(ctx, resp)
 			return zero, resp, decodeErr
 		}
 	}
@@ -367,16 +391,16 @@ func (e Endpoint[Req, Resp]) Execute(ctx context.Context, client Client, body Re
 	if e.decoder != nil {
 		result, err := e.decoder.Decode(ctx, resp)
 		if err != nil {
-			drainBody(ctx, resp)
+			internal.DrainBody(ctx, resp)
 			return zero, resp, err
 		}
 		// rawBodyDecoder hands the body to the caller; don't drain.
 		if _, raw := e.decoder.(rawBodyDecoder); !raw {
-			drainBody(ctx, resp)
+			internal.DrainBody(ctx, resp)
 		}
 		return result, resp, nil
 	}
-	drainBody(ctx, resp)
+	internal.DrainBody(ctx, resp)
 	return zero, resp, nil
 }
 

@@ -16,13 +16,11 @@ package httpc
 
 import (
 	"context"
-	"time"
 )
 
 type (
-	rpcMethodNameKey  struct{}
-	forUserAgentKey   struct{}
-	requestTimeoutKey struct{}
+	rpcMethodNameKey struct{}
+	forUserAgentKey  struct{}
 )
 
 // RPCMethodName returns the RPC name set on ctx by Endpoint.Execute, if any.
@@ -50,14 +48,3 @@ func forUserAgentFromContext(ctx context.Context) (string, bool) {
 	return v, ok
 }
 
-// ContextWithRequestTimeout stores a per-attempt timeout that overrides the
-// client-level timeout. Most callers should prefer [Overrides.WithTimeout] or
-// [Endpoint.WithTimeout], which use this internally.
-func ContextWithRequestTimeout(ctx context.Context, d time.Duration) context.Context {
-	return context.WithValue(ctx, requestTimeoutKey{}, d)
-}
-
-func requestTimeoutFromContext(ctx context.Context) (time.Duration, bool) {
-	v, ok := ctx.Value(requestTimeoutKey{}).(time.Duration)
-	return v, ok
-}

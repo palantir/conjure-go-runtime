@@ -15,6 +15,7 @@
 package httpclient
 
 import (
+	"context"
 	"crypto/tls"
 	"net/http"
 	"net/url"
@@ -75,11 +76,15 @@ func (f builderClientOrHTTPClientParam) applyHTTPClient(b *httpc.Builder) error 
 }
 
 func WithConfig(c ClientConfig) ClientParam {
-	return builderClientOrHTTPClientParam(httpc.Param1((*httpc.Builder).ApplyConfig, c))
+	return builderClientOrHTTPClientParam(func(b *httpc.Builder) *httpc.Builder {
+		return b.ApplyConfig(context.Background(), c)
+	})
 }
 
 func WithConfigForHTTPClient(c ClientConfig) HTTPClientParam {
-	return builderClientOrHTTPClientParam(httpc.Param1((*httpc.Builder).ApplyConfig, c))
+	return builderClientOrHTTPClientParam(func(b *httpc.Builder) *httpc.Builder {
+		return b.ApplyConfig(context.Background(), c)
+	})
 }
 
 func WithServiceName(serviceName string) ClientOrHTTPClientParam {
@@ -281,7 +286,7 @@ func WithTLSInsecureSkipVerify() ClientOrHTTPClientParam {
 // WithKeyAndCertFile sets the client TLS certificate and key file paths.
 // The files are read when the client is created and on each request to support certificate rotation.
 func WithKeyAndCertFile(keyFile string, certFile string) ClientOrHTTPClientParam {
-	return builderClientOrHTTPClientParam(httpc.Param2((*httpc.Builder).SetClientCertFiles, keyFile, certFile))
+	return builderClientOrHTTPClientParam(httpc.Param2((*httpc.Builder).SetClientCertFiles, certFile, keyFile))
 }
 
 // WithDynamicCertReload enables re-reading client TLS cert/key files on each TLS handshake.
