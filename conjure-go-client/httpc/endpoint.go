@@ -333,7 +333,7 @@ func (e Endpoint[Req, Resp]) Execute(ctx context.Context, client Client) (Resp, 
 		ctx = contextWithBufferPool(ctx, e.overrides.bufferPool)
 	}
 
-	// Request is path-only; Client prepends the base URI on each attempt.
+	// Path-only request; Client prepends the base URI on each attempt.
 	req, err := http.NewRequestWithContext(ctx, e.method, e.path, nil)
 	if err != nil {
 		return zero, nil, err
@@ -348,7 +348,7 @@ func (e Endpoint[Req, Resp]) Execute(ctx context.Context, client Client) (Resp, 
 		req.Header.Set("Accept", e.accept)
 	}
 
-	// Set headers replace (including Accept/Content-Type); add headers accumulate on top.
+	// Set replaces (including Accept/Content-Type); Add accumulates on top.
 	for k, vs := range e.overrides.setHeaders {
 		req.Header[k] = append([]string(nil), vs...)
 	}
@@ -375,11 +375,9 @@ func (e Endpoint[Req, Resp]) Execute(ctx context.Context, client Client) (Resp, 
 		req.SetBasicAuth(e.overrides.basicAuth.user, e.overrides.basicAuth.password)
 	}
 
-	// Per-request timeout uses two mechanisms: the internal context key signals
-	// doOnce to override clientCopy.Timeout (so the client-level timeout doesn't
-	// cap us), and context.WithTimeout enforces the deadline for Clients that
-	// bypass doOnce (e.g. a plain *http.Client). A zero timeout drops the
-	// client-level Timeout without imposing a context deadline.
+	// The context value overrides clientCopy.Timeout in doOnce; context.WithTimeout
+	// enforces the deadline for Clients (e.g. *http.Client) that don't use it.
+	// Zero clears the client-level Timeout without imposing a deadline.
 	if e.overrides.timeout != nil {
 		timeout := *e.overrides.timeout
 		ctx = internal.ContextWithRequestTimeout(ctx, timeout)
@@ -391,7 +389,7 @@ func (e Endpoint[Req, Resp]) Execute(ctx context.Context, client Client) (Resp, 
 		req = req.WithContext(ctx)
 	}
 
-	// Wrap with per-endpoint middleware (last added is outermost).
+	// Last added is outermost.
 	c := client
 	for _, mw := range e.overrides.middlewares {
 		if mw != nil {
@@ -404,9 +402,6 @@ func (e Endpoint[Req, Resp]) Execute(ctx context.Context, client Client) (Resp, 
 		return zero, nil, err
 	}
 
-	// Resolve error decoder: per-request override wins, else fall back to the
-	// package-level default. Callers wanting no error decoding for this call
-	// should pass NoErrorDecoder().
 	decoder := e.overrides.errorDecoder
 	if decoder == nil {
 		decoder = DefaultErrorDecoder()

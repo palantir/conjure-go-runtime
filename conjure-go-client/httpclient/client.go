@@ -73,7 +73,6 @@ func (c *clientImpl) Delete(ctx context.Context, params ...RequestParam) (*http.
 }
 
 func (c *clientImpl) Do(ctx context.Context, params ...RequestParam) (*http.Response, error) {
-	// 1. Parse RequestParams
 	b := &requestBuilder{
 		headers:        make(http.Header),
 		query:          make(url.Values),
@@ -88,17 +87,15 @@ func (c *clientImpl) Do(ctx context.Context, params ...RequestParam) (*http.Resp
 		}
 	}
 
-	// 2. Apply context configuration (RPC method name, etc.)
 	for _, cfg := range b.configureCtx {
 		ctx = cfg(ctx)
 	}
 
-	// 3. Validate method
 	if b.method == "" {
 		return nil, werror.ErrorWithContextParams(ctx, "httpclient: use WithRequestMethod() to specify HTTP method")
 	}
 
-	// 4. Build http.Request (path-only URL; httpc prepends base URI)
+	// Path-only URL; httpc prepends the base URI on each attempt.
 	req, err := http.NewRequestWithContext(ctx, b.method, b.path, nil)
 	if err != nil {
 		return nil, werror.WrapWithContextParams(ctx, err, "failed to build new HTTP request")
@@ -108,22 +105,19 @@ func (c *clientImpl) Do(ctx context.Context, params ...RequestParam) (*http.Resp
 		req.URL.RawQuery = q
 	}
 
-	// 5. Encode body
 	cleanup, err := b.bodyMiddleware.setRequestBody(req)
 	if err != nil {
 		return nil, err
 	}
 	defer cleanup()
 
-	// 6. Per-request timeout -> context
 	if b.requestTimeout != nil {
 		req = req.WithContext(internal.ContextWithRequestTimeout(req.Context(), *b.requestTimeout))
 	}
 
-	// 7. Execute (httpc handles retry, URI scoring, middleware; returns raw responses)
 	resp, respErr := c.client.Do(req)
 
-	// 8. Error decoding (per-request first, then client-level fallback)
+	// Error decoding: per-request first, then client-level fallback.
 	if respErr == nil && resp != nil {
 		var ed ErrorDecoder
 		if b.errorDecoderMiddleware != nil && b.errorDecoderMiddleware.Handles(resp) {
@@ -137,10 +131,9 @@ func (c *clientImpl) Do(ctx context.Context, params ...RequestParam) (*http.Resp
 		}
 	}
 
-	// 9. Decode response body (must happen before drain so body is still readable)
+	// Decode response body before draining so the body is still readable.
 	readErr := b.bodyMiddleware.readResponse(resp, respErr)
 
-	// 10. Drain body unless caller opted into raw response and no error
 	if !(respErr == nil && b.bodyMiddleware.rawOutput) {
 		internal.DrainBody(ctx, resp)
 	}

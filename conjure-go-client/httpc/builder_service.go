@@ -472,11 +472,10 @@ func (b *Builder) Build(ctx context.Context) (ConfigurableClient[*Builder], erro
 	}, nil
 }
 
-// BuildHTTPClient returns an *http.Client refreshable that rebuilds when timeout
-// or transport settings change. The transport is wrapped (innermost to
-// outermost) with auth, inner middlewares, metrics, and tracing. Panic
-// recovery is NOT installed here; [Builder.Build] adds one layer that covers
-// the entire chain including user outer middleware.
+// BuildHTTPClient returns a refreshable *http.Client whose transport is
+// wrapped (innermost to outermost) with auth, inner middlewares, metrics, and
+// tracing. Panic recovery is not installed here — [Builder.Build] wraps it
+// around the whole chain.
 func (b *Builder) BuildHTTPClient(ctx context.Context) (refreshable.Refreshable[*http.Client], error) {
 	transport, err := b.BuildTransport(ctx)
 	if err != nil {

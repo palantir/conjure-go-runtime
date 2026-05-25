@@ -152,8 +152,8 @@ func (c *fluentClient) doOnce(
 		clientCopy.Timeout = timeout
 	}
 
-	// Block 307/308 — the retrier treats those as Conjure QoS redirects.
-	// 301/302/303 are still followed by http.Client.
+	// 307/308 are Conjure QoS redirects handled by the retrier; 301/302/303
+	// remain http.Client's responsibility.
 	clientCopy.CheckRedirect = func(redirectReq *http.Request, via []*http.Request) error {
 		if resp := redirectReq.Response; resp != nil {
 			if resp.StatusCode == http.StatusTemporaryRedirect || resp.StatusCode == http.StatusPermanentRedirect {
@@ -163,7 +163,6 @@ func (c *fluentClient) doOnce(
 		return nil
 	}
 
-	// Wrap iteratively (last element is outermost).
 	clientCopy.Transport = wrapTransport(clientCopy.Transport, c.uriScorer)      // innermost
 	clientCopy.Transport = wrapTransport(clientCopy.Transport, c.middlewares...) // user middlewares
 	clientCopy.Transport = wrapTransport(clientCopy.Transport, c.recoveryMW)     // outermost

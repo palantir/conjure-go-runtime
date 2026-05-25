@@ -184,11 +184,9 @@ func (b *Builder) Apply(params ...Param[*Builder]) *Builder {
 	return b
 }
 
-// ApplyConfig validates the config and calls builder setter methods for each
-// field the config explicitly specifies. Fields not present in the config are
-// left at whatever the builder already has (from NewBuilder defaults or prior
-// setter calls), preserving composability. Validation errors are deferred and
-// surfaced when Build is called.
+// ApplyConfig applies each field config explicitly sets; unset fields leave
+// the builder's existing value unchanged. Validation errors are deferred until
+// Build.
 func (b *Builder) ApplyConfig(ctx context.Context, config ClientConfig) *Builder {
 	params, err := newValidatedClientParams(config)
 	if err != nil {
@@ -306,10 +304,9 @@ func (b *Builder) ApplyServicesConfigRefreshable(ctx context.Context, services r
 	return b.ApplyConfigRefreshable(ctx, clientConfig)
 }
 
-// ApplyConfigRefreshable validates the initial config and wires up refreshable
-// overlays for each field the config specifies. When a config field is unset,
-// the builder's existing value (captured at call time) is used as the fallback.
-// Validation errors are deferred and surfaced when Build is called.
+// ApplyConfigRefreshable wires up refreshable overlays for each field the
+// config sets; unset fields fall back to the builder's value at call time.
+// Validation errors are deferred until Build.
 func (b *Builder) ApplyConfigRefreshable(ctx context.Context, config refreshable.Refreshable[ClientConfig]) *Builder {
 	validParams, err := refreshable.MapWithErrorAuto(ctx, config, func(_ context.Context, config ClientConfig) (validatedClientParams, error) {
 		return newValidatedClientParams(config)
