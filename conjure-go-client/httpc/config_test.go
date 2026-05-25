@@ -54,7 +54,7 @@ func TestApplyConfig_StaticRoundTrip(t *testing.T) {
 
 	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "GetTest", "/api/test").
 		SetDecoder(httpc.VoidDecoder())
-	_, _, err = ep.Execute(context.Background(), client, struct{}{})
+	_, _, err = ep.Execute(context.Background(), client)
 	require.NoError(t, err)
 	assert.Equal(t, "Bearer my-secret-token", gotAuth)
 }
@@ -76,7 +76,7 @@ func TestApplyConfig_MinimalConfig(t *testing.T) {
 
 	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "Test", "/test").
 		SetDecoder(httpc.VoidDecoder())
-	_, _, err = ep.Execute(context.Background(), client, struct{}{})
+	_, _, err = ep.Execute(context.Background(), client)
 	require.NoError(t, err)
 }
 
@@ -104,7 +104,7 @@ func TestApplyConfig_AuthPrecedence_APITokenOverBasicAuth(t *testing.T) {
 
 	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "Test", "/test").
 		SetDecoder(httpc.VoidDecoder())
-	_, _, err = ep.Execute(context.Background(), client, struct{}{})
+	_, _, err = ep.Execute(context.Background(), client)
 	require.NoError(t, err)
 	assert.Contains(t, gotAuth, "Bearer bearer-token")
 }
@@ -137,7 +137,7 @@ func TestApplyConfig_AuthPrecedence_APITokenFileOverBasicAuth(t *testing.T) {
 
 	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "Test", "/test").
 		SetDecoder(httpc.VoidDecoder())
-	_, _, err = ep.Execute(context.Background(), client, struct{}{})
+	_, _, err = ep.Execute(context.Background(), client)
 	require.NoError(t, err)
 	assert.Equal(t, "Bearer file-token", gotAuth)
 }
@@ -165,7 +165,7 @@ func TestApplyConfig_BasicAuth(t *testing.T) {
 
 	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "Test", "/test").
 		SetDecoder(httpc.VoidDecoder())
-	_, _, err = ep.Execute(context.Background(), client, struct{}{})
+	_, _, err = ep.Execute(context.Background(), client)
 	require.NoError(t, err)
 	assert.Contains(t, gotAuth, "Basic ")
 }
@@ -271,7 +271,7 @@ func TestApplyConfig_MaxNumRetries(t *testing.T) {
 			ep := httpc.NewEndpoint[builderTestPayload, struct{}](http.MethodPost, "Test", "/test").
 				SetEncoder(httpc.JSONEncoder[builderTestPayload]()).
 				SetDecoder(httpc.VoidDecoder())
-			_, _, _ = ep.Execute(context.Background(), client, builderTestPayload{Message: "test"})
+			_, _, _ = ep.WithBody(builderTestPayload{Message: "test"}).Execute(context.Background(), client)
 
 			assert.Equal(t, tt.wantAttempts, attempts)
 		})
@@ -295,7 +295,7 @@ func TestApplyConfig_EmptyURIsFiltered(t *testing.T) {
 
 	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "Test", "/test").
 		SetDecoder(httpc.VoidDecoder())
-	_, _, err = ep.Execute(context.Background(), client, struct{}{})
+	_, _, err = ep.Execute(context.Background(), client)
 	require.NoError(t, err)
 }
 
@@ -333,7 +333,7 @@ func TestApplyConfig_MetricsDisabled(t *testing.T) {
 
 	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "Test", "/test").
 		SetDecoder(httpc.VoidDecoder())
-	_, _, err = ep.Execute(context.Background(), client, struct{}{})
+	_, _, err = ep.Execute(context.Background(), client)
 	require.NoError(t, err)
 }
 
@@ -367,7 +367,7 @@ func TestApplyConfig_SetMetricsAppendsTagProviders(t *testing.T) {
 	ctx := metrics.WithRegistry(context.Background(), metrics.NewRootMetricsRegistry())
 	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "Test", "/test").
 		SetDecoder(httpc.VoidDecoder())
-	_, _, err = ep.Execute(ctx, client, struct{}{})
+	_, _, err = ep.Execute(ctx, client)
 	require.NoError(t, err)
 
 	registry := metrics.FromContext(ctx)
@@ -410,7 +410,7 @@ func TestApplyConfigRefreshable_BasicRoundTrip(t *testing.T) {
 
 	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "Test", "/test").
 		SetDecoder(httpc.VoidDecoder())
-	_, _, err = ep.Execute(context.Background(), client, struct{}{})
+	_, _, err = ep.Execute(context.Background(), client)
 	require.NoError(t, err)
 }
 
@@ -436,7 +436,7 @@ func TestApplyConfigRefreshable_AuthUpdate(t *testing.T) {
 		SetDecoder(httpc.VoidDecoder())
 
 	// First request should use token-1.
-	_, _, err = ep.Execute(context.Background(), client, struct{}{})
+	_, _, err = ep.Execute(context.Background(), client)
 	require.NoError(t, err)
 	assert.Equal(t, "Bearer token-1", gotAuth)
 
@@ -450,7 +450,7 @@ func TestApplyConfigRefreshable_AuthUpdate(t *testing.T) {
 	})
 
 	// Next request should use basic auth (no bearer token).
-	_, _, err = ep.Execute(context.Background(), client, struct{}{})
+	_, _, err = ep.Execute(context.Background(), client)
 	require.NoError(t, err)
 	assert.Contains(t, gotAuth, "Basic ")
 }
@@ -489,7 +489,7 @@ func TestApplyConfigRefreshable_InvalidRefreshRetainsPrevious(t *testing.T) {
 	// The client should still work with the previous valid config.
 	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "Test", "/test").
 		SetDecoder(httpc.VoidDecoder())
-	_, _, err = ep.Execute(context.Background(), client, struct{}{})
+	_, _, err = ep.Execute(context.Background(), client)
 	require.NoError(t, err)
 }
 
@@ -517,7 +517,7 @@ func TestApplyConfig_ComposesWithExistingSettings(t *testing.T) {
 
 	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "Test", "/test").
 		SetDecoder(httpc.VoidDecoder())
-	_, _, err = ep.Execute(context.Background(), client, struct{}{})
+	_, _, err = ep.Execute(context.Background(), client)
 	require.NoError(t, err)
 
 	// UserAgent (set before ApplyConfig) should still be present since
@@ -548,7 +548,7 @@ func TestApplyConfigRefreshable_ComposesWithExistingSettings(t *testing.T) {
 
 	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "Test", "/test").
 		SetDecoder(httpc.VoidDecoder())
-	_, _, err = ep.Execute(context.Background(), client, struct{}{})
+	_, _, err = ep.Execute(context.Background(), client)
 	require.NoError(t, err)
 
 	assert.Equal(t, "my-agent", gotUserAgent)
@@ -578,7 +578,7 @@ func TestApplyConfigRefreshable_AuthFallsBackToExistingSetting(t *testing.T) {
 
 	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "Test", "/test").
 		SetDecoder(httpc.VoidDecoder())
-	_, _, err = ep.Execute(context.Background(), client, struct{}{})
+	_, _, err = ep.Execute(context.Background(), client)
 	require.NoError(t, err)
 	assert.Equal(t, "Bearer fallback-token", gotAuth)
 
@@ -586,14 +586,14 @@ func TestApplyConfigRefreshable_AuthFallsBackToExistingSetting(t *testing.T) {
 		URIs:     []string{"https://example.com"},
 		APIToken: new("config-token"),
 	})
-	_, _, err = ep.Execute(context.Background(), client, struct{}{})
+	_, _, err = ep.Execute(context.Background(), client)
 	require.NoError(t, err)
 	assert.Equal(t, "Bearer config-token", gotAuth)
 
 	cfg.Update(httpc.ClientConfig{
 		URIs: []string{"https://example.com"},
 	})
-	_, _, err = ep.Execute(context.Background(), client, struct{}{})
+	_, _, err = ep.Execute(context.Background(), client)
 	require.NoError(t, err)
 	assert.Equal(t, "Bearer fallback-token", gotAuth)
 }
@@ -674,7 +674,7 @@ func TestApplyConfigRefreshable_URIPropagation(t *testing.T) {
 	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "Test", "/test").
 		SetDecoder(httpc.VoidDecoder())
 
-	_, _, err = ep.Execute(context.Background(), client, struct{}{})
+	_, _, err = ep.Execute(context.Background(), client)
 	require.NoError(t, err)
 	assert.Equal(t, 1, server1Hits)
 	assert.Equal(t, 0, server2Hits)
@@ -684,7 +684,7 @@ func TestApplyConfigRefreshable_URIPropagation(t *testing.T) {
 		URIs: []string{server2.URL},
 	})
 
-	_, _, err = ep.Execute(context.Background(), client, struct{}{})
+	_, _, err = ep.Execute(context.Background(), client)
 	require.NoError(t, err)
 	assert.Equal(t, 1, server1Hits)
 	assert.Equal(t, 1, server2Hits)

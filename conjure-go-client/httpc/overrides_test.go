@@ -51,7 +51,7 @@ func TestOverrides_Clone_Independence(t *testing.T) {
 		WithOverrides(original)
 
 	client := &httpTestClient{server: server}
-	_, _, err := ep.Execute(context.Background(), client, struct{}{})
+	_, _, err := ep.Execute(context.Background(), client)
 	require.NoError(t, err)
 }
 
@@ -71,7 +71,7 @@ func TestOverrides_CopyOnWrite(t *testing.T) {
 		WithOverrides(base)
 
 	client := &httpTestClient{server: server}
-	_, _, err := ep.Execute(context.Background(), client, struct{}{})
+	_, _, err := ep.Execute(context.Background(), client)
 	require.NoError(t, err)
 
 	// Verify derived has both headers.
@@ -86,7 +86,7 @@ func TestOverrides_CopyOnWrite(t *testing.T) {
 		WithOverrides(derived)
 
 	client2 := &httpTestClient{server: server2}
-	_, _, err = ep2.Execute(context.Background(), client2, struct{}{})
+	_, _, err = ep2.Execute(context.Background(), client2)
 	require.NoError(t, err)
 }
 
@@ -106,7 +106,7 @@ func TestOverrides_WithOverrides_Merge(t *testing.T) {
 		merged := base.WithOverrides(overrides)
 
 		client := &httpTestClient{server: server}
-		_, _, err := merged.Execute(context.Background(), client, struct{}{})
+		_, _, err := merged.Execute(context.Background(), client)
 		require.NoError(t, err)
 	})
 
@@ -125,7 +125,7 @@ func TestOverrides_WithOverrides_Merge(t *testing.T) {
 		merged := base.WithOverrides(overrides)
 
 		client := &httpTestClient{server: server}
-		_, _, err := merged.Execute(context.Background(), client, struct{}{})
+		_, _, err := merged.Execute(context.Background(), client)
 		require.NoError(t, err)
 	})
 
@@ -144,7 +144,7 @@ func TestOverrides_WithOverrides_Merge(t *testing.T) {
 		merged := base.WithOverrides(overrides)
 
 		client := &httpTestClient{server: server}
-		_, _, err := merged.Execute(context.Background(), client, struct{}{})
+		_, _, err := merged.Execute(context.Background(), client)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "context deadline exceeded")
 	})
@@ -166,7 +166,7 @@ func TestOverrides_WithOverrides_Merge(t *testing.T) {
 		merged := base.WithOverrides(overrides)
 
 		client := &httpTestClient{server: server}
-		_, _, err := merged.Execute(context.Background(), client, struct{}{})
+		_, _, err := merged.Execute(context.Background(), client)
 		require.NoError(t, err)
 	})
 
@@ -193,7 +193,7 @@ func TestOverrides_WithOverrides_Merge(t *testing.T) {
 		merged := base.WithOverrides(overrides)
 
 		client := &httpTestClient{server: server}
-		_, _, err := merged.Execute(context.Background(), client, struct{}{})
+		_, _, err := merged.Execute(context.Background(), client)
 		require.NoError(t, err)
 		// Middlewares wrap from outside in: last added (mw2) wraps mw1,
 		// so mw2 executes first.
@@ -216,7 +216,7 @@ func TestOverrides_WithOverrides_Merge(t *testing.T) {
 		merged := base.WithOverrides(overrides)
 
 		client := &httpTestClient{server: server}
-		_, _, err := merged.Execute(context.Background(), client, struct{}{})
+		_, _, err := merged.Execute(context.Background(), client)
 		require.Error(t, err)
 		assert.Equal(t, 1, overrideDecoder.called, "override decoder should have been called")
 	})
@@ -243,7 +243,7 @@ func TestOverrides_EmptyMergeIsIdentity(t *testing.T) {
 	merged := ep.WithOverrides(httpc.Overrides{})
 
 	client := &httpTestClient{server: server}
-	_, _, err := merged.Execute(context.Background(), client, struct{}{})
+	_, _, err := merged.Execute(context.Background(), client)
 	require.NoError(t, err)
 }
 
@@ -272,7 +272,7 @@ func TestOverrides_WithHeader(t *testing.T) {
 		WithHeader("X-Single", "only-value")
 
 	client := &httpTestClient{server: server}
-	_, _, err := ep.Execute(context.Background(), client, struct{}{})
+	_, _, err := ep.Execute(context.Background(), client)
 	require.NoError(t, err)
 }
 
@@ -287,7 +287,7 @@ func TestOverrides_WithQuery(t *testing.T) {
 		WithQuery("key", "final")
 
 	client := &httpTestClient{server: server}
-	_, _, err := ep.Execute(context.Background(), client, struct{}{})
+	_, _, err := ep.Execute(context.Background(), client)
 	require.NoError(t, err)
 }
 
@@ -304,7 +304,7 @@ func TestOverrides_WithHeaderClearsAdded(t *testing.T) {
 		WithHeader("X-Key", "2")
 
 	client := &httpTestClient{server: server}
-	_, _, err := ep.Execute(context.Background(), client, struct{}{})
+	_, _, err := ep.Execute(context.Background(), client)
 	require.NoError(t, err)
 }
 
@@ -320,7 +320,7 @@ func TestOverrides_WithQueryClearsAdded(t *testing.T) {
 		WithQuery("q", "final")
 
 	client := &httpTestClient{server: server}
-	_, _, err := ep.Execute(context.Background(), client, struct{}{})
+	_, _, err := ep.Execute(context.Background(), client)
 	require.NoError(t, err)
 }
 
@@ -339,6 +339,6 @@ func TestOverrides_Merge_WithHeaderClearsAdded(t *testing.T) {
 	merged := base.WithOverrides(overrides)
 
 	client := &httpTestClient{server: server}
-	_, _, err := merged.Execute(context.Background(), client, struct{}{})
+	_, _, err := merged.Execute(context.Background(), client)
 	require.NoError(t, err)
 }

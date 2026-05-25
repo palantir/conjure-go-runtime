@@ -98,6 +98,8 @@ type Endpoint[Req, Resp any] struct {
 	overrides Overrides
 	encoder   BodyEncoder[Req]
 	decoder   BodyDecoder[Resp]
+	body      Req
+	hasBody   bool
 }
 
 // NewEndpoint creates an Endpoint with the given method, RPC name, and path
@@ -288,6 +290,16 @@ func (e Endpoint[Req, Resp]) WithBufferPool(p bytesbuffers.Pool) Endpoint[Req, R
 	return e
 }
 
+// WithBody attaches a request body to the endpoint. The body is encoded by
+// the endpoint's [BodyEncoder] when [Endpoint.Execute] runs. Endpoints with
+// Req = [Void] never need WithBody. For other Req, omitting WithBody sends no
+// body (the encoder is not invoked).
+func (e Endpoint[Req, Resp]) WithBody(body Req) Endpoint[Req, Resp] {
+	e.body = body
+	e.hasBody = true
+	return e
+}
+
 // WithOverrides merges o into the endpoint's per-request configuration: set
 // headers/query replace and clear matching adds; add headers/query accumulate;
 // timeout, error decoder, and basic auth are last-wins; middlewares append.
@@ -297,13 +309,14 @@ func (e Endpoint[Req, Resp]) WithOverrides(o Overrides) Endpoint[Req, Resp] {
 }
 
 // Execute builds an *http.Request from the endpoint configuration, sends it via
-// client.Do, and decodes the response. Per-request overrides on the endpoint
-// apply on top of the client's defaults.
+// client.Do, and decodes the response. Use [Endpoint.WithBody] to attach a
+// request body; endpoints without a body (including those with Req = [Void])
+// can call Execute directly.
 //
 // The returned *http.Response has its body consumed (drained or handed to the
 // decoder). It may be non-nil on error when the server replied but the decoded
 // response represents a failure.
-func (e Endpoint[Req, Resp]) Execute(ctx context.Context, client Client, body Req) (Resp, *http.Response, error) {
+func (e Endpoint[Req, Resp]) Execute(ctx context.Context, client Client) (Resp, *http.Response, error) {
 	var zero Resp
 
 	if i := strings.IndexByte(e.path, '{'); i != -1 {
@@ -326,8 +339,8 @@ func (e Endpoint[Req, Resp]) Execute(ctx context.Context, client Client, body Re
 		return zero, nil, err
 	}
 
-	if e.encoder != nil {
-		if err := e.encoder.Encode(req, body); err != nil {
+	if e.hasBody && e.encoder != nil {
+		if err := e.encoder.Encode(req, e.body); err != nil {
 			return zero, nil, err
 		}
 	}

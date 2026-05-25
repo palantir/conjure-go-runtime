@@ -15,7 +15,7 @@ happens through copy-on-write method chaining rather than variadic `RequestParam
 1. **Endpoint replaces RequestParam** -- Instead of passing `WithRequestMethod`,
    `WithPath`, `WithJSONRequest`, `WithJSONResponse`, etc. as variadic params to
    `client.Do`, you define an `Endpoint[Req, Resp]` with typed encoder/decoder and
-   call `endpoint.Execute(ctx, client, body)`.
+   call `endpoint.WithBody(body).Execute(ctx, client)`.
 
 2. **Builders are mutable, endpoints are immutable** -- The old package used immutable
    `ClientParam`/`HTTPClientParam` option functions. The new package uses mutable
@@ -103,9 +103,9 @@ var createItem = httpc.NewPOST[CreateReq, CreateResp]("CreateItem", "/api/v1/ite
 
 // At call site:
 resp, _, err := getItem.WithPathParam("itemId", itemId).
-    Execute(ctx, client, httpc.Void{})
+    Execute(ctx, client)
 
-resp, _, err := createItem.Execute(ctx, client, body)
+resp, _, err := createItem.WithBody(body).Execute(ctx, client)
 ```
 
 Key differences:
@@ -114,8 +114,8 @@ Key differences:
 - Path parameters are filled by name (`WithPathParam("itemId", id)`) with automatic
   URL escaping, instead of manual `url.PathEscape` + string concatenation.
 - The response is returned as a typed value, not written to a pointer.
-- `httpc.Void` is an alias for `struct{}`, used as the body argument for endpoints
-  with no request body: `ep.Execute(ctx, client, httpc.Void{})`.
+- `httpc.Void` is the Req type parameter for body-less endpoints; their Execute
+  takes only `(ctx, client)` — no body argument.
 
 ## Gotchas and behavioral differences
 
@@ -193,7 +193,7 @@ var result MyResp
 _, err := client.Do(ctx, httpclient.WithJSONResponse(&result), ...)
 
 // New:
-result, _, err := endpoint.Execute(ctx, client, body)
+result, _, err := endpoint.WithBody(body).Execute(ctx, client)
 ```
 
 ### No more `RequestBody` interface
@@ -316,7 +316,7 @@ Path templates use `{param}` placeholders (Conjure style). Greedy parameters
    method, path template, encoder, decoder, and accept header.
 
 3. **Replace `client.Do` calls**: Replace inline `client.Do(ctx, params...)` with
-   `endpoint.Execute(ctx, client, body)`. Use `httpc.Void{}` as the body for
+   `endpoint.WithBody(body).Execute(ctx, client)`. Use `httpc.Void{}` as the body for
    endpoints with no request body.
 
 4. **Migrate request params to Overrides**: Convert per-request `WithHeader`,

@@ -42,6 +42,15 @@ type Client interface {
 // configuration, allowing reconfiguration without starting from scratch:
 //
 //	newClient, err := client.Builder().SetTimeout(5 * time.Second).Build(ctx)
+//
+// The type parameter B preserves the concrete builder type so downstream code
+// that defines a custom builder satisfying ClientBuilder[*MyBuilder] gets back
+// *MyBuilder rather than *Builder.
+//
+// A Client wrapper (test middleware, recording transport, retry adapter, etc.)
+// does NOT automatically satisfy ConfigurableClient — the type assertion fails
+// silently. Wrappers that want callers to reach the underlying builder should
+// implement Builder() themselves, typically forwarding to the wrapped Client.
 type ConfigurableClient[B ServiceBuilder[B]] interface {
 	Client
 	Builder() B

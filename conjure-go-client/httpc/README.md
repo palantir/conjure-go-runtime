@@ -24,7 +24,7 @@ var getItem = httpc.NewGET[GetItemResponse]("GetItem", "/api/v1/items/{itemId}")
 // 3. Execute.
 resp, _, err := getItem.
     WithPathParam("itemId", "item-42").
-    Execute(ctx, client, httpc.Void{})
+    Execute(ctx, client)
 ```
 
 ## Core concepts
@@ -71,8 +71,8 @@ and derive per-call variants concurrently.
 | `NewPATCH[Req, Resp]` | caller-chosen | PATCH with body |
 | `NewEndpoint[Req, Resp]` | caller-chosen | Any method |
 
-`Void` is an alias for `struct{}`; pass `httpc.Void{}` as the body for body-less
-endpoints.
+`Void` is an alias for `struct{}`; body-less endpoints take Req = `Void` and
+call `Execute(ctx, client)` directly (no `WithBody`).
 
 **Configuration** (each returns a new `Endpoint`):
 
@@ -101,10 +101,10 @@ ep.WithPathParam("filePath", "dir/sub dir/file.txt")
 
 ```go
 // With a request body:
-resp, httpResp, err := endpoint.Execute(ctx, client, requestBody)
+resp, httpResp, err := endpoint.WithBody(requestBody).Execute(ctx, client)
 
 // Without a request body (Req = Void):
-resp, httpResp, err := endpoint.Execute(ctx, client, httpc.Void{})
+resp, httpResp, err := endpoint.Execute(ctx, client)
 ```
 
 ### Overrides
@@ -124,7 +124,7 @@ func (c *myServiceClient) GetItem(ctx context.Context, id string) (Resp, error) 
     resp, _, err := getItemEndpoint.
         WithPathParam("itemId", id).
         WithOverrides(c.overrides).
-        Execute(ctx, c.client, httpc.Void{})
+        Execute(ctx, c.client)
     return resp, err
 }
 ```
@@ -436,7 +436,7 @@ func NewItemServiceClient(client httpc.Client, params ...httpc.Param[*itemServic
 func (c *itemServiceClient) CreateItem(ctx context.Context, req CreateReq) (CreateResp, error) {
     resp, _, err := createItem.
         WithOverrides(c.overrides).
-        Execute(ctx, c.client, req)
+        WithBody(req).Execute(ctx, c.client)
     return resp, err
 }
 
@@ -444,7 +444,7 @@ func (c *itemServiceClient) GetItem(ctx context.Context, id string) (GetItemResp
     resp, _, err := getItem.
         WithPathParam("itemId", id).
         WithOverrides(c.overrides).
-        Execute(ctx, c.client, httpc.Void{})
+        Execute(ctx, c.client)
     return resp, err
 }
 
@@ -452,7 +452,7 @@ func (c *itemServiceClient) DeleteItem(ctx context.Context, id string) error {
     _, _, err := deleteItem.
         WithPathParam("itemId", id).
         WithOverrides(c.overrides).
-        Execute(ctx, c.client, httpc.Void{})
+        Execute(ctx, c.client)
     return err
 }
 ```

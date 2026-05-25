@@ -28,7 +28,7 @@
 //	var getItem = httpc.NewJSONGET[GetItemResponse]("GetItem", "/api/v1/items/{itemId}")
 //
 //	resp, _, err := getItem.WithPathParam("itemId", "item-42").
-//	    Execute(ctx, client, httpc.Void{})
+//	    Execute(ctx, client)
 //
 // # Core concepts
 //
