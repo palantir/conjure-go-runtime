@@ -59,5 +59,5 @@
 // concurrent use. [Builder] is not — call Clone before sharing.
 //
 // See README.md for the generated-service-client pattern and the metrics
-// catalog; MIGRATION.md covers migrating from the parent httpclient package.
+// catalog; MIGRATION.md covers migrating from the sibling httpclient package.
 package httpc

@@ -4,7 +4,7 @@ Package `httpc` provides a type-safe, endpoint-centric HTTP client for Go servic
 Clients are configured via fluent builders and make requests through reusable `Endpoint`
 descriptors that pair typed encoders/decoders with HTTP method and path templates.
 
-If you are migrating from the `httpclient` parent package, see [MIGRATION.md](MIGRATION.md).
+If you are migrating from the sibling `httpclient` package, see [MIGRATION.md](MIGRATION.md).
 
 ## Quick start
 
@@ -110,9 +110,9 @@ resp, httpResp, err := endpoint.Execute(ctx, client)
 ### Overrides
 
 `Overrides` is a standalone copy-on-write value holding per-request configuration:
-headers, query params, timeout, error decoder, basic auth, and middleware. Generated
-service clients typically embed an `Overrides` and merge it into every endpoint call
-via `WithOverrides`:
+headers, query params, timeout, error decoder, basic auth, middleware, and buffer
+pool. Generated service clients typically embed an `Overrides` and merge it into
+every endpoint call via `WithOverrides`:
 
 ```go
 type myServiceClient struct {
@@ -129,11 +129,20 @@ func (c *myServiceClient) GetItem(ctx context.Context, id string) (Resp, error) 
 }
 ```
 
-Both `Endpoint` and `Overrides` implement the `RequestOverrides[D]` interface,
-which provides: `WithHeader`/`WithAddedHeader`, `WithQuery`/`WithAddedQuery`,
-`WithTimeout`, `WithErrorDecoder`, `WithBasicAuth`, and `WithMiddleware`. Header
-and query setters accept one or more values: `WithHeader(key, v1, v2, v3)`
-replaces the key with the three values in one call; `WithAddedHeader` appends.
+Both `Endpoint` and `Overrides` implement the `RequestOverrides[D]` interface:
+
+- `WithHeader(key, value, additionalValues...)` -- replaces all values for `key`
+- `WithAddedHeader(key, value, additionalValues...)` -- appends one or more values
+- `WithQuery(key, value, additionalValues...)` -- replaces all values for `key`
+- `WithAddedQuery(key, value, additionalValues...)` -- appends one or more values
+- `WithAddedQueryValues(url.Values)` -- bulk append from a `url.Values` map
+- `WithTimeout(time.Duration)` -- per-call timeout
+- `WithErrorDecoder(ErrorDecoder)` -- per-call error decoder
+- `WithConjureErrorDecoder(errors.ConjureErrorDecoder)` -- convenience for the
+  default decoder configured with a Conjure typed-error registry
+- `WithBasicAuth(user, pw)` -- per-call basic auth (see [Auth precedence](#auth-precedence))
+- `WithMiddleware(Middleware)` -- append a middleware that runs around `Client.Do`
+- `WithBufferPool(bytesbuffers.Pool)` -- per-call buffer pool for encoders
 
 The two implementations represent two configuration layers that compose at
 execute time:
@@ -159,7 +168,7 @@ Built-in encoders and decoders cover common content types:
 
 | Function | Content-Type | Retryable | Notes |
 |----------|-------------|-----------|-------|
-| `JSONEncoder[Req]()` | `application/json` | Yes | Uses buffer pool when available |
+| `JSONEncoder[Req]()` | `application/json` | Yes | Uses the [`WithBufferPool`](#overrides) pool if set |
 | `BinaryEncoder(ct)` | caller-specified | If file can be reopened | Probes for `Stat()` and reopens named files for replay |
 | `BinaryEncoderWithReplay(ct)` | caller-specified | Yes | Takes `func() (io.ReadCloser, error)` |
 | `GZIPEncoder[Req](inner)` | preserved | If inner is | Wraps any encoder with gzip |
@@ -219,7 +228,7 @@ handshake, enable dynamic reload:
 
 ```go
 builder.
-    SetClientCertFiles("client.key", "client.crt").
+    SetClientCertFiles("client.crt", "client.key"). // cert first, key second
     SetDynamicCertReload(true)
 ```
 
@@ -249,8 +258,8 @@ func WithMyDefaults[B httpc.ServiceBuilder[B]]() httpc.Param[B] {
 builder.Apply(WithMyDefaults[*httpc.Builder]())
 ```
 
-Convenience constructors `Param0`, `Param1`, `Param2` help build `Param` values
-from setter methods without writing closures by hand.
+Convenience constructors `Param0`, `Param1`, `Param2`, and `ParamVarArgs` build
+`Param` values from setter methods without writing closures by hand.
 
 ### Builder hierarchy
 
@@ -295,13 +304,20 @@ type Middleware interface {
 The full middleware stack from outermost to innermost:
 
 ```
-Recovery -> User outer middleware -> URI scorer
-         -> Tracing -> Metrics -> Inner recovery -> User inner middleware
-         -> http.Transport
+Per-request middleware (Overrides / Endpoint)
+  -> Recovery
+  -> User outer middleware (AddMiddleware)
+  -> URI scorer
+  -> Telemetry (metrics + tracing + B3 trace headers)
+  -> User inner middleware (AddInnerMiddleware)
+  -> Auth header
+  -> http.Transport
 ```
 
-Per-request middleware (from `Overrides`/`Endpoint`) wraps the `Client` itself, so it
-sits outside the client's entire middleware stack.
+Per-request middleware wraps `Client.Do` and runs outside the recovery layer.
+The auth-header middleware sits closest to the transport so caller-supplied
+Authorization headers (set anywhere upstream) are not overwritten — see
+[Auth precedence](#auth-precedence).
 
 Error decoding is **not** a middleware layer. It runs in `Endpoint.Execute` after
 `Client.Do` returns the raw HTTP response (see [Error handling](#error-handling)).

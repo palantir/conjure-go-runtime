@@ -1,7 +1,7 @@
 # Migrating from httpclient to httpc
 
 This guide covers migrating from the `conjure-go-client/httpclient` package to the
-new `conjure-go-client/httpclient/httpc` package.
+new `conjure-go-client/httpc` package.
 
 ## Overview of changes
 
@@ -204,8 +204,8 @@ These are replaced by typed `BodyEncoder[T]` implementations:
 
 | Old | New |
 |-----|-----|
-| `RequestBodyInMemory[T]` | Just use `JSONEncoder` or custom `BodyEncoder` |
-| `RequestBodyStreamOnce[T]` | `BinaryEncoder(contentType)` with non-seekable reader |
+| `RequestBodyInMemory[T]` | Use `JSONEncoder` or a custom `BodyEncoder` |
+| `RequestBodyStreamOnce[T]` | `BinaryEncoderOnce(contentType)` (non-retryable) or `BinaryEncoder(contentType)` (probes for `Stat`/`Seek`/`Name` and is retryable on `*os.File`) |
 | `RequestBodyStreamWithReplay[T]` | `BinaryEncoderWithReplay(contentType)` |
 
 ### Endpoint definitions are typically package-level vars
@@ -252,11 +252,13 @@ The old `WithConfig(cfg)` was a `ClientParam` function. The new
 `builder.ApplyConfig(ctx, cfg)` is called on the builder and requires a context
 for validation error reporting.
 
-### No `BasicAuthOptionalProvider`
+### `WithBasicAuthOptionalProvider` → `SetBasicAuthOptionalProvider`
 
-The old `WithBasicAuthOptionalProvider(func(ctx) (*BasicAuth, error))` allowed
-returning nil to skip auth. Use `SetBasicAuthRefreshable(Refreshable[*BasicAuth])`
-in the new API, where a nil `*BasicAuth` disables auth.
+The old `WithBasicAuthOptionalProvider(func(ctx) (*BasicAuth, error))` is now
+`SetBasicAuthOptionalProvider` on the builder. Same semantics: returning nil
+skips setting the Authorization header for that request. There is also a
+refreshable variant, `SetBasicAuthRefreshable(Refreshable[*BasicAuth])`, where
+a nil current value disables auth.
 
 ### Additional metrics emitted
 
@@ -315,9 +317,10 @@ Path templates use `{param}` placeholders (Conjure style). Greedy parameters
 2. **Define endpoints**: Create package-level `Endpoint` vars for each RPC, setting
    method, path template, encoder, decoder, and accept header.
 
-3. **Replace `client.Do` calls**: Replace inline `client.Do(ctx, params...)` with
-   `endpoint.WithBody(body).Execute(ctx, client)`. Use `httpc.Void{}` as the body for
-   endpoints with no request body.
+3. **Replace `client.Do` calls**: For body-bearing RPCs, replace inline
+   `client.Do(ctx, params...)` with `endpoint.WithBody(body).Execute(ctx, client)`.
+   For body-less RPCs (Req = `Void`), call `endpoint.Execute(ctx, client)` — no
+   body argument.
 
 4. **Migrate request params to Overrides**: Convert per-request `WithHeader`,
    `WithRequestTimeout`, `WithRequestBasicAuth`, etc. to `Overrides` methods.
