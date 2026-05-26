@@ -10,6 +10,20 @@
 // distributed under the License is distributed on an "AS IS" BASIS,
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
+// limitations under the License.
+
+// Copyright (c) 2026 Palantir Technologies. All rights reserved.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
 // limitations under the License
 
 package httpc_test
@@ -21,8 +35,10 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpc"
 	"github.com/stretchr/testify/assert"
@@ -741,4 +757,66 @@ func TestRetry_GZIPCompressedBody_AllFail(t *testing.T) {
 	require.Error(t, err)
 	assert.Equal(t, int32(maxAttempts), attempts.Load(),
 		fmt.Sprintf("expected exactly %d attempts with compressed body", maxAttempts))
+}
+
+func TestRetry_ReplayableBodyUsesOriginalBodyOnFirstAttempt(t *testing.T) {
+	var attempts atomic.Int32
+	var opens atomic.Int32
+	var closes atomic.Int32
+
+	transport := roundTripperFn(func(req *http.Request) (*http.Response, error) {
+		attempt := attempts.Add(1)
+		body, err := io.ReadAll(req.Body)
+		require.NoError(t, err)
+		require.NoError(t, req.Body.Close())
+		assert.Equal(t, "payload", string(body))
+
+		if attempt == 1 {
+			return &http.Response{
+				StatusCode: http.StatusServiceUnavailable,
+				Body:       io.NopCloser(strings.NewReader("")),
+			}, nil
+		}
+		return &http.Response{
+			StatusCode: http.StatusNoContent,
+			Body:       io.NopCloser(strings.NewReader("")),
+		}, nil
+	})
+
+	client, err := httpc.NewBuilder().
+		SetBaseURLs("https://example.com").
+		SetServiceName("replay-body").
+		SetTransport(transport).
+		SetMaxAttempts(new(2)).
+		SetInitialBackoff(time.Nanosecond).
+		SetMaxBackoff(time.Nanosecond).
+		Build(t.Context())
+	require.NoError(t, err)
+
+	bodyFn := func() (io.ReadCloser, error) {
+		opens.Add(1)
+		return &countingReadCloser{
+			Reader: strings.NewReader("payload"),
+			closes: &closes,
+		}, nil
+	}
+	ep := httpc.NewPOST[func() (io.ReadCloser, error), struct{}]("ReplayBody", "/test").
+		WithEncoder(httpc.BinaryEncoderWithReplay("text/plain")).
+		WithDecoder(httpc.VoidDecoder())
+
+	_, _, err = ep.WithBody(bodyFn).Execute(t.Context(), client)
+	require.NoError(t, err)
+	assert.Equal(t, int32(2), attempts.Load())
+	assert.Equal(t, int32(2), opens.Load(), "initial body plus one retry body")
+	assert.Equal(t, int32(2), closes.Load(), "each opened body should be closed")
+}
+
+type countingReadCloser struct {
+	*strings.Reader
+	closes *atomic.Int32
+}
+
+func (c *countingReadCloser) Close() error {
+	c.closes.Add(1)
+	return nil
 }

@@ -21,8 +21,8 @@ package errors_test
 import (
 	"testing"
 
-	"github.com/palantir/conjure-go-runtime/v3/conjure-go-contract/codecs"
 	"github.com/palantir/conjure-go-runtime/v3/conjure-go-contract/errors"
+	"github.com/palantir/pkg/safejson"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -63,7 +63,7 @@ var validErrorCodes = []errors.ErrorCode{
 func TestErrorCode_MarshalJSON(t *testing.T) {
 	for _, ec := range validErrorCodes {
 		t.Run(ec.String(), func(t *testing.T) {
-			marshaledErrorCode, err := codecs.JSON.Marshal(ec)
+			marshaledErrorCode, err := safejson.Marshal(ec)
 			assert.NoError(t, err)
 			assert.Equal(t, `"`+ec.String()+`"`, string(marshaledErrorCode))
 		})
@@ -75,7 +75,7 @@ func TestErrorCode_UnmarshalJSON(t *testing.T) {
 		t.Run(ec.String(), func(t *testing.T) {
 			serialized := `"` + ec.String() + `"`
 			var actual errors.ErrorCode
-			err := codecs.JSON.Unmarshal([]byte(serialized), &actual)
+			err := safejson.Unmarshal([]byte(serialized), &actual)
 			assert.NoError(t, err)
 			assert.Equal(t, ec, actual)
 		})
@@ -87,7 +87,7 @@ func TestErrorCode_UnmarshalJSON(t *testing.T) {
 		t.Run(s, func(t *testing.T) {
 			serialized := `"` + s + `"`
 			var actual errors.ErrorCode
-			err := codecs.JSON.Unmarshal([]byte(serialized), &actual)
+			err := safejson.Unmarshal([]byte(serialized), &actual)
 			assert.Error(t, err)
 		})
 	}

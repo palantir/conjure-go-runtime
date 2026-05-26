@@ -79,8 +79,8 @@ type Builder struct {
 	allowEmptyURIs   bool
 
 	maxAttempts    refreshable.Refreshable[*int]
-	initialBackoff  refreshable.Refreshable[time.Duration]
-	maxBackoff      refreshable.Refreshable[time.Duration]
+	initialBackoff refreshable.Refreshable[time.Duration]
+	maxBackoff     refreshable.Refreshable[time.Duration]
 
 	transport        http.RoundTripper // escape hatch: direct transport injection
 	caByteSlices     [][]byte

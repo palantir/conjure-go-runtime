@@ -96,8 +96,10 @@ func (c *fluentClient) Do(req *http.Request) (*http.Response, error) {
 	backoff := retry.Start(ctx, retry.WithInitialBackoff(c.initialBackoff.Current()), retry.WithMaxBackoff(c.maxBackoff.Current()))
 	retrier := internal.NewRequestRetrier(uris, backoff, attempts)
 	uri, isRelocated := retrier.GetNextURI(nil, nil)
+	firstAttempt := true
 	for {
-		resp, retryable, err := c.doOnce(req, uri, isRelocated)
+		resp, retryable, err := c.doOnce(req, uri, isRelocated, firstAttempt)
+		firstAttempt = false
 		if !retryable {
 			return resp, err
 		}
@@ -118,6 +120,7 @@ func (c *fluentClient) doOnce(
 	origReq *http.Request,
 	baseURI string,
 	useBaseURIOnly bool,
+	firstAttempt bool,
 ) (_ *http.Response, retryable bool, _ error) {
 	ctx := origReq.Context()
 	req := origReq.Clone(ctx)
@@ -137,8 +140,9 @@ func (c *fluentClient) doOnce(
 	}
 	req.Host = baseURL.Host
 
-	// Reset the body via GetBody so each retry starts from the beginning.
-	if origReq.GetBody != nil {
+	// The first attempt uses the encoder-created body on origReq. Later attempts
+	// reset the body via GetBody so each retry starts from the beginning.
+	if !firstAttempt && origReq.GetBody != nil {
 		body, err := origReq.GetBody()
 		if err != nil {
 			return nil, false, werror.WrapWithContextParams(ctx, err, "failed to get request body for retry")

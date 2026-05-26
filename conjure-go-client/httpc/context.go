@@ -47,4 +47,3 @@ func forUserAgentFromContext(ctx context.Context) (string, bool) {
 	v, ok := ctx.Value(forUserAgentKey{}).(string)
 	return v, ok
 }
-

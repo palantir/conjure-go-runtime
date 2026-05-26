@@ -18,7 +18,7 @@ import (
 	"fmt"
 	"reflect"
 
-	"github.com/palantir/conjure-go-runtime/v3/conjure-go-contract/codecs"
+	"github.com/palantir/pkg/safejson"
 	werror "github.com/palantir/witchcraft-go-error"
 )
 
@@ -80,7 +80,7 @@ func (d *ReflectTypeConjureErrorDecoder) DecodeConjureError(errorName string, bo
 		typ = reflect.TypeFor[genericError]()
 	}
 	instance := reflect.New(typ).Interface()
-	if err := codecs.JSON.Unmarshal(body, &instance); err != nil {
+	if err := safejson.Unmarshal(body, &instance); err != nil {
 		return nil, werror.Wrap(err, "failed to unmarshal body using registered type", werror.SafeParam("type", typ.String()))
 	}
 	cerr, ok := instance.(Error)

@@ -22,7 +22,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/palantir/conjure-go-runtime/v3/conjure-go-contract/codecs"
+	"github.com/palantir/pkg/safejson"
 	wparams "github.com/palantir/witchcraft-go-params"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -42,7 +42,7 @@ func TestError_CodecsJSONEscapesHTML(t *testing.T) {
 		wparams.NewSafeParamStorer(map[string]any{"htmlKey": "something&something"}),
 	)
 
-	marshaledError, err := codecs.JSON.Marshal(e)
+	marshaledError, err := safejson.Marshal(e)
 	assert.NoError(t, err)
 	assert.Regexp(t, `something&something`, string(marshaledError))
 }
@@ -65,7 +65,7 @@ func TestError_NewError_Then_MarshalJSON_Then_UnmarshalJSON_And_Unpack(t *testin
   }
 }`, e.InstanceID().String())
 
-	marshaledError, err := codecs.JSON.Marshal(e)
+	marshaledError, err := safejson.Marshal(e)
 	require.NoError(t, err)
 	require.JSONEq(t, expectedJSON, string(marshaledError))
 

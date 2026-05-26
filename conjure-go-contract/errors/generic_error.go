@@ -23,7 +23,7 @@ import (
 	"fmt"
 	"maps"
 
-	"github.com/palantir/conjure-go-runtime/v3/conjure-go-contract/codecs"
+	"github.com/palantir/pkg/safejson"
 	"github.com/palantir/pkg/uuid"
 	werror "github.com/palantir/witchcraft-go-error"
 	wparams "github.com/palantir/witchcraft-go-params"
@@ -128,11 +128,11 @@ func (e genericError) UnsafeParams() map[string]any {
 }
 
 func (e genericError) MarshalJSON() ([]byte, error) {
-	marshaledParameters, err := codecs.JSON.Marshal(mergeParams(e.params))
+	marshaledParameters, err := safejson.Marshal(mergeParams(e.params))
 	if err != nil {
 		return nil, err
 	}
-	return codecs.JSON.Marshal(SerializableError{
+	return safejson.Marshal(SerializableError{
 		ErrorCode:       e.errorType.code,
 		ErrorName:       e.errorType.name,
 		ErrorInstanceID: e.errorInstanceID,
@@ -142,7 +142,7 @@ func (e genericError) MarshalJSON() ([]byte, error) {
 
 func (e *genericError) UnmarshalJSON(data []byte) (err error) {
 	var se SerializableError
-	if err := codecs.JSON.Unmarshal(data, &se); err != nil {
+	if err := safejson.Unmarshal(data, &se); err != nil {
 		return err
 	}
 	if e.errorType, err = NewErrorType(se.ErrorCode, se.ErrorName); err != nil {
@@ -152,7 +152,7 @@ func (e *genericError) UnmarshalJSON(data []byte) (err error) {
 
 	if len(se.Parameters) > 0 {
 		params := make(map[string]any)
-		if err := codecs.JSON.Unmarshal(se.Parameters, &params); err != nil {
+		if err := safejson.Unmarshal(se.Parameters, &params); err != nil {
 			return err
 		}
 		e.params = wparams.NewUnsafeParamStorer(params)

@@ -18,7 +18,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/palantir/conjure-go-runtime/v3/conjure-go-contract/codecs"
+	"github.com/palantir/pkg/safejson"
 )
 
 // WriteErrorResponse writes error to the response writer.
@@ -30,17 +30,17 @@ func WriteErrorResponse(w http.ResponseWriter, e Error) {
 
 	// First try to marshal with custom handling (if present)
 	if marshaler, ok := e.(json.Marshaler); ok {
-		marshaledError, err = codecs.JSON.Marshal(marshaler)
+		marshaledError, err = safejson.Marshal(marshaler)
 	}
 	// If we fail, use best-effort conversion to SerializableError.
 	if marshaledError == nil || err != nil {
-		params, err := codecs.JSON.Marshal(mergeParams(e)) // on failure, params will be nil
+		params, err := safejson.Marshal(mergeParams(e)) // on failure, params will be nil
 		if err != nil {
 			params = nil
 		}
 		// This should never fail, since all fields other than params are primitives
 		// and we fall back to empty params if they fail above. Nothing we can do otherwise.
-		marshaledError, _ = codecs.JSON.Marshal(SerializableError{
+		marshaledError, _ = safejson.Marshal(SerializableError{
 			ErrorCode:       e.Code(),
 			ErrorName:       e.Name(),
 			ErrorInstanceID: e.InstanceID(),

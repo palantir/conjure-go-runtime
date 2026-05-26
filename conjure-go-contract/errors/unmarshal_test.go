@@ -21,6 +21,7 @@ import (
 	"testing"
 
 	"github.com/palantir/conjure-go-runtime/v3/conjure-go-contract/errors"
+	"github.com/palantir/pkg/safejson"
 	"github.com/palantir/pkg/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -121,13 +122,13 @@ func TestUnmarshalError(t *testing.T) {
 			},
 			verify: func(t *testing.T, actual errors.Error) {
 				assert.Equal(t, map[string]any{"errorInstanceId": actual.InstanceID(), "errorName": actual.Name()}, actual.SafeParams())
-				assert.Equal(t, map[string]any{"intArg": json.Number("3"), "stringArg": "foo"}, actual.UnsafeParams())
+				assert.Equal(t, map[string]any{"intArg": float64(3), "stringArg": "foo"}, actual.UnsafeParams())
 			},
 		},
 		{
 			name:      "plaintext",
 			inRaw:     "404 Not Found",
-			expectErr: "failed to unmarshal body as conjure error: json: cannot unmarshal number into Go value of type struct { Name string \"json:\\\"errorName\\\"\" }",
+			expectErr: "failed to unmarshal body as conjure error: invalid character 'N' after top-level value",
 		},
 		{
 			name:      "other json",
@@ -144,7 +145,7 @@ func TestUnmarshalError(t *testing.T) {
 			var marshaledError []byte
 			if test.inRaw == "" {
 				var err error
-				marshaledError, err = json.Marshal(test.in)
+				marshaledError, err = safejson.Marshal(test.in)
 				require.NoError(t, err)
 			} else {
 				marshaledError = []byte(test.inRaw)

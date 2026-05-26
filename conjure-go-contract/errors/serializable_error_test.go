@@ -20,8 +20,8 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/palantir/conjure-go-runtime/v3/conjure-go-contract/codecs"
 	"github.com/palantir/conjure-go-runtime/v3/conjure-go-contract/errors"
+	"github.com/palantir/pkg/safejson"
 	"github.com/palantir/pkg/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -50,7 +50,7 @@ var testErrorJSON = fmt.Sprintf(`{
 }`, testSerializableError.ErrorInstanceID)
 
 func TestSerializableError_MarshalJSON(t *testing.T) {
-	marshaledError, err := codecs.JSON.Marshal(testSerializableError)
+	marshaledError, err := safejson.Marshal(testSerializableError)
 	assert.NoError(t, err)
 
 	var buffer bytes.Buffer
@@ -60,7 +60,7 @@ func TestSerializableError_MarshalJSON(t *testing.T) {
 
 func TestSerializableError_UnmarshalJSON(t *testing.T) {
 	var unmarshaled errors.SerializableError
-	err := codecs.JSON.Unmarshal([]byte(testErrorJSON), &unmarshaled)
+	err := safejson.Unmarshal([]byte(testErrorJSON), &unmarshaled)
 	assert.NoError(t, err)
 	assert.Equal(t, testSerializableError.ErrorCode, unmarshaled.ErrorCode)
 	assert.Equal(t, testSerializableError.ErrorName, unmarshaled.ErrorName)
