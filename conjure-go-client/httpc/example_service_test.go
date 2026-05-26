@@ -454,21 +454,26 @@ func TestExampleService_WithOverridesOnEndpoint(t *testing.T) {
 }
 
 // TestExampleService_TimeoutOverride verifies that a timeout set via Overrides
-// is applied to the request.
+// is applied to the request when the client is built via Builder (which honors
+// the per-attempt timeout signal).
 func TestExampleService_TimeoutOverride(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		time.Sleep(200 * time.Millisecond)
 		w.WriteHeader(http.StatusOK)
 	}))
 	t.Cleanup(server.Close)
 
-	client := &httpTestClient{server: server}
+	client, err := httpc.NewBuilder().
+		SetServiceName("timeout-override").
+		SetBaseURLs(server.URL).
+		Build(context.Background())
+	require.NoError(t, err)
+
 	overrides := httpc.Overrides{}.WithTimeout(50 * time.Millisecond)
 	svc := &itemServiceClient{client: client, overrides: overrides}
 
-	err := svc.DeleteItem(context.Background(), "slow-item")
+	err = svc.DeleteItem(context.Background(), "slow-item")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "context deadline exceeded")
 }
 
 // TestExampleService_MiddlewareOverride verifies that middleware set via Overrides

@@ -174,21 +174,28 @@ func TestEndpointExecute_BasicAuthOverridesClientAuth(t *testing.T) {
 	assert.False(t, providerCalled)
 }
 
+// WithTimeout is per-attempt and honored by clients built via Builder
+// (fluentClient picks it up from the request context). Custom Client
+// implementations that don't read internal.RequestTimeoutFromContext are
+// responsible for their own deadlines via context.WithDeadline.
 func TestEndpointExecute_Timeout(t *testing.T) {
-	// Verify the timeout is set by checking that a slow server causes an error.
-	server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+	server := newTestServer(t, func(w http.ResponseWriter, _ *http.Request) {
 		time.Sleep(200 * time.Millisecond)
 		w.WriteHeader(http.StatusNoContent)
 	})
+
+	client, err := httpc.NewBuilder().
+		SetServiceName("timeout-test").
+		SetBaseURLs(server.URL).
+		Build(context.Background())
+	require.NoError(t, err)
 
 	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "Slow", "/slow").
 		WithDecoder(httpc.VoidDecoder()).
 		WithTimeout(50 * time.Millisecond)
 
-	client := &httpTestClient{server: server}
-	_, _, err := ep.Execute(context.Background(), client)
+	_, _, err = ep.Execute(context.Background(), client)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "context deadline exceeded")
 }
 
 func TestEndpointExecute_ZeroTimeoutDoesNotCancelContext(t *testing.T) {

@@ -175,7 +175,9 @@ func (c Overrides) WithAddedQueryValues(q url.Values) Overrides {
 	return c
 }
 
-// WithTimeout sets a per-request timeout that overrides the client-level timeout.
+// WithTimeout sets a per-attempt timeout that overrides the client-level
+// timeout. Honored by clients built via [Builder.Build]; for whole-call
+// deadlines, use context.WithDeadline on the ctx passed to Execute.
 func (c Overrides) WithTimeout(d time.Duration) Overrides {
 	c = c.Clone()
 	c.timeout = &d

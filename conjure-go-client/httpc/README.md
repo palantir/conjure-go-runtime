@@ -136,7 +136,7 @@ Both `Endpoint` and `Overrides` implement the `RequestOverrides[D]` interface:
 - `WithQuery(key, value, additionalValues...)` -- replaces all values for `key`
 - `WithAddedQuery(key, value, additionalValues...)` -- appends one or more values
 - `WithAddedQueryValues(url.Values)` -- bulk append from a `url.Values` map
-- `WithTimeout(time.Duration)` -- per-call timeout
+- `WithTimeout(time.Duration)` -- per-attempt timeout (use a ctx deadline for total)
 - `WithErrorDecoder(ErrorDecoder)` -- per-call error decoder
 - `WithConjureErrorDecoder(errors.ConjureErrorDecoder)` -- convenience for the
   default decoder configured with a Conjure typed-error registry

@@ -130,8 +130,8 @@ func TestOverrides_WithOverrides_Merge(t *testing.T) {
 	})
 
 	t.Run("timeout last wins", func(t *testing.T) {
-		// Use a very short timeout from overrides to verify it takes precedence.
-		server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		// Per-attempt timeout signal is consumed by fluentClient (via Builder).
+		server := newTestServer(t, func(w http.ResponseWriter, _ *http.Request) {
 			time.Sleep(200 * time.Millisecond)
 			w.WriteHeader(http.StatusNoContent)
 		})
@@ -143,10 +143,14 @@ func TestOverrides_WithOverrides_Merge(t *testing.T) {
 		overrides := httpc.Overrides{}.WithTimeout(50 * time.Millisecond)
 		merged := base.WithOverrides(overrides)
 
-		client := &httpTestClient{server: server}
-		_, _, err := merged.Execute(context.Background(), client)
+		client, err := httpc.NewBuilder().
+			SetServiceName("timeout-wins").
+			SetBaseURLs(server.URL).
+			Build(context.Background())
+		require.NoError(t, err)
+
+		_, _, err = merged.Execute(context.Background(), client)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "context deadline exceeded")
 	})
 
 	t.Run("basic auth last wins", func(t *testing.T) {

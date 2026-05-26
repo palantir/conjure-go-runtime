@@ -64,7 +64,11 @@ type RequestOverrides[D any] interface {
 	WithAddedQuery(key, value string, additionalValues ...string) D
 	// WithAddedQueryValues appends every key/value pair in q to the request query.
 	WithAddedQueryValues(q url.Values) D
-	// WithTimeout sets a per-request timeout that overrides the client-level timeout.
+	// WithTimeout sets a per-attempt timeout that overrides the client-level
+// timeout. A clients built via [Builder.Build] applies this to each retry
+// attempt; other Client implementations are responsible for their own
+// deadlines via context.WithDeadline. Use a context deadline for a whole-call
+// deadline that spans all retries.
 	WithTimeout(time.Duration) D
 	// WithErrorDecoder sets a per-request error decoder; overrides the
 	// endpoint-level decoder and [DefaultErrorDecoder].
@@ -266,7 +270,11 @@ func (e Endpoint[Req, Resp]) WithAddedQueryValues(q url.Values) Endpoint[Req, Re
 	return e
 }
 
-// WithTimeout sets a per-request timeout that overrides the client-level timeout.
+// WithTimeout sets a per-attempt timeout that overrides the client-level
+// timeout. A clients built via [Builder.Build] applies this to each retry
+// attempt; other Client implementations are responsible for their own
+// deadlines via context.WithDeadline. Use a context deadline for a whole-call
+// deadline that spans all retries.
 func (e Endpoint[Req, Resp]) WithTimeout(d time.Duration) Endpoint[Req, Resp] {
 	e.overrides = e.overrides.WithTimeout(d)
 	return e
@@ -394,17 +402,12 @@ func (e Endpoint[Req, Resp]) Execute(ctx context.Context, client Client) (Resp, 
 		req.SetBasicAuth(e.overrides.basicAuth.user, e.overrides.basicAuth.password)
 	}
 
-	// The context value overrides clientCopy.Timeout in doOnce; context.WithTimeout
-	// enforces the deadline for Clients (e.g. *http.Client) that don't use it.
-	// Zero clears the client-level Timeout without imposing a deadline.
+	// Per-attempt timeout, signalled via context to the built client so it can
+	// override its own http.Client.Timeout for each attempt. Zero disables the
+	// client-level Timeout for this call. Callers wanting a total-call deadline
+	// should use context.WithDeadline on ctx themselves.
 	if e.overrides.timeout != nil {
-		timeout := *e.overrides.timeout
-		ctx = internal.ContextWithRequestTimeout(ctx, timeout)
-		if timeout != 0 {
-			var cancel context.CancelFunc
-			ctx, cancel = context.WithTimeout(ctx, timeout)
-			defer cancel()
-		}
+		ctx = internal.ContextWithRequestTimeout(ctx, *e.overrides.timeout)
 		req = req.WithContext(ctx)
 	}
 
