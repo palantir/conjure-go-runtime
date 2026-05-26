@@ -227,9 +227,9 @@ func (e Endpoint[Req, Resp]) WithPathParam(key string, value any) Endpoint[Req, 
 			segments[i] = url.PathEscape(seg)
 		}
 		e.path = strings.ReplaceAll(e.path, glob, strings.Join(segments, "/"))
-		return e
+	} else {
+		e.path = strings.ReplaceAll(e.path, "{"+key+"}", url.PathEscape(s))
 	}
-	e.path = strings.ReplaceAll(e.path, "{"+key+"}", url.PathEscape(s))
 	return e
 }
 
@@ -450,12 +450,4 @@ func (e Endpoint[Req, Resp]) Execute(ctx context.Context, client Client) (Resp, 
 // WithTraceHeader sets the X-B3-TraceId header on any RequestOverrides value.
 func WithTraceHeader[D RequestOverrides[D]](d D, traceID string) D {
 	return d.WithHeader("X-B3-TraceId", traceID)
-}
-
-// WithStandardHeaders sets every key/value pair from headers on d.
-func WithStandardHeaders[D RequestOverrides[D]](d D, headers map[string]string) D {
-	for k, v := range headers {
-		d = d.WithHeader(k, v)
-	}
-	return d
 }

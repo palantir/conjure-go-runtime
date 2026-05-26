@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestBalancedScorerRandomizesWithNoneInflight(t *testing.T) {
@@ -55,4 +56,39 @@ func TestBalancedScoring(t *testing.T) {
 	}
 	scoredUris := scorer.GetURIsInOrderOfIncreasingScore()
 	assert.Equal(t, []string{server200.URL, server429.URL, server503.URL}, scoredUris)
+}
+
+func TestBalancedScorerTracksInflight(t *testing.T) {
+	const (
+		busyURI = "http://busy.example.com"
+		idleURI = "http://idle.example.com"
+	)
+
+	scorer := NewBalancedURIScoringMiddleware([]string{busyURI, idleURI}, func() int64 { return 0 })
+	req, err := http.NewRequest(http.MethodGet, busyURI+"/test", nil)
+	require.NoError(t, err)
+
+	started := make(chan struct{})
+	release := make(chan struct{})
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := scorer.RoundTrip(req, testRoundTripperFunc(func(*http.Request) (*http.Response, error) {
+			close(started)
+			<-release
+			return &http.Response{StatusCode: http.StatusOK}, nil
+		}))
+		errCh <- err
+	}()
+
+	<-started
+	assert.Equal(t, []string{idleURI, busyURI}, scorer.GetURIsInOrderOfIncreasingScore())
+
+	close(release)
+	require.NoError(t, <-errCh)
+}
+
+type testRoundTripperFunc func(*http.Request) (*http.Response, error)
+
+func (f testRoundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
 }
