@@ -39,7 +39,7 @@ type ErrorDecoder interface {
 type ErrEmptyURIs struct{}
 
 func (ErrEmptyURIs) Error() string {
-	return "httpclient URLs must not be empty"
+	return "httpc: base URLs must not be empty"
 }
 
 // StatusCodeFromError returns the 'statusCode' werror parameter, or ok=false
@@ -72,7 +72,7 @@ func unwrapURLError(ctx context.Context, respErr error) error {
 			werror.SafeParam("requestHost", parsedURL.Host),
 			werror.UnsafeParam("requestPath", parsedURL.Path))
 	}
-	return werror.WrapWithContextParams(ctx, urlErr.Err, "httpclient request failed", params...)
+	return werror.WrapWithContextParams(ctx, urlErr.Err, "httpc request failed", params...)
 }
 
 // DefaultErrorDecoder handles responses with status >= 307. For JSON responses

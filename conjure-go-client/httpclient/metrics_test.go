@@ -283,7 +283,7 @@ func TestMetricsMiddleware_ContextCanceled(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = client.Get(ctx, httpclient.WithRPCMethodName("test-endpoint"))
-	require.EqualError(t, err, "httpclient request failed: context canceled")
+	require.EqualError(t, err, "httpc request failed: context canceled")
 
 	found := false
 	rootRegistry.Each(func(name string, tags metrics.Tags, value metrics.MetricVal) {

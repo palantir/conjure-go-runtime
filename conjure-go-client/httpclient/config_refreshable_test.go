@@ -66,7 +66,7 @@ func TestRefreshableClientConfig(t *testing.T) {
 		})
 		t.Cleanup(unsubscribe)
 		client, err := NewClientFromRefreshableConfig(context.Background(), refreshableClientConfig)
-		require.EqualError(t, err, "httpclient URLs must not be empty")
+		require.EqualError(t, err, "httpc: base URLs must not be empty")
 		require.Nil(t, client)
 
 		// Create test servers to verify URIs are set correctly

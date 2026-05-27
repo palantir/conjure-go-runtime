@@ -28,12 +28,18 @@ import (
 )
 
 // Client is the transport interface returned by [Builder.Build]. Its signature
-// matches *http.Client.Do, so a plain *http.Client satisfies it.
+// matches *http.Client.Do.
 //
 // A built Client prepends a selected base URL (per URI scoring) to the request
 // path on each attempt, applies the middleware stack, enforces per-attempt
 // timeouts, and retries replayable requests. Endpoint.Execute is the typical
 // caller; it builds the request and decodes the response after Do returns.
+//
+// A plain *http.Client satisfies the interface but is only useful when the
+// Endpoint's path template is an absolute URL — [Endpoint.Execute] emits
+// path-only requests on the assumption that the Client prepends a base URL.
+// Use [Builder.Build] for retries, URI scoring, per-attempt timeouts, and
+// middleware.
 type Client interface {
 	Do(req *http.Request) (*http.Response, error)
 }

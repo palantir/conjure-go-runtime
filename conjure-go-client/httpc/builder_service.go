@@ -440,7 +440,7 @@ func (b *Builder) Build(ctx context.Context) (ConfigurableClient[*Builder], erro
 		return nil, err
 	}
 	if b.uris == nil {
-		return nil, werror.ErrorWithContextParams(ctx, "httpclient URLs must be set in configuration or by constructor param", werror.SafeParam("serviceName", b.serviceName.Current()))
+		return nil, werror.ErrorWithContextParams(ctx, "httpc: base URLs must be set in configuration or via SetBaseURLs", werror.SafeParam("serviceName", b.serviceName.Current()))
 	}
 	if !b.allowEmptyURIs && len(b.uris.Current()) == 0 {
 		return nil, werror.WrapWithContextParams(ctx, ErrEmptyURIs{}, "", werror.SafeParam("serviceName", b.serviceName.Current()))

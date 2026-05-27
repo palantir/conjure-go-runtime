@@ -31,8 +31,7 @@ resp, _, err := getItem.
 
 ### Client
 
-`Client` is the minimal transport interface. Its signature matches `*http.Client.Do`,
-so a plain `*http.Client` satisfies it:
+`Client` is the minimal transport interface. Its signature matches `*http.Client.Do`:
 
 ```go
 type Client interface {
@@ -42,6 +41,11 @@ type Client interface {
 
 A `Client` built via `Builder` handles base-URL selection, retries with
 backoff, middleware, timeout enforcement, and URI scoring transparently.
+
+A plain `*http.Client` satisfies the interface but `Endpoint.Execute` builds
+*path-only* requests on the assumption that the `Client` prepends a base URL.
+For ad-hoc use without `Builder`, your `Endpoint` paths must be absolute URLs.
+Use `Builder.Build` for the normal case.
 
 `ConfigurableClient[B]` extends `Client` with a `Builder()` method that returns a
 new builder seeded with the client's current settings, allowing reconfiguration without
