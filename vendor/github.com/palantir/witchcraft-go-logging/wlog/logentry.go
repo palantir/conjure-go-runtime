@@ -146,7 +146,7 @@ func (m *MapValueEntries) StringMapValue(k string, v map[string]string) {
 	m.entries.StringMapValue(k, v)
 }
 
-func (m *MapValueEntries) AnyMapValue(k string, v map[string]interface{}) {
+func (m *MapValueEntries) AnyMapValue(k string, v map[string]any) {
 	m.entries.AnyMapValue(k, v)
 }
 

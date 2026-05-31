@@ -80,7 +80,7 @@ func CallerPkg(parentCaller, parentPkg int) string {
 	origin := ""
 	if file, _, ok := initLineCaller(1 + parentCaller); ok {
 		origin = path.Dir(file)
-		for i := 0; i < parentPkg; i++ {
+		for range parentPkg {
 			origin = path.Dir(origin)
 		}
 	}
@@ -144,13 +144,13 @@ func initLineCaller(skip int) (string, int, bool) {
 	return file, line, ok
 }
 
-func SafeParam(key string, value interface{}) Param {
-	return SafeParams(map[string]interface{}{
+func SafeParam(key string, value any) Param {
+	return SafeParams(map[string]any{
 		key: value,
 	})
 }
 
-func SafeParams(safe map[string]interface{}) Param {
+func SafeParams(safe map[string]any) Param {
 	return paramFunc(func(entry wlog.LogEntry) {
 		entry.AnyMapValue(ParamsKey, safe)
 	})
@@ -200,13 +200,13 @@ func Stacktrace(err error) Param {
 	})
 }
 
-func UnsafeParam(key string, value interface{}) Param {
-	return UnsafeParams(map[string]interface{}{
+func UnsafeParam(key string, value any) Param {
+	return UnsafeParams(map[string]any{
 		key: value,
 	})
 }
 
-func UnsafeParams(unsafe map[string]interface{}) Param {
+func UnsafeParams(unsafe map[string]any) Param {
 	return paramFunc(func(entry wlog.LogEntry) {
 		entry.AnyMapValue(wlog.UnsafeParamsKey, unsafe)
 	})
