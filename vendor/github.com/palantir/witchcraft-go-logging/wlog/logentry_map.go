@@ -27,18 +27,18 @@ type MapLogEntry interface {
 	IntValues() map[string]int32
 	StringListValues() map[string][]string
 	StringMapValues() map[string]map[string]string
-	AnyMapValues() map[string]map[string]interface{}
+	AnyMapValues() map[string]map[string]any
 	ObjectValues() map[string]ObjectValue
 	ObjectListValues() map[string][]any
 
 	// Apply applies the values of all of the stored entries of this MapLogEntry to the provided LogEntry.
 	Apply(logEntry LogEntry)
 	// AllValues returns a single map that contains all of the keys and values stored in this entry.
-	AllValues() map[string]interface{}
+	AllValues() map[string]any
 }
 
 type ObjectValue struct {
-	Value         interface{}
+	Value         any
 	MarshalerType reflect.Type
 }
 
@@ -49,7 +49,7 @@ func NewMapLogEntry() MapLogEntry {
 		intValues:        make(map[string]int32),
 		stringListValues: make(map[string][]string),
 		stringMapValues:  make(map[string]map[string]string),
-		anyMapValues:     make(map[string]map[string]interface{}),
+		anyMapValues:     make(map[string]map[string]any),
 		objectValues:     make(map[string]ObjectValue),
 		objectListValues: make(map[string][]any),
 	}
@@ -64,7 +64,7 @@ type mapLogEntry struct {
 	intValues        map[string]int32
 	stringListValues map[string][]string
 	stringMapValues  map[string]map[string]string
-	anyMapValues     map[string]map[string]interface{}
+	anyMapValues     map[string]map[string]any
 	objectValues     map[string]ObjectValue
 	objectListValues map[string][]any
 }
@@ -108,7 +108,7 @@ func (le *mapLogEntry) StringMapValues() map[string]map[string]string {
 	return le.stringMapValues
 }
 
-func (le *mapLogEntry) AnyMapValues() map[string]map[string]interface{} {
+func (le *mapLogEntry) AnyMapValues() map[string]map[string]any {
 	return le.anyMapValues
 }
 
@@ -152,7 +152,7 @@ func (le *mapLogEntry) StringMapValue(k string, v map[string]string) {
 	mapLogEntryAddValuesToMap(le, le.stringMapValues, k, v)
 }
 
-func (le *mapLogEntry) AnyMapValue(k string, v map[string]interface{}) {
+func (le *mapLogEntry) AnyMapValue(k string, v map[string]any) {
 	mapLogEntryAddValuesToMap(le, le.anyMapValues, k, v)
 }
 
@@ -181,7 +181,7 @@ func mapLogEntryAddValuesToMap[ValT any](m *mapLogEntry, mapValues map[string]ma
 	mapValues[k] = entryMapVals
 }
 
-func (le *mapLogEntry) ObjectValue(k string, v interface{}, marshalerType reflect.Type) {
+func (le *mapLogEntry) ObjectValue(k string, v any, marshalerType reflect.Type) {
 	mapLogEntrySetKey(le, le.objectValues, k, ObjectValue{
 		Value:         v,
 		MarshalerType: marshalerType,
@@ -215,8 +215,8 @@ func (le *mapLogEntry) Apply(logEntry LogEntry) {
 	}
 }
 
-func (le *mapLogEntry) AllValues() map[string]interface{} {
-	out := make(map[string]interface{})
+func (le *mapLogEntry) AllValues() map[string]any {
+	out := make(map[string]any)
 	for k, v := range le.stringValues {
 		out[k] = v
 	}

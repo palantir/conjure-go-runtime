@@ -23,8 +23,8 @@ import (
 // (e.g. ~/src/go/src/github...), but is considered best-effort.
 func TrimPrefix(absolutePath string) string {
 	const srcDir = `/src/`
-	if idx := strings.Index(absolutePath, srcDir); idx >= 0 {
-		return absolutePath[idx+len(srcDir):]
+	if _, after, ok := strings.Cut(absolutePath, srcDir); ok {
+		return after
 	}
 	return absolutePath
 }
