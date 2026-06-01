@@ -31,7 +31,7 @@ func SpanExtractor(req *http.Request) wtracing.SpanExtractor {
 	return func() wtracing.SpanContext {
 		var sc wtracing.SpanContext
 		var errMsgs []string
-		errSafeParams := make(map[string]interface{})
+		errSafeParams := make(map[string]any)
 
 		traceID := strings.ToLower(req.Header.Get(b3TraceID))
 		if traceID == "" {
