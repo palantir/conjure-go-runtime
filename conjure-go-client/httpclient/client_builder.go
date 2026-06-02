@@ -80,15 +80,16 @@ type httpClientBuilder struct {
 	TLSCABytes      refreshable.Refreshable[[][]byte] // Optional refreshable CA bytes to combine with TLSParams.
 	Middlewares     []Middleware
 
-	DisableMetrics      refreshable.Refreshable[bool]
-	MetricsTagProviders []TagsProvider
+	DisableMetrics          refreshable.Refreshable[bool]
+	MetricsTagProviders     []TagsProvider
+	ExpectWithinEnforcement deadlines.Enforcement
 
 	// These middleware options are not refreshed anywhere because they are not in ClientConfig,
 	// but they could be made refreshable if ever needed.
-	DisableRequestSpan      bool
-	DisableRecovery         bool
-	DisableTraceHeaders     bool
-	ExpectWithinEnforcement deadlines.Enforcement
+	DisableRequestSpan  bool
+	DisableRecovery     bool
+	DisableTraceHeaders bool
+	DisableExpectWithin bool
 }
 
 func (b *httpClientBuilder) Build(ctx context.Context, params ...HTTPClientParam) (refreshable.Refreshable[*http.Client], error) {
@@ -113,7 +114,9 @@ func (b *httpClientBuilder) Build(ctx context.Context, params ...HTTPClientParam
 	if !b.DisableRecovery {
 		transport = wrapTransport(transport, recoveryMiddleware{})
 	}
-	transport = wrapTransport(transport, newExpectWithinMiddleware(b.ExpectWithinEnforcement))
+	if !b.DisableExpectWithin {
+		transport = wrapTransport(transport, newExpectWithinMiddleware(b.ExpectWithinEnforcement, b.Timeout))
+	}
 	transport = wrapTransport(transport, b.Middlewares...)
 
 	return refreshingclient.NewRefreshableHTTPClient(transport, b.Timeout), nil

@@ -70,8 +70,8 @@ func (e Enforcement) ResolveWith(other Enforcement) Enforcement {
 
 // ExpectWithinContext holds the expect-within deadline information.
 type ExpectWithinContext struct {
-	// RemainingMillis is the deadline duration in milliseconds
-	RemainingMillis int64
+	// Remaining is the deadline duration
+	Remaining time.Duration
 	// StartTime is the Unix timestamp in milliseconds when the header was received
 	StartTime int64
 	// Enforcement is the enforcement strategy for this deadline
@@ -102,9 +102,9 @@ func ParseExpectWithinFromHeaders(r *http.Request) *ExpectWithinContext {
 	)
 
 	return &ExpectWithinContext{
-		RemainingMillis: millis,
-		StartTime:       time.Now().UnixMilli(),
-		Enforcement:     enforcement,
+		Remaining:   millis,
+		StartTime:   time.Now().UnixMilli(),
+		Enforcement: enforcement,
 	}
 }
 
@@ -113,8 +113,9 @@ func ParseExpectWithinFromHeaders(r *http.Request) *ExpectWithinContext {
 func SetExpectWithinHeaders(r *http.Request, ewc ExpectWithinContext) {
 	// Calculate remaining time
 	now := time.Now().UnixMilli()
-	elapsed := now - ewc.StartTime
-	remaining := ewc.RemainingMillis - elapsed
+	elapsedMillis := now - ewc.StartTime
+	elapsed := time.Duration(elapsedMillis) * time.Millisecond
+	remaining := ewc.Remaining - elapsed
 
 	if remaining <= 0 {
 		// Deadline already expired, don't set headers
@@ -122,7 +123,7 @@ func SetExpectWithinHeaders(r *http.Request, ewc ExpectWithinContext) {
 	}
 
 	// Set Expect-Within header
-	r.Header.Set(HeaderExpectWithin, formatExpectWithinHeader(remaining))
+	r.Header.Set(HeaderExpectWithin, durationToHeaderValue(remaining))
 
 	// Set Expect-Within-Enforced header if needed
 	enforcementHeader := formatEnforcementHeader(ewc.Enforcement)
@@ -137,7 +138,7 @@ func SetExpectWithinHeaders(r *http.Request, ewc ExpectWithinContext) {
 // The disablePropagation and alreadyExpired parameters are used in the Java implementation for
 // metrics recording with different intent values (IGNORE, PROPAGATE, PROPAGATE_ALREADY_EXPIRED).
 // In this Go implementation, we don't yet have metrics but keep the parameters for future use.
-func checkExpiration(deadline int64, internal, disablePropagation, enforced bool) error {
+func checkExpiration(deadline time.Duration, internal, disablePropagation, alreadyExpired, enforced bool) error {
 	if deadline > 0 {
 		return nil
 	}
@@ -151,6 +152,7 @@ func checkExpiration(deadline int64, internal, disablePropagation, enforced bool
 	//   - PROPAGATE otherwise
 
 	if !enforced && !disablePropagation {
+		// Would record metrics here with appropriate intent
 	}
 
 	if enforced {
@@ -183,57 +185,58 @@ func checkExpiration(deadline int64, internal, disablePropagation, enforced bool
 // ErrDeadlineExpiredInternal depending on whether the deadline came from context or was proposed.
 func EncodeToRequest(ctx context.Context, proposedDeadline time.Duration, r *http.Request, clientEnforcement Enforcement) error {
 	stateDeadline, hasState := GetExpectWithinFromContext(ctx)
-	proposedMillis := proposedDeadline.Milliseconds()
 
 	if !hasState {
 		// No state deadline, use proposedDeadline
-		if err := checkExpiration(proposedMillis, false, false, clientEnforcement == EnforcementEnforce); err != nil {
+		if err := checkExpiration(proposedDeadline, false, false, false, clientEnforcement == EnforcementEnforce); err != nil {
 			return err
 		}
-		r.Header.Set(HeaderExpectWithin, formatExpectWithinHeader(proposedMillis))
-		enforcementHeader := formatEnforcementHeader(clientEnforcement)
-		if enforcementHeader != "" {
+		r.Header.Set(HeaderExpectWithin, durationToHeaderValue(proposedDeadline))
+		if enforcementHeader := formatEnforcementHeader(clientEnforcement); enforcementHeader != "" {
 			r.Header.Set(HeaderExpectWithinEnforced, enforcementHeader)
 		}
 		return nil
 	}
 
 	// State deadline exists, use the minimum of proposedDeadline and the one from state
-	now := time.Now().UnixMilli()
-	elapsed := now - stateDeadline.StartTime
-	remainingStateMillis := stateDeadline.RemainingMillis - elapsed
+	elapsed := time.Duration(time.Now().UnixMilli()-stateDeadline.StartTime) * time.Millisecond
+	remainingState := stateDeadline.Remaining - elapsed
 
 	resolvedEnforcement := stateDeadline.Enforcement.ResolveWith(clientEnforcement)
 	enforced := resolvedEnforcement == EnforcementEnforce
 
-	if proposedMillis <= remainingStateMillis {
+	if proposedDeadline <= remainingState {
 		// Use proposed deadline
+		proposedDeadlineAlreadyExpired := proposedDeadline <= 0
 		if err := checkExpiration(
-			proposedMillis,
+			proposedDeadline,
 			false, // proposed deadlines are external
 			stateDeadline.DisablePropagation,
+			proposedDeadlineAlreadyExpired,
 			enforced,
 		); err != nil {
 			return err
 		}
 		if !stateDeadline.DisablePropagation {
-			r.Header.Set(HeaderExpectWithin, formatExpectWithinHeader(proposedMillis))
+			r.Header.Set(HeaderExpectWithin, durationToHeaderValue(proposedDeadline))
 			if enforcementHeader := formatEnforcementHeader(resolvedEnforcement); enforcementHeader != "" {
 				r.Header.Set(HeaderExpectWithinEnforced, enforcementHeader)
 			}
 		}
 	} else {
 		// Use state deadline
+		stateDeadlineAlreadyExpired := stateDeadline.Remaining <= 0
 		if err := checkExpiration(
-			remainingStateMillis,
+			remainingState,
 			stateDeadline.Internal,
 			stateDeadline.DisablePropagation,
+			stateDeadlineAlreadyExpired,
 			enforced,
 		); err != nil {
 			return err
 		}
 		if !stateDeadline.DisablePropagation {
-			r.Header.Set(HeaderExpectWithin, formatExpectWithinHeader(remainingStateMillis))
+			r.Header.Set(HeaderExpectWithin, durationToHeaderValue(remainingState))
 			enforcementHeader := formatEnforcementHeader(resolvedEnforcement)
 			if enforcementHeader != "" {
 				r.Header.Set(HeaderExpectWithinEnforced, enforcementHeader)
@@ -267,30 +270,26 @@ func ContextWithExpectWithin(ctx context.Context, ewc ExpectWithinContext) conte
 // The deadline is the duration from now.
 func ContextWithDeadline(ctx context.Context, deadline time.Duration, enforcement Enforcement) context.Context {
 	ewc := ExpectWithinContext{
-		RemainingMillis: deadline.Milliseconds(),
-		StartTime:       time.Now().UnixMilli(),
-		Enforcement:     enforcement,
+		Remaining:   deadline,
+		StartTime:   time.Now().UnixMilli(),
+		Enforcement: enforcement,
 	}
 	return ContextWithExpectWithin(ctx, ewc)
 }
 
 // GetRemainingDeadline returns the remaining time until the deadline expires.
 // Returns 0 if the deadline has already expired or if no deadline is set.
-func GetRemainingDeadline(ctx context.Context) time.Duration {
-	ewc, ok := GetExpectWithinFromContext(ctx)
-	if !ok {
-		return 0
-	}
-
+func GetRemainingDeadline(expectWithin ExpectWithinContext) time.Duration {
 	now := time.Now().UnixMilli()
-	elapsed := now - ewc.StartTime
-	remaining := ewc.RemainingMillis - elapsed
+	elapsedMillis := now - expectWithin.StartTime
+	elapsed := time.Duration(elapsedMillis) * time.Millisecond
+	remaining := expectWithin.Remaining - elapsed
 
 	if remaining <= 0 {
 		return 0
 	}
 
-	return time.Duration(remaining) * time.Millisecond
+	return remaining
 }
 
 // IsDeadlineExpired returns true if the deadline in the context has expired.
@@ -302,15 +301,16 @@ func IsDeadlineExpired(ctx context.Context) bool {
 	}
 
 	now := time.Now().UnixMilli()
-	elapsed := now - ewc.StartTime
-	remaining := ewc.RemainingMillis - elapsed
+	elapsedMillis := now - ewc.StartTime
+	elapsed := time.Duration(elapsedMillis) * time.Millisecond
+	remaining := ewc.Remaining - elapsed
 
 	return remaining <= 0
 }
 
 // parseExpectWithinHeader parses the Expect-Within header value (in decimal seconds)
-// and returns the duration in milliseconds.
-func parseExpectWithinHeader(headerValue string) (int64, error) {
+// and returns the duration.
+func parseExpectWithinHeader(headerValue string) (time.Duration, error) {
 	if headerValue == "" {
 		return -1, nil
 	}
@@ -325,16 +325,16 @@ func parseExpectWithinHeader(headerValue string) (int64, error) {
 	}
 
 	millis := int64(math.Ceil(seconds * 1000))
-	return millis, nil
+	return time.Duration(millis) * time.Millisecond, nil
 }
 
-// formatExpectWithinHeader formats a duration in milliseconds to a decimal seconds string.
-func formatExpectWithinHeader(millis int64) string {
-	if millis <= 0 {
+// durationToHeaderValue formats a duration in milliseconds to a decimal seconds string.
+func durationToHeaderValue(duration time.Duration) string {
+	if duration <= 0 {
 		return "0"
 	}
 
-	seconds := float64(millis) / 1000.0
+	seconds := float64(duration.Milliseconds()) / 1000.0
 	return strconv.FormatFloat(seconds, 'f', 3, 64)
 }
 

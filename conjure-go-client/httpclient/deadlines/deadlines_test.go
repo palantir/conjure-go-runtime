@@ -88,7 +88,8 @@ func TestParseExpectWithinFromHeaders(t *testing.T) {
 			} else {
 				require.NotNil(t, result)
 				// Allow some tolerance for timing
-				assert.InDelta(t, tt.expectedMillis, result.RemainingMillis, 10)
+				expectedDuration := time.Duration(tt.expectedMillis) * time.Millisecond
+				assert.InDelta(t, float64(expectedDuration), float64(result.Remaining), float64(10*time.Millisecond))
 				assert.Equal(t, tt.expectedEnforcement, result.Enforcement)
 			}
 		})
@@ -106,9 +107,9 @@ func TestSetExpectWithinHeaders(t *testing.T) {
 		{
 			name: "active deadline with defer",
 			ewc: ExpectWithinContext{
-				RemainingMillis: 5000,
-				StartTime:       time.Now().UnixMilli(),
-				Enforcement:     EnforcementDefer,
+				Remaining:   5 * time.Second,
+				StartTime:   time.Now().UnixMilli(),
+				Enforcement: EnforcementDefer,
 			},
 			shouldSetDeadline:    true,
 			shouldSetEnforcement: false,
@@ -116,9 +117,9 @@ func TestSetExpectWithinHeaders(t *testing.T) {
 		{
 			name: "active deadline with enforce",
 			ewc: ExpectWithinContext{
-				RemainingMillis: 3000,
-				StartTime:       time.Now().UnixMilli(),
-				Enforcement:     EnforcementEnforce,
+				Remaining:   3 * time.Second,
+				StartTime:   time.Now().UnixMilli(),
+				Enforcement: EnforcementEnforce,
 			},
 			shouldSetDeadline:        true,
 			shouldSetEnforcement:     true,
@@ -127,9 +128,9 @@ func TestSetExpectWithinHeaders(t *testing.T) {
 		{
 			name: "active deadline with disable",
 			ewc: ExpectWithinContext{
-				RemainingMillis: 2000,
-				StartTime:       time.Now().UnixMilli(),
-				Enforcement:     EnforcementDisable,
+				Remaining:   2 * time.Second,
+				StartTime:   time.Now().UnixMilli(),
+				Enforcement: EnforcementDisable,
 			},
 			shouldSetDeadline:        true,
 			shouldSetEnforcement:     true,
@@ -138,9 +139,9 @@ func TestSetExpectWithinHeaders(t *testing.T) {
 		{
 			name: "expired deadline",
 			ewc: ExpectWithinContext{
-				RemainingMillis: 100,
-				StartTime:       time.Now().UnixMilli() - 200,
-				Enforcement:     EnforcementEnforce,
+				Remaining:   100 * time.Millisecond,
+				StartTime:   time.Now().UnixMilli() - 200,
+				Enforcement: EnforcementEnforce,
 			},
 			shouldSetDeadline:    false,
 			shouldSetEnforcement: false,
@@ -177,7 +178,7 @@ func TestContextWithDeadline(t *testing.T) {
 
 	ewc, ok := GetExpectWithinFromContext(newCtx)
 	require.True(t, ok)
-	assert.Equal(t, int64(5000), ewc.RemainingMillis)
+	assert.Equal(t, 5*time.Second, ewc.Remaining)
 	assert.Equal(t, EnforcementEnforce, ewc.Enforcement)
 }
 
@@ -210,9 +211,9 @@ func TestGetRemainingDeadline(t *testing.T) {
 			setupContext: func() context.Context {
 				ctx := context.Background()
 				ewc := ExpectWithinContext{
-					RemainingMillis: 100,
-					StartTime:       time.Now().UnixMilli() - 200,
-					Enforcement:     EnforcementDefer,
+					Remaining:   100 * time.Millisecond,
+					StartTime:   time.Now().UnixMilli() - 200,
+					Enforcement: EnforcementDefer,
 				}
 				return ContextWithExpectWithin(ctx, ewc)
 			},
@@ -223,7 +224,8 @@ func TestGetRemainingDeadline(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := tt.setupContext()
-			remaining := GetRemainingDeadline(ctx)
+			ewc, _ := GetExpectWithinFromContext(ctx)
+			remaining := GetRemainingDeadline(ewc)
 
 			if !tt.expectRemaining {
 				assert.Equal(t, time.Duration(0), remaining)
@@ -260,9 +262,9 @@ func TestIsDeadlineExpired(t *testing.T) {
 			setupContext: func() context.Context {
 				ctx := context.Background()
 				ewc := ExpectWithinContext{
-					RemainingMillis: 100,
-					StartTime:       time.Now().UnixMilli() - 200,
-					Enforcement:     EnforcementDefer,
+					Remaining:   100 * time.Millisecond,
+					StartTime:   time.Now().UnixMilli() - 200,
+					Enforcement: EnforcementDefer,
 				}
 				return ContextWithExpectWithin(ctx, ewc)
 			},
@@ -358,9 +360,9 @@ func TestEncodeToRequest(t *testing.T) {
 			setupContext: func() context.Context {
 				ctx := context.Background()
 				ewc := ExpectWithinContext{
-					RemainingMillis: 100,
-					StartTime:       time.Now().UnixMilli() - 200,
-					Enforcement:     EnforcementEnforce,
+					Remaining:   100 * time.Millisecond,
+					StartTime:   time.Now().UnixMilli() - 200,
+					Enforcement: EnforcementEnforce,
 				}
 				return ContextWithExpectWithin(ctx, ewc)
 			},

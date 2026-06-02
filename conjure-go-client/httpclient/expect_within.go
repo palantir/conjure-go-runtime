@@ -16,8 +16,10 @@ package httpclient
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpclient/deadlines"
+	"github.com/palantir/pkg/refreshable/v2"
 )
 
 // expectWithinMiddleware is a middleware that:
@@ -25,25 +27,26 @@ import (
 // 2. Propagates the remaining deadline as a header on outbound requests
 type expectWithinMiddleware struct {
 	enforcement deadlines.Enforcement
+	timeout     refreshable.Refreshable[time.Duration]
 }
 
-func newExpectWithinMiddleware(enforcement deadlines.Enforcement) Middleware {
+func newExpectWithinMiddleware(enforcement deadlines.Enforcement, timeout refreshable.Refreshable[time.Duration]) Middleware {
 	return &expectWithinMiddleware{
 		enforcement: enforcement,
+		timeout:     timeout,
 	}
 }
 
 func (m *expectWithinMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (*http.Response, error) {
-	_, ok := deadlines.GetExpectWithinFromContext(req.Context())
-	if !ok {
-		// No expect-within context, just proceed
-		return next.RoundTrip(req)
+	proposedDeadline := m.timeout.Current()
+
+	// Match Java behavior: if timeout is <= 0, use a large value (1 day) rather than putting 0 on the wire
+	// https://github.com/palantir/dialogue/blob/c4856aeea7600a472dbb881d9544652a9f184dbf/dialogue-core/src/main/java/com/palantir/dialogue/core/DeadlineAdvertisementChannel.java#L59
+	if proposedDeadline <= 0 {
+		proposedDeadline = 24 * time.Hour
 	}
 
-	// Use the remaining deadline from context as the proposed deadline
-	// EncodeToRequest will check for expiration and set headers appropriately
-	remainingDeadline := deadlines.GetRemainingDeadline(req.Context())
-	if err := deadlines.EncodeToRequest(req.Context(), remainingDeadline, req, m.enforcement); err != nil {
+	if err := deadlines.EncodeToRequest(req.Context(), proposedDeadline, req, m.enforcement); err != nil {
 		return nil, err
 	}
 
