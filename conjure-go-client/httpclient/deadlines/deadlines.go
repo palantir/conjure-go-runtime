@@ -212,7 +212,7 @@ func checkExpiration(ctx context.Context, deadline time.Duration, originalBudget
 //
 // The actual deadline value encoded will be the minimum of:
 //   - the proposedDeadline parameter
-//   - the remaining deadline from the context (if it exists via GetExpectWithinFromContext)
+//   - the remaining deadline from the context (if it exists via ProvidedDeadlineFromContext)
 //
 // This ensures that the deadline set for the request will be based on the remaining deadline from
 // already-set internal state, or a smaller one if the caller chooses that.
@@ -226,7 +226,7 @@ func checkExpiration(ctx context.Context, deadline time.Duration, originalBudget
 // If the deadline has expired and enforcement is enabled, returns ErrDeadlineExpiredExternal or
 // ErrDeadlineExpiredInternal depending on whether the deadline came from context or was proposed.
 func EncodeToRequest(ctx context.Context, proposedDeadline time.Duration, r *http.Request, clientEnforcement Enforcement) error {
-	stateDeadline, hasState := GetExpectWithinFromContext(ctx)
+	stateDeadline, hasState := ProvidedDeadlineFromContext(ctx)
 
 	if !hasState {
 		// No state deadline, use proposedDeadline
@@ -297,9 +297,9 @@ type ctxKey string
 
 const expectWithinContextKey ctxKey = "expectWithin"
 
-// GetExpectWithinFromContext retrieves the ProvidedDeadline from the context. Returns nil if the context does not have
+// ProvidedDeadlineFromContext retrieves the ProvidedDeadline from the context. Returns nil if the context does not have
 // a ProvidedDeadline set on it.
-func GetExpectWithinFromContext(ctx context.Context) (*ProvidedDeadline, bool) {
+func ProvidedDeadlineFromContext(ctx context.Context) (*ProvidedDeadline, bool) {
 	val := ctx.Value(expectWithinContextKey)
 	if val == nil {
 		return nil, false
@@ -336,7 +336,7 @@ func ContextWithDeadline(ctx context.Context, deadline time.Duration, enforcemen
 // Further calls to EncodeToRequest will result in a no-op (the middleware will not set any header values related to
 // Expect-Within on requests).
 func DisableFurtherDeadlinePropagation(ctx context.Context) context.Context {
-	if existing, ok := GetExpectWithinFromContext(ctx); ok {
+	if existing, ok := ProvidedDeadlineFromContext(ctx); ok {
 		existing.DisablePropagation = true
 		// set the enforcement to DEFER to avoid having checkExpiration return an error
 		existing.Enforcement = EnforcementDefer
@@ -365,7 +365,7 @@ func GetRemainingDeadline(expectWithin ProvidedDeadline) time.Duration {
 // IsDeadlineExpired returns true if the deadline in the context has expired.
 // Returns false if there is no deadline set.
 func IsDeadlineExpired(ctx context.Context) bool {
-	ewc, ok := GetExpectWithinFromContext(ctx)
+	ewc, ok := ProvidedDeadlineFromContext(ctx)
 	if !ok {
 		return false
 	}

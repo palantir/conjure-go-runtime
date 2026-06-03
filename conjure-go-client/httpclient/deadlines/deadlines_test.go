@@ -177,7 +177,7 @@ func TestContextWithDeadline(t *testing.T) {
 
 	newCtx := ContextWithDeadline(ctx, deadline, EnforcementEnforce)
 
-	ewc, ok := GetExpectWithinFromContext(newCtx)
+	ewc, ok := ProvidedDeadlineFromContext(newCtx)
 	require.True(t, ok)
 	assert.Equal(t, 5*time.Second, ewc.Remaining)
 	assert.Equal(t, EnforcementEnforce, ewc.Enforcement)
@@ -225,7 +225,7 @@ func TestGetRemainingDeadline(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := tt.setupContext()
-			ewc, ok := GetExpectWithinFromContext(ctx)
+			ewc, ok := ProvidedDeadlineFromContext(ctx)
 
 			var remaining time.Duration
 			if ok && ewc != nil {
@@ -414,7 +414,7 @@ func TestDisableFurtherDeadlinePropagation(t *testing.T) {
 		newCtx := DisableFurtherDeadlinePropagation(ctx)
 
 		// Should have created a new ProvidedDeadline
-		ewc, ok := GetExpectWithinFromContext(newCtx)
+		ewc, ok := ProvidedDeadlineFromContext(newCtx)
 		require.True(t, ok, "Expected ProvidedDeadline to be set")
 		require.NotNil(t, ewc, "ProvidedDeadline should not be nil")
 		assert.True(t, ewc.DisablePropagation, "DisablePropagation should be true")
@@ -440,7 +440,7 @@ func TestDisableFurtherDeadlinePropagation(t *testing.T) {
 		newCtx := DisableFurtherDeadlinePropagation(ctx)
 
 		// Should have updated the existing ProvidedDeadline
-		updatedEwc, ok := GetExpectWithinFromContext(newCtx)
+		updatedEwc, ok := ProvidedDeadlineFromContext(newCtx)
 		require.True(t, ok, "Expected ProvidedDeadline to be set")
 		require.NotNil(t, updatedEwc, "ProvidedDeadline should not be nil")
 		assert.True(t, updatedEwc.DisablePropagation, "DisablePropagation should be true")
@@ -525,7 +525,7 @@ func TestDisableFurtherDeadlinePropagation(t *testing.T) {
 		ctx = ContextWithExpectWithin(ctx, ewc)
 
 		// Verify deadline is present before disabling
-		deadlineBefore, ok := GetExpectWithinFromContext(ctx)
+		deadlineBefore, ok := ProvidedDeadlineFromContext(ctx)
 		require.True(t, ok)
 		require.NotNil(t, deadlineBefore)
 		remaining := GetRemainingDeadline(*deadlineBefore)
@@ -536,7 +536,7 @@ func TestDisableFurtherDeadlinePropagation(t *testing.T) {
 
 		// After disabling, GetRemainingDeadline should return zero
 		// This matches Java behavior where getRemainingDeadline returns empty
-		deadlineAfter, ok := GetExpectWithinFromContext(newCtx)
+		deadlineAfter, ok := ProvidedDeadlineFromContext(newCtx)
 		require.True(t, ok)
 		require.NotNil(t, deadlineAfter)
 		// Note: In the Java implementation, getRemainingDeadline returns empty after disabling.
@@ -637,7 +637,7 @@ func TestDisableFurtherDeadlinePropagation(t *testing.T) {
 		ctx = DisableFurtherDeadlinePropagation(ctx)
 
 		// Modify the deadline to be expired
-		updatedEwc, ok := GetExpectWithinFromContext(ctx)
+		updatedEwc, ok := ProvidedDeadlineFromContext(ctx)
 		require.True(t, ok)
 		updatedEwc.StartTime = time.Now().UnixMilli() - 2000 // expired 1 second ago
 		ctx = ContextWithExpectWithin(ctx, *updatedEwc)
