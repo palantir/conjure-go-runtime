@@ -246,9 +246,9 @@ func isTimeoutError(rootErr error) bool {
 
 // isTLSVerifyError reports whether respErr was caused by a failure to verify the
 // server's TLS certificate (untrusted CA, hostname mismatch, expired cert, etc.).
-func isTLSVerifyError(respErr error) bool {
+func isTLSVerifyError(rootErr error) bool {
 	var cve *tls.CertificateVerificationError
-	return errors.As(respErr, &cve)
+	return errors.As(rootErr, &cve)
 }
 
 // isDNSError reports whether the host could not be resolved. Checked before
