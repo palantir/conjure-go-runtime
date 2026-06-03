@@ -21,6 +21,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptrace"
+	"syscall"
 	"time"
 
 	"github.com/palantir/pkg/metrics"
@@ -50,13 +51,16 @@ var (
 	MetricTagConnectionNew    = metrics.MustNewTag("reused", "false")
 	MetricTagConnectionReused = metrics.MustNewTag("reused", "true")
 
-	metricTagFamily1xx     = metrics.MustNewTag(metricTagFamily, "1xx")
-	metricTagFamily2xx     = metrics.MustNewTag(metricTagFamily, "2xx")
-	metricTagFamily3xx     = metrics.MustNewTag(metricTagFamily, "3xx")
-	metricTagFamily4xx     = metrics.MustNewTag(metricTagFamily, "4xx")
-	metricTagFamily5xx     = metrics.MustNewTag(metricTagFamily, "5xx")
-	metricTagFamilyOther   = metrics.MustNewTag(metricTagFamily, "other")
-	metricTagFamilyTimeout = metrics.MustNewTag(metricTagFamily, "timeout")
+	metricTagFamily1xx        = metrics.MustNewTag(metricTagFamily, "1xx")
+	metricTagFamily2xx        = metrics.MustNewTag(metricTagFamily, "2xx")
+	metricTagFamily3xx        = metrics.MustNewTag(metricTagFamily, "3xx")
+	metricTagFamily4xx        = metrics.MustNewTag(metricTagFamily, "4xx")
+	metricTagFamily5xx        = metrics.MustNewTag(metricTagFamily, "5xx")
+	metricTagFamilyOther      = metrics.MustNewTag(metricTagFamily, "other")
+	metricTagFamilyTimeout    = metrics.MustNewTag(metricTagFamily, "timeout")
+	metricTagFamilyTLSVerify  = metrics.MustNewTag(metricTagFamily, "tls_verify_error")
+	metricTagFamilyDNS        = metrics.MustNewTag(metricTagFamily, "dns_error")
+	metricTagFamilyConnection = metrics.MustNewTag(metricTagFamily, "connection_error")
 )
 
 // A TagsProvider returns metrics tags based on an http round trip.
@@ -133,9 +137,16 @@ func (h *metricsMiddleware) RoundTrip(req *http.Request, next http.RoundTripper)
 }
 
 func tagStatusFamily(_ *http.Request, resp *http.Response, respErr error) metrics.Tags {
+	rootErr := werror.RootCause(respErr)
 	switch {
-	case isTimeoutError(respErr):
+	case isDNSError(rootErr):
+		return metrics.Tags{metricTagFamilyDNS}
+	case isTimeoutError(rootErr):
 		return metrics.Tags{metricTagFamilyTimeout}
+	case isTLSVerifyError(rootErr):
+		return metrics.Tags{metricTagFamilyTLSVerify}
+	case isConnectionError(rootErr):
+		return metrics.Tags{metricTagFamilyConnection}
 	case resp == nil, resp.StatusCode < 100, resp.StatusCode > 599:
 		return metrics.Tags{metricTagFamilyOther}
 	case resp.StatusCode < 200:
@@ -216,16 +227,11 @@ func tlsVersionString(version uint16) string {
 	return ""
 }
 
-func isTimeoutError(respErr error) bool {
-	if respErr == nil {
-		return false
-	}
-	rootErr := werror.RootCause(respErr)
+func isTimeoutError(rootErr error) bool {
 	if rootErr == nil {
 		return false
 	}
-
-	if nerr, ok := rootErr.(net.Error); ok && nerr.Timeout() {
+	if nerr, ok := errors.AsType[net.Error](rootErr); ok && nerr.Timeout() {
 		return true
 	}
 	if errors.Is(rootErr, context.Canceled) || errors.Is(rootErr, context.DeadlineExceeded) {
@@ -236,4 +242,28 @@ func isTimeoutError(respErr error) bool {
 		return true
 	}
 	return false
+}
+
+// isTLSVerifyError reports whether respErr was caused by a failure to verify the
+// server's TLS certificate (untrusted CA, hostname mismatch, expired cert, etc.).
+func isTLSVerifyError(rootErr error) bool {
+	var cve *tls.CertificateVerificationError
+	return errors.As(rootErr, &cve)
+}
+
+// isDNSError reports whether the host could not be resolved. Checked before
+// isTimeoutError: a resolver timeout is a *net.DNSError whose Timeout() is true, so
+// without this ordering it would be counted as a generic timeout instead of DNS.
+func isDNSError(rootErr error) bool {
+	var dnsErr *net.DNSError
+	return errors.As(rootErr, &dnsErr)
+}
+
+func isConnectionError(rootErr error) bool {
+	return errors.Is(rootErr, syscall.ECONNREFUSED) ||
+		errors.Is(rootErr, syscall.ECONNRESET) ||
+		errors.Is(rootErr, syscall.ECONNABORTED) ||
+		errors.Is(rootErr, syscall.EHOSTUNREACH) ||
+		errors.Is(rootErr, syscall.ENETUNREACH) ||
+		errors.Is(rootErr, syscall.EPIPE)
 }
