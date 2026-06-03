@@ -20,6 +20,7 @@ import (
 	"math"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -51,6 +52,32 @@ const (
 	EnforcementDisable
 )
 
+func (e Enforcement) String() string {
+	switch e {
+	case EnforcementDefer:
+		return "defer"
+	case EnforcementEnforce:
+		return "enforce"
+	case EnforcementDisable:
+		return "disable"
+	default:
+		return fmt.Sprintf("unknown: %d", int(e))
+	}
+}
+
+func ParseEnforcement(s string) (Enforcement, error) {
+	if s == "" {
+		return EnforcementDefer, nil
+	}
+	s = strings.ToLower(s)
+	for curr := EnforcementDefer; curr <= EnforcementDisable; curr++ {
+		if curr.String() == s {
+			return curr, nil
+		}
+	}
+	return 0, fmt.Errorf("invalid enforcement %q", s)
+}
+
 // ResolveWith resolves two enforcement strategies to determine the effective enforcement.
 func (e Enforcement) ResolveWith(other Enforcement) Enforcement {
 	switch e {
@@ -68,8 +95,8 @@ func (e Enforcement) ResolveWith(other Enforcement) Enforcement {
 	}
 }
 
-// ExpectWithinContext holds the expect-within deadline information.
-type ExpectWithinContext struct {
+// ProvidedDeadline holds expect-within deadline information.
+type ProvidedDeadline struct {
 	// Remaining is the deadline duration
 	Remaining time.Duration
 	// StartTime is the Unix timestamp in milliseconds when the header was received
@@ -82,10 +109,9 @@ type ExpectWithinContext struct {
 	DisablePropagation bool
 }
 
-// ParseExpectWithinFromHeaders parses the Expect-Within and Expect-Within-Enforced headers
-// from an HTTP request and returns an ExpectWithinContext.
-// Returns nil if no deadline header is present.
-func ParseExpectWithinFromHeaders(r *http.Request) *ExpectWithinContext {
+// ParseExpectWithinFromHeaders parses the Expect-Within and Expect-Within-Enforced headers from an HTTP request and
+// returns an ProvidedDeadline. Returns nil if no deadline header is present.
+func ParseExpectWithinFromHeaders(r *http.Request) *ProvidedDeadline {
 	deadlineHeader := r.Header.Get(HeaderExpectWithin)
 	if deadlineHeader == "" {
 		return nil
@@ -101,7 +127,7 @@ func ParseExpectWithinFromHeaders(r *http.Request) *ExpectWithinContext {
 		true,
 	)
 
-	return &ExpectWithinContext{
+	return &ProvidedDeadline{
 		Remaining:   millis,
 		StartTime:   time.Now().UnixMilli(),
 		Enforcement: enforcement,
@@ -109,13 +135,13 @@ func ParseExpectWithinFromHeaders(r *http.Request) *ExpectWithinContext {
 }
 
 // SetExpectWithinHeaders sets the Expect-Within and Expect-Within-Enforced headers
-// on an HTTP request based on the ExpectWithinContext.
-func SetExpectWithinHeaders(r *http.Request, ewc ExpectWithinContext) {
+// on an HTTP request based on the ProvidedDeadline.
+func SetExpectWithinHeaders(r *http.Request, provided ProvidedDeadline) {
 	// Calculate remaining time
 	now := time.Now().UnixMilli()
-	elapsedMillis := now - ewc.StartTime
+	elapsedMillis := now - provided.StartTime
 	elapsed := time.Duration(elapsedMillis) * time.Millisecond
-	remaining := ewc.Remaining - elapsed
+	remaining := provided.Remaining - elapsed
 
 	if remaining <= 0 {
 		// Deadline already expired, don't set headers
@@ -126,7 +152,7 @@ func SetExpectWithinHeaders(r *http.Request, ewc ExpectWithinContext) {
 	r.Header.Set(HeaderExpectWithin, durationToHeaderValue(remaining))
 
 	// Set Expect-Within-Enforced header if needed
-	enforcementHeader := formatEnforcementHeader(ewc.Enforcement)
+	enforcementHeader := formatEnforcementHeader(provided.Enforcement)
 	if enforcementHeader != "" {
 		r.Header.Set(HeaderExpectWithinEnforced, enforcementHeader)
 	}
@@ -135,25 +161,41 @@ func SetExpectWithinHeaders(r *http.Request, ewc ExpectWithinContext) {
 // checkExpiration checks if a deadline has expired and returns an error if enforcement is enabled.
 // This function matches the behavior of the Java implementation.
 //
-// The disablePropagation and alreadyExpired parameters are used in the Java implementation for
-// metrics recording with different intent values (IGNORE, PROPAGATE, PROPAGATE_ALREADY_EXPIRED).
-// In this Go implementation, we don't yet have metrics but keep the parameters for future use.
-func checkExpiration(deadline time.Duration, internal, disablePropagation, alreadyExpired, enforced bool) error {
+// The disablePropagation and alreadyExpired parameters are used to determine the intent for
+// metrics recording (IGNORE, PROPAGATE, PROPAGATE_ALREADY_EXPIRED, THROW).
+func checkExpiration(ctx context.Context, deadline time.Duration, originalBudget time.Duration, internal, disablePropagation, alreadyExpired, enforced bool) error {
 	if deadline > 0 {
 		return nil
 	}
 
 	// Deadline has expired
 
-	// When not enforced, we don't throw but could record metrics here.
-	// The intent would be:
-	//   - IGNORE if disablePropagation is true
-	//   - PROPAGATE_ALREADY_EXPIRED if alreadyExpired is true
-	//   - PROPAGATE otherwise
-
-	if !enforced && !disablePropagation {
-		// Would record metrics here with appropriate intent
+	// Determine the cause and intent for metrics
+	var cause ExpiredCause
+	if internal {
+		cause = ExpiredCauseInternal
+	} else {
+		cause = ExpiredCauseExternal
 	}
+
+	var intent ExpiredIntent
+	if enforced {
+		// Intent is always "throw" if enforced = true, regardless of other flags
+		intent = ExpiredIntentThrow
+	} else {
+		// Will not return an error, report one of the other intents
+		if disablePropagation {
+			intent = ExpiredIntentIgnore
+		} else if alreadyExpired {
+			intent = ExpiredIntentPropagateAlreadyExpired
+		} else {
+			intent = ExpiredIntentPropagate
+		}
+	}
+
+	// Record the metric
+	budget := budgetBucket(originalBudget)
+	recordDeadlineExpired(ctx, cause, intent, budget)
 
 	if enforced {
 		// Return an error when enforcement is enabled
@@ -188,7 +230,7 @@ func EncodeToRequest(ctx context.Context, proposedDeadline time.Duration, r *htt
 
 	if !hasState {
 		// No state deadline, use proposedDeadline
-		if err := checkExpiration(proposedDeadline, false, false, false, clientEnforcement == EnforcementEnforce); err != nil {
+		if err := checkExpiration(ctx, proposedDeadline, proposedDeadline, false, false, false, clientEnforcement == EnforcementEnforce); err != nil {
 			return err
 		}
 		r.Header.Set(HeaderExpectWithin, durationToHeaderValue(proposedDeadline))
@@ -209,6 +251,8 @@ func EncodeToRequest(ctx context.Context, proposedDeadline time.Duration, r *htt
 		// Use proposed deadline
 		proposedDeadlineAlreadyExpired := proposedDeadline <= 0
 		if err := checkExpiration(
+			ctx,
+			proposedDeadline,
 			proposedDeadline,
 			false, // proposed deadlines are external
 			stateDeadline.DisablePropagation,
@@ -227,7 +271,9 @@ func EncodeToRequest(ctx context.Context, proposedDeadline time.Duration, r *htt
 		// Use state deadline
 		stateDeadlineAlreadyExpired := stateDeadline.Remaining <= 0
 		if err := checkExpiration(
+			ctx,
 			remainingState,
+			stateDeadline.Remaining,
 			stateDeadline.Internal,
 			stateDeadline.DisablePropagation,
 			stateDeadlineAlreadyExpired,
@@ -251,35 +297,59 @@ type ctxKey string
 
 const expectWithinContextKey ctxKey = "expectWithin"
 
-// GetExpectWithinFromContext retrieves the ExpectWithinContext from the context.
-func GetExpectWithinFromContext(ctx context.Context) (ExpectWithinContext, bool) {
+// GetExpectWithinFromContext retrieves the ProvidedDeadline from the context. Returns nil if the context does not have
+// a ProvidedDeadline set on it.
+func GetExpectWithinFromContext(ctx context.Context) (*ProvidedDeadline, bool) {
 	val := ctx.Value(expectWithinContextKey)
 	if val == nil {
-		return ExpectWithinContext{}, false
+		return nil, false
 	}
-	ewc, ok := val.(ExpectWithinContext)
+	ewc, ok := val.(*ProvidedDeadline)
 	return ewc, ok
 }
 
-// ContextWithExpectWithin returns a copy of the context with the ExpectWithinContext set.
-func ContextWithExpectWithin(ctx context.Context, ewc ExpectWithinContext) context.Context {
-	return context.WithValue(ctx, expectWithinContextKey, ewc)
+// ContextWithExpectWithin returns a copy of the provided context with the ProvidedDeadline set to be a pointer to the
+// provided parameter.
+func ContextWithExpectWithin(ctx context.Context, ewc ProvidedDeadline) context.Context {
+	return context.WithValue(ctx, expectWithinContextKey, &ewc)
 }
 
-// ContextWithDeadline creates a new context with an expect-within deadline.
-// The deadline is the duration from now.
+// ContextWithDeadline returns a copy of the provided context with the ProvidedDeadline set to be a ProvidedDeadline
+// value with the current start time and specified values.
 func ContextWithDeadline(ctx context.Context, deadline time.Duration, enforcement Enforcement) context.Context {
-	ewc := ExpectWithinContext{
+	return ContextWithExpectWithin(ctx, ProvidedDeadline{
 		Remaining:   deadline,
 		StartTime:   time.Now().UnixMilli(),
 		Enforcement: enforcement,
+	})
+}
+
+// DisableFurtherDeadlinePropagation returns a context that disables propagation of deadline values any further. If the
+// provided context has a ProvidedDeadline value set, its DisablePropagation and Enforcement values are updated directly
+// and the provided context is returned -- this means that any parent contexts that refer to the same ProvidedDeadline
+// will reflect this update. If the provided context does not have ProvidedDeadline set, this function returns a copy of
+// the provided context with a ProvidedDeadline that sets DisablePropagation to true.
+//
+// Callers can use this to short-circuit deadline propagation from the current trace when they are sure that further
+// operations should not be subject to deadline enforcement.
+//
+// Further calls to EncodeToRequest will result in a no-op (the middleware will not set any header values related to
+// Expect-Within on requests).
+func DisableFurtherDeadlinePropagation(ctx context.Context) context.Context {
+	if existing, ok := GetExpectWithinFromContext(ctx); ok {
+		existing.DisablePropagation = true
+		// set the enforcement to DEFER to avoid having checkExpiration return an error
+		existing.Enforcement = EnforcementDefer
+		return ctx
 	}
-	return ContextWithExpectWithin(ctx, ewc)
+	return ContextWithExpectWithin(ctx, ProvidedDeadline{
+		DisablePropagation: true,
+	})
 }
 
 // GetRemainingDeadline returns the remaining time until the deadline expires.
 // Returns 0 if the deadline has already expired or if no deadline is set.
-func GetRemainingDeadline(expectWithin ExpectWithinContext) time.Duration {
+func GetRemainingDeadline(expectWithin ProvidedDeadline) time.Duration {
 	now := time.Now().UnixMilli()
 	elapsedMillis := now - expectWithin.StartTime
 	elapsed := time.Duration(elapsedMillis) * time.Millisecond

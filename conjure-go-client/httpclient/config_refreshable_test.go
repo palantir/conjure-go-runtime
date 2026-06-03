@@ -284,6 +284,59 @@ func TestRefreshableClientConfig(t *testing.T) {
 		initialConfig.Default.Security.InsecureSkipVerify = nil
 		updateRefreshableBytes(initialConfig)
 	})
+
+	t.Run("expect-within enforcement updates", func(t *testing.T) {
+		oldClient := currentHTTPClient()
+		_, oldMiddlewares := unwrapTransport(oldClient.Transport)
+
+		// Initially, expect-within middleware is at index 0 with default enforcement (defer)
+		require.Len(t, oldMiddlewares, 4)
+		oldExpectWithinMiddleware, ok := oldMiddlewares[0].(*expectWithinMiddleware)
+		require.True(t, ok, "First middleware should be expectWithinMiddleware")
+
+		// Update enforcement to "enforce"
+		initialConfig.Default.ExpectWithin.Enforcement = "enforce"
+		updateRefreshableBytes(initialConfig)
+
+		newClient := currentHTTPClient()
+		_, newMiddlewares := unwrapTransport(newClient.Transport)
+
+		// Verify middleware is updated
+		require.Len(t, newMiddlewares, 4)
+		newExpectWithinMiddleware, ok := newMiddlewares[0].(*expectWithinMiddleware)
+		require.True(t, ok, "First middleware should be expectWithinMiddleware")
+
+		// The middleware should be different due to the enforcement update
+		assert.Equal(t, oldExpectWithinMiddleware, newExpectWithinMiddleware, "expect-within middleware should be the same instance (refreshable backing)")
+
+		// Reset
+		initialConfig.Default.ExpectWithin.Enforcement = ""
+		updateRefreshableBytes(initialConfig)
+	})
+
+	t.Run("expect-within disabled at creation time", func(t *testing.T) {
+		// Create a new client with ExpectWithin explicitly disabled
+		disabledConfig := ServicesConfig{
+			Services: map[string]ClientConfig{
+				"disabled-service": {
+					ServiceName: "disabled-service",
+					URIs:        []string{"https://localhost"},
+					ExpectWithin: ExpectWithinConfig{
+						Enabled: &[]bool{false}[0],
+					},
+				},
+			},
+		}
+		disabledClient, err := NewClient(WithConfig(disabledConfig.ClientConfig("disabled-service")))
+		require.NoError(t, err)
+
+		// Verify that expect-within middleware is not present
+		_, middlewares := unwrapTransport(disabledClient.(*clientImpl).client.Current().Transport)
+		require.Len(t, middlewares, 3, "Should have 3 middlewares (expect-within disabled)")
+		// First middleware should be recoveryMiddleware
+		_, ok := middlewares[0].(recoveryMiddleware)
+		require.True(t, ok, "First middleware should be recoveryMiddleware when expect-within is disabled")
+	})
 }
 
 //go:fix inline

@@ -26,11 +26,11 @@ import (
 // 1. Checks if the deadline has expired before making a request
 // 2. Propagates the remaining deadline as a header on outbound requests
 type expectWithinMiddleware struct {
-	enforcement deadlines.Enforcement
+	enforcement refreshable.Refreshable[deadlines.Enforcement]
 	timeout     refreshable.Refreshable[time.Duration]
 }
 
-func newExpectWithinMiddleware(enforcement deadlines.Enforcement, timeout refreshable.Refreshable[time.Duration]) Middleware {
+func newExpectWithinMiddleware(enforcement refreshable.Refreshable[deadlines.Enforcement], timeout refreshable.Refreshable[time.Duration]) Middleware {
 	return &expectWithinMiddleware{
 		enforcement: enforcement,
 		timeout:     timeout,
@@ -38,17 +38,24 @@ func newExpectWithinMiddleware(enforcement deadlines.Enforcement, timeout refres
 }
 
 func (m *expectWithinMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (*http.Response, error) {
-	proposedDeadline := m.timeout.Current()
-
-	// Match Java behavior: if timeout is <= 0, use a large value (1 day) rather than putting 0 on the wire
-	// https://github.com/palantir/dialogue/blob/c4856aeea7600a472dbb881d9544652a9f184dbf/dialogue-core/src/main/java/com/palantir/dialogue/core/DeadlineAdvertisementChannel.java#L59
-	if proposedDeadline <= 0 {
-		proposedDeadline = 24 * time.Hour
-	}
-
-	if err := deadlines.EncodeToRequest(req.Context(), proposedDeadline, req, m.enforcement); err != nil {
+	// encode the deadline in the request
+	if err := deadlines.EncodeToRequest(req.Context(), m.getProposedDeadline(), req, m.enforcement.Current()); err != nil {
 		return nil, err
 	}
 
 	return next.RoundTrip(req)
+}
+
+// getProposedDeadline returns the proposed deadline for a call. Returns the client's connection timeout value or, if
+// that value is <=0, returns a large value (1 day).
+func (m *expectWithinMiddleware) getProposedDeadline() time.Duration {
+	// start proposed deadline as connection timeout value
+	proposedDeadline := m.timeout.Current()
+
+	// Match Java behavior: if timeout is <= 0, use a large value (1 day) rather than putting 0 on the wire.
+	// https://github.com/palantir/dialogue/blob/c4856aeea7600a472dbb881d9544652a9f184dbf/dialogue-core/src/main/java/com/palantir/dialogue/core/DeadlineAdvertisementChannel.java#L59
+	if proposedDeadline <= 0 {
+		proposedDeadline = 24 * time.Hour
+	}
+	return proposedDeadline
 }

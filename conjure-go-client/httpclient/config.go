@@ -22,6 +22,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpclient/deadlines"
 	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpclient/internal/refreshingclient"
 	"github.com/palantir/pkg/metrics"
 	werror "github.com/palantir/witchcraft-go-error"
@@ -112,6 +113,9 @@ type ClientConfig struct {
 	// Security configures the TLS configuration for the client. It accepts file paths which should be
 	// absolute paths or relative to the process's current working directory.
 	Security SecurityConfig `json:"security" yaml:"security,omitempty"`
+
+	// ExpectWithin allows disabling Expect-Within middleware entirely or configuring the default enforcement mode.
+	ExpectWithin ExpectWithinConfig `json:"expect-within" yaml:"expect-within,omitempty"`
 }
 
 // BasicAuth represents the configuration for HTTP Basic Authorization
@@ -127,6 +131,13 @@ type MetricsConfig struct {
 	Enabled *bool `json:"enabled,omitempty" yaml:"enabled,omitempty"`
 	// Tags allows setting arbitrary additional tags on the metrics emitted by the client.
 	Tags map[string]string `json:"tags,omitempty" yaml:"tags,omitempty"`
+}
+
+type ExpectWithinConfig struct {
+	// Enabled can be used to disable the Expect-Within middleware with an explicit 'false'. Expect-Within behavior is enabled if this is unset.
+	Enabled *bool `json:"enabled,omitempty" yaml:"enabled,omitempty"`
+	// Enforcement sets the enforcement mode set in the Expect-Within-Enforced header for requests. Can be ""/"defer", "enforce", or "disable"
+	Enforcement string `json:"enforcement,omitempty" yaml:"enforcement,omitempty"`
 }
 
 type SecurityConfig struct {
@@ -261,6 +272,12 @@ func MergeClientConfig(conf, defaults ClientConfig) ClientConfig {
 	if conf.Security.DynamicCertReload == nil {
 		conf.Security.DynamicCertReload = defaults.Security.DynamicCertReload
 	}
+	if conf.ExpectWithin.Enabled == nil {
+		conf.ExpectWithin.Enabled = defaults.ExpectWithin.Enabled
+	}
+	if conf.ExpectWithin.Enforcement == "" {
+		conf.ExpectWithin.Enforcement = defaults.ExpectWithin.Enforcement
+	}
 	return conf
 }
 
@@ -318,6 +335,19 @@ func configToParams(c ClientConfig) ([]ClientParam, error) {
 			return nil, werror.Wrap(err, "invalid metrics configuration")
 		}
 		params = append(params, WithMetrics(StaticTagsProvider(configuredTags)))
+	}
+
+	// Expect-Within (default enabled)
+
+	// if Expect-Within is explicitly disabled, configure as such
+	if c.ExpectWithin.Enabled != nil && !*c.ExpectWithin.Enabled {
+		params = append(params, WithDisableExpectWithinIntegration())
+	} else if c.ExpectWithin.Enforcement != "" {
+		enforcement, err := deadlines.ParseEnforcement(c.ExpectWithin.Enforcement)
+		if err != nil {
+			return nil, werror.Wrap(err, "invalid Expect-Within enforcement configuration")
+		}
+		params = append(params, WithExpectWithinEnforcement(enforcement))
 	}
 
 	// Proxy
@@ -485,18 +515,24 @@ func newValidatedClientParamsFromConfig(ctx context.Context, config ClientConfig
 	}
 	slices.Sort(uris)
 
+	expectWithinEnforcement, err := deadlines.ParseEnforcement(config.ExpectWithin.Enforcement)
+	if err != nil {
+		return refreshingclient.ValidatedClientParams{}, werror.WrapWithContextParams(ctx, err, "invalid Expect-Within Enforcement")
+	}
+
 	return refreshingclient.ValidatedClientParams{
-		APIToken:       apiToken,
-		BasicAuth:      basicAuth,
-		Dialer:         dialer,
-		DisableMetrics: disableMetrics,
-		MaxAttempts:    maxAttempts,
-		MetricsTags:    metricsTags,
-		Retry:          retryParams,
-		ServiceName:    config.ServiceName,
-		Timeout:        timeout,
-		Transport:      transport,
-		URIs:           uris,
+		APIToken:                apiToken,
+		BasicAuth:               basicAuth,
+		Dialer:                  dialer,
+		DisableMetrics:          disableMetrics,
+		MaxAttempts:             maxAttempts,
+		MetricsTags:             metricsTags,
+		ExpectWithinEnforcement: expectWithinEnforcement,
+		Retry:                   retryParams,
+		ServiceName:             config.ServiceName,
+		Timeout:                 timeout,
+		Transport:               transport,
+		URIs:                    uris,
 	}, nil
 }
 

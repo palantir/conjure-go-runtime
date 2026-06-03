@@ -49,6 +49,60 @@ func TestServicesConfig(t *testing.T) {
 				ReadTimeout: &[]time.Duration{time.Minute}[0],
 			},
 		},
+		{
+			Name:        "expect-within config merged from defaults",
+			ServiceName: "my-service",
+			Config: ServicesConfig{
+				Default: ClientConfig{
+					ExpectWithin: ExpectWithinConfig{
+						Enabled:     &[]bool{true}[0],
+						Enforcement: "enforce",
+					},
+				},
+				Services: map[string]ClientConfig{
+					"my-service": {
+						APIToken: &[]string{"so-secret"}[0],
+					},
+				},
+			},
+			ExpectedConfig: ClientConfig{
+				ServiceName: "my-service",
+				APIToken:    &[]string{"so-secret"}[0],
+				ExpectWithin: ExpectWithinConfig{
+					Enabled:     &[]bool{true}[0],
+					Enforcement: "enforce",
+				},
+			},
+		},
+		{
+			Name:        "expect-within config service overrides defaults",
+			ServiceName: "my-service",
+			Config: ServicesConfig{
+				Default: ClientConfig{
+					ExpectWithin: ExpectWithinConfig{
+						Enabled:     &[]bool{true}[0],
+						Enforcement: "enforce",
+					},
+				},
+				Services: map[string]ClientConfig{
+					"my-service": {
+						APIToken: &[]string{"so-secret"}[0],
+						ExpectWithin: ExpectWithinConfig{
+							Enabled:     &[]bool{false}[0],
+							Enforcement: "disable",
+						},
+					},
+				},
+			},
+			ExpectedConfig: ClientConfig{
+				ServiceName: "my-service",
+				APIToken:    &[]string{"so-secret"}[0],
+				ExpectWithin: ExpectWithinConfig{
+					Enabled:     &[]bool{false}[0],
+					Enforcement: "disable",
+				},
+			},
+		},
 	} {
 		t.Run(test.Name, func(t *testing.T) {
 			actual := test.Config.ClientConfig(test.ServiceName)
@@ -137,6 +191,65 @@ clients:
 						BasicAuth: &BasicAuth{
 							User:     "user",
 							Password: "password",
+						},
+					},
+				},
+			},
+		},
+		{
+			Name: "expect-within enabled false configuration",
+			ServicesConfigYAML: `
+clients:
+  services:
+    my-service:
+      expect-within:
+        enabled: false
+`,
+			ExpectedConfig: ServicesConfig{
+				Services: map[string]ClientConfig{
+					"my-service": {
+						ExpectWithin: ExpectWithinConfig{
+							Enabled: &[]bool{false}[0],
+						},
+					},
+				},
+			},
+		},
+		{
+			Name: "expect-within enforcement configuration",
+			ServicesConfigYAML: `
+clients:
+  services:
+    my-service:
+      expect-within:
+        enforcement: enforce
+`,
+			ExpectedConfig: ServicesConfig{
+				Services: map[string]ClientConfig{
+					"my-service": {
+						ExpectWithin: ExpectWithinConfig{
+							Enforcement: "enforce",
+						},
+					},
+				},
+			},
+		},
+		{
+			Name: "expect-within full configuration",
+			ServicesConfigYAML: `
+clients:
+  services:
+    my-service:
+      expect-within:
+        enabled: true
+        enforcement: disable
+`,
+			ExpectedConfig: ServicesConfig{
+				Services: map[string]ClientConfig{
+					"my-service": {
+						ExpectWithin: ExpectWithinConfig{
+							Enabled:     &[]bool{true}[0],
+							Enforcement: "disable",
 						},
 					},
 				},

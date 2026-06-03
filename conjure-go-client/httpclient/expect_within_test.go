@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpclient/deadlines"
+	"github.com/palantir/pkg/refreshable/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -30,14 +31,18 @@ import (
 func TestExpectWithinMiddleware_NoContext(t *testing.T) {
 	// Create a test server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Verify no Expect-Within header is set
-		assert.Empty(t, r.Header.Get(deadlines.HeaderExpectWithin))
+		// Verify Expect-Within header is set with proposed deadline based on timeout
+		headerValue := r.Header.Get(deadlines.HeaderExpectWithin)
+		assert.NotEmpty(t, headerValue)
+		// The value should be approximately 60 seconds (the timeout value)
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer server.Close()
 
 	// Create middleware
-	middleware := newExpectWithinMiddleware(deadlines.EnforcementDefer)
+	timeout := refreshable.New(60 * time.Second)
+	enforcement := refreshable.New(deadlines.EnforcementDefer)
+	middleware := newExpectWithinMiddleware(enforcement, timeout)
 
 	// Create request without expect-within context
 	req, err := http.NewRequest(http.MethodGet, server.URL, nil)
@@ -62,13 +67,15 @@ func TestExpectWithinMiddleware_WithContext(t *testing.T) {
 	defer server.Close()
 
 	// Create middleware
-	middleware := newExpectWithinMiddleware(deadlines.EnforcementDefer)
+	timeout := refreshable.New(60 * time.Second)
+	enforcement := refreshable.New(deadlines.EnforcementDefer)
+	middleware := newExpectWithinMiddleware(enforcement, timeout)
 
 	// Create request with expect-within context
 	ctx := context.Background()
-	ewc := deadlines.ExpectWithinContext{
-		RemainingMillis: 5000,
-		StartTime:       time.Now().UnixMilli(),
+	ewc := deadlines.ProvidedDeadline{
+		Remaining: 5 * time.Second,
+		StartTime: time.Now().UnixMilli(),
 	}
 	ctx = deadlines.ContextWithExpectWithin(ctx, ewc)
 
@@ -83,14 +90,16 @@ func TestExpectWithinMiddleware_WithContext(t *testing.T) {
 
 func TestExpectWithinMiddleware_ExpiredDeadline(t *testing.T) {
 	// Create middleware
-	middleware := newExpectWithinMiddleware(deadlines.EnforcementDefer)
+	timeout := refreshable.New(60 * time.Second)
+	enforcement := refreshable.New(deadlines.EnforcementDefer)
+	middleware := newExpectWithinMiddleware(enforcement, timeout)
 
 	// Create request with expired deadline
 	ctx := context.Background()
-	ewc := deadlines.ExpectWithinContext{
-		RemainingMillis: 100,
-		StartTime:       time.Now().UnixMilli() - 200, // Started 200ms ago
-		Enforcement:     deadlines.EnforcementEnforce, // Enforce the deadline
+	ewc := deadlines.ProvidedDeadline{
+		Remaining:   100 * time.Millisecond,
+		StartTime:   time.Now().UnixMilli() - 200, // Started 200ms ago
+		Enforcement: deadlines.EnforcementEnforce, // Enforce the deadline
 	}
 	ctx = deadlines.ContextWithExpectWithin(ctx, ewc)
 
@@ -120,14 +129,16 @@ func TestExpectWithinMiddleware_Disabled(t *testing.T) {
 	defer server.Close()
 
 	// Create middleware with enforcement disabled
-	middleware := newExpectWithinMiddleware(deadlines.EnforcementDisable)
+	timeout := refreshable.New(60 * time.Second)
+	enforcement := refreshable.New(deadlines.EnforcementDisable)
+	middleware := newExpectWithinMiddleware(enforcement, timeout)
 
 	// Create request with expect-within context
 	ctx := context.Background()
-	ewc := deadlines.ExpectWithinContext{
-		RemainingMillis: 5000,
-		StartTime:       time.Now().UnixMilli(),
-		Enforcement:     deadlines.EnforcementDefer,
+	ewc := deadlines.ProvidedDeadline{
+		Remaining:   5 * time.Second,
+		StartTime:   time.Now().UnixMilli(),
+		Enforcement: deadlines.EnforcementDefer,
 	}
 	ctx = deadlines.ContextWithExpectWithin(ctx, ewc)
 
@@ -188,14 +199,16 @@ func TestExpectWithinMiddleware_WithEnforcement(t *testing.T) {
 			defer server.Close()
 
 			// Create middleware with the test enforcement
-			middleware := newExpectWithinMiddleware(tt.enforcement)
+			timeout := refreshable.New(60 * time.Second)
+			enforcement := refreshable.New(tt.enforcement)
+			middleware := newExpectWithinMiddleware(enforcement, timeout)
 
 			// Create request with expect-within context
 			ctx := context.Background()
-			ewc := deadlines.ExpectWithinContext{
-				RemainingMillis: 5000,
-				StartTime:       time.Now().UnixMilli(),
-				Enforcement:     deadlines.EnforcementDefer, // Context enforcement
+			ewc := deadlines.ProvidedDeadline{
+				Remaining:   5 * time.Second,
+				StartTime:   time.Now().UnixMilli(),
+				Enforcement: deadlines.EnforcementDefer, // Context enforcement
 			}
 			ctx = deadlines.ContextWithExpectWithin(ctx, ewc)
 

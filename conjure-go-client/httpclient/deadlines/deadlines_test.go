@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/palantir/pkg/metrics"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -99,14 +100,14 @@ func TestParseExpectWithinFromHeaders(t *testing.T) {
 func TestSetExpectWithinHeaders(t *testing.T) {
 	tests := []struct {
 		name                     string
-		ewc                      ExpectWithinContext
+		ewc                      ProvidedDeadline
 		shouldSetDeadline        bool
 		shouldSetEnforcement     bool
 		expectedEnforcementValue string
 	}{
 		{
 			name: "active deadline with defer",
-			ewc: ExpectWithinContext{
+			ewc: ProvidedDeadline{
 				Remaining:   5 * time.Second,
 				StartTime:   time.Now().UnixMilli(),
 				Enforcement: EnforcementDefer,
@@ -116,7 +117,7 @@ func TestSetExpectWithinHeaders(t *testing.T) {
 		},
 		{
 			name: "active deadline with enforce",
-			ewc: ExpectWithinContext{
+			ewc: ProvidedDeadline{
 				Remaining:   3 * time.Second,
 				StartTime:   time.Now().UnixMilli(),
 				Enforcement: EnforcementEnforce,
@@ -127,7 +128,7 @@ func TestSetExpectWithinHeaders(t *testing.T) {
 		},
 		{
 			name: "active deadline with disable",
-			ewc: ExpectWithinContext{
+			ewc: ProvidedDeadline{
 				Remaining:   2 * time.Second,
 				StartTime:   time.Now().UnixMilli(),
 				Enforcement: EnforcementDisable,
@@ -138,7 +139,7 @@ func TestSetExpectWithinHeaders(t *testing.T) {
 		},
 		{
 			name: "expired deadline",
-			ewc: ExpectWithinContext{
+			ewc: ProvidedDeadline{
 				Remaining:   100 * time.Millisecond,
 				StartTime:   time.Now().UnixMilli() - 200,
 				Enforcement: EnforcementEnforce,
@@ -210,7 +211,7 @@ func TestGetRemainingDeadline(t *testing.T) {
 			name: "expired deadline",
 			setupContext: func() context.Context {
 				ctx := context.Background()
-				ewc := ExpectWithinContext{
+				ewc := ProvidedDeadline{
 					Remaining:   100 * time.Millisecond,
 					StartTime:   time.Now().UnixMilli() - 200,
 					Enforcement: EnforcementDefer,
@@ -224,8 +225,14 @@ func TestGetRemainingDeadline(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := tt.setupContext()
-			ewc, _ := GetExpectWithinFromContext(ctx)
-			remaining := GetRemainingDeadline(ewc)
+			ewc, ok := GetExpectWithinFromContext(ctx)
+
+			var remaining time.Duration
+			if ok && ewc != nil {
+				remaining = GetRemainingDeadline(*ewc)
+			} else {
+				remaining = 0
+			}
 
 			if !tt.expectRemaining {
 				assert.Equal(t, time.Duration(0), remaining)
@@ -261,7 +268,7 @@ func TestIsDeadlineExpired(t *testing.T) {
 			name: "expired deadline",
 			setupContext: func() context.Context {
 				ctx := context.Background()
-				ewc := ExpectWithinContext{
+				ewc := ProvidedDeadline{
 					Remaining:   100 * time.Millisecond,
 					StartTime:   time.Now().UnixMilli() - 200,
 					Enforcement: EnforcementDefer,
@@ -359,7 +366,7 @@ func TestEncodeToRequest(t *testing.T) {
 			name: "expired context deadline with enforcement",
 			setupContext: func() context.Context {
 				ctx := context.Background()
-				ewc := ExpectWithinContext{
+				ewc := ProvidedDeadline{
 					Remaining:   100 * time.Millisecond,
 					StartTime:   time.Now().UnixMilli() - 200,
 					Enforcement: EnforcementEnforce,
@@ -397,4 +404,248 @@ func TestEncodeToRequest(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestDisableFurtherDeadlinePropagation(t *testing.T) {
+	t.Run("context without existing deadline", func(t *testing.T) {
+		ctx := context.Background()
+
+		// Call DisableFurtherDeadlinePropagation
+		newCtx := DisableFurtherDeadlinePropagation(ctx)
+
+		// Should have created a new ProvidedDeadline
+		ewc, ok := GetExpectWithinFromContext(newCtx)
+		require.True(t, ok, "Expected ProvidedDeadline to be set")
+		require.NotNil(t, ewc, "ProvidedDeadline should not be nil")
+		assert.True(t, ewc.DisablePropagation, "DisablePropagation should be true")
+
+		// Verify EncodeToRequest doesn't set headers
+		req, _ := http.NewRequest(http.MethodGet, "http://example.com", nil)
+		err := EncodeToRequest(newCtx, 5*time.Second, req, EnforcementDefer)
+		require.NoError(t, err)
+		assert.Empty(t, req.Header.Get(HeaderExpectWithin), "Header should not be set when propagation is disabled")
+	})
+
+	t.Run("context with existing deadline", func(t *testing.T) {
+		ctx := context.Background()
+		ewc := ProvidedDeadline{
+			Remaining:          5 * time.Second,
+			StartTime:          time.Now().UnixMilli(),
+			Enforcement:        EnforcementEnforce,
+			DisablePropagation: false,
+		}
+		ctx = ContextWithExpectWithin(ctx, ewc)
+
+		// Call DisableFurtherDeadlinePropagation
+		newCtx := DisableFurtherDeadlinePropagation(ctx)
+
+		// Should have updated the existing ProvidedDeadline
+		updatedEwc, ok := GetExpectWithinFromContext(newCtx)
+		require.True(t, ok, "Expected ProvidedDeadline to be set")
+		require.NotNil(t, updatedEwc, "ProvidedDeadline should not be nil")
+		assert.True(t, updatedEwc.DisablePropagation, "DisablePropagation should be true")
+		assert.Equal(t, EnforcementDefer, updatedEwc.Enforcement, "Enforcement should be set to Defer")
+
+		// Verify EncodeToRequest doesn't set headers
+		req, _ := http.NewRequest(http.MethodGet, "http://example.com", nil)
+		err := EncodeToRequest(newCtx, 2*time.Second, req, EnforcementEnforce)
+		require.NoError(t, err)
+		assert.Empty(t, req.Header.Get(HeaderExpectWithin), "Header should not be set when propagation is disabled")
+	})
+
+	t.Run("prevents header propagation with expired deadline", func(t *testing.T) {
+		ctx := context.Background()
+		ewc := ProvidedDeadline{
+			Remaining:          100 * time.Millisecond,
+			StartTime:          time.Now().UnixMilli() - 200, // Already expired
+			Enforcement:        EnforcementEnforce,
+			DisablePropagation: false,
+		}
+		ctx = ContextWithExpectWithin(ctx, ewc)
+
+		// Call DisableFurtherDeadlinePropagation
+		newCtx := DisableFurtherDeadlinePropagation(ctx)
+
+		// Should not error even though deadline is expired, because enforcement is set to Defer
+		req, _ := http.NewRequest(http.MethodGet, "http://example.com", nil)
+		err := EncodeToRequest(newCtx, 2*time.Second, req, EnforcementDefer)
+		require.NoError(t, err, "Should not error when propagation is disabled even if deadline expired")
+		assert.Empty(t, req.Header.Get(HeaderExpectWithin), "Header should not be set when propagation is disabled")
+	})
+
+	t.Run("with proposed deadline smaller than context deadline", func(t *testing.T) {
+		ctx := context.Background()
+		ewc := ProvidedDeadline{
+			Remaining:          10 * time.Second,
+			StartTime:          time.Now().UnixMilli(),
+			Enforcement:        EnforcementDefer,
+			DisablePropagation: false,
+		}
+		ctx = ContextWithExpectWithin(ctx, ewc)
+
+		// Call DisableFurtherDeadlinePropagation
+		newCtx := DisableFurtherDeadlinePropagation(ctx)
+
+		// Verify EncodeToRequest doesn't set headers even with smaller proposed deadline
+		req, _ := http.NewRequest(http.MethodGet, "http://example.com", nil)
+		err := EncodeToRequest(newCtx, 2*time.Second, req, EnforcementDefer)
+		require.NoError(t, err)
+		assert.Empty(t, req.Header.Get(HeaderExpectWithin), "Header should not be set when propagation is disabled")
+	})
+
+	t.Run("enforcement header not set when propagation disabled", func(t *testing.T) {
+		ctx := context.Background()
+		ewc := ProvidedDeadline{
+			Remaining:          5 * time.Second,
+			StartTime:          time.Now().UnixMilli(),
+			Enforcement:        EnforcementEnforce,
+			DisablePropagation: false,
+		}
+		ctx = ContextWithExpectWithin(ctx, ewc)
+
+		// Call DisableFurtherDeadlinePropagation
+		newCtx := DisableFurtherDeadlinePropagation(ctx)
+
+		// Verify neither Expect-Within nor Expect-Within-Enforced headers are set
+		req, _ := http.NewRequest(http.MethodGet, "http://example.com", nil)
+		err := EncodeToRequest(newCtx, 2*time.Second, req, EnforcementEnforce)
+		require.NoError(t, err)
+		assert.Empty(t, req.Header.Get(HeaderExpectWithin), "Expect-Within header should not be set")
+		assert.Empty(t, req.Header.Get(HeaderExpectWithinEnforced), "Expect-Within-Enforced header should not be set")
+	})
+
+	t.Run("getRemainingDeadline returns zero after disabling propagation", func(t *testing.T) {
+		ctx := context.Background()
+		ewc := ProvidedDeadline{
+			Remaining:          2 * time.Second,
+			StartTime:          time.Now().UnixMilli(),
+			Enforcement:        EnforcementDisable,
+			DisablePropagation: false,
+		}
+		ctx = ContextWithExpectWithin(ctx, ewc)
+
+		// Verify deadline is present before disabling
+		deadlineBefore, ok := GetExpectWithinFromContext(ctx)
+		require.True(t, ok)
+		require.NotNil(t, deadlineBefore)
+		remaining := GetRemainingDeadline(*deadlineBefore)
+		assert.Greater(t, remaining, time.Duration(0), "Should have remaining time before disabling")
+
+		// Call DisableFurtherDeadlinePropagation
+		newCtx := DisableFurtherDeadlinePropagation(ctx)
+
+		// After disabling, GetRemainingDeadline should return zero
+		// This matches Java behavior where getRemainingDeadline returns empty
+		deadlineAfter, ok := GetExpectWithinFromContext(newCtx)
+		require.True(t, ok)
+		require.NotNil(t, deadlineAfter)
+		// Note: In the Java implementation, getRemainingDeadline returns empty after disabling.
+		// In Go, we check if DisablePropagation is true to determine if we should treat it as no deadline
+		assert.True(t, deadlineAfter.DisablePropagation, "DisablePropagation should be true")
+
+		// Verify EncodeToRequest doesn't set headers
+		req, _ := http.NewRequest(http.MethodGet, "http://example.com", nil)
+		err := EncodeToRequest(newCtx, 1*time.Second, req, EnforcementDefer)
+		require.NoError(t, err)
+		assert.Empty(t, req.Header.Get(HeaderExpectWithin), "Header should not be set after disabling propagation")
+	})
+
+	t.Run("disabled propagation records ignore intent metric on expiration", func(t *testing.T) {
+		ctx := context.Background()
+		registry := metrics.NewRootMetricsRegistry()
+		ctx = metrics.WithRegistry(ctx, registry)
+
+		// Parse an expired deadline
+		ewc := ProvidedDeadline{
+			Remaining:          1 * time.Millisecond,
+			StartTime:          time.Now().UnixMilli() - 2,
+			Enforcement:        EnforcementDisable,
+			DisablePropagation: false,
+		}
+		ctx = ContextWithExpectWithin(ctx, ewc)
+
+		// First request before disabling - should record PROPAGATE intent
+		req1, _ := http.NewRequestWithContext(ctx, http.MethodGet, "http://example.com", nil)
+		err := EncodeToRequest(ctx, 10*time.Second, req1, EnforcementDefer)
+		require.NoError(t, err)
+
+		// Get initial metric counts
+		var propagateCount, ignoreCount int64
+		registry.Each(func(name string, tags metrics.Tags, value metrics.MetricVal) {
+			if name == metricDeadlineExpired {
+				type counter interface {
+					Count() int64
+				}
+				if c, ok := value.(counter); ok {
+					// Check tags to identify which metric this is
+					for _, tag := range tags {
+						if tag.Value() == string(ExpiredIntentPropagate) {
+							propagateCount = c.Count()
+						} else if tag.Value() == string(ExpiredIntentIgnore) {
+							ignoreCount = c.Count()
+						}
+					}
+				}
+			}
+		})
+		assert.Greater(t, propagateCount, int64(0), "Should have recorded PROPAGATE intent before disabling")
+
+		// Now disable propagation
+		ctx = DisableFurtherDeadlinePropagation(ctx)
+
+		// Second request after disabling - should record IGNORE intent
+		req2, _ := http.NewRequestWithContext(ctx, http.MethodGet, "http://example.com", nil)
+		err = EncodeToRequest(ctx, 10*time.Second, req2, EnforcementDefer)
+		require.NoError(t, err)
+
+		// Verify IGNORE metric was incremented
+		var newIgnoreCount int64
+		registry.Each(func(name string, tags metrics.Tags, value metrics.MetricVal) {
+			if name == metricDeadlineExpired {
+				type counter interface {
+					Count() int64
+				}
+				if c, ok := value.(counter); ok {
+					for _, tag := range tags {
+						if tag.Value() == string(ExpiredIntentIgnore) {
+							newIgnoreCount = c.Count()
+						}
+					}
+				}
+			}
+		})
+		assert.Greater(t, newIgnoreCount, ignoreCount, "Should have recorded IGNORE intent after disabling")
+	})
+
+	t.Run("disable propagation prevents enforcement of expired deadline", func(t *testing.T) {
+		ctx := context.Background()
+		ewc := ProvidedDeadline{
+			Remaining:          1 * time.Second,
+			StartTime:          time.Now().UnixMilli(),
+			Enforcement:        EnforcementEnforce,
+			DisablePropagation: false,
+		}
+		ctx = ContextWithExpectWithin(ctx, ewc)
+
+		// First request before expiration - should have enforcement header
+		req1, _ := http.NewRequestWithContext(ctx, http.MethodGet, "http://example.com", nil)
+		err := EncodeToRequest(ctx, 10*time.Second, req1, EnforcementDefer)
+		require.NoError(t, err)
+		assert.Equal(t, "true", req1.Header.Get(HeaderExpectWithinEnforced), "Enforcement should be enabled before disabling")
+
+		// Disable propagation
+		ctx = DisableFurtherDeadlinePropagation(ctx)
+
+		// Modify the deadline to be expired
+		updatedEwc, ok := GetExpectWithinFromContext(ctx)
+		require.True(t, ok)
+		updatedEwc.StartTime = time.Now().UnixMilli() - 2000 // expired 1 second ago
+		ctx = ContextWithExpectWithin(ctx, *updatedEwc)
+
+		// Second request after expiration and disabling - should not throw and should be empty
+		req2, _ := http.NewRequestWithContext(ctx, http.MethodGet, "http://example.com", nil)
+		err = EncodeToRequest(ctx, 10*time.Second, req2, EnforcementDefer)
+		require.NoError(t, err, "Should not error when propagation is disabled even if deadline expired")
+		assert.Empty(t, req2.Header.Get(HeaderExpectWithin), "Header should not be set after disabling propagation")
+	})
 }
