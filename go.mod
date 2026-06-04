@@ -16,7 +16,7 @@ require (
 	github.com/palantir/pkg/uuid v1.3.0
 	github.com/palantir/witchcraft-go-error v1.45.0
 	github.com/palantir/witchcraft-go-logging v1.69.0
-	github.com/palantir/witchcraft-go-params v1.41.0
+	github.com/palantir/witchcraft-go-params v1.42.0
 	github.com/palantir/witchcraft-go-tracing v1.43.0
 	github.com/stretchr/testify v1.11.1
 	golang.org/x/net v0.55.0
