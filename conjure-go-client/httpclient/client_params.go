@@ -23,6 +23,7 @@ import (
 
 	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpclient/internal"
 	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpclient/internal/refreshingclient"
+	"github.com/palantir/conjure-go-runtime/v3/conjure-go-contract/errors"
 	"github.com/palantir/pkg/bytesbuffers"
 	"github.com/palantir/pkg/refreshable/v2"
 	werror "github.com/palantir/witchcraft-go-error"
@@ -173,6 +174,12 @@ func WithAuthTokenProvider(provideToken TokenProvider) ClientOrHTTPClientParam {
 // WithUserAgent sets the User-Agent header.
 func WithUserAgent(userAgent string) ClientOrHTTPClientParam {
 	return WithSetHeader("User-Agent", userAgent)
+}
+
+// WithConjureErrorParameterFormat sets the "Accept-Conjure-Error-Parameter-Format" header on
+// every request so that conjure servers serialize error parameters in the requested format.
+func WithConjureErrorParameterFormat(format errors.ConjureErrorParameterFormat) ClientOrHTTPClientParam {
+	return WithSetHeader(errors.AcceptConjureErrorParameterFormatHeader, string(format))
 }
 
 // WithOverrideRequestHost overrides the request Host from the default URL.Host

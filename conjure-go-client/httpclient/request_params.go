@@ -72,6 +72,12 @@ func WithHeader(key, value string) RequestParam {
 	})
 }
 
+// WithConjureErrorParameterFormatHeader sets the "Accept-Conjure-Error-Parameter-Format"
+// header on a request so that conjure servers serialize error parameters in the requested format.
+func WithConjureErrorParameterFormatHeader(format errors.ConjureErrorParameterFormat) RequestParam {
+	return WithHeader(errors.AcceptConjureErrorParameterFormatHeader, string(format))
+}
+
 // WithQueryValues sets a header on a request.
 func WithQueryValues(query url.Values) RequestParam {
 	return requestParamFunc(func(b *requestBuilder) error {
