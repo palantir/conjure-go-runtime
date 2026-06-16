@@ -16,6 +16,7 @@ package httpc
 
 import (
 	"bytes"
+	"context"
 	"net/url"
 	"os"
 	"slices"
@@ -266,7 +267,7 @@ type validatedClientParams struct {
 
 // newValidatedClientParams validates a ClientConfig and converts it to httpc
 // types. Only fields explicitly set in the config are populated.
-func newValidatedClientParams(config ClientConfig) (validatedClientParams, error) {
+func newValidatedClientParams(ctx context.Context, config ClientConfig) (validatedClientParams, error) {
 	var p validatedClientParams
 
 	p.serviceName = config.ServiceName

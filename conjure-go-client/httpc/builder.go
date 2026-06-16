@@ -187,7 +187,7 @@ func (b *Builder) Apply(params ...Param[*Builder]) *Builder {
 // the builder's existing value unchanged. Validation errors are deferred until
 // Build.
 func (b *Builder) ApplyConfig(ctx context.Context, config ClientConfig) *Builder {
-	params, err := newValidatedClientParams(config)
+	params, err := newValidatedClientParams(ctx, config)
 	if err != nil {
 		b.errs = append(b.errs, werror.WrapWithContextParams(ctx, err, "invalid client config"))
 		return b
@@ -312,9 +312,7 @@ func (b *Builder) ApplyServicesConfigRefreshable(ctx context.Context, services r
 // avoid losing dynamic updates, call refreshable-aware setters first or set
 // final values on the builder before applying refreshable config.
 func (b *Builder) ApplyConfigRefreshable(ctx context.Context, config refreshable.Refreshable[ClientConfig]) *Builder {
-	validParams, err := refreshable.MapWithErrorAuto(ctx, config, func(_ context.Context, config ClientConfig) (validatedClientParams, error) {
-		return newValidatedClientParams(config)
-	})
+	validParams, err := refreshable.MapWithErrorAuto(ctx, config, newValidatedClientParams)
 	if err != nil {
 		b.errs = append(b.errs, err)
 		return b
