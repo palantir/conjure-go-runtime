@@ -22,6 +22,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -135,6 +136,41 @@ func TestCanUseSimpleRelocationURI(t *testing.T) {
 	assert.NotNil(t, resp)
 	assert.Equal(t, resp.StatusCode, 200)
 	assert.Equal(t, respBody, actualRespBody)
+}
+
+// TestStandardRedirectFollowed pins that 301/302/303 are followed by the
+// underlying *http.Client, unlike 307/308 which the retrier handles as QoS
+// relocations (see TestCanUseRelocationURI and failover_test.go's
+// TestFailoverOtherURL).
+func TestStandardRedirectFollowed(t *testing.T) {
+	for _, code := range []int{http.StatusMovedPermanently, http.StatusFound, http.StatusSeeOther} {
+		t.Run(http.StatusText(code), func(t *testing.T) {
+			var hitNew bool
+			server := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+				switch req.URL.Path {
+				case "/old":
+					rw.Header().Set("Location", "/new")
+					rw.WriteHeader(code)
+				case "/new":
+					hitNew = true
+					rw.WriteHeader(http.StatusOK)
+				}
+			}))
+			defer server.Close()
+
+			client, err := httpclient.NewClient(httpclient.WithBaseURLs([]string{server.URL}))
+			require.NoError(t, err)
+
+			resp, err := client.Do(context.Background(),
+				httpclient.WithRequestMethod(http.MethodGet),
+				httpclient.WithPath("/old"),
+			)
+			require.NoError(t, err)
+			require.NotNil(t, resp)
+			assert.Equal(t, http.StatusOK, resp.StatusCode)
+			assert.True(t, hitNew, "client should have followed the redirect to /new")
+		})
+	}
 }
 
 func TestMiddlewareCanReadBody(t *testing.T) {
@@ -287,6 +323,39 @@ func TestTimeouts(t *testing.T) {
 	}
 
 	require.NoError(t, ctx.Err(), "context should not be canceled: test did not complete in expected time")
+}
+
+// TestRequestTimeoutIsPerAttempt pins that WithRequestTimeout bounds each
+// attempt rather than the whole call: a first attempt that times out is retried
+// with a fresh budget and succeeds. A total-deadline implementation would fail
+// the retry.
+func TestRequestTimeoutIsPerAttempt(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+
+	const perAttempt = 100 * time.Millisecond
+	var attempts atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		if attempts.Add(1) == 1 {
+			// Outlast the per-attempt timeout so the first attempt is cancelled.
+			select {
+			case <-time.After(10 * perAttempt):
+			case <-req.Context().Done():
+			}
+			return
+		}
+		rw.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	client, err := httpclient.NewClient(httpclient.WithBaseURLs([]string{server.URL}))
+	require.NoError(t, err)
+
+	resp, err := client.Get(ctx, httpclient.WithRequestTimeout(perAttempt))
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Equal(t, int64(2), attempts.Load())
 }
 
 func BenchmarkAllocWithBytesBufferPool(b *testing.B) {

@@ -122,6 +122,23 @@ func TestFailoverEverythingDown(t *testing.T) {
 	assert.Equal(t, 6, n)
 }
 
+func TestFailover_DefaultMaxAttempts(t *testing.T) {
+	// With no explicit WithMaxRetries, the client attempts 2×len(URIs) times.
+	n := 0
+	handler := http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		n++
+		rw.WriteHeader(http.StatusServiceUnavailable)
+	})
+	s1 := httptest.NewServer(handler)
+	s2 := httptest.NewServer(handler)
+	cli, err := NewClient(WithBaseURLs([]string{s1.URL, s2.URL}))
+	require.NoError(t, err)
+
+	_, err = cli.Do(context.Background(), WithRequestMethod("GET"))
+	assert.Error(t, err)
+	assert.Equal(t, 4, n)
+}
+
 func TestBackoffSingleURL(t *testing.T) {
 	n := 0
 	handler := http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
