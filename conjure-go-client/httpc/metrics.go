@@ -21,6 +21,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptrace"
+	"syscall"
 	"time"
 
 	"github.com/palantir/pkg/metrics"
@@ -44,13 +45,16 @@ var (
 	metricTagConnectionNew    = metrics.MustNewTag("reused", "false")
 	metricTagConnectionReused = metrics.MustNewTag("reused", "true")
 
-	metricTagFamily1xx     = metrics.MustNewTag(metricTagFamily, "1xx")
-	metricTagFamily2xx     = metrics.MustNewTag(metricTagFamily, "2xx")
-	metricTagFamily3xx     = metrics.MustNewTag(metricTagFamily, "3xx")
-	metricTagFamily4xx     = metrics.MustNewTag(metricTagFamily, "4xx")
-	metricTagFamily5xx     = metrics.MustNewTag(metricTagFamily, "5xx")
-	metricTagFamilyOther   = metrics.MustNewTag(metricTagFamily, "other")
-	metricTagFamilyTimeout = metrics.MustNewTag(metricTagFamily, "timeout")
+	metricTagFamily1xx        = metrics.MustNewTag(metricTagFamily, "1xx")
+	metricTagFamily2xx        = metrics.MustNewTag(metricTagFamily, "2xx")
+	metricTagFamily3xx        = metrics.MustNewTag(metricTagFamily, "3xx")
+	metricTagFamily4xx        = metrics.MustNewTag(metricTagFamily, "4xx")
+	metricTagFamily5xx        = metrics.MustNewTag(metricTagFamily, "5xx")
+	metricTagFamilyOther      = metrics.MustNewTag(metricTagFamily, "other")
+	metricTagFamilyTimeout    = metrics.MustNewTag(metricTagFamily, "timeout")
+	metricTagFamilyTLSVerify  = metrics.MustNewTag(metricTagFamily, "tls_verify_error")
+	metricTagFamilyDNS        = metrics.MustNewTag(metricTagFamily, "dns_error")
+	metricTagFamilyConnection = metrics.MustNewTag(metricTagFamily, "connection_error")
 )
 
 // TagsProvider produces metric tags from an HTTP request/response pair.
@@ -228,11 +232,11 @@ func NewMetricsClientTrace(registry metrics.Registry, logger svc1log.Logger) *ht
 }
 
 func responseMetricTags(providers []TagsProvider, req *http.Request, resp *http.Response, err error) metrics.Tags {
-	tags := []metrics.Tag{
-		tagStatusFamily(resp, err),
+	tags := tagStatusFamily(req, resp, err)
+	tags = append(tags,
 		metrics.NewTagWithFallbackValue(metricTagMethod, req.Method, "unknown"),
 		tagMethodName(req),
-	}
+	)
 	for _, tp := range providers {
 		tags = append(tags, tp.Tags(req, resp, err)...)
 	}
@@ -246,25 +250,34 @@ func tagMethodName(req *http.Request) metrics.Tag {
 	return metrics.MustNewTag(metricTagMethodName, "RPCMethodNameMissing")
 }
 
-func tagStatusFamily(resp *http.Response, err error) metrics.Tag {
+// tagStatusFamily classifies an attempt outcome into a single "family" tag. Transport
+// errors take precedence over the HTTP status; a DNS timeout is reported as dns_error,
+// not timeout, so the most specific cause wins.
+func tagStatusFamily(_ *http.Request, resp *http.Response, respErr error) metrics.Tags {
+	rootErr := werror.RootCause(respErr)
 	switch {
-	case isTimeoutError(err):
-		return metricTagFamilyTimeout
-	case resp == nil, resp.StatusCode < 100:
-		return metricTagFamilyOther
+	case isDNSError(rootErr):
+		return metrics.Tags{metricTagFamilyDNS}
+	case isTimeoutError(rootErr):
+		return metrics.Tags{metricTagFamilyTimeout}
+	case isTLSVerifyError(rootErr):
+		return metrics.Tags{metricTagFamilyTLSVerify}
+	case isConnectionError(rootErr):
+		return metrics.Tags{metricTagFamilyConnection}
+	case resp == nil, resp.StatusCode < 100, resp.StatusCode > 599:
+		return metrics.Tags{metricTagFamilyOther}
 	case resp.StatusCode < 200:
-		return metricTagFamily1xx
+		return metrics.Tags{metricTagFamily1xx}
 	case resp.StatusCode < 300:
-		return metricTagFamily2xx
+		return metrics.Tags{metricTagFamily2xx}
 	case resp.StatusCode < 400:
-		return metricTagFamily3xx
+		return metrics.Tags{metricTagFamily3xx}
 	case resp.StatusCode < 500:
-		return metricTagFamily4xx
+		return metrics.Tags{metricTagFamily4xx}
 	case resp.StatusCode < 600:
-		return metricTagFamily5xx
-	default:
-		return metricTagFamilyOther
+		return metrics.Tags{metricTagFamily5xx}
 	}
+	return metrics.Tags{metricTagFamilyOther}
 }
 
 func tlsVersionString(version uint16) string {
@@ -281,11 +294,26 @@ func tlsVersionString(version uint16) string {
 	return ""
 }
 
-func isTimeoutError(err error) bool {
-	if err == nil {
-		return false
-	}
-	rootErr := werror.RootCause(err)
+func isDNSError(rootErr error) bool {
+	var dnsErr *net.DNSError
+	return errors.As(rootErr, &dnsErr)
+}
+
+func isTLSVerifyError(rootErr error) bool {
+	var cve *tls.CertificateVerificationError
+	return errors.As(rootErr, &cve)
+}
+
+func isConnectionError(rootErr error) bool {
+	return errors.Is(rootErr, syscall.ECONNREFUSED) ||
+		errors.Is(rootErr, syscall.ECONNRESET) ||
+		errors.Is(rootErr, syscall.ECONNABORTED) ||
+		errors.Is(rootErr, syscall.EHOSTUNREACH) ||
+		errors.Is(rootErr, syscall.ENETUNREACH) ||
+		errors.Is(rootErr, syscall.EPIPE)
+}
+
+func isTimeoutError(rootErr error) bool {
 	if rootErr == nil {
 		return false
 	}
