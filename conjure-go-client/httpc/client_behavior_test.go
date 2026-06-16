@@ -322,7 +322,7 @@ func TestRetry_MultipleURIs(t *testing.T) {
 	client, err := httpc.NewBuilder().
 		SetBaseURLs(server1.URL, server2.URL).
 		SetServiceName("multi-uri-retry").
-		SetURIScoringStrategy(httpc.URIScoringRandom).
+		SetURLSelector(httpc.RandomURLSelector).
 		Build(t.Context())
 	require.NoError(t, err)
 

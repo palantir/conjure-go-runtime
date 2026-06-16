@@ -74,27 +74,12 @@ func (w *wrappedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	return w.middleware.RoundTrip(req, w.base)
 }
 
-// recoveryMiddleware converts panics into errors.
-type recoveryMiddleware struct{}
-
-func (recoveryMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (resp *http.Response, err error) {
-	defer func() {
-		if r := recover(); r != nil {
-			if err == nil {
-				err = werror.ErrorWithContextParams(req.Context(), "recovered panic", werror.UnsafeParam("recovered", fmt.Sprintf("%v", r)))
-			} else {
-				err = werror.WrapWithContextParams(req.Context(), err, "recovered panic", werror.UnsafeParam("recovered", fmt.Sprintf("%v", r)))
-			}
-		}
-	}()
-	return next.RoundTrip(req)
-}
-
 // telemetryMiddleware increments metrics, starts a per-request span, and propagates B3 trace headers.
 type telemetryMiddleware struct {
 	serviceName         refreshable.Refreshable[string]
 	tags                []TagsProvider
 	disableMetrics      refreshable.Refreshable[bool]
+	disableRecovery     bool
 	disableRequestSpan  bool
 	disableTraceHeaders bool
 	disableTraceMetrics bool
@@ -138,6 +123,18 @@ func (t *telemetryMiddleware) RoundTrip(req *http.Request, next http.RoundTrippe
 			callback(resp, err)
 		}()
 		req = metricsReq
+	}
+
+	if !t.disableRecovery {
+		defer func() {
+			if r := recover(); r != nil {
+				if err == nil {
+					err = werror.ErrorWithContextParams(req.Context(), "recovered panic", werror.UnsafeParam("recovered", fmt.Sprintf("%v", r)))
+				} else {
+					err = werror.WrapWithContextParams(req.Context(), err, "recovered panic", werror.UnsafeParam("recovered", fmt.Sprintf("%v", r)))
+				}
+			}
+		}()
 	}
 
 	return next.RoundTrip(req)

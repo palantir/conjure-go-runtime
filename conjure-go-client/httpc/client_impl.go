@@ -66,9 +66,7 @@ type ConfigurableClient[B ServiceBuilder[B]] interface {
 type fluentClient struct {
 	serviceName    refreshable.Refreshable[string]
 	httpClient     refreshable.Refreshable[*http.Client]
-	middlewares    []Middleware
-	recoveryMW     Middleware
-	uriScorer      internal.URIScoringMiddleware
+	uriScorer      URLSelector
 	maxAttempts    refreshable.Refreshable[*int]
 	initialBackoff refreshable.Refreshable[time.Duration]
 	maxBackoff     refreshable.Refreshable[time.Duration]
@@ -87,7 +85,7 @@ func (c *configurableClient[B]) Builder() B {
 func (c *fluentClient) Do(req *http.Request) (*http.Response, error) {
 	ctx := req.Context()
 
-	uris := c.uriScorer.GetURIsInOrderOfIncreasingScore()
+	uris := c.uriScorer.BaseURLs()
 	if len(uris) == 0 {
 		return nil, werror.WrapWithContextParams(ctx, ErrEmptyURIs{}, "", werror.SafeParam("serviceName", c.serviceName.Current()))
 	}
@@ -173,9 +171,8 @@ func (c *fluentClient) doOnce(
 		return nil
 	}
 
-	clientCopy.Transport = wrapTransport(clientCopy.Transport, c.uriScorer)      // innermost
-	clientCopy.Transport = wrapTransport(clientCopy.Transport, c.middlewares...) // user middlewares
-	clientCopy.Transport = wrapTransport(clientCopy.Transport, c.recoveryMW)     // outermost
+	// The scorer wraps the baked stack so it observes each attempt's outcome.
+	clientCopy.Transport = wrapTransport(clientCopy.Transport, c.uriScorer)
 
 	resp, respErr := clientCopy.Do(req)
 	if respErr != nil {

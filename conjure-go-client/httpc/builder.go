@@ -22,7 +22,6 @@ import (
 	"slices"
 	"time"
 
-	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/internal"
 	"github.com/palantir/pkg/metrics"
 	"github.com/palantir/pkg/refreshable/v2"
 	werror "github.com/palantir/witchcraft-go-error"
@@ -74,9 +73,9 @@ type Builder struct {
 	disableTraceHeaders bool
 	disableTraceMetrics bool
 
-	uris             refreshable.Refreshable[[]string]
-	uriScorerBuilder func([]string) internal.URIScoringMiddleware
-	allowEmptyURIs   bool
+	uris               refreshable.Refreshable[[]string]
+	urlSelectorFactory func([]string) URLSelector
+	allowEmptyURIs     bool
 
 	maxAttempts    refreshable.Refreshable[*int]
 	initialBackoff refreshable.Refreshable[time.Duration]
@@ -159,7 +158,7 @@ func (b *Builder) Clone() *Builder {
 		disableTraceHeaders: b.disableTraceHeaders,
 		disableTraceMetrics: b.disableTraceMetrics,
 		uris:                b.uris,
-		uriScorerBuilder:    b.uriScorerBuilder,
+		urlSelectorFactory:  b.urlSelectorFactory,
 		allowEmptyURIs:      b.allowEmptyURIs,
 		maxAttempts:         b.maxAttempts,
 		initialBackoff:      b.initialBackoff,

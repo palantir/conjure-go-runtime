@@ -30,13 +30,3 @@ type BasicAuthProvider func(ctx context.Context) (BasicAuth, error)
 // BasicAuthOptionalProvider returns basic auth credentials or nil to skip
 // setting the Authorization header for this request.
 type BasicAuthOptionalProvider func(ctx context.Context) (*BasicAuth, error)
-
-// URIScoringStrategy controls how base URIs are selected for requests.
-type URIScoringStrategy int
-
-const (
-	// URIScoringBalanced prefers faster, more reliable hosts based on observed latency and error rates.
-	URIScoringBalanced URIScoringStrategy = iota
-	// URIScoringRandom selects URIs uniformly at random.
-	URIScoringRandom
-)

@@ -24,7 +24,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/internal"
 	"github.com/palantir/pkg/metrics"
 	"github.com/palantir/pkg/refreshable/v2"
 	"github.com/stretchr/testify/assert"
@@ -57,9 +56,9 @@ func nonZeroBuilder() *Builder {
 		disableTraceHeaders: true,
 		disableTraceMetrics: true,
 
-		uris:             refreshable.New([]string{"https://x"}),
-		uriScorerBuilder: func([]string) internal.URIScoringMiddleware { return nil },
-		allowEmptyURIs:   true,
+		uris:               refreshable.New([]string{"https://x"}),
+		urlSelectorFactory: func([]string) URLSelector { return nil },
+		allowEmptyURIs:     true,
 
 		maxAttempts:    refreshable.New(new(1)),
 		initialBackoff: refreshable.New(time.Second),

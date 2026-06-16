@@ -442,5 +442,5 @@ func WithBasicAuthOptionalProvider(provider BasicAuthOptionalProvider) ClientOrH
 
 // WithRandomURIScoring adds middleware that randomizes the order URIs are prioritized in for each request.
 func WithRandomURIScoring() ClientParam {
-	return builderClientOrHTTPClientParam(httpc.Param1((*httpc.Builder).SetURIScoringStrategy, httpc.URIScoringRandom))
+	return builderClientOrHTTPClientParam(httpc.Param1((*httpc.Builder).SetURLSelector, httpc.RandomURLSelector))
 }

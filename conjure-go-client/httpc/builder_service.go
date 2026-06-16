@@ -20,7 +20,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/internal"
 	"github.com/palantir/pkg/refreshable/v2"
 	werror "github.com/palantir/witchcraft-go-error"
 )
@@ -53,8 +52,10 @@ type ServiceBuilder[B ServiceBuilder[B]] interface {
 	SetBaseURLsRefreshable(refreshable.Refreshable[[]string]) B
 	// SetAllowCreateWithEmptyURIs lets Build succeed with no URIs (requests then fail with ErrEmptyURIs).
 	SetAllowCreateWithEmptyURIs(bool) B
-	// SetURIScoringStrategy selects among multiple base URIs.
-	SetURIScoringStrategy(URIScoringStrategy) B
+	// SetURLSelector sets the strategy for ordering base URLs per request. The
+	// factory is invoked with the current base URLs (and again when they change).
+	// Defaults to [BalancedURLSelector].
+	SetURLSelector(func([]string) URLSelector) B
 
 	// SetAuthToken sets a static bearer token.
 	SetAuthToken(string) B
@@ -143,17 +144,12 @@ func (b *Builder) SetAllowCreateWithEmptyURIs(allow bool) *Builder {
 	return b
 }
 
-// SetURIScoringStrategy selects among multiple base URIs. URIScoringBalanced
-// (default) prefers faster/healthier hosts; URIScoringRandom is uniform.
-func (b *Builder) SetURIScoringStrategy(s URIScoringStrategy) *Builder {
-	switch s {
-	case URIScoringRandom:
-		b.uriScorerBuilder = func(uris []string) internal.URIScoringMiddleware {
-			return internal.NewRandomURIScoringMiddleware(uris, func() int64 { return time.Now().UnixNano() })
-		}
-	default:
-		b.uriScorerBuilder = nil
-	}
+// SetURLSelector sets the strategy for ordering base URLs per request. The
+// factory is invoked with the current base URLs, and again whenever they change.
+// Defaults to [BalancedURLSelector] when unset. Use [RandomURLSelector] for
+// uniform ordering, or supply a custom [URLSelector] factory.
+func (b *Builder) SetURLSelector(factory func([]string) URLSelector) *Builder {
+	b.urlSelectorFactory = factory
 	return b
 }
 
@@ -451,24 +447,16 @@ func (b *Builder) Build(ctx context.Context) (ConfigurableClient[*Builder], erro
 		return nil, err
 	}
 
-	var recovery Middleware
-	if !b.disableRecovery {
-		recovery = recoveryMiddleware{}
+	selectorFactory := b.urlSelectorFactory
+	if selectorFactory == nil {
+		selectorFactory = BalancedURLSelector
 	}
-
-	uriScorer := internal.NewRefreshableURIScoringMiddleware(b.uris, func(uris []string) internal.URIScoringMiddleware {
-		if b.uriScorerBuilder == nil {
-			return internal.NewBalancedURIScoringMiddleware(uris, func() int64 { return time.Now().UnixNano() })
-		}
-		return b.uriScorerBuilder(uris)
-	})
+	uriScorer := newRefreshableSelector(b.uris, selectorFactory)
 
 	return &configurableClient[*Builder]{
 		fluentClient: fluentClient{
 			serviceName:    b.serviceName,
 			httpClient:     httpClient,
-			middlewares:    b.middlewares,
-			recoveryMW:     recovery,
 			uriScorer:      uriScorer,
 			maxAttempts:    b.maxAttempts,
 			initialBackoff: b.initialBackoff,
@@ -489,14 +477,18 @@ func (b *Builder) BuildHTTPClient(ctx context.Context) (refreshable.Refreshable[
 	}
 
 	// Wrap inside-out: auth runs closest to the transport, then user inner
-	// middlewares, then metrics, then tracing.
+	// middlewares, then user outer middlewares, then telemetry. Telemetry is
+	// outermost so its panic recovery (which tags the error with the request
+	// span) covers the user middlewares, and its metrics/span cover their work.
 	if b.authHeader != nil {
 		transport = wrapTransport(transport, authHeaderMiddleware(b.authHeader))
 	}
 	transport = wrapTransport(transport, b.innerMiddlewares...)
+	transport = wrapTransport(transport, b.middlewares...)
 	transport = wrapTransport(transport, &telemetryMiddleware{
 		serviceName:         b.serviceName,
 		disableMetrics:      b.disableMetrics,
+		disableRecovery:     b.disableRecovery,
 		disableRequestSpan:  b.disableRequestSpan,
 		disableTraceHeaders: b.disableTraceHeaders,
 		disableTraceMetrics: b.disableTraceMetrics,
