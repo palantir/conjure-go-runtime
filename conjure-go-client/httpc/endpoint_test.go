@@ -44,17 +44,21 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// httpTestClient wraps an httptest.Server as an httpc.Client.
+// httpTestClient wraps an httptest.Server as an httpc.Client. Send sets the
+// request URL from URLSelector's base URL before calling RoundTrip.
 type httpTestClient struct {
 	server *httptest.Server
 }
 
-func (c *httpTestClient) Do(req *http.Request) (*http.Response, error) {
-	// Prepend the test server's URL to the request path.
-	req.URL.Scheme = "http"
-	req.URL.Host = c.server.Listener.Addr().String()
-	return c.server.Client().Do(req)
+func (c *httpTestClient) RoundTrip(req *http.Request) (*http.Response, error) {
+	return c.server.Client().Transport.RoundTrip(req)
 }
+
+func (c *httpTestClient) URLSelector() httpc.URLSelector {
+	return httpc.BalancedURLSelector([]string{c.server.URL})
+}
+
+func (c *httpTestClient) CallPolicy() httpc.CallPolicy { return httpc.CallPolicy{} }
 
 // newTestServer creates an httptest.Server and registers cleanup.
 func newTestServer(t *testing.T, handler http.HandlerFunc) *httptest.Server {
@@ -174,10 +178,8 @@ func TestEndpointExecute_BasicAuthOverridesClientAuth(t *testing.T) {
 	assert.False(t, providerCalled)
 }
 
-// WithTimeout is per-attempt and honored by clients built via Builder
-// (fluentClient picks it up from the request context). Custom Client
-// implementations that don't read internal.RequestTimeoutFromContext are
-// responsible for their own deadlines via context.WithDeadline.
+// WithTimeout is per-attempt: Send applies it to the call-scoped *http.Client
+// for every attempt, regardless of the Client implementation.
 func TestEndpointExecute_Timeout(t *testing.T) {
 	server := newTestServer(t, func(w http.ResponseWriter, _ *http.Request) {
 		time.Sleep(200 * time.Millisecond)
@@ -292,9 +294,17 @@ func (e *testError) Error() string {
 	return "test error: " + http.StatusText(e.statusCode)
 }
 
+// clientFunc adapts a single-attempt function to httpc.Client, selecting a
+// dummy base URL (these tests return canned responses without a real server).
 type clientFunc func(*http.Request) (*http.Response, error)
 
-func (f clientFunc) Do(req *http.Request) (*http.Response, error) { return f(req) }
+func (f clientFunc) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
+
+func (clientFunc) URLSelector() httpc.URLSelector {
+	return httpc.BalancedURLSelector([]string{"http://localhost"})
+}
+
+func (clientFunc) CallPolicy() httpc.CallPolicy { return httpc.CallPolicy{} }
 
 func TestClientDo_PreservesEscapedPathSegments(t *testing.T) {
 	var gotEscapedPath string

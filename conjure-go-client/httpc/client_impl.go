@@ -15,6 +15,7 @@
 package httpc
 
 import (
+	"context"
 	"net/http"
 	"net/url"
 	"strings"
@@ -27,82 +28,135 @@ import (
 	"github.com/palantir/witchcraft-go-logging/wlog/svclog/svc1log"
 )
 
-// Client is the transport interface returned by [Builder.Build]. Its signature
-// matches *http.Client.Do.
+// Client is a single-attempt HTTP transport plus the configuration [Send] needs
+// to drive a full request: a base-URL selector and a default call policy.
+// [Builder.Build] returns one; callers reach it through [Send] or
+// [Endpoint.Execute] rather than calling RoundTrip directly.
 //
-// A built Client prepends a selected base URL (per URI scoring) to the request
-// path on each attempt, applies the middleware stack, enforces per-attempt
-// timeouts, and retries replayable requests. Endpoint.Execute is the typical
-// caller; it builds the request and decodes the response after Do returns.
-//
-// A plain *http.Client satisfies the interface but is only useful when the
-// Endpoint's path template is an absolute URL — [Endpoint.Execute] emits
-// path-only requests on the assumption that the Client prepends a base URL.
-// Use [Builder.Build] for retries, URI scoring, per-attempt timeouts, and
-// middleware.
+// RoundTrip performs ONE attempt with the full middleware stack baked in. It
+// does not retry, score URLs, or follow QoS redirects — [Send] layers those on
+// top. The interface is embeddable: a wrapper can override RoundTrip while
+// forwarding URLSelector and CallPolicy to the wrapped Client.
 type Client interface {
-	Do(req *http.Request) (*http.Response, error)
+	http.RoundTripper
+	// URLSelector orders the base URLs and observes each attempt's outcome.
+	URLSelector() URLSelector
+	// CallPolicy returns the client's default per-call policy. Callers may
+	// overlay per-request overrides (e.g. a request timeout) before passing it
+	// to Send.
+	CallPolicy() CallPolicy
 }
 
-// ConfigurableClient is a Client that exposes a fresh Builder seeded with its
+// RebuildableClient is a [Client] that can return a [Builder] seeded with its
 // configuration, allowing reconfiguration without starting from scratch:
 //
 //	newClient, err := client.Builder().SetTimeout(5 * time.Second).Build(ctx)
 //
 // The type parameter B preserves the concrete builder type so downstream code
-// that defines a custom builder satisfying ClientBuilder[*MyBuilder] gets back
-// *MyBuilder rather than *Builder.
+// that defines a custom builder gets back its own type rather than *Builder.
 //
-// A Client wrapper (test middleware, recording transport, retry adapter, etc.)
-// does NOT automatically satisfy ConfigurableClient — the type assertion fails
-// silently. Wrappers that want callers to reach the underlying builder should
-// implement Builder() themselves, typically forwarding to the wrapped Client.
-type ConfigurableClient[B ServiceBuilder[B]] interface {
+// A Client wrapper does NOT automatically satisfy RebuildableClient. Wrappers
+// that want callers to reach the underlying builder should implement Builder()
+// themselves, typically forwarding to the wrapped Client.
+type RebuildableClient[B ServiceBuilder[B]] interface {
 	Client
 	Builder() B
 }
 
-// fluentClient implements Client by wrapping an *http.Client with retry and URI scoring.
-type fluentClient struct {
+// CallPolicy is the per-call orchestration snapshot [Send] consumes. A client's
+// defaults come from [Client.CallPolicy]; callers overlay per-request overrides.
+type CallPolicy struct {
+	// Timeout bounds each attempt. Zero disables the per-attempt timeout; a
+	// total-call deadline is the caller's responsibility via context.
+	Timeout time.Duration
+	// MaxAttempts caps the total number of attempts. Nil uses the default of
+	// 2×len(base URLs).
+	MaxAttempts *int
+	// InitialBackoff and MaxBackoff bound the exponential retry backoff.
+	InitialBackoff time.Duration
+	MaxBackoff     time.Duration
+}
+
+// standardClient is the [RebuildableClient] returned by [Builder.Build]. It
+// holds the baked middleware stack as a static transport; refreshable behavior
+// lives inside the middlewares (read per request) and in CallPolicy.
+type standardClient[B ServiceBuilder[B]] struct {
 	serviceName    refreshable.Refreshable[string]
-	httpClient     refreshable.Refreshable[*http.Client]
+	transport      http.RoundTripper
 	uriScorer      URLSelector
+	timeout        refreshable.Refreshable[time.Duration]
 	maxAttempts    refreshable.Refreshable[*int]
 	initialBackoff refreshable.Refreshable[time.Duration]
 	maxBackoff     refreshable.Refreshable[time.Duration]
+	builder        B
 }
 
-// configurableClient retains the builder so ConfigurableClient.Builder() can return a clone.
-type configurableClient[B ServiceBuilder[B]] struct {
-	fluentClient
-	builder B
+func (c *standardClient[B]) RoundTrip(req *http.Request) (*http.Response, error) {
+	return c.transport.RoundTrip(req)
 }
 
-func (c *configurableClient[B]) Builder() B {
-	return c.builder.Clone()
+func (c *standardClient[B]) URLSelector() URLSelector { return c.uriScorer }
+
+func (c *standardClient[B]) CallPolicy() CallPolicy {
+	var maxAttempts *int
+	if c.maxAttempts != nil {
+		maxAttempts = c.maxAttempts.Current()
+	}
+	return CallPolicy{
+		Timeout:        c.timeout.Current(),
+		MaxAttempts:    maxAttempts,
+		InitialBackoff: c.initialBackoff.Current(),
+		MaxBackoff:     c.maxBackoff.Current(),
+	}
 }
 
-func (c *fluentClient) Do(req *http.Request) (*http.Response, error) {
-	ctx := req.Context()
+func (c *standardClient[B]) Builder() B { return c.builder.Clone() }
 
-	uris := c.uriScorer.BaseURLs()
+// Send runs a path-only request to completion against client. It orders the
+// base URLs via the client's [URLSelector], prepends the selected base to the
+// path per attempt, retries replayable requests across the URLs under pol, and
+// applies pol.Timeout to each attempt. Standard redirects (301/302/303) are
+// followed by the call-scoped http.Client; 307/308 are handed back to the
+// retrier as Conjure QoS relocations.
+//
+// Send returns the raw final response; callers decode errors and bodies. It is
+// the loop [Endpoint.Execute] and the legacy httpclient bridge share.
+func Send(ctx context.Context, client Client, req *http.Request, pol CallPolicy) (*http.Response, error) {
+	uris := client.URLSelector().BaseURLs()
 	if len(uris) == 0 {
-		return nil, werror.WrapWithContextParams(ctx, ErrEmptyURIs{}, "", werror.SafeParam("serviceName", c.serviceName.Current()))
+		return nil, werror.WrapWithContextParams(ctx, ErrEmptyURIs{}, "")
 	}
 
 	attempts := 2 * len(uris)
-	if c.maxAttempts != nil {
-		if confMaxAttempts := c.maxAttempts.Current(); confMaxAttempts != nil {
-			attempts = *confMaxAttempts
-		}
+	if pol.MaxAttempts != nil {
+		attempts = *pol.MaxAttempts
 	}
 
-	backoff := retry.Start(ctx, retry.WithInitialBackoff(c.initialBackoff.Current()), retry.WithMaxBackoff(c.maxBackoff.Current()))
+	backoff := retry.Start(ctx, retry.WithInitialBackoff(pol.InitialBackoff), retry.WithMaxBackoff(pol.MaxBackoff))
 	retrier := internal.NewRequestRetrier(uris, backoff, attempts)
+
+	// Call-scoped client: the selector wraps the client's single-attempt
+	// RoundTrip so it observes every attempt (and redirect hop); the http.Client
+	// follows standard redirects and enforces the per-attempt timeout.
+	hc := &http.Client{
+		Transport: wrapTransport(client, client.URLSelector()),
+		Timeout:   pol.Timeout,
+		// 307/308 are Conjure QoS redirects handled by the retrier; 301/302/303
+		// remain the http.Client's responsibility.
+		CheckRedirect: func(redirectReq *http.Request, _ []*http.Request) error {
+			if resp := redirectReq.Response; resp != nil {
+				if resp.StatusCode == http.StatusTemporaryRedirect || resp.StatusCode == http.StatusPermanentRedirect {
+					return http.ErrUseLastResponse
+				}
+			}
+			return nil
+		},
+	}
+
 	uri, isRelocated := retrier.GetNextURI(nil, nil)
 	firstAttempt := true
 	for {
-		resp, retryable, err := c.doOnce(req, uri, isRelocated, firstAttempt)
+		resp, retryable, err := sendOnce(ctx, hc, req, uri, isRelocated, firstAttempt)
 		firstAttempt = false
 		if !retryable {
 			return resp, err
@@ -120,13 +174,14 @@ func (c *fluentClient) Do(req *http.Request) (*http.Response, error) {
 	}
 }
 
-func (c *fluentClient) doOnce(
+func sendOnce(
+	ctx context.Context,
+	hc *http.Client,
 	origReq *http.Request,
 	baseURI string,
 	useBaseURIOnly bool,
 	firstAttempt bool,
 ) (_ *http.Response, retryable bool, _ error) {
-	ctx := origReq.Context()
 	req := origReq.Clone(ctx)
 
 	baseURL, err := url.Parse(baseURI)
@@ -154,27 +209,7 @@ func (c *fluentClient) doOnce(
 		req.Body = body
 	}
 
-	// Shallow-copy the http.Client so this attempt can override Transport and Timeout.
-	clientCopy := *c.httpClient.Current()
-	if timeout, ok := internal.RequestTimeoutFromContext(ctx); ok {
-		clientCopy.Timeout = timeout
-	}
-
-	// 307/308 are Conjure QoS redirects handled by the retrier; 301/302/303
-	// remain http.Client's responsibility.
-	clientCopy.CheckRedirect = func(redirectReq *http.Request, via []*http.Request) error {
-		if resp := redirectReq.Response; resp != nil {
-			if resp.StatusCode == http.StatusTemporaryRedirect || resp.StatusCode == http.StatusPermanentRedirect {
-				return http.ErrUseLastResponse
-			}
-		}
-		return nil
-	}
-
-	// The scorer wraps the baked stack so it observes each attempt's outcome.
-	clientCopy.Transport = wrapTransport(clientCopy.Transport, c.uriScorer)
-
-	resp, respErr := clientCopy.Do(req)
+	resp, respErr := hc.Do(req)
 	if respErr != nil {
 		return nil, isRetryableBody(origReq), unwrapURLError(ctx, respErr)
 	}

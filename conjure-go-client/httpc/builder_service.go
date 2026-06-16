@@ -39,9 +39,9 @@ type ServiceBuilder[B ServiceBuilder[B]] interface {
 	Clone() B
 	Apply(...Param[B]) B
 
-	// Build returns a [ConfigurableClient]. Errors if required settings (e.g.,
+	// Build returns a [RebuildableClient]. Errors if required settings (e.g.,
 	// base URLs) are missing.
-	Build(ctx context.Context) (ConfigurableClient[B], error)
+	Build(ctx context.Context) (RebuildableClient[B], error)
 
 	// SetServiceName sets the logical service name used in metrics and logs.
 	SetServiceName(string) B
@@ -428,10 +428,10 @@ func (b *Builder) SetTransport(rt http.RoundTripper) *Builder {
 	return b
 }
 
-// Build constructs a [ConfigurableClient]. Errors if no base URLs were set
+// Build constructs a [RebuildableClient]. Errors if no base URLs were set
 // (unless [Builder.SetAllowCreateWithEmptyURIs] was called) or if any setter
 // deferred a validation error (e.g., a malformed proxy URL).
-func (b *Builder) Build(ctx context.Context) (ConfigurableClient[*Builder], error) {
+func (b *Builder) Build(ctx context.Context) (RebuildableClient[*Builder], error) {
 	if err := builderErrors(ctx, b.errs); err != nil {
 		return nil, err
 	}
@@ -442,7 +442,7 @@ func (b *Builder) Build(ctx context.Context) (ConfigurableClient[*Builder], erro
 		return nil, werror.WrapWithContextParams(ctx, ErrEmptyURIs{}, "", werror.SafeParam("serviceName", b.serviceName.Current()))
 	}
 
-	httpClient, err := b.BuildHTTPClient(ctx)
+	transport, err := b.bakeTransport(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -453,33 +453,28 @@ func (b *Builder) Build(ctx context.Context) (ConfigurableClient[*Builder], erro
 	}
 	uriScorer := newRefreshableSelector(b.uris, selectorFactory)
 
-	return &configurableClient[*Builder]{
-		fluentClient: fluentClient{
-			serviceName:    b.serviceName,
-			httpClient:     httpClient,
-			uriScorer:      uriScorer,
-			maxAttempts:    b.maxAttempts,
-			initialBackoff: b.initialBackoff,
-			maxBackoff:     b.maxBackoff,
-		},
-		builder: b.Clone(),
+	return &standardClient[*Builder]{
+		serviceName:    b.serviceName,
+		transport:      transport,
+		uriScorer:      uriScorer,
+		timeout:        b.timeout,
+		maxAttempts:    b.maxAttempts,
+		initialBackoff: b.initialBackoff,
+		maxBackoff:     b.maxBackoff,
+		builder:        b.Clone(),
 	}, nil
 }
 
-// BuildHTTPClient returns a refreshable *http.Client whose transport is
-// wrapped (innermost to outermost) with auth, inner middlewares, metrics, and
-// tracing. Panic recovery is not installed here — [Builder.Build] wraps it
-// around the whole chain.
-func (b *Builder) BuildHTTPClient(ctx context.Context) (refreshable.Refreshable[*http.Client], error) {
+// bakeTransport wraps the base transport (inside-out) with auth, inner
+// middlewares, user outer middlewares, and telemetry. Telemetry is outermost so
+// its panic recovery (which tags the error with the request span) covers the
+// user middlewares, and its metrics/span cover their work. Refreshable behavior
+// lives inside the middlewares and is read per request, so the result is static.
+func (b *Builder) bakeTransport(ctx context.Context) (http.RoundTripper, error) {
 	transport, err := b.BuildTransport(ctx)
 	if err != nil {
 		return nil, err
 	}
-
-	// Wrap inside-out: auth runs closest to the transport, then user inner
-	// middlewares, then user outer middlewares, then telemetry. Telemetry is
-	// outermost so its panic recovery (which tags the error with the request
-	// span) covers the user middlewares, and its metrics/span cover their work.
 	if b.authHeader != nil {
 		transport = wrapTransport(transport, authHeaderMiddleware(b.authHeader))
 	}
@@ -494,6 +489,18 @@ func (b *Builder) BuildHTTPClient(ctx context.Context) (refreshable.Refreshable[
 		disableTraceMetrics: b.disableTraceMetrics,
 		tags:                b.metricsTagProviders,
 	})
+	return transport, nil
+}
+
+// BuildHTTPClient returns a refreshable *http.Client wrapping the baked
+// middleware stack (see [Builder.bakeTransport]) with the configured timeout.
+// Unlike [Builder.Build], it performs no retries, URI scoring, or QoS redirect
+// handling — it is the escape hatch for callers that want a plain *http.Client.
+func (b *Builder) BuildHTTPClient(ctx context.Context) (refreshable.Refreshable[*http.Client], error) {
+	transport, err := b.bakeTransport(ctx)
+	if err != nil {
+		return nil, err
+	}
 	mapped := refreshable.MapAuto(b.timeout, func(timeout time.Duration) *http.Client {
 		return &http.Client{
 			Timeout:   timeout,

@@ -41,16 +41,6 @@ type roundTripperFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
 
-type clientFunc func(*http.Request) (*http.Response, error)
-
-func (f clientFunc) Do(req *http.Request) (*http.Response, error) { return f(req) }
-
-func wrapClientMiddleware(c Client, mw Middleware) Client {
-	return clientFunc(func(req *http.Request) (*http.Response, error) {
-		return mw.RoundTrip(req, roundTripperFunc(c.Do))
-	})
-}
-
 // wrapTransport composes middlewares around base. Each successive middleware
 // wraps the previous, so the last in the list is outermost. Nil entries are skipped.
 func wrapTransport(base http.RoundTripper, middlewares ...Middleware) http.RoundTripper {
