@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpclient/internal/refreshingclient"
+	"github.com/palantir/conjure-go-runtime/v3/conjure-go-contract/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -194,6 +195,13 @@ func TestMiddlewareOrdering(t *testing.T) {
 			ClientParams: []ClientParam{WithAddHeader("X-Test", "value1"), WithAddHeader("X-Test", "value2")},
 			ExpectHeaders: http.Header{
 				"X-Test": []string{"value1", "value2"},
+			},
+		},
+		{
+			Name:         "WithConjureErrorParameterFormat middleware",
+			ClientParams: []ClientParam{WithConjureErrorParameterFormat(errors.ConjureErrorParameterFormatJSON)},
+			ExpectHeaders: http.Header{
+				"Accept-Conjure-Error-Parameter-Format": []string{"JSON"},
 			},
 		},
 		{
