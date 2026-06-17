@@ -31,25 +31,33 @@ resp, _, err := getItem.
 
 ### Client
 
-`Client` is the minimal transport interface. Its signature matches `*http.Client.Do`:
+`Client` is a small interface: a single round trip plus the configuration the
+request loop needs.
 
 ```go
 type Client interface {
-    Do(req *http.Request) (*http.Response, error)
+    http.RoundTripper // one attempt, full middleware stack baked in
+    URLSelector() URLSelector
+    CallPolicy() CallPolicy
 }
 ```
 
-A `Client` built via `Builder` handles base-URL selection, retries with
-backoff, middleware, timeout enforcement, and URI scoring transparently.
+`RoundTrip` performs a single attempt. The retry loop, base-URL selection,
+per-attempt timeout, and QoS redirect handling live in the free function
+`Send`, which `Endpoint.Execute` calls for you:
 
-A plain `*http.Client` satisfies the interface but `Endpoint.Execute` builds
-*path-only* requests on the assumption that the `Client` prepends a base URL.
-For ad-hoc use without `Builder`, your `Endpoint` paths must be absolute URLs.
-Use `Builder.Build` for the normal case.
+```go
+resp, err := httpc.Send(ctx, client, req, client.CallPolicy())
+```
 
-`ConfigurableClient[B]` extends `Client` with a `Builder()` method that returns a
-new builder seeded with the client's current settings, allowing reconfiguration without
-starting from scratch:
+A `Client` built via `Builder` is the usual case. Because it carries a
+`URLSelector`, `Endpoint.Execute` builds *path-only* requests and lets `Send`
+prepend a selected base URL on each attempt. A plain `*http.Client` does **not**
+satisfy the interface (it has no `URLSelector` or `CallPolicy`).
+
+`RebuildableClient[B]` extends `Client` with a `Builder()` method that returns a
+new builder seeded with the client's current settings, allowing reconfiguration
+without starting from scratch:
 
 ```go
 newClient, err := client.Builder().SetTimeout(5 * time.Second).Build(ctx)
@@ -145,7 +153,7 @@ Both `Endpoint` and `Overrides` implement the `RequestOverrides[D]` interface:
 - `WithConjureErrorDecoder(errors.ConjureErrorDecoder)` -- convenience for the
   default decoder configured with a Conjure typed-error registry
 - `WithBasicAuth(user, pw)` -- per-call basic auth (see [Auth precedence](#auth-precedence))
-- `WithMiddleware(Middleware)` -- append a middleware that runs around `Client.Do`
+- `WithMiddleware(Middleware)` -- append a middleware that wraps the whole `Send` call
 - `WithBufferPool(bytesbuffers.Pool)` -- per-call buffer pool for encoders
 
 The two implementations represent two configuration layers that compose at
@@ -301,34 +309,38 @@ type Middleware interface {
 
 `MiddlewareFunc` is the function adapter. Middleware can be added at three levels:
 
-1. **Builder outer** (`AddMiddleware`) -- wraps all inner middleware; applied by the `Client`.
-2. **Builder inner** (`AddInnerMiddleware`) -- runs closest to the transport, inside metrics and tracing.
-3. **Per-request** (`Overrides.WithMiddleware` or `Endpoint.WithMiddleware`) -- applied by `Endpoint.Execute` before calling `Client.Do`.
+1. **Builder outer** (`AddMiddleware`) -- baked into the client's `RoundTrip`, wrapping the inner middleware.
+2. **Builder inner** (`AddInnerMiddleware`) -- runs closest to the transport, inside the outer middleware.
+3. **Per-request** (`Overrides.WithMiddleware` or `Endpoint.WithMiddleware`) -- wraps the entire `Send` call, applied once by `Endpoint.Execute`.
 
-The full middleware stack from outermost to innermost:
+The full stack from outermost to innermost:
 
 ```
-Per-request middleware (Overrides / Endpoint)
-  -> Recovery
-  -> User outer middleware (AddMiddleware)
-  -> URI scorer
-  -> Telemetry (metrics + tracing + B3 trace headers)
-  -> User inner middleware (AddInnerMiddleware)
-  -> Auth header
-  -> http.Transport
+Per-request middleware (Overrides / Endpoint)   -- wraps the whole Send call
+  -> Send: retry loop, per-attempt timeout, redirect handling
+       each attempt:
+       -> URI selector
+       -> Telemetry (metrics + tracing + B3 trace headers + panic recovery)
+       -> User outer middleware (AddMiddleware)
+       -> User inner middleware (AddInnerMiddleware)
+       -> Auth header
+       -> http.Transport
 ```
 
-Per-request middleware wraps `Client.Do` and runs outside the recovery layer.
-The auth-header middleware sits closest to the transport so caller-supplied
+`Send` applies the URI selector and builds a call-scoped `*http.Client` per
+request, so the baked stack (telemetry through auth) runs on every attempt while
+per-request middleware runs once around the whole loop. Panic recovery lives in
+the telemetry layer so the recovered error carries the request span. The
+auth-header middleware sits closest to the transport so caller-supplied
 Authorization headers (set anywhere upstream) are not overwritten — see
 [Auth precedence](#auth-precedence).
 
 Error decoding is **not** a middleware layer. It runs in `Endpoint.Execute` after
-`Client.Do` returns the raw HTTP response (see [Error handling](#error-handling)).
+`Send` returns the raw HTTP response (see [Error handling](#error-handling)).
 
 ## Retry and URI selection
 
-`Client.Do` returns raw `(*http.Response, error)` with no error decoding. The retry
+`Send` returns raw `(*http.Response, error)` with no error decoding. The retry
 loop operates on response status codes and transport errors directly, following the
 [Conjure QoS protocol](https://github.com/palantir/http-remoting#quality-of-service-retry-failover-throttling).
 
@@ -339,16 +351,15 @@ Requests are retried when the request body is replayable (`GetBody` is set on th
 - **429 Too Many Requests** -- throttle; retried with exponential backoff
 - **503 Service Unavailable** -- retried against a different host
 - **307 / 308 Redirects** -- retried against the `Location` header target (these are
-  QoS signals, not standard HTTP redirects; `Client` blocks `http.Client` from
-  following them automatically). Standard redirects (301/302/303) are still followed
-  by `http.Client` as usual.
+  QoS signals, not standard HTTP redirects; `Send` blocks the call-scoped `http.Client`
+  from following them). Standard redirects (301/302/303) are still followed as usual.
 
 Other status codes (including 4xx and non-503 5xx) are **not** retried.
 
 - **Default attempts**: 2 per base URL (e.g. 2 URLs = 4 attempts)
 - **`SetMaxAttempts(*int)`**: `nil` = default, `n > 0` = exactly n total attempts, `0` = unlimited
 - **Backoff**: Exponential with jitter (initial: 250ms, max: 2s)
-- **URI scoring**: `URIScoringBalanced` (default) routes away from slow/erroring hosts; `URIScoringRandom` selects uniformly at random
+- **URI selection**: set via `SetURLSelector`. `BalancedURLSelector` (default) routes away from slow/erroring hosts; `RandomURLSelector` selects uniformly at random. Implement the `URLSelector` interface for a custom strategy.
 
 ## Metrics
 
@@ -504,8 +515,8 @@ func (c *itemServiceClient) DeleteItem(ctx context.Context, id string) error {
 new value without modifying the original. They are safe to share across goroutines
 and store as package-level variables.
 
-`Client` (the interface returned by `Build`) is safe for concurrent use. Multiple
-goroutines may call `Do` simultaneously.
+`Client` (the interface returned by `Build`) is safe for concurrent use; multiple
+goroutines may execute requests through it simultaneously.
 
 `Builder` is **not** safe for concurrent use. All setter methods mutate the receiver.
 To share a configuration across goroutines, call `Clone()` to create an independent
@@ -536,7 +547,6 @@ copy for each goroutine before mutating.
 - Built-in multipart and form-urlencoded encoders
 - Sticky Sessions
 - `Node-Selection-Strategy` response header for Server-Driven Node-Selection Switching
-- Move proto support to `httpc/proto` sub-package so non-proto callers don't transitively depend on protobuf
 - Unify limiter and scorer?
 - Add metrics to limiter? (scores, queue lengths)
 - **Lock retry/QoS semantics explicitly.** Dialogue is very specific: retryable QoS, 500 only for idempotent-ish methods, RetryHint.DO_NOT_RETRY, proxy attempt accounting, timeout

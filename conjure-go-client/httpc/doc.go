@@ -32,7 +32,8 @@
 //
 // # Core concepts
 //
-//   - [Client] is the minimal transport interface (Do).
+//   - [Client] is a single attempt (RoundTrip) plus the base-URL selector and
+//     default call policy that [Send] uses to drive the request.
 //   - [Endpoint] is a copy-on-write per-RPC descriptor. Store one as a
 //     package-level var; derive per-call variants via its With* methods.
 //   - [Overrides] is per-request configuration that merges into an Endpoint
@@ -43,8 +44,9 @@
 //
 // # Retry and error handling
 //
-// [Client.Do] retries on transport errors, 429, 503, and 307/308 (Conjure QoS
-// redirect); other 4xx/5xx responses are not retried. Tune with
+// [Send] — which [Endpoint.Execute] invokes — retries on transport errors, 429,
+// 503, and 307/308 (Conjure QoS redirect); other 4xx/5xx responses are not
+// retried. Tune with
 // [Builder.SetMaxAttempts] (nil = default, 0 = unlimited, n > 0 = exactly n),
 // [Builder.SetInitialBackoff], and [Builder.SetMaxBackoff].
 //

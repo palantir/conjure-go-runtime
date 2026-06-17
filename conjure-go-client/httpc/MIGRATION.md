@@ -59,7 +59,7 @@ client, err := httpc.NewBuilder().
 
 Key differences:
 - Variadic option functions are replaced by mutable builder methods.
-- `Build(ctx)` returns a `ConfigurableClient` that retains the builder for
+- `Build(ctx)` returns a `RebuildableClient` that retains the builder for
   reconfiguration via `client.Builder()`.
 - `SetBaseURLs` takes variadic strings, not a slice.
 
@@ -126,7 +126,7 @@ responses (including 5xx) into Go errors with `resp = nil`, which triggered the
 retrier's "nil response → retry" path. This meant all 5xx responses were retried,
 not just 503.
 
-The new package returns raw HTTP responses from `Client.Do` and the retrier operates
+The new package returns raw HTTP responses from `Send` and the retrier operates
 on `resp.StatusCode` directly. Only the status codes specified by the
 [Conjure QoS protocol](https://github.com/palantir/http-remoting#quality-of-service-retry-failover-throttling)
 are retried: **429** (throttle), **503** (unavailable), **307/308** (redirect), and
@@ -243,8 +243,10 @@ b.SetTimeout(30 * time.Second)  // modifies b in place
 ### The Client interface is simpler
 
 The old `Client` interface had `Do`, `Get`, `Head`, `Post`, `Put`, `Delete` methods.
-The new `Client` has only `Do(*http.Request) (*http.Response, error)` -- the same
-signature as `*http.Client.Do`. HTTP method selection happens at the endpoint level.
+The new `Client` is a small transport: `RoundTrip` for a single attempt plus
+`URLSelector` and `CallPolicy`. The retry/scoring loop lives in the free function
+`Send`, which `Endpoint.Execute` calls. HTTP method selection happens at the
+endpoint level.
 
 ### `WithConfig` now requires context
 
