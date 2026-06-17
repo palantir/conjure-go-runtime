@@ -37,10 +37,27 @@ func (f MiddlewareFunc) RoundTrip(req *http.Request, next http.RoundTripper) (*h
 	return f(req, next)
 }
 
+// requestMiddlewareApplier applies the per-request middlewares carried on the
+// request context (set by [Endpoint.Execute]) at this point in the baked stack.
+// It is baked just inside telemetry so per-request middlewares run on each
+// attempt with the resolved URL, are traced/metered/recovered, and run after
+// telemetry's header injection — so their changes are not overwritten, matching
+// the builder middleware.
+type requestMiddlewareApplier struct{}
+
+func (requestMiddlewareApplier) RoundTrip(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+	middlewares := requestMiddlewaresFromContext(req.Context())
+	if len(middlewares) == 0 {
+		return next.RoundTrip(req)
+	}
+	return wrapTransport(next, middlewares...).RoundTrip(req)
+}
+
 // clientWithMiddlewares decorates each of c's attempts (its RoundTrip) with the
-// given middlewares so they run per attempt with the resolved URL, like client
-// middlewares. URLSelector and CallPolicy forward to c, so [Send] drives the
-// loop unchanged. Last middleware is outermost.
+// given middlewares, forwarding URLSelector and CallPolicy. [Endpoint.Execute]
+// uses it as the fallback for Clients that don't apply per-request middlewares
+// inside their own stack (see [requestMiddlewareApplier]); the middlewares then
+// run per attempt but outside whatever telemetry the Client bakes.
 func clientWithMiddlewares(c Client, middlewares ...Middleware) Client {
 	return &middlewareClient{Client: c, transport: wrapTransport(c, middlewares...)}
 }

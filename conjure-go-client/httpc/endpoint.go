@@ -77,8 +77,8 @@ type RequestOverrides[D any] interface {
 	WithConjureErrorDecoder(ced errors.ConjureErrorDecoder) D
 	// WithBasicAuth sets per-request basic auth credentials, overriding any client-level auth.
 	WithBasicAuth(user, password string) D
-	// WithMiddleware appends a per-request middleware. Like the builder
-	// middleware, it runs once per attempt around the resolved request.
+	// WithMiddleware appends a per-request middleware that runs once per attempt
+	// around the resolved request, inside telemetry like the builder middleware.
 	WithMiddleware(Middleware) D
 	// WithBufferPool sets a buffer pool that encoders may use to avoid
 	// per-request allocations. Pass nil to clear. The [bytesbuffers.Pool]
@@ -407,14 +407,18 @@ func (e Endpoint[Req, Resp]) Execute(ctx context.Context, client Client) (Resp, 
 		pol.Timeout = *e.overrides.timeout
 	}
 
-	// Per-request middlewares decorate each attempt with the resolved URL, like
-	// client middlewares; last added is outermost.
-	c := client
+	// Per-request middlewares run per attempt. Built clients apply them inside
+	// their telemetry (so they are traced/metered and their changes stick); any
+	// other Client has its RoundTrip wrapped as a fallback.
 	if len(e.overrides.middlewares) > 0 {
-		c = clientWithMiddlewares(client, e.overrides.middlewares...)
+		if _, ok := client.(inlinesRequestMiddleware); ok {
+			ctx = contextWithRequestMiddlewares(ctx, e.overrides.middlewares)
+		} else {
+			client = clientWithMiddlewares(client, e.overrides.middlewares...)
+		}
 	}
 
-	resp, err := Send(ctx, c, req, pol)
+	resp, err := Send(ctx, client, req, pol)
 	if err != nil {
 		return zero, nil, err
 	}

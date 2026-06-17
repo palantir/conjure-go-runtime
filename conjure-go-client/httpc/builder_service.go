@@ -77,9 +77,11 @@ type ServiceBuilder[B ServiceBuilder[B]] interface {
 	// SetOverrideRequestHost overrides the Host header on all requests.
 	SetOverrideRequestHost(string) B
 
-	// AddMiddleware appends an outer middleware; the last added is outermost.
+	// AddMiddleware appends an outer middleware: inside telemetry, outside the
+	// inner middleware and the auth header. Last added is outermost.
 	AddMiddleware(Middleware) B
-	// AddInnerMiddleware prepends an inner middleware (closest to the transport).
+	// AddInnerMiddleware prepends an inner middleware that runs closest to the
+	// transport, inside the outer middleware and just before the auth header.
 	AddInnerMiddleware(Middleware) B
 
 	// SetTimeout sets the per-attempt timeout. The retry loop resets the timer
@@ -306,14 +308,15 @@ func (b *Builder) SetOverrideRequestHost(host string) *Builder {
 	}))
 }
 
-// AddMiddleware appends an outer middleware; the last added is outermost.
+// AddMiddleware appends an outer middleware: inside telemetry, outside the inner
+// middleware and the auth header. Last added is outermost.
 func (b *Builder) AddMiddleware(m Middleware) *Builder {
 	b.middlewares = append(b.middlewares, m)
 	return b
 }
 
-// AddInnerMiddleware prepends an inner middleware that runs inside metrics and
-// tracing, closest to the transport.
+// AddInnerMiddleware prepends an inner middleware that runs closest to the
+// transport, inside the outer middleware and just before the auth header.
 func (b *Builder) AddInnerMiddleware(m Middleware) *Builder {
 	b.innerMiddlewares = append([]Middleware{m}, b.innerMiddlewares...)
 	return b
@@ -466,10 +469,11 @@ func (b *Builder) Build(ctx context.Context) (RebuildableClient[*Builder], error
 }
 
 // bakeTransport wraps the base transport (inside-out) with auth, inner
-// middlewares, user outer middlewares, and telemetry. Telemetry is outermost so
-// its panic recovery (which tags the error with the request span) covers the
-// user middlewares, and its metrics/span cover their work. Refreshable behavior
-// lives inside the middlewares and is read per request, so the result is static.
+// middlewares, user outer middlewares, the per-request seam, and telemetry.
+// Telemetry is outermost so its panic recovery (which tags the error with the
+// request span) and its metrics/span cover every user middleware — builder and
+// per-request alike. Refreshable behavior lives inside the middlewares and is
+// read per request, so the result is static.
 func (b *Builder) bakeTransport(ctx context.Context) (http.RoundTripper, error) {
 	transport, err := b.BuildTransport(ctx)
 	if err != nil {
@@ -480,6 +484,7 @@ func (b *Builder) bakeTransport(ctx context.Context) (http.RoundTripper, error) 
 	}
 	transport = wrapTransport(transport, b.innerMiddlewares...)
 	transport = wrapTransport(transport, b.middlewares...)
+	transport = wrapTransport(transport, requestMiddlewareApplier{})
 	transport = wrapTransport(transport, &telemetryMiddleware{
 		serviceName:         b.serviceName,
 		disableMetrics:      b.disableMetrics,

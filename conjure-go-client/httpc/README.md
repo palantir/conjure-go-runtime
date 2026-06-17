@@ -309,9 +309,9 @@ type Middleware interface {
 
 `MiddlewareFunc` is the function adapter. Middleware can be added at three levels:
 
-1. **Builder outer** (`AddMiddleware`) -- baked into the client's `RoundTrip`, wrapping the inner middleware.
-2. **Builder inner** (`AddInnerMiddleware`) -- runs closest to the transport, inside the outer middleware.
-3. **Per-request** (`Overrides.WithMiddleware` or `Endpoint.WithMiddleware`) -- applied by `Endpoint.Execute`; runs per attempt, like the builder middleware.
+1. **Builder outer** (`AddMiddleware`) -- runs inside telemetry, outside the inner middleware and auth header.
+2. **Builder inner** (`AddInnerMiddleware`) -- runs closest to the transport, inside the outer middleware and just before auth.
+3. **Per-request** (`Overrides.WithMiddleware` or `Endpoint.WithMiddleware`) -- applied per attempt by `Endpoint.Execute`, inside telemetry alongside the builder outer middleware.
 
 The full stack from outermost to innermost:
 
@@ -319,8 +319,8 @@ The full stack from outermost to innermost:
 Send: retry loop, per-attempt timeout, redirect handling
   each attempt:
   -> URI selector
-  -> Per-request middleware (Overrides / Endpoint)
   -> Telemetry (metrics + tracing + B3 trace headers + panic recovery)
+  -> Per-request middleware (Overrides / Endpoint)
   -> User outer middleware (AddMiddleware)
   -> User inner middleware (AddInnerMiddleware)
   -> Auth header
@@ -328,11 +328,17 @@ Send: retry loop, per-attempt timeout, redirect handling
 ```
 
 `Send` applies the URI selector and builds a call-scoped `*http.Client` per
-request, so every middleware layer runs on each attempt with the resolved URL.
-Panic recovery lives in the telemetry layer so the recovered error carries the
-request span. The auth-header middleware sits closest to the transport so
-caller-supplied Authorization headers (set anywhere upstream) are not
-overwritten — see [Auth precedence](#auth-precedence).
+request. Every user middleware layer — per-request and builder — runs inside
+telemetry on each attempt with the resolved URL, so it is traced, metered, and
+panic-recovered, and runs *after* telemetry injects trace headers, so its own
+request changes are not overwritten. The auth-header middleware sits closest to
+the transport so caller-supplied Authorization headers (set anywhere upstream)
+are not overwritten — see [Auth precedence](#auth-precedence).
+
+(Per-request middleware lands inside telemetry only for clients built via
+`Builder`. A custom `Client` implementation has its `RoundTrip` wrapped instead,
+so per-request middleware still runs per attempt but outside whatever telemetry
+that client bakes.)
 
 Error decoding is **not** a middleware layer. It runs in `Endpoint.Execute` after
 `Send` returns the raw HTTP response (see [Error handling](#error-handling)).

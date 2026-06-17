@@ -391,6 +391,34 @@ func TestEndpointExecute_PerRequestMiddlewarePerAttempt(t *testing.T) {
 	}
 }
 
+// TestEndpointExecute_PerRequestMiddlewareInsideTelemetry pins that a per-request
+// middleware runs inside telemetry: it observes the For-User-Agent header that
+// the telemetry layer injects, which proves telemetry ran first — so the
+// middleware is traced/metered and its own request changes are not overwritten.
+func TestEndpointExecute_PerRequestMiddlewareInsideTelemetry(t *testing.T) {
+	server := newTestServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+	client, err := httpc.NewBuilder().SetServiceName("svc").SetBaseURLs(server.URL).Build(context.Background())
+	require.NoError(t, err)
+
+	var seenForUserAgent string
+	mw := httpc.MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+		seenForUserAgent = req.Header.Get("For-User-Agent")
+		return next.RoundTrip(req)
+	})
+
+	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "T", "/t").
+		WithDecoder(httpc.VoidDecoder()).
+		WithMiddleware(mw)
+
+	ctx := httpc.ContextWithForUserAgent(context.Background(), "test-ua")
+	_, _, err = ep.Execute(ctx, client)
+	require.NoError(t, err)
+	assert.Equal(t, "test-ua", seenForUserAgent,
+		"per-request middleware should run inside telemetry, after For-User-Agent injection")
+}
+
 func TestEndpointExecute_Void(t *testing.T) {
 	server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, http.MethodDelete, r.Method)
