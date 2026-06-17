@@ -77,7 +77,8 @@ type RequestOverrides[D any] interface {
 	WithConjureErrorDecoder(ced errors.ConjureErrorDecoder) D
 	// WithBasicAuth sets per-request basic auth credentials, overriding any client-level auth.
 	WithBasicAuth(user, password string) D
-	// WithMiddleware appends a per-request middleware to the chain.
+	// WithMiddleware appends a per-request middleware. Like the builder
+	// middleware, it runs once per attempt around the resolved request.
 	WithMiddleware(Middleware) D
 	// WithBufferPool sets a buffer pool that encoders may use to avoid
 	// per-request allocations. Pass nil to clear. The [bytesbuffers.Pool]
@@ -406,14 +407,14 @@ func (e Endpoint[Req, Resp]) Execute(ctx context.Context, client Client) (Resp, 
 		pol.Timeout = *e.overrides.timeout
 	}
 
-	// Per-request middlewares wrap the whole Send (once, around all attempts);
-	// last added is outermost.
-	var rt http.RoundTripper = roundTripperFunc(func(r *http.Request) (*http.Response, error) {
-		return Send(r.Context(), client, r, pol)
-	})
-	rt = wrapTransport(rt, e.overrides.middlewares...)
+	// Per-request middlewares decorate each attempt with the resolved URL, like
+	// client middlewares; last added is outermost.
+	c := client
+	if len(e.overrides.middlewares) > 0 {
+		c = clientWithMiddlewares(client, e.overrides.middlewares...)
+	}
 
-	resp, err := rt.RoundTrip(req)
+	resp, err := Send(ctx, c, req, pol)
 	if err != nil {
 		return zero, nil, err
 	}

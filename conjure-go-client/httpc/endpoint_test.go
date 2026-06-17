@@ -36,6 +36,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -353,6 +354,41 @@ func TestEndpointExecute_Middleware(t *testing.T) {
 	_, _, err := ep.Execute(context.Background(), client)
 	require.NoError(t, err)
 	assert.True(t, middlewareCalled)
+}
+
+// TestEndpointExecute_PerRequestMiddlewarePerAttempt pins that a per-request
+// middleware runs once per attempt (like a client middleware) and sees the
+// resolved request URL, rather than running once around the whole retry loop on
+// a path-only request.
+func TestEndpointExecute_PerRequestMiddlewarePerAttempt(t *testing.T) {
+	var serverHits atomic.Int32
+	server := newTestServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		if serverHits.Add(1) == 1 {
+			w.WriteHeader(http.StatusServiceUnavailable) // force one retry
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	client, err := httpc.NewBuilder().SetServiceName("svc").SetBaseURLs(server.URL).Build(context.Background())
+	require.NoError(t, err)
+
+	var hosts []string // middleware runs synchronously on this goroutine
+	mw := httpc.MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+		hosts = append(hosts, req.URL.Host)
+		return next.RoundTrip(req)
+	})
+
+	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "Retry", "/retry").
+		WithDecoder(httpc.VoidDecoder()).
+		WithMiddleware(mw)
+
+	_, _, err = ep.Execute(context.Background(), client)
+	require.NoError(t, err)
+	require.Len(t, hosts, 2, "per-request middleware should run once per attempt")
+	for _, h := range hosts {
+		assert.NotEmpty(t, h, "middleware should see the resolved URL host on each attempt")
+	}
 }
 
 func TestEndpointExecute_Void(t *testing.T) {

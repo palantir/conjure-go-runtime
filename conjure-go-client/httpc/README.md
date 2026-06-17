@@ -153,7 +153,7 @@ Both `Endpoint` and `Overrides` implement the `RequestOverrides[D]` interface:
 - `WithConjureErrorDecoder(errors.ConjureErrorDecoder)` -- convenience for the
   default decoder configured with a Conjure typed-error registry
 - `WithBasicAuth(user, pw)` -- per-call basic auth (see [Auth precedence](#auth-precedence))
-- `WithMiddleware(Middleware)` -- append a middleware that wraps the whole `Send` call
+- `WithMiddleware(Middleware)` -- append a per-request middleware (runs per attempt)
 - `WithBufferPool(bytesbuffers.Pool)` -- per-call buffer pool for encoders
 
 The two implementations represent two configuration layers that compose at
@@ -311,29 +311,28 @@ type Middleware interface {
 
 1. **Builder outer** (`AddMiddleware`) -- baked into the client's `RoundTrip`, wrapping the inner middleware.
 2. **Builder inner** (`AddInnerMiddleware`) -- runs closest to the transport, inside the outer middleware.
-3. **Per-request** (`Overrides.WithMiddleware` or `Endpoint.WithMiddleware`) -- wraps the entire `Send` call, applied once by `Endpoint.Execute`.
+3. **Per-request** (`Overrides.WithMiddleware` or `Endpoint.WithMiddleware`) -- applied by `Endpoint.Execute`; runs per attempt, like the builder middleware.
 
 The full stack from outermost to innermost:
 
 ```
-Per-request middleware (Overrides / Endpoint)   -- wraps the whole Send call
-  -> Send: retry loop, per-attempt timeout, redirect handling
-       each attempt:
-       -> URI selector
-       -> Telemetry (metrics + tracing + B3 trace headers + panic recovery)
-       -> User outer middleware (AddMiddleware)
-       -> User inner middleware (AddInnerMiddleware)
-       -> Auth header
-       -> http.Transport
+Send: retry loop, per-attempt timeout, redirect handling
+  each attempt:
+  -> URI selector
+  -> Per-request middleware (Overrides / Endpoint)
+  -> Telemetry (metrics + tracing + B3 trace headers + panic recovery)
+  -> User outer middleware (AddMiddleware)
+  -> User inner middleware (AddInnerMiddleware)
+  -> Auth header
+  -> http.Transport
 ```
 
 `Send` applies the URI selector and builds a call-scoped `*http.Client` per
-request, so the baked stack (telemetry through auth) runs on every attempt while
-per-request middleware runs once around the whole loop. Panic recovery lives in
-the telemetry layer so the recovered error carries the request span. The
-auth-header middleware sits closest to the transport so caller-supplied
-Authorization headers (set anywhere upstream) are not overwritten — see
-[Auth precedence](#auth-precedence).
+request, so every middleware layer runs on each attempt with the resolved URL.
+Panic recovery lives in the telemetry layer so the recovered error carries the
+request span. The auth-header middleware sits closest to the transport so
+caller-supplied Authorization headers (set anywhere upstream) are not
+overwritten — see [Auth precedence](#auth-precedence).
 
 Error decoding is **not** a middleware layer. It runs in `Endpoint.Execute` after
 `Send` returns the raw HTTP response (see [Error handling](#error-handling)).

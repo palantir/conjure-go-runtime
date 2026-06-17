@@ -122,7 +122,7 @@ func TestUnmarshalError(t *testing.T) {
 			},
 			verify: func(t *testing.T, actual errors.Error) {
 				assert.Equal(t, map[string]any{"errorInstanceId": actual.InstanceID(), "errorName": actual.Name()}, actual.SafeParams())
-				assert.Equal(t, map[string]any{"intArg": float64(3), "stringArg": "foo"}, actual.UnsafeParams())
+				assert.Equal(t, map[string]any{"intArg": json.Number("3"), "stringArg": "foo"}, actual.UnsafeParams())
 			},
 		},
 		{

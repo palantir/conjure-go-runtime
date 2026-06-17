@@ -37,9 +37,22 @@ func (f MiddlewareFunc) RoundTrip(req *http.Request, next http.RoundTripper) (*h
 	return f(req, next)
 }
 
-type roundTripperFunc func(*http.Request) (*http.Response, error)
+// clientWithMiddlewares decorates each of c's attempts (its RoundTrip) with the
+// given middlewares so they run per attempt with the resolved URL, like client
+// middlewares. URLSelector and CallPolicy forward to c, so [Send] drives the
+// loop unchanged. Last middleware is outermost.
+func clientWithMiddlewares(c Client, middlewares ...Middleware) Client {
+	return &middlewareClient{Client: c, transport: wrapTransport(c, middlewares...)}
+}
 
-func (f roundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
+type middlewareClient struct {
+	Client
+	transport http.RoundTripper
+}
+
+func (c *middlewareClient) RoundTrip(req *http.Request) (*http.Response, error) {
+	return c.transport.RoundTrip(req)
+}
 
 // wrapTransport composes middlewares around base. Each successive middleware
 // wraps the previous, so the last in the list is outermost. Nil entries are skipped.

@@ -15,7 +15,8 @@
 package errors
 
 import (
-	"github.com/palantir/pkg/safejson"
+	"encoding/json"
+
 	werror "github.com/palantir/witchcraft-go-error"
 )
 
@@ -33,7 +34,7 @@ func UnmarshalErrorWithDecoder(ced ConjureErrorDecoder, body []byte) (Error, err
 	var name struct {
 		Name string `json:"errorName"`
 	}
-	if err := safejson.Unmarshal(body, &name); err != nil {
+	if err := json.Unmarshal(body, &name); err != nil {
 		return nil, werror.Wrap(err, "failed to unmarshal body as conjure error")
 	}
 	cErr, err := ced.DecodeConjureError(name.Name, body)
