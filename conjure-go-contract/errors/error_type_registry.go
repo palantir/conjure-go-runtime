@@ -74,18 +74,18 @@ func (d *ReflectTypeConjureErrorDecoder) RegisterErrorType(name string, typ refl
 }
 
 func (d *ReflectTypeConjureErrorDecoder) DecodeConjureError(errorName string, body []byte) (Error, error) {
-	typ, ok := d.registry[errorName]
-	if !ok {
-		// Unrecognized error name, fall back to genericError
-		typ = reflect.TypeFor[genericError]()
+	if typ, ok := d.registry[errorName]; ok {
+		instance := reflect.New(typ).Interface()
+		if err := codecs.JSON.Unmarshal(body, &instance); err == nil {
+			// RegisterErrorType guarantees *typ implements Error, so this assertion always holds.
+			return instance.(Error), nil
+		}
+		// The registered type failed to decode the body. Rather than discard the conjure error, fall through to a genericError,
+		// which decodes parameters into a map[string]any and preserves the error name, code, instance ID, and raw parameters.
 	}
-	instance := reflect.New(typ).Interface()
-	if err := codecs.JSON.Unmarshal(body, &instance); err != nil {
-		return nil, werror.Wrap(err, "failed to unmarshal body using registered type", werror.SafeParam("type", typ.String()))
-	}
-	cerr, ok := instance.(Error)
-	if !ok {
-		return nil, werror.Error("unmarshaled type does not implement errors.Error interface", werror.SafeParam("type", typ.String()))
+	var cerr genericError
+	if err := codecs.JSON.Unmarshal(body, &cerr); err != nil {
+		return nil, werror.Wrap(err, "failed to unmarshal body as generic conjure error")
 	}
 	return cerr, nil
 }
