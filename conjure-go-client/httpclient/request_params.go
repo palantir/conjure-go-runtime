@@ -215,7 +215,7 @@ func WithRequestErrorDecoder(errorDecoder ErrorDecoder) RequestParam {
 // username and password for this request only and takes precedence over any client-scoped authorization.
 func WithRequestBasicAuth(username, password string) RequestParam {
 	return requestParamFunc(func(b *requestBuilder) error {
-		setBasicAuth(b.headers, username, password)
+		b.headers.Set("Authorization", basicAuthValue(username, password))
 		return nil
 	})
 }

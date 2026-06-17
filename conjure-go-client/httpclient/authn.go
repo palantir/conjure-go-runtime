@@ -17,10 +17,12 @@ package httpclient
 import (
 	"context"
 	"encoding/base64"
-	"fmt"
 	"net/http"
+	"net/url"
+	"strings"
 
 	"github.com/palantir/pkg/refreshable/v2"
+	"golang.org/x/net/idna"
 )
 
 // TokenProvider accepts a context and returns either:
@@ -44,7 +46,7 @@ func (h *authTokenMiddleware) RoundTrip(req *http.Request, next http.RoundTrippe
 		return nil, err
 	}
 	if token != "" {
-		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
+		setAuthorizationHeader(req, "Bearer "+token)
 	}
 	return next.RoundTrip(req)
 }
@@ -79,13 +81,75 @@ type BasicAuthOptionalProvider func(context.Context) (*BasicAuth, error)
 func newBasicAuthMiddlewareFromRefreshable(auth refreshable.Refreshable[*BasicAuth]) Middleware {
 	return MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
 		if basicAuth := auth.Current(); basicAuth != nil {
-			setBasicAuth(req.Header, basicAuth.User, basicAuth.Password)
+			setBasicAuth(req, basicAuth.User, basicAuth.Password)
 		}
 		return next.RoundTrip(req)
 	})
 }
 
-func setBasicAuth(h http.Header, username, password string) {
+func setBasicAuth(req *http.Request, username, password string) {
+	setAuthorizationHeader(req, basicAuthValue(username, password))
+}
+
+func basicAuthValue(username, password string) string {
 	basicAuthBytes := []byte(username + ":" + password)
-	h.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString(basicAuthBytes))
+	return "Basic " + base64.StdEncoding.EncodeToString(basicAuthBytes)
+}
+
+// sets the Authorization header on req to value, unless req targets a host that differs
+// from the host that issued the request.
+func setAuthorizationHeader(req *http.Request, value string) {
+	if !authHeaderAllowedOnRedirect(req) {
+		return
+	}
+	req.Header.Set("Authorization", value)
+}
+
+// authHeaderAllowedOnRedirect reports whether Authorization credentials may be attached to req.
+// net/http populates req.Response only while following redirects and points to the response that
+// triggered this request. req.Response.Request is the request that recieved that response.
+// On the initial request req.Response is nil and credentials are always allowed. On a redirect, credentials
+// are allowed only when the target host is the same as, or a subdomain of, the host that issued the redirect.
+func authHeaderAllowedOnRedirect(req *http.Request) bool {
+	resp := req.Response
+	if resp == nil || resp.Request == nil || resp.Request.URL == nil {
+		return true
+	}
+	return isDomainOrSubdomain(idnaASCIIFromURL(req.URL), idnaASCIIFromURL(resp.Request.URL))
+}
+
+// idnaASCIIFromURL returns the host of u in its IDNA ASCII form.
+// This is copied from net/http so that host comparisons match shouldCopyHeaderOnRedirect exactly.
+//
+// Source: https://github.com/golang/go/blob/go1.26.4/src/net/http/transport.go#L3024-L3030
+func idnaASCIIFromURL(u *url.URL) string {
+	addr := u.Hostname()
+	if v, err := idna.Lookup.ToASCII(addr); err == nil {
+		addr = v
+	}
+	return addr
+}
+
+// isDomainOrSubdomain reports whether sub is a subdomain (or exact match) of the parent domain.
+// It is copied verbatim from net/http's unexported isDomainOrSubdomain to match the standard library's
+// redirect header-stripping semantics exactly.
+//
+// Source: https://github.com/golang/go/blob/go1.26.4/src/net/http/client.go#L1028-L1045
+func isDomainOrSubdomain(sub, parent string) bool {
+	if sub == parent {
+		return true
+	}
+	// If sub contains a :, it's probably an IPv6 address (and is definitely not a hostname).
+	// Don't check the suffix in this case, to avoid matching the contents of a IPv6 zone.
+	// For example, "::1%.www.example.com" is not a subdomain of "www.example.com".
+	if strings.ContainsAny(sub, ":%") {
+		return false
+	}
+	// If sub is "foo.example.com" and parent is "example.com",
+	// that means sub must end in "."+parent.
+	// Do it without allocating.
+	if !strings.HasSuffix(sub, parent) {
+		return false
+	}
+	return sub[len(sub)-len(parent)-1] == '.'
 }
