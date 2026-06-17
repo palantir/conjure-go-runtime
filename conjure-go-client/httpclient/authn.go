@@ -106,16 +106,53 @@ func setAuthorizationHeader(req *http.Request, value string) {
 }
 
 // authHeaderAllowedOnRedirect reports whether Authorization credentials may be attached to req.
-// net/http populates req.Response only while following redirects and points to the response that
-// triggered this request. req.Response.Request is the request that recieved that response.
-// On the initial request req.Response is nil and credentials are always allowed. On a redirect, credentials
-// are allowed only when the target host is the same as, or a subdomain of, the host that issued the redirect.
+//
+// net/http populates req.Response only while following redirects: it points to the response that
+// triggered this request, and req.Response.Request is the request that received that response (the
+// previous hop). Walking back through this chain reaches the original request, whose Response is nil.
+//
+// To match net/http's redirect header-stripping semantics, credentials are allowed only when every
+// redirect hop, including the current target, is the same as (or a subdomain of) the host of the
+// ORIGINAL request. net/http compares each hop against the original request host and, once a
+// cross-host hop occurs, strips sensitive headers for the remainder of the chain (see the sticky
+// stripSensitiveHeaders logic in client.go). Comparing only against the immediately preceding hop
+// would re-attach credentials on a chain such as a.com -> b.com -> sub.b.com, leaking a.com's
+// credentials to sub.b.com.
+//
+// Source: https://github.com/golang/go/blob/go1.26.4/src/net/http/client.go#L688-L692
 func authHeaderAllowedOnRedirect(req *http.Request) bool {
-	resp := req.Response
-	if resp == nil || resp.Request == nil || resp.Request.URL == nil {
+	if req.Response == nil {
+		// Initial request, not a redirect, credentials are always allowed.
 		return true
 	}
-	return isDomainOrSubdomain(idnaASCIIFromURL(req.URL), idnaASCIIFromURL(resp.Request.URL))
+	origin := originRequest(req)
+	if origin.URL == nil {
+		return true
+	}
+	originHost := idnaASCIIFromURL(origin.URL)
+	// Require every redirect hop (from the hop after the original request through req) to remain on
+	// the same host as, or a subdomain of, the original request host.
+	for r := req; r != origin; {
+		if r.URL == nil || !isDomainOrSubdomain(idnaASCIIFromURL(r.URL), originHost) {
+			return false
+		}
+		if r.Response == nil || r.Response.Request == nil {
+			break
+		}
+		r = r.Response.Request
+	}
+	return true
+}
+
+// originRequest walks the redirect chain back to the original request, i.e. the first request that
+// was not produced by following a redirect. net/http leaves req.Response (and therefore the chain)
+// nil on the original request.
+func originRequest(req *http.Request) *http.Request {
+	r := req
+	for r.Response != nil && r.Response.Request != nil {
+		r = r.Response.Request
+	}
+	return r
 }
 
 // idnaASCIIFromURL returns the host of u in its IDNA ASCII form.
