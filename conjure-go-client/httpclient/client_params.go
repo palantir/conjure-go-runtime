@@ -623,7 +623,7 @@ func WithErrorDecoder(errorDecoder ErrorDecoder) ClientParam {
 // password.
 func WithBasicAuth(user, password string) ClientOrHTTPClientParam {
 	return WithInnerMiddleware(MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
-		setBasicAuth(req.Header, user, password)
+		setBasicAuth(req, user, password)
 		return next.RoundTrip(req)
 	}))
 }
@@ -636,7 +636,7 @@ func WithBasicAuthProvider(provider BasicAuthProvider) ClientOrHTTPClientParam {
 		if err != nil {
 			return nil, err
 		}
-		setBasicAuth(req.Header, basicAuth.User, basicAuth.Password)
+		setBasicAuth(req, basicAuth.User, basicAuth.Password)
 		return next.RoundTrip(req)
 	}))
 }
@@ -652,7 +652,7 @@ func WithBasicAuthOptionalProvider(provider BasicAuthOptionalProvider) ClientOrH
 			return nil, err
 		}
 		if basicAuth != nil {
-			setBasicAuth(req.Header, basicAuth.User, basicAuth.Password)
+			setBasicAuth(req, basicAuth.User, basicAuth.Password)
 		}
 		return next.RoundTrip(req)
 	}))
