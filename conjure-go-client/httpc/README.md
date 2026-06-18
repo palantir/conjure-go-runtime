@@ -203,7 +203,7 @@ Custom encoders and decoders can be created via `NewBodyEncoderFunc` and `NewBod
 
 ### Builder
 
-`Builder` is the concrete builder implementing `ClientBuilder[B]`,
+`Builder` is the concrete builder implementing `BuilderAPI[B]`,
 which composes `DialerBuilder`, `TLSConfigBuilder`, `TransportBuilder`, and
 `ServiceBuilder`. All setters are mutable (modify the receiver) and return the
 builder for chaining. Use `Clone()` to fork an independent copy.
@@ -275,7 +275,7 @@ Convenience constructors `Param0`, `Param1`, `Param2`, and `ParamVarArgs` build
 
 ### Builder hierarchy
 
-The builder is decomposed into focused interfaces. `ClientBuilder` composes
+The builder is decomposed into focused interfaces. `BuilderAPI` composes
 them; `*Builder` is the concrete implementation that satisfies all four:
 
 - **`DialerBuilder[B]`** -- TCP dial timeout, keep-alive, SOCKS proxy. Exposes
@@ -289,7 +289,7 @@ them; `*Builder` is the concrete implementation that satisfies all four:
   transport, and `BuildTransport(ctx)` to produce one standalone.
 - **`ServiceBuilder[B]`** -- Service name, URIs, auth, middleware, retry,
   metrics, tracing, error handling. Exposes `Build(ctx)` for the full client.
-- **`ClientBuilder[B]`** -- Embeds all four sub-interfaces.
+- **`BuilderAPI[B]`** -- Embeds all four sub-interfaces.
 
 Each `Set<X>` override on the sub-interfaces short-circuits the corresponding
 `Build<X>` and the matching `Set*`/`Add*` settings in that domain are ignored.
@@ -335,10 +335,9 @@ request changes are not overwritten. The auth-header middleware sits closest to
 the transport so caller-supplied Authorization headers (set anywhere upstream)
 are not overwritten — see [Auth precedence](#auth-precedence).
 
-(Per-request middleware lands inside telemetry only for clients built via
-`Builder`. A custom `Client` implementation has its `RoundTrip` wrapped instead,
-so per-request middleware still runs per attempt but outside whatever telemetry
-that client bakes.)
+(Per-request middleware is applied by the seam that `Builder`-built clients bake
+just inside telemetry. A `Client` not built via `Builder` lacks that seam; embed
+a built client to honor per-request middleware.)
 
 Error decoding is **not** a middleware layer. It runs in `Endpoint.Execute` after
 `Send` returns the raw HTTP response (see [Error handling](#error-handling)).

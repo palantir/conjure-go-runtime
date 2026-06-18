@@ -196,8 +196,9 @@ func TestOverrides_WithOverrides_Merge(t *testing.T) {
 		overrides := httpc.Overrides{}.WithMiddleware(mw2)
 		merged := base.WithOverrides(overrides)
 
-		client := &httpTestClient{server: server}
-		_, _, err := merged.Execute(context.Background(), client)
+		client, err := httpc.NewBuilder().SetBaseURLs(server.URL).Build(context.Background())
+		require.NoError(t, err)
+		_, _, err = merged.Execute(context.Background(), client)
 		require.NoError(t, err)
 		// Middlewares wrap from outside in: last added (mw2) wraps mw1,
 		// so mw2 executes first.

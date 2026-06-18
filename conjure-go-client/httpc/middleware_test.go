@@ -73,8 +73,9 @@ func TestMiddlewareChain_Order(t *testing.T) {
 		WithMiddleware(mw2).
 		WithMiddleware(mw3)
 
-	client := &httpTestClient{server: server}
-	_, _, err := ep.Execute(t.Context(), client)
+	client, err := httpc.NewBuilder().SetBaseURLs(server.URL).Build(t.Context())
+	require.NoError(t, err)
+	_, _, err = ep.Execute(t.Context(), client)
 	require.NoError(t, err)
 
 	// Last added (mw3) wraps mw2 wraps mw1 wraps client.
@@ -103,8 +104,9 @@ func TestMiddlewareChain_NilSkipped(t *testing.T) {
 		WithMiddleware(mw).
 		WithMiddleware(nil)
 
-	client := &httpTestClient{server: server}
-	_, _, err := ep.Execute(t.Context(), client)
+	client, err := httpc.NewBuilder().SetBaseURLs(server.URL).Build(t.Context())
+	require.NoError(t, err)
+	_, _, err = ep.Execute(t.Context(), client)
 	require.NoError(t, err)
 	assert.True(t, called)
 }

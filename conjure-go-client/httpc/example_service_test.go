@@ -493,11 +493,12 @@ func TestExampleService_MiddlewareOverride(t *testing.T) {
 		return next.RoundTrip(req)
 	})
 
-	client := &httpTestClient{server: server}
+	client, err := httpc.NewBuilder().SetBaseURLs(server.URL).Build(context.Background())
+	require.NoError(t, err)
 	overrides := httpc.Overrides{}.WithMiddleware(mw)
 	svc := &itemServiceClient{client: client, overrides: overrides}
 
-	_, err := svc.GetItem(context.Background(), "1")
+	_, err = svc.GetItem(context.Background(), "1")
 	require.NoError(t, err)
 	assert.True(t, middlewareCalled)
 }

@@ -407,15 +407,12 @@ func (e Endpoint[Req, Resp]) Execute(ctx context.Context, client Client) (Resp, 
 		pol.Timeout = *e.overrides.timeout
 	}
 
-	// Per-request middlewares run per attempt. Built clients apply them inside
-	// their telemetry (so they are traced/metered and their changes stick); any
-	// other Client has its RoundTrip wrapped as a fallback.
+	// Per-request middlewares are applied per attempt inside telemetry by the
+	// built client's baked seam, so they are traced/metered and their changes
+	// stick. A Client not built via Builder lacks the seam; embed a built client
+	// to honor per-request middleware.
 	if len(e.overrides.middlewares) > 0 {
-		if _, ok := client.(inlinesRequestMiddleware); ok {
-			ctx = contextWithRequestMiddlewares(ctx, e.overrides.middlewares)
-		} else {
-			client = clientWithMiddlewares(client, e.overrides.middlewares...)
-		}
+		ctx = contextWithRequestMiddlewares(ctx, e.overrides.middlewares)
 	}
 
 	resp, err := Send(ctx, client, req, pol)

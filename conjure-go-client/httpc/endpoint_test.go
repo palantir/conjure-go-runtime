@@ -350,8 +350,9 @@ func TestEndpointExecute_Middleware(t *testing.T) {
 		WithDecoder(httpc.VoidDecoder()).
 		WithMiddleware(mw)
 
-	client := &httpTestClient{server: server}
-	_, _, err := ep.Execute(context.Background(), client)
+	client, err := httpc.NewBuilder().SetBaseURLs(server.URL).Build(context.Background())
+	require.NoError(t, err)
+	_, _, err = ep.Execute(context.Background(), client)
 	require.NoError(t, err)
 	assert.True(t, middlewareCalled)
 }
@@ -448,8 +449,9 @@ func TestEndpointExecute_RPCMethodName(t *testing.T) {
 		WithDecoder(httpc.VoidDecoder()).
 		WithMiddleware(mw)
 
-	client := &httpTestClient{server: server}
-	_, _, err := ep.Execute(context.Background(), client)
+	client, err := httpc.NewBuilder().SetBaseURLs(server.URL).Build(context.Background())
+	require.NoError(t, err)
+	_, _, err = ep.Execute(context.Background(), client)
 	require.NoError(t, err)
 
 	name, ok := httpc.RPCMethodName(capturedCtx)

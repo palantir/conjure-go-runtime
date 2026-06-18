@@ -112,17 +112,6 @@ func (c *standardClient[B]) CallPolicy() CallPolicy {
 
 func (c *standardClient[B]) Builder() B { return c.builder.Clone() }
 
-// inlinesRequestMiddleware marks a Client that applies per-request middlewares
-// (carried on the request context) itself, inside its telemetry layer.
-// [Endpoint.Execute] hands middlewares to such a client via the context; for any
-// other Client it wraps RoundTrip instead. standardClient bakes a
-// [requestMiddlewareApplier] seam for exactly this.
-type inlinesRequestMiddleware interface {
-	inlinesRequestMiddleware()
-}
-
-func (*standardClient[B]) inlinesRequestMiddleware() {}
-
 // Send runs a path-only request to completion against client. It orders the
 // base URLs via the client's [URLSelector], prepends the selected base to the
 // path per attempt, retries replayable requests across the URLs under pol, and

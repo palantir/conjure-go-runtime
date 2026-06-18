@@ -53,24 +53,6 @@ func (requestMiddlewareApplier) RoundTrip(req *http.Request, next http.RoundTrip
 	return wrapTransport(next, middlewares...).RoundTrip(req)
 }
 
-// clientWithMiddlewares decorates each of c's attempts (its RoundTrip) with the
-// given middlewares, forwarding URLSelector and CallPolicy. [Endpoint.Execute]
-// uses it as the fallback for Clients that don't apply per-request middlewares
-// inside their own stack (see [requestMiddlewareApplier]); the middlewares then
-// run per attempt but outside whatever telemetry the Client bakes.
-func clientWithMiddlewares(c Client, middlewares ...Middleware) Client {
-	return &middlewareClient{Client: c, transport: wrapTransport(c, middlewares...)}
-}
-
-type middlewareClient struct {
-	Client
-	transport http.RoundTripper
-}
-
-func (c *middlewareClient) RoundTrip(req *http.Request) (*http.Response, error) {
-	return c.transport.RoundTrip(req)
-}
-
 // wrapTransport composes middlewares around base. Each successive middleware
 // wraps the previous, so the last in the list is outermost. Nil entries are skipped.
 func wrapTransport(base http.RoundTripper, middlewares ...Middleware) http.RoundTripper {
