@@ -19,6 +19,7 @@ import (
 	"math/rand"
 	"net/http"
 	"net/url"
+	"slices"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -144,8 +145,7 @@ type randomSelector struct {
 }
 
 func (s *randomSelector) BaseURLs() []string {
-	uris := make([]string, len(s.uris))
-	copy(uris, s.uris)
+	uris := slices.Clone(s.uris)
 	rand.New(rand.NewSource(s.nanoClock())).Shuffle(len(uris), func(i, j int) {
 		uris[i], uris[j] = uris[j], uris[i]
 	})

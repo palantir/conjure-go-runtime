@@ -24,7 +24,7 @@ import (
 	werror "github.com/palantir/witchcraft-go-error"
 )
 
-// ServiceBuilder is the largest slice of [ClientBuilder]: identity, base URLs,
+// ServiceBuilder is the largest slice of [BuilderAPI]: identity, base URLs,
 // auth, headers, middleware, timeouts, retry, metrics, tracing, and error
 // handling. Settings often have refreshable counterparts (SetFooRefreshable)
 // for runtime updates; Clone preserves the refreshable link, while a static

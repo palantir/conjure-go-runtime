@@ -27,27 +27,27 @@ import (
 	werror "github.com/palantir/witchcraft-go-error"
 )
 
-// ClientBuilder is the top-level builder interface. It composes
+// BuilderAPI is the top-level builder interface. It composes
 // [DialerBuilder], [TLSConfigBuilder], [TransportBuilder], and [ServiceBuilder]
-// so a value satisfying ClientBuilder can be used wherever any of the four
+// so a value satisfying BuilderAPI can be used wherever any of the four
 // narrower interfaces is required.
 //
 // [Builder] is the concrete implementation; application code usually uses
 // *Builder directly. The interfaces exist for generic helpers and mock
 // generation:
 //
-//	func ApplyDefaults[B ClientBuilder[B]](b B) B {
+//	func ApplyDefaults[B BuilderAPI[B]](b B) B {
 //	    return b.SetTimeout(30 * time.Second).SetMaxAttempts(new(3))
 //	}
-type ClientBuilder[B ClientBuilder[B]] interface {
+type BuilderAPI[B BuilderAPI[B]] interface {
 	DialerBuilder[B]
 	TLSConfigBuilder[B]
 	TransportBuilder[B]
 	ServiceBuilder[B]
 }
 
-// Builder is the concrete [ClientBuilder] returned by [NewBuilder]. In
-// addition to [ClientBuilder.Build], it exposes BuildDialer, BuildTLSConfig,
+// Builder is the concrete [BuilderAPI] returned by [NewBuilder]. In
+// addition to [BuilderAPI.Build], it exposes BuildDialer, BuildTLSConfig,
 // BuildTransport, and BuildHTTPClient for building intermediate artifacts.
 //
 // Builder is NOT safe for concurrent use; call [Builder.Clone] before mutating
@@ -89,7 +89,7 @@ type Builder struct {
 	errs             []error
 }
 
-var _ ClientBuilder[*Builder] = (*Builder)(nil)
+var _ BuilderAPI[*Builder] = (*Builder)(nil)
 
 // NewBuilder creates a Builder seeded with sane defaults.
 func NewBuilder() *Builder {

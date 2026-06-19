@@ -28,7 +28,7 @@ import (
 )
 
 // TransportBuilder configures HTTP transport settings (connection pooling,
-// timeouts, HTTP/2, HTTP(S) proxy) and is one slice of [ClientBuilder].
+// timeouts, HTTP/2, HTTP(S) proxy) and is one slice of [BuilderAPI].
 //
 // A configured *Builder can produce a standalone [http.RoundTripper] via
 // [Builder.BuildTransport], or provide one for a full [Client] via

@@ -56,7 +56,7 @@ func newClient(ctx context.Context, b *clientBuilder, params ...ClientParam) (*c
 	}
 
 	// httpc-level error decoding is bypassed entirely here: the bridge calls
-	// fluentClient.Do directly (not Endpoint.Execute) and applies its own
+	// standardClient.Do directly (not Endpoint.Execute) and applies its own
 	// ErrorDecoder in clientImpl.Do after the retry loop completes. The bridge
 	// also owns its own buffer pool (via clientImpl.bufferPool / bodyMiddleware).
 

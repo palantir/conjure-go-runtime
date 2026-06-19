@@ -27,7 +27,7 @@ import (
 )
 
 // DialerBuilder configures TCP dialer settings (dial timeout, keep-alive,
-// SOCKS proxy) and is one slice of [ClientBuilder]. A configured *Builder can
+// SOCKS proxy) and is one slice of [BuilderAPI]. A configured *Builder can
 // produce a standalone [ContextDialer] via [Builder.BuildDialer], or provide
 // one for a full [Client] via [Builder.Build].
 type DialerBuilder[B DialerBuilder[B]] interface {

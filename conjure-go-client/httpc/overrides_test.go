@@ -130,7 +130,7 @@ func TestOverrides_WithOverrides_Merge(t *testing.T) {
 	})
 
 	t.Run("timeout last wins", func(t *testing.T) {
-		// Per-attempt timeout signal is consumed by fluentClient (via Builder).
+		// Per-attempt timeout signal is consumed by standardClient (via Builder).
 		server := newTestServer(t, func(w http.ResponseWriter, _ *http.Request) {
 			time.Sleep(200 * time.Millisecond)
 			w.WriteHeader(http.StatusNoContent)

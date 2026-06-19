@@ -27,7 +27,7 @@ import (
 	"github.com/palantir/witchcraft-go-logging/wlog/svclog/svc1log"
 )
 
-// TLSConfigBuilder configures TLS settings and is one slice of [ClientBuilder].
+// TLSConfigBuilder configures TLS settings and is one slice of [BuilderAPI].
 // Root CA configuration is additive across all Add* calls. System CAs are
 // included by default; call SetIncludeSystemCAs(false) to use only explicit
 // CAs. Client cert configuration uses last-write-wins Set* semantics.
@@ -247,7 +247,37 @@ func (b *Builder) BuildTLSConfig(ctx context.Context) (refreshable.Validated[*tl
 	includeSystemCAs := b.includeSystemCAs
 	clientCertCert := b.clientCertCert
 	clientCertKey := b.clientCertKey
-	tlsP := refreshable.MergeValidatedAndRefreshableAuto(ctx, multiFileRefreshable, b.tlsFileParams, func(fileBytes map[string][]byte, tp tlsFileParams) tlsParams {
+	tlsP := refreshable.MergeValidatedAndRefreshableAuto(ctx, multiFileRefreshable, b.tlsFileParams, newBaseTLSParamsMapper(includeSystemCAs, clientCertCert, clientCertKey))
+
+	if len(b.caByteSlices) > 0 {
+		staticSlices := make([][]byte, len(b.caByteSlices))
+		copy(staticSlices, b.caByteSlices)
+		tlsP = refreshable.MergeValidatedAndRefreshableAuto(ctx, tlsP, refreshable.New(staticSlices), func(params tlsParams, statics [][]byte) tlsParams {
+			params.CABytes = append(params.CABytes, statics...)
+			return params
+		})
+	}
+
+	if b.tlsCABytes != nil {
+		tlsP = refreshable.MergeValidatedAndRefreshableAuto(ctx, tlsP, b.tlsCABytes, func(params tlsParams, caByteSlices [][]byte) tlsParams {
+			params.CABytes = append(params.CABytes, caByteSlices...)
+			return params
+		})
+	}
+
+	rebuild := false
+	return refreshable.MapValidatedAuto(ctx, tlsP, func(ctx context.Context, p tlsParams) (*tls.Config, error) {
+		if rebuild {
+			svc1log.FromContext(ctx).Debug("Reconstructing TLS Config")
+		} else {
+			rebuild = true
+		}
+		return newTLSConfig(ctx, p)
+	})
+}
+
+func newBaseTLSParamsMapper(includeSystemCAs bool, clientCertCert []byte, clientCertKey []byte) func(fileBytes map[string][]byte, tp tlsFileParams) tlsParams {
+	return func(fileBytes map[string][]byte, tp tlsFileParams) tlsParams {
 		var caBytes [][]byte
 		for path, contents := range fileBytes {
 			if path == tp.CertFile || path == tp.KeyFile {
@@ -287,33 +317,7 @@ func (b *Builder) BuildTLSConfig(ctx context.Context) (refreshable.Validated[*tl
 			params.KeyBytes = clientCertKey
 		}
 		return params
-	})
-
-	if len(b.caByteSlices) > 0 {
-		staticSlices := make([][]byte, len(b.caByteSlices))
-		copy(staticSlices, b.caByteSlices)
-		tlsP = refreshable.MergeValidatedAndRefreshableAuto(ctx, tlsP, refreshable.New(staticSlices), func(params tlsParams, statics [][]byte) tlsParams {
-			params.CABytes = append(params.CABytes, statics...)
-			return params
-		})
 	}
-
-	if b.tlsCABytes != nil {
-		tlsP = refreshable.MergeValidatedAndRefreshableAuto(ctx, tlsP, b.tlsCABytes, func(params tlsParams, caByteSlices [][]byte) tlsParams {
-			params.CABytes = append(params.CABytes, caByteSlices...)
-			return params
-		})
-	}
-
-	rebuild := false
-	return refreshable.MapValidatedAuto(ctx, tlsP, func(ctx context.Context, p tlsParams) (*tls.Config, error) {
-		if rebuild {
-			svc1log.FromContext(ctx).Debug("Reconstructing TLS Config")
-		} else {
-			rebuild = true
-		}
-		return newTLSConfig(ctx, p)
-	})
 }
 
 // newTLSConfig builds a *tls.Config from p.
