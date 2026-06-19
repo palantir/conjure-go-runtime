@@ -53,11 +53,13 @@ import (
 // documented order when a client is built with outer, inner, and per-request
 // middleware. The expected order from outermost to innermost is:
 //
-//	per-request → outer recovery → user outer → error decoder → URI scorer
-//	  → inner recovery → tracing → metrics → user inner → http.Transport
+//	URI scorer → telemetry (tracing/metrics/recovery) → user outer → user inner
+//	  → auth → per-request → http.Transport
 //
-// This test disables tracing, metrics, and recovery to isolate the user-visible
-// layers (outer, inner, per-request) and confirm their relative ordering.
+// Per-request middleware runs innermost (Send layers it below the client's
+// intrinsic stack), so it is closest to the transport. This test disables
+// tracing, metrics, and recovery to isolate the user-visible layers (outer,
+// inner, per-request) and confirm their relative ordering.
 func TestMiddlewareStackOrder(t *testing.T) {
 	var order []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -103,13 +105,13 @@ func TestMiddlewareStackOrder(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, []string{
-		"per-request-before",
 		"outer-before",
 		"inner-before",
+		"per-request-before",
 		"transport",
+		"per-request-after",
 		"inner-after",
 		"outer-after",
-		"per-request-after",
 	}, order)
 }
 

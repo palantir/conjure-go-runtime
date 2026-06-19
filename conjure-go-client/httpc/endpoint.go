@@ -396,26 +396,22 @@ func (e Endpoint[Req, Resp]) Execute(ctx context.Context, client Client) (Resp, 
 		req.URL.RawQuery = q.Encode()
 	}
 
+	// Set basic auth before the stack runs so the client's set-if-absent auth
+	// middleware sees it and skips — endpoint auth wins without invoking the
+	// client's auth provider.
 	if e.overrides.basicAuth != nil {
 		req.SetBasicAuth(e.overrides.basicAuth.user, e.overrides.basicAuth.password)
 	}
 
 	// Start from the client's default policy; a per-request timeout overrides
 	// the per-attempt bound. A total-call deadline is the caller's job via ctx.
-	pol := client.CallPolicy()
+	// Per-request middlewares run innermost (per attempt, with the resolved URL).
+	opts := SendOptions{CallPolicy: client.CallPolicy(), Middlewares: e.overrides.middlewares}
 	if e.overrides.timeout != nil {
-		pol.Timeout = *e.overrides.timeout
+		opts.Timeout = *e.overrides.timeout
 	}
 
-	// Per-request middlewares are applied per attempt inside telemetry by the
-	// built client's baked seam, so they are traced/metered and their changes
-	// stick. A Client not built via Builder lacks the seam; embed a built client
-	// to honor per-request middleware.
-	if len(e.overrides.middlewares) > 0 {
-		ctx = contextWithRequestMiddlewares(ctx, e.overrides.middlewares)
-	}
-
-	resp, err := Send(ctx, client, req, pol)
+	resp, err := Send(ctx, client, req, opts)
 	if err != nil {
 		return zero, nil, err
 	}

@@ -31,23 +31,24 @@ resp, _, err := getItem.
 
 ### Client
 
-`Client` is a small interface: a single round trip plus the configuration the
-request loop needs.
+`Client` is a small interface: the pieces the request loop composes per attempt.
 
 ```go
 type Client interface {
-    http.RoundTripper // one attempt, full middleware stack baked in
+    Transport() http.RoundTripper // one raw attempt, no middleware
+    Middleware() Middleware       // intrinsic stack: telemetry, user middleware, auth
     URLSelector() URLSelector
     CallPolicy() CallPolicy
 }
 ```
 
-`RoundTrip` performs a single attempt. The retry loop, base-URL selection,
-per-attempt timeout, and QoS redirect handling live in the free function
-`Send`, which `Endpoint.Execute` calls for you:
+`Send` composes these per attempt (selector → `Middleware` → per-request
+middleware → `Transport`) and adds the retry loop, base-URL selection,
+per-attempt timeout, and QoS redirect handling. `Endpoint.Execute` calls it for
+you; pass per-request overrides via `SendOptions`:
 
 ```go
-resp, err := httpc.Send(ctx, client, req, client.CallPolicy())
+resp, err := httpc.Send(ctx, client, req, httpc.SendOptions{CallPolicy: client.CallPolicy()})
 ```
 
 A `Client` built via `Builder` is the usual case. Because it carries a

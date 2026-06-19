@@ -243,10 +243,10 @@ b.SetTimeout(30 * time.Second)  // modifies b in place
 ### The Client interface is simpler
 
 The old `Client` interface had `Do`, `Get`, `Head`, `Post`, `Put`, `Delete` methods.
-The new `Client` is a small transport: `RoundTrip` for a single attempt plus
-`URLSelector` and `CallPolicy`. The retry/scoring loop lives in the free function
-`Send`, which `Endpoint.Execute` calls. HTTP method selection happens at the
-endpoint level.
+The new `Client` exposes the pieces the request loop needs: `Transport` for a
+single raw attempt, `Middleware` for the intrinsic stack, plus `URLSelector` and
+`CallPolicy`. The retry/scoring loop lives in the free function `Send`, which
+`Endpoint.Execute` calls. HTTP method selection happens at the endpoint level.
 
 ### `WithConfig` now requires context
 

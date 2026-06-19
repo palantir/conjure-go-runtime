@@ -45,15 +45,17 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// httpTestClient wraps an httptest.Server as an httpc.Client. Send sets the
-// request URL from URLSelector's base URL before calling RoundTrip.
+// httpTestClient wraps an httptest.Server as an httpc.Client with no middleware.
+// Send selects the server's base URL and round-trips via its transport.
 type httpTestClient struct {
 	server *httptest.Server
 }
 
-func (c *httpTestClient) RoundTrip(req *http.Request) (*http.Response, error) {
-	return c.server.Client().Transport.RoundTrip(req)
+func (c *httpTestClient) Transport() http.RoundTripper {
+	return c.server.Client().Transport
 }
+
+func (c *httpTestClient) Middleware() httpc.Middleware { return nil }
 
 func (c *httpTestClient) URLSelector() httpc.URLSelector {
 	return httpc.BalancedURLSelector([]string{c.server.URL})
@@ -300,6 +302,10 @@ func (e *testError) Error() string {
 type clientFunc func(*http.Request) (*http.Response, error)
 
 func (f clientFunc) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
+
+func (f clientFunc) Transport() http.RoundTripper { return f }
+
+func (clientFunc) Middleware() httpc.Middleware { return nil }
 
 func (clientFunc) URLSelector() httpc.URLSelector {
 	return httpc.BalancedURLSelector([]string{"http://localhost"})

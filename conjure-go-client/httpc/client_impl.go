@@ -28,22 +28,26 @@ import (
 	"github.com/palantir/witchcraft-go-logging/wlog/svclog/svc1log"
 )
 
-// Client is a single-attempt HTTP transport plus the configuration [Send] needs
-// to drive a full request: a base-URL selector and a default call policy.
-// [Builder.Build] returns one; callers reach it through [Send] or
-// [Endpoint.Execute] rather than calling RoundTrip directly.
+// Client is the configuration [Send] needs to drive a full request: a raw
+// transport, the intrinsic middleware stack, a base-URL selector, and a default
+// call policy. [Builder.Build] returns one; callers reach it through [Send] or
+// [Endpoint.Execute] rather than assembling the pieces themselves.
 //
-// RoundTrip performs ONE attempt with the full middleware stack baked in. It
-// does not retry, score URLs, or follow QoS redirects — [Send] layers those on
-// top. The interface is embeddable: a wrapper can override RoundTrip while
-// forwarding URLSelector and CallPolicy to the wrapped Client.
+// [Send] composes the pieces per attempt as selector → Middleware → per-request
+// middleware → Transport, then layers retries, URL scoring, and QoS redirects on
+// top. Exposing the pieces (rather than a single RoundTrip) keeps [Send] in
+// control of composition, so a hand-built request can't drop auth or telemetry.
 type Client interface {
-	http.RoundTripper
+	// Transport performs one attempt with no middleware decoration. nil falls
+	// back to http.DefaultTransport.
+	Transport() http.RoundTripper
+	// Middleware is the intrinsic stack baked by the builder (telemetry, user
+	// middleware, auth), applied around every attempt. nil means none.
+	Middleware() Middleware
 	// URLSelector orders the base URLs and observes each attempt's outcome.
 	URLSelector() URLSelector
 	// CallPolicy returns the client's default per-call policy. Callers may
-	// overlay per-request overrides (e.g. a request timeout) before passing it
-	// to Send.
+	// overlay per-request overrides (e.g. a request timeout) in [SendOptions].
 	CallPolicy() CallPolicy
 }
 
@@ -77,12 +81,23 @@ type CallPolicy struct {
 	MaxBackoff     time.Duration
 }
 
+// SendOptions configures a single [Send] call: the per-call policy plus any
+// per-request middlewares. The middlewares run innermost — below the client's
+// intrinsic stack (auth included), just above the transport — so a request can
+// override auth, and they run on every attempt with the resolved URL.
+type SendOptions struct {
+	CallPolicy
+	Middlewares []Middleware
+}
+
 // standardClient is the [RebuildableClient] returned by [Builder.Build]. It
-// holds the baked middleware stack as a static transport; refreshable behavior
-// lives inside the middlewares (read per request) and in CallPolicy.
+// holds the raw transport and the intrinsic middleware stack separately;
+// refreshable behavior lives inside the middlewares (read per request) and in
+// CallPolicy.
 type standardClient[B ServiceBuilder[B]] struct {
 	serviceName    refreshable.Refreshable[string]
 	transport      http.RoundTripper
+	middleware     Middleware
 	uriScorer      URLSelector
 	timeout        refreshable.Refreshable[time.Duration]
 	maxAttempts    refreshable.Refreshable[*int]
@@ -91,9 +106,9 @@ type standardClient[B ServiceBuilder[B]] struct {
 	builder        B
 }
 
-func (c *standardClient[B]) RoundTrip(req *http.Request) (*http.Response, error) {
-	return c.transport.RoundTrip(req)
-}
+func (c *standardClient[B]) Transport() http.RoundTripper { return c.transport }
+
+func (c *standardClient[B]) Middleware() Middleware { return c.middleware }
 
 func (c *standardClient[B]) URLSelector() URLSelector { return c.uriScorer }
 
@@ -114,33 +129,41 @@ func (c *standardClient[B]) Builder() B { return c.builder.Clone() }
 
 // Send runs a path-only request to completion against client. It orders the
 // base URLs via the client's [URLSelector], prepends the selected base to the
-// path per attempt, retries replayable requests across the URLs under pol, and
-// applies pol.Timeout to each attempt. Standard redirects (301/302/303) are
-// followed by the call-scoped http.Client; 307/308 are handed back to the
-// retrier as Conjure QoS relocations.
+// path per attempt, retries replayable requests across the URLs under
+// opts.CallPolicy, and applies opts.Timeout to each attempt. Standard redirects
+// (301/302/303) are followed by the call-scoped http.Client; 307/308 are handed
+// back to the retrier as Conjure QoS relocations.
+//
+// Each attempt is composed as selector → client.Middleware → opts.Middlewares →
+// client.Transport, so the intrinsic stack (auth, telemetry) always runs and the
+// per-request middlewares run innermost — on every attempt with the resolved URL.
 //
 // Send returns the raw final response; callers decode errors and bodies. It is
 // the loop [Endpoint.Execute] and the legacy httpclient bridge share.
-func Send(ctx context.Context, client Client, req *http.Request, pol CallPolicy) (*http.Response, error) {
-	uris := client.URLSelector().BaseURLs()
+func Send(ctx context.Context, client Client, req *http.Request, opts SendOptions) (*http.Response, error) {
+	selector := client.URLSelector()
+	uris := selector.BaseURLs()
 	if len(uris) == 0 {
 		return nil, werror.WrapWithContextParams(ctx, ErrEmptyURIs{}, "")
 	}
 
 	attempts := 2 * len(uris)
-	if pol.MaxAttempts != nil {
-		attempts = *pol.MaxAttempts
+	if opts.MaxAttempts != nil {
+		attempts = *opts.MaxAttempts
 	}
 
-	backoff := retry.Start(ctx, retry.WithInitialBackoff(pol.InitialBackoff), retry.WithMaxBackoff(pol.MaxBackoff))
+	backoff := retry.Start(ctx, retry.WithInitialBackoff(opts.InitialBackoff), retry.WithMaxBackoff(opts.MaxBackoff))
 	retrier := internal.NewRequestRetrier(uris, backoff, attempts)
 
-	// Call-scoped client: the selector wraps the client's single-attempt
-	// RoundTrip so it observes every attempt (and redirect hop); the http.Client
-	// follows standard redirects and enforces the per-attempt timeout.
+	// Per-attempt transport (innermost to outermost): the raw transport, the
+	// per-request middlewares, the client's intrinsic stack, then the selector so
+	// it observes every attempt (and redirect hop). The http.Client follows
+	// standard redirects and enforces the per-attempt timeout.
+	transport := wrapTransport(client.Transport(), opts.Middlewares...)
+	transport = wrapTransport(transport, client.Middleware())
 	hc := &http.Client{
-		Transport: wrapTransport(client, client.URLSelector()),
-		Timeout:   pol.Timeout,
+		Transport: wrapTransport(transport, selector),
+		Timeout:   opts.Timeout,
 		// 307/308 are Conjure QoS redirects handled by the retrier; 301/302/303
 		// remain the http.Client's responsibility.
 		CheckRedirect: func(redirectReq *http.Request, _ []*http.Request) error {

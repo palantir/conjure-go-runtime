@@ -445,7 +445,7 @@ func (b *Builder) Build(ctx context.Context) (RebuildableClient[*Builder], error
 		return nil, werror.WrapWithContextParams(ctx, ErrEmptyURIs{}, "", werror.SafeParam("serviceName", b.serviceName.Current()))
 	}
 
-	transport, err := b.bakeTransport(ctx)
+	transport, err := b.BuildTransport(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -459,6 +459,7 @@ func (b *Builder) Build(ctx context.Context) (RebuildableClient[*Builder], error
 	return &standardClient[*Builder]{
 		serviceName:    b.serviceName,
 		transport:      transport,
+		middleware:     b.bakeMiddleware(),
 		uriScorer:      uriScorer,
 		timeout:        b.timeout,
 		maxAttempts:    b.maxAttempts,
@@ -468,24 +469,20 @@ func (b *Builder) Build(ctx context.Context) (RebuildableClient[*Builder], error
 	}, nil
 }
 
-// bakeTransport wraps the base transport (inside-out) with auth, inner
-// middlewares, user outer middlewares, the per-request seam, and telemetry.
+// bakeMiddleware composes the client's intrinsic stack: auth (innermost), then
+// inner middlewares, user outer middlewares, and telemetry (outermost).
 // Telemetry is outermost so its panic recovery (which tags the error with the
-// request span) and its metrics/span cover every user middleware — builder and
-// per-request alike. Refreshable behavior lives inside the middlewares and is
-// read per request, so the result is static.
-func (b *Builder) bakeTransport(ctx context.Context) (http.RoundTripper, error) {
-	transport, err := b.BuildTransport(ctx)
-	if err != nil {
-		return nil, err
-	}
+// request span) and its metrics/span cover every user middleware. Refreshable
+// behavior lives inside the middlewares and is read per request, so the result
+// is static. Per-request middlewares are layered in below this by [Send].
+func (b *Builder) bakeMiddleware() Middleware {
+	var middlewares []Middleware
 	if b.authHeader != nil {
-		transport = wrapTransport(transport, authHeaderMiddleware(b.authHeader))
+		middlewares = append(middlewares, authHeaderMiddleware(b.authHeader))
 	}
-	transport = wrapTransport(transport, b.innerMiddlewares...)
-	transport = wrapTransport(transport, b.middlewares...)
-	transport = wrapTransport(transport, requestMiddlewareApplier{})
-	transport = wrapTransport(transport, &telemetryMiddleware{
+	middlewares = append(middlewares, b.innerMiddlewares...)
+	middlewares = append(middlewares, b.middlewares...)
+	middlewares = append(middlewares, &telemetryMiddleware{
 		serviceName:         b.serviceName,
 		disableMetrics:      b.disableMetrics,
 		disableRecovery:     b.disableRecovery,
@@ -494,18 +491,20 @@ func (b *Builder) bakeTransport(ctx context.Context) (http.RoundTripper, error) 
 		disableTraceMetrics: b.disableTraceMetrics,
 		tags:                b.metricsTagProviders,
 	})
-	return transport, nil
+	return composeMiddleware(middlewares...)
 }
 
-// BuildHTTPClient returns a refreshable *http.Client wrapping the baked
-// middleware stack (see [Builder.bakeTransport]) with the configured timeout.
-// Unlike [Builder.Build], it performs no retries, URI scoring, or QoS redirect
-// handling — it is the escape hatch for callers that want a plain *http.Client.
+// BuildHTTPClient returns a refreshable *http.Client wrapping the raw transport
+// in the intrinsic middleware stack (see [Builder.bakeMiddleware]) with the
+// configured timeout. Unlike [Builder.Build], it performs no retries, URI
+// scoring, or QoS redirect handling — it is the escape hatch for callers that
+// want a plain *http.Client that still carries auth and telemetry.
 func (b *Builder) BuildHTTPClient(ctx context.Context) (refreshable.Refreshable[*http.Client], error) {
-	transport, err := b.bakeTransport(ctx)
+	transport, err := b.BuildTransport(ctx)
 	if err != nil {
 		return nil, err
 	}
+	transport = wrapTransport(transport, b.bakeMiddleware())
 	mapped := refreshable.MapAuto(b.timeout, func(timeout time.Duration) *http.Client {
 		return &http.Client{
 			Timeout:   timeout,

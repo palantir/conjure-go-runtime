@@ -111,12 +111,12 @@ func (c *clientImpl) Do(ctx context.Context, params ...RequestParam) (*http.Resp
 	}
 	defer cleanup()
 
-	pol := c.client.CallPolicy()
+	opts := httpc.SendOptions{CallPolicy: c.client.CallPolicy()}
 	if b.requestTimeout != nil {
-		pol.Timeout = *b.requestTimeout
+		opts.Timeout = *b.requestTimeout
 	}
 
-	resp, respErr := httpc.Send(ctx, c.client, req, pol)
+	resp, respErr := httpc.Send(ctx, c.client, req, opts)
 
 	// Error decoding: per-request first, then client-level fallback.
 	if respErr == nil && resp != nil {

@@ -37,20 +37,22 @@ func (f MiddlewareFunc) RoundTrip(req *http.Request, next http.RoundTripper) (*h
 	return f(req, next)
 }
 
-// requestMiddlewareApplier applies the per-request middlewares carried on the
-// request context (set by [Endpoint.Execute]) at this point in the baked stack.
-// It is baked just inside telemetry so per-request middlewares run on each
-// attempt with the resolved URL, are traced/metered/recovered, and run after
-// telemetry's header injection — so their changes are not overwritten, matching
-// the builder middleware.
-type requestMiddlewareApplier struct{}
-
-func (requestMiddlewareApplier) RoundTrip(req *http.Request, next http.RoundTripper) (*http.Response, error) {
-	middlewares := requestMiddlewaresFromContext(req.Context())
-	if len(middlewares) == 0 {
-		return next.RoundTrip(req)
+// composeMiddleware collapses a list of middlewares into a single [Middleware]
+// that wraps next with each in turn — the last in the list is outermost, matching
+// [wrapTransport]. Returns nil when the list has no non-nil entries.
+func composeMiddleware(middlewares ...Middleware) Middleware {
+	var nonNil []Middleware
+	for _, mw := range middlewares {
+		if mw != nil {
+			nonNil = append(nonNil, mw)
+		}
 	}
-	return wrapTransport(next, middlewares...).RoundTrip(req)
+	if len(nonNil) == 0 {
+		return nil
+	}
+	return MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+		return wrapTransport(next, nonNil...).RoundTrip(req)
+	})
 }
 
 // wrapTransport composes middlewares around base. Each successive middleware

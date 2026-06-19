@@ -19,21 +19,9 @@ import (
 )
 
 type (
-	rpcMethodNameKey      struct{}
-	forUserAgentKey       struct{}
-	requestMiddlewaresKey struct{}
+	rpcMethodNameKey struct{}
+	forUserAgentKey  struct{}
 )
-
-// contextWithRequestMiddlewares carries per-request middlewares from
-// Endpoint.Execute to the baked seam that applies them inside telemetry.
-func contextWithRequestMiddlewares(ctx context.Context, middlewares []Middleware) context.Context {
-	return context.WithValue(ctx, requestMiddlewaresKey{}, middlewares)
-}
-
-func requestMiddlewaresFromContext(ctx context.Context) []Middleware {
-	middlewares, _ := ctx.Value(requestMiddlewaresKey{}).([]Middleware)
-	return middlewares
-}
 
 // RPCMethodName returns the RPC name set on ctx by Endpoint.Execute, if any.
 func RPCMethodName(ctx context.Context) (string, bool) {
