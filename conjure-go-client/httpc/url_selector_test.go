@@ -16,7 +16,6 @@ package httpc
 
 import (
 	"net/http"
-	"net/http/httptest"
 	"sync/atomic"
 	"testing"
 
@@ -28,6 +27,22 @@ type roundTripperFn func(*http.Request) (*http.Response, error)
 
 func (f roundTripperFn) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
 
+func observeSelectorStatus(t *testing.T, sel URLSelector, rawURL string, statusCode int) {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodGet, rawURL, nil)
+	require.NoError(t, err)
+	resp, err := sel.RoundTrip(req, roundTripperFn(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: statusCode,
+			Header:     make(http.Header),
+			Body:       http.NoBody,
+			Request:    req,
+		}, nil
+	}))
+	require.NoError(t, err)
+	require.Equal(t, statusCode, resp.StatusCode)
+}
+
 func TestBalancedSelector_RandomizesWithNoneInflight(t *testing.T) {
 	uris := []string{"uri1", "uri2", "uri3", "uri4", "uri5"}
 	sel := newBalancedSelector(uris, func() int64 { return 0 })
@@ -37,31 +52,56 @@ func TestBalancedSelector_RandomizesWithNoneInflight(t *testing.T) {
 }
 
 func TestBalancedSelector_ScoresByFailures(t *testing.T) {
-	server200 := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, _ *http.Request) {
-		rw.WriteHeader(http.StatusOK)
-	}))
-	defer server200.Close()
-	server429 := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, _ *http.Request) {
-		rw.WriteHeader(http.StatusTooManyRequests)
-	}))
-	defer server429.Close()
-	server503 := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, _ *http.Request) {
-		rw.WriteHeader(http.StatusServiceUnavailable)
-	}))
-	defer server503.Close()
+	const (
+		uri200 = "http://success.example.com"
+		uri429 = "http://throttled.example.com"
+		uri503 = "http://unavailable.example.com"
+	)
 
-	uris := []string{server503.URL, server429.URL, server200.URL}
+	uris := []string{uri503, uri429, uri200}
 	sel := newBalancedSelector(uris, func() int64 { return 0 })
-	for _, server := range []*httptest.Server{server200, server429, server503} {
+	for _, testCase := range []struct {
+		uri        string
+		statusCode int
+	}{
+		{uri: uri200, statusCode: http.StatusOK},
+		{uri: uri429, statusCode: http.StatusTooManyRequests},
+		{uri: uri503, statusCode: http.StatusServiceUnavailable},
+	} {
 		for range 10 {
-			req, err := http.NewRequest(http.MethodGet, server.URL, nil)
-			require.NoError(t, err)
-			_, err = sel.RoundTrip(req, server.Client().Transport)
-			require.NoError(t, err)
+			observeSelectorStatus(t, sel, testCase.uri, testCase.statusCode)
 		}
 	}
 	// 200 has no failures, 429 a small weight, 503 a full weight.
-	assert.Equal(t, []string{server200.URL, server429.URL, server503.URL}, sel.BaseURLs())
+	assert.Equal(t, []string{uri200, uri429, uri503}, sel.BaseURLs())
+}
+
+func TestBalancedSelector_ScoresByFailuresWithBasePath(t *testing.T) {
+	const (
+		badURI  = "http://bad.example.com/base"
+		goodURI = "http://good.example.com/base"
+	)
+	sel := newBalancedSelector([]string{badURI, goodURI}, func() int64 { return 0 })
+
+	for range 5 {
+		observeSelectorStatus(t, sel, badURI+"/items", http.StatusServiceUnavailable)
+	}
+
+	assert.Equal(t, []string{goodURI, badURI}, sel.BaseURLs())
+}
+
+func TestBalancedSelector_ScoresByFailuresWithEscapedBasePath(t *testing.T) {
+	const (
+		badURI  = "https://bad.example.com/base%2Froot"
+		goodURI = "https://good.example.com/base%2Froot"
+	)
+	sel := newBalancedSelector([]string{badURI, goodURI}, func() int64 { return 0 })
+
+	for range 5 {
+		observeSelectorStatus(t, sel, badURI+"/items", http.StatusServiceUnavailable)
+	}
+
+	assert.Equal(t, []string{goodURI, badURI}, sel.BaseURLs())
 }
 
 func TestBalancedSelector_TracksInflight(t *testing.T) {
@@ -89,6 +129,41 @@ func TestBalancedSelector_TracksInflight(t *testing.T) {
 	assert.Equal(t, []string{idleURI, busyURI}, sel.BaseURLs())
 	close(release)
 	require.NoError(t, <-errCh)
+}
+
+func TestBalancedSelector_TracksInflightWithBasePath(t *testing.T) {
+	const (
+		busyURI = "http://busy.example.com/base"
+		idleURI = "http://idle.example.com/base"
+	)
+	sel := newBalancedSelector([]string{busyURI, idleURI}, func() int64 { return 0 })
+	req, err := http.NewRequest(http.MethodGet, busyURI+"/test", nil)
+	require.NoError(t, err)
+
+	started := make(chan struct{})
+	release := make(chan struct{})
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := sel.RoundTrip(req, roundTripperFn(func(*http.Request) (*http.Response, error) {
+			close(started)
+			<-release
+			return &http.Response{StatusCode: http.StatusOK}, nil
+		}))
+		errCh <- err
+	}()
+
+	<-started
+	assert.Equal(t, []string{idleURI, busyURI}, sel.BaseURLs())
+	close(release)
+	require.NoError(t, <-errCh)
+}
+
+func TestBalancedSelector_BasePathMatchesOnSegmentBoundary(t *testing.T) {
+	assert.True(t, basePathMatchesRequest("/base", "/base"))
+	assert.True(t, basePathMatchesRequest("/base", "/base/items"))
+	assert.True(t, basePathMatchesRequest("/base/", "/base/items"))
+	assert.False(t, basePathMatchesRequest("/base", "/baseball/items"))
+	assert.False(t, basePathMatchesRequest("/base%2Froot", "/base%2Frooted/items"))
 }
 
 func TestRandomSelector_Randomizes(t *testing.T) {

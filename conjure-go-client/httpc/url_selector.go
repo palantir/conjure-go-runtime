@@ -15,12 +15,13 @@
 package httpc
 
 import (
+	"cmp"
 	"math"
 	"math/rand"
 	"net/http"
 	"net/url"
 	"slices"
-	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -68,7 +69,13 @@ const (
 // Based on Dialogue's BalancedScoreTracker:
 // https://github.com/palantir/dialogue/blob/develop/dialogue-core/src/main/java/com/palantir/dialogue/core/BalancedScoreTracker.java
 type balancedSelector struct {
-	uriInfos map[string]*uriInfo
+	entries []balancedSelectorEntry
+}
+
+type balancedSelectorEntry struct {
+	uri    string
+	parsed *url.URL
+	info   *uriInfo
 }
 
 type uriInfo struct {
@@ -77,47 +84,66 @@ type uriInfo struct {
 }
 
 func newBalancedSelector(uris []string, nanoClock func() int64) URLSelector {
-	uriInfos := make(map[string]*uriInfo, len(uris))
+	entries := make([]balancedSelectorEntry, 0, len(uris))
+	seen := make(map[string]struct{}, len(uris))
 	for _, uri := range uris {
-		uriInfos[uri] = &uriInfo{
-			recentFailures: newDecayReservoir(nanoClock, selectorFailureMemory),
+		if _, ok := seen[uri]; ok {
+			continue
 		}
+		seen[uri] = struct{}{}
+
+		parsed, err := url.Parse(uri)
+		if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+			parsed = nil
+		}
+		entries = append(entries, balancedSelectorEntry{
+			uri:    uri,
+			parsed: parsed,
+			info: &uriInfo{
+				recentFailures: newDecayReservoir(nanoClock, selectorFailureMemory),
+			},
+		})
 	}
-	return &balancedSelector{uriInfos: uriInfos}
+	return &balancedSelector{entries: entries}
 }
 
 func (s *balancedSelector) BaseURLs() []string {
-	uris := make([]string, 0, len(s.uriInfos))
-	scores := make(map[string]int32, len(s.uriInfos))
-	for uri, info := range s.uriInfos {
-		uris = append(uris, uri)
-		scores[uri] = info.computeScore()
+	type scoredURI struct {
+		uri   string
+		score int32
+	}
+	scored := make([]scoredURI, 0, len(s.entries))
+	for _, entry := range s.entries {
+		scored = append(scored, scoredURI{uri: entry.uri, score: entry.info.computeScore()})
 	}
 	// Pre-shuffle to avoid overloading the first URI when no requests are in-flight.
-	rand.Shuffle(len(uris), func(i, j int) {
-		uris[i], uris[j] = uris[j], uris[i]
+	rand.Shuffle(len(scored), func(i, j int) {
+		scored[i], scored[j] = scored[j], scored[i]
 	})
-	sort.Slice(uris, func(i, j int) bool {
-		return scores[uris[i]] < scores[uris[j]]
+	slices.SortFunc(scored, func(a, b scoredURI) int {
+		return cmp.Compare(a.score, b.score)
 	})
+	uris := make([]string, 0, len(scored))
+	for _, entry := range scored {
+		uris = append(uris, entry.uri)
+	}
 	return uris
 }
 
 func (s *balancedSelector) RoundTrip(req *http.Request, next http.RoundTripper) (*http.Response, error) {
-	baseURI := baseURIOf(req.URL)
-	info, foundInfo := s.uriInfos[baseURI]
-	if foundInfo {
+	info := s.infoFor(req.URL)
+	if info != nil {
 		atomic.AddInt32(&info.inflight, 1)
 		defer atomic.AddInt32(&info.inflight, -1)
 	}
 	resp, err := next.RoundTrip(req)
 	if resp == nil || err != nil {
-		if foundInfo {
+		if info != nil {
 			info.recentFailures.Update(selectorFailureWeight)
 		}
 		return nil, err
 	}
-	if foundInfo {
+	if info != nil {
 		switch statusCode := resp.StatusCode; {
 		case statusCode == http.StatusPermanentRedirect || statusCode == http.StatusServiceUnavailable || statusCode/100 == 5:
 			info.recentFailures.Update(selectorFailureWeight)
@@ -128,14 +154,60 @@ func (s *balancedSelector) RoundTrip(req *http.Request, next http.RoundTripper) 
 	return resp, nil
 }
 
+// infoFor finds the scorer state for the configured base URL that reqURL was
+// routed through. Base URLs may include a path (ClientConfig.URIs allows it, and
+// sendOnce joins the endpoint path onto it), so a plain scheme/host lookup misses
+// them. When several configured bases match, the longest base path wins so
+// overlapping bases like /a and /a/b are attributed to the most specific one.
+func (s *balancedSelector) infoFor(reqURL *url.URL) *uriInfo {
+	var best *balancedSelectorEntry
+	bestPathLen := -1
+	for i := range s.entries {
+		entry := &s.entries[i]
+		if !baseURLMatchesRequest(entry.parsed, reqURL) {
+			continue
+		}
+		pathLen := len(entry.parsed.EscapedPath())
+		if pathLen > bestPathLen {
+			best = entry
+			bestPathLen = pathLen
+		}
+	}
+	if best == nil {
+		return nil
+	}
+	return best.info
+}
+
 func (i *uriInfo) computeScore() int32 {
 	return atomic.LoadInt32(&i.inflight) + int32(math.Round(i.recentFailures.Get()))
 }
 
-// baseURIOf reduces a request URL to its scheme/host identity for scorer lookup.
-func baseURIOf(u *url.URL) string {
-	base := url.URL{Scheme: u.Scheme, Opaque: u.Opaque, User: u.User, Host: u.Host}
-	return base.String()
+// baseURLMatchesRequest reports whether req was routed through base: same
+// scheme/user/host, and req's path falls under base's path.
+func baseURLMatchesRequest(base, req *url.URL) bool {
+	if base == nil || req == nil {
+		return false
+	}
+	return base.Scheme == req.Scheme &&
+		base.User.String() == req.User.String() &&
+		base.Host == req.Host &&
+		basePathMatchesRequest(base.EscapedPath(), req.EscapedPath())
+}
+
+// basePathMatchesRequest matches on path-segment boundaries, so base /base
+// covers /base and /base/items but not /baseball.
+func basePathMatchesRequest(basePath, reqPath string) bool {
+	if basePath == "" || basePath == "/" {
+		return true
+	}
+	if reqPath == basePath {
+		return true
+	}
+	if strings.HasSuffix(basePath, "/") {
+		return strings.HasPrefix(reqPath, basePath)
+	}
+	return strings.HasPrefix(reqPath, basePath+"/")
 }
 
 // randomSelector shuffles the base URLs per request and no-ops on round trips.
