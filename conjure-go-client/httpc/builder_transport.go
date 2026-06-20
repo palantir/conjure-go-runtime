@@ -36,43 +36,43 @@ import (
 // construction and uses the caller-provided RoundTripper instead — useful for
 // testing (e.g. an httptest recorder) or production cases that need a custom
 // transport (custom auth, instrumentation, etc.).
-type TransportBuilder[B TransportBuilder[B]] interface {
-	Clone() B
-	Apply(...Param[B]) B
+type TransportBuilder[Self TransportBuilder[Self]] interface {
+	Clone() Self
+	Apply(...Param[Self]) Self
 
 	// SetMaxIdleConns sets the maximum total idle connections across hosts. Default: 200.
-	SetMaxIdleConns(int) B
+	SetMaxIdleConns(int) Self
 	// SetMaxIdleConnsPerHost sets the maximum idle connections per host. Default: 100.
-	SetMaxIdleConnsPerHost(int) B
+	SetMaxIdleConnsPerHost(int) Self
 	// DisableKeepAlives forces a new TCP connection per request.
-	DisableKeepAlives() B
+	DisableKeepAlives() Self
 	// SetIdleConnTimeout sets how long idle pool connections live. Default: 90s.
-	SetIdleConnTimeout(time.Duration) B
+	SetIdleConnTimeout(time.Duration) Self
 	// SetExpectContinueTimeout sets the wait for a 100 Continue response. Default: 1s.
-	SetExpectContinueTimeout(time.Duration) B
+	SetExpectContinueTimeout(time.Duration) Self
 	// SetResponseHeaderTimeout sets the response-headers read timeout. Default: 0 (no timeout).
-	SetResponseHeaderTimeout(time.Duration) B
+	SetResponseHeaderTimeout(time.Duration) Self
 	// SetTLSHandshakeTimeout sets the TLS handshake timeout. Default: 10s.
-	SetTLSHandshakeTimeout(time.Duration) B
+	SetTLSHandshakeTimeout(time.Duration) Self
 	// DisableHTTP2 forces HTTP/1.1.
-	DisableHTTP2() B
+	DisableHTTP2() Self
 	// SetHTTP2ReadIdleTimeout sets the idle interval before pinging an HTTP/2 connection. Default: 30s.
-	SetHTTP2ReadIdleTimeout(time.Duration) B
+	SetHTTP2ReadIdleTimeout(time.Duration) Self
 	// SetHTTP2PingTimeout sets the timeout for HTTP/2 ping responses. Default: 15s.
-	SetHTTP2PingTimeout(time.Duration) B
+	SetHTTP2PingTimeout(time.Duration) Self
 	// SetHTTPProxyURL sets an http(s):// proxy URL; "" clears it. SOCKS goes on DialerBuilder.
-	SetHTTPProxyURL(string) B
+	SetHTTPProxyURL(string) Self
 	// SetNoProxy clears all proxy configuration (HTTP, SOCKS, and environment).
-	SetNoProxy() B
+	SetNoProxy() Self
 	// SetProxyFromEnvironment configures the proxy from HTTP_PROXY, HTTPS_PROXY, NO_PROXY.
-	SetProxyFromEnvironment() B
+	SetProxyFromEnvironment() Self
 
 	// SetTransport installs a caller-provided RoundTripper.
 	// [TransportBuilder.BuildTransport] returns it as-is, bypassing the
 	// dialer / TLS / transport construction path. The middleware stack still
 	// wraps the transport when used through [Builder.Build]. Pass nil to
 	// re-enable internal construction.
-	SetTransport(http.RoundTripper) B
+	SetTransport(http.RoundTripper) Self
 	// BuildTransport returns the configured RoundTripper. If
 	// [TransportBuilder.SetTransport] was called with a non-nil value, that
 	// transport is returned as-is and the dialer / TLS / transport settings

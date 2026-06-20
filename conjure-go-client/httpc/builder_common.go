@@ -24,9 +24,9 @@ import (
 // baseBuilder is the shared Clone/Apply contract for builder interfaces. Builders
 // are mutable: Apply modifies the receiver in place, so `b.Apply(p)` returns
 // the same builder. Clone first if you need an independent variant.
-type baseBuilder[B baseBuilder[B]] interface {
-	Clone() B
-	Apply(...Param[B]) B
+type baseBuilder[Self baseBuilder[Self]] interface {
+	Clone() Self
+	Apply(...Param[Self]) Self
 }
 
 // Param is a reusable configuration function for a builder, applied via Apply:

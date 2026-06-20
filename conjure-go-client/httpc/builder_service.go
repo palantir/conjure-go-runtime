@@ -34,85 +34,85 @@ import (
 // no-argument Disable* setters (DisableTracing, DisableTraceHeaderPropagation,
 // DisablePanicRecovery, DisableClientTraceMetrics) are code-API-only and have
 // no refreshable variant by design.
-type ServiceBuilder[B baseBuilder[B]] interface {
-	Clone() B
-	Apply(...Param[B]) B
+type ServiceBuilder[Self baseBuilder[Self]] interface {
+	Clone() Self
+	Apply(...Param[Self]) Self
 
 	// Build returns a [RebuildableClient]. Errors if required settings (e.g.,
 	// base URLs) are missing.
-	Build(ctx context.Context) (RebuildableClient[B], error)
+	Build(ctx context.Context) (RebuildableClient[Self], error)
 
 	// SetServiceName sets the logical service name used in metrics and logs.
-	SetServiceName(string) B
-	SetServiceNameRefreshable(refreshable.Refreshable[string]) B
+	SetServiceName(string) Self
+	SetServiceNameRefreshable(refreshable.Refreshable[string]) Self
 
 	// SetBaseURLs sets the base URLs for the service.
-	SetBaseURLs(...string) B
-	SetBaseURLsRefreshable(refreshable.Refreshable[[]string]) B
+	SetBaseURLs(...string) Self
+	SetBaseURLsRefreshable(refreshable.Refreshable[[]string]) Self
 	// SetAllowCreateWithEmptyURIs lets Build succeed with no URIs (requests then fail with ErrEmptyURIs).
-	SetAllowCreateWithEmptyURIs(bool) B
+	SetAllowCreateWithEmptyURIs(bool) Self
 	// SetURLSelector sets the strategy for ordering base URLs per request. The
 	// factory is invoked with the current base URLs (and again when they change).
 	// Defaults to [BalancedURLSelector].
-	SetURLSelector(func([]string) URLSelector) B
+	SetURLSelector(func([]string) URLSelector) Self
 
 	// SetAuthToken sets a static bearer token.
-	SetAuthToken(string) B
-	SetAuthTokenProvider(TokenProvider) B
+	SetAuthToken(string) Self
+	SetAuthTokenProvider(TokenProvider) Self
 	// SetAuthTokenRefreshable supplies a refreshable token; nil *string disables auth.
-	SetAuthTokenRefreshable(refreshable.Refreshable[*string]) B
-	SetBasicAuth(user, password string) B
-	SetBasicAuthProvider(BasicAuthProvider) B
+	SetAuthTokenRefreshable(refreshable.Refreshable[*string]) Self
+	SetBasicAuth(user, password string) Self
+	SetBasicAuthProvider(BasicAuthProvider) Self
 	// SetBasicAuthOptionalProvider installs a provider that may return nil to skip auth this request.
-	SetBasicAuthOptionalProvider(BasicAuthOptionalProvider) B
+	SetBasicAuthOptionalProvider(BasicAuthOptionalProvider) Self
 	// SetBasicAuthRefreshable supplies refreshable credentials; nil *BasicAuth disables auth.
-	SetBasicAuthRefreshable(refreshable.Refreshable[*BasicAuth]) B
+	SetBasicAuthRefreshable(refreshable.Refreshable[*BasicAuth]) Self
 
 	// AddHeader appends one or more values to a header. Multiple values for one key are allowed.
-	AddHeader(key, value string, additionalValues ...string) B
+	AddHeader(key, value string, additionalValues ...string) Self
 	// SetHeader replaces all values for the key with the given value(s).
-	SetHeader(key, value string, additionalValues ...string) B
-	SetUserAgent(string) B
+	SetHeader(key, value string, additionalValues ...string) Self
+	SetUserAgent(string) Self
 	// SetOverrideRequestHost overrides the Host header on all requests.
-	SetOverrideRequestHost(string) B
+	SetOverrideRequestHost(string) Self
 
 	// AddMiddleware appends an outer middleware: inside telemetry, outside the
 	// inner middleware. Last added is outermost.
-	AddMiddleware(Middleware) B
+	AddMiddleware(Middleware) Self
 	// AddInnerMiddleware prepends an inner middleware that runs inside the outer
 	// middleware, just outside the auth and header decoration.
-	AddInnerMiddleware(Middleware) B
+	AddInnerMiddleware(Middleware) Self
 
 	// SetTimeout sets the per-attempt timeout. The retry loop resets the timer
 	// on each attempt; total wall-clock time may exceed this value. Default: 60s.
-	SetTimeout(time.Duration) B
-	SetTimeoutRefreshable(refreshable.Refreshable[time.Duration]) B
+	SetTimeout(time.Duration) Self
+	SetTimeoutRefreshable(refreshable.Refreshable[time.Duration]) Self
 
 	// SetMaxAttempts sets total attempts (initial + retries). nil = default
 	// (2 per base URL); pointer to 0 = unlimited; n > 0 = exactly n.
-	SetMaxAttempts(*int) B
-	SetMaxAttemptsRefreshable(refreshable.Refreshable[*int]) B
+	SetMaxAttempts(*int) Self
+	SetMaxAttemptsRefreshable(refreshable.Refreshable[*int]) Self
 	// SetInitialBackoff sets the initial retry backoff. Default: 250ms.
-	SetInitialBackoff(time.Duration) B
-	SetInitialBackoffRefreshable(refreshable.Refreshable[time.Duration]) B
+	SetInitialBackoff(time.Duration) Self
+	SetInitialBackoffRefreshable(refreshable.Refreshable[time.Duration]) Self
 	// SetMaxBackoff sets the maximum retry backoff. Default: 2s.
-	SetMaxBackoff(time.Duration) B
-	SetMaxBackoffRefreshable(refreshable.Refreshable[time.Duration]) B
+	SetMaxBackoff(time.Duration) Self
+	SetMaxBackoffRefreshable(refreshable.Refreshable[time.Duration]) Self
 
 	// SetMetrics enables request metrics and appends the given tag providers.
-	SetMetrics(...TagsProvider) B
-	SetDisableMetrics(bool) B
-	SetDisableMetricsRefreshable(refreshable.Refreshable[bool]) B
+	SetMetrics(...TagsProvider) Self
+	SetDisableMetrics(bool) Self
+	SetDisableMetricsRefreshable(refreshable.Refreshable[bool]) Self
 
 	// DisableTracing disables per-request span creation.
-	DisableTracing() B
+	DisableTracing() Self
 	// DisableTraceHeaderPropagation disables outbound B3 trace headers.
-	DisableTraceHeaderPropagation() B
+	DisableTraceHeaderPropagation() Self
 	// DisableClientTraceMetrics suppresses detailed metrics gathered via httptrace.ClientTrace.
-	DisableClientTraceMetrics() B
+	DisableClientTraceMetrics() Self
 
 	// DisablePanicRecovery disables the middleware-chain panic recovery layer.
-	DisablePanicRecovery() B
+	DisablePanicRecovery() Self
 }
 
 // SetServiceName sets the logical service name used in metrics tags and log fields.

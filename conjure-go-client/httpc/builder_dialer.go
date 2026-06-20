@@ -30,22 +30,22 @@ import (
 // SOCKS proxy) and is one slice of [BuilderAPI]. A configured *Builder can
 // produce a standalone [ContextDialer] via [Builder.BuildDialer], or provide
 // one for a full [Client] via [Builder.Build].
-type DialerBuilder[B DialerBuilder[B]] interface {
-	Clone() B
-	Apply(...Param[B]) B
+type DialerBuilder[Self DialerBuilder[Self]] interface {
+	Clone() Self
+	Apply(...Param[Self]) Self
 
 	// SetDialTimeout sets the maximum duration for establishing a TCP connection. Default: 10s.
-	SetDialTimeout(time.Duration) B
+	SetDialTimeout(time.Duration) Self
 	// SetKeepAlive sets the interval between TCP keep-alive probes. Default: 30s.
-	SetKeepAlive(time.Duration) B
+	SetKeepAlive(time.Duration) Self
 	// SetSocksProxyURL sets a socks5:// proxy URL. Pass "" to clear. Use
 	// TransportBuilder.SetHTTPProxyURL for http(s) proxies.
-	SetSocksProxyURL(string) B
+	SetSocksProxyURL(string) Self
 
 	// SetDialer installs a caller-provided dialer. [DialerBuilder.BuildDialer]
 	// returns it as-is, skipping construction from SetDialTimeout/SetKeepAlive/
 	// SetSocksProxyURL. Pass nil to clear and re-enable internal construction.
-	SetDialer(ContextDialer) B
+	SetDialer(ContextDialer) Self
 	// BuildDialer returns the configured dialer. If [DialerBuilder.SetDialer]
 	// was called with a non-nil dialer, it is returned directly and the
 	// SetDialTimeout/SetKeepAlive/SetSocksProxyURL settings are ignored.

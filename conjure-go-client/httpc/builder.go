@@ -39,11 +39,11 @@ import (
 //	func ApplyDefaults[B BuilderAPI[B]](b B) B {
 //	    return b.SetTimeout(30 * time.Second).SetMaxAttempts(new(3))
 //	}
-type BuilderAPI[B BuilderAPI[B]] interface {
-	DialerBuilder[B]
-	TLSConfigBuilder[B]
-	TransportBuilder[B]
-	ServiceBuilder[B]
+type BuilderAPI[Self BuilderAPI[Self]] interface {
+	DialerBuilder[Self]
+	TLSConfigBuilder[Self]
+	TransportBuilder[Self]
+	ServiceBuilder[Self]
 }
 
 // Builder is the concrete [BuilderAPI] returned by [NewBuilder]. In

@@ -38,36 +38,36 @@ import (
 // A configured *Builder can produce a standalone *tls.Config via
 // [Builder.BuildTLSConfig], or provide one for a full [Client] via
 // [Builder.Build].
-type TLSConfigBuilder[B TLSConfigBuilder[B]] interface {
-	Clone() B
-	Apply(...Param[B]) B
+type TLSConfigBuilder[Self TLSConfigBuilder[Self]] interface {
+	Clone() Self
+	Apply(...Param[Self]) Self
 
 	// SetTLSConfig installs a caller-provided *tls.Config (cloned).
 	// [TLSConfigBuilder.BuildTLSConfig] returns this config as-is, skipping
 	// CA/client-cert/InsecureSkipVerify construction. Pass nil to clear and
 	// re-enable internal construction.
-	SetTLSConfig(*tls.Config) B
+	SetTLSConfig(*tls.Config) Self
 	// SetInsecureSkipVerify controls whether the client verifies the server's certificate.
-	SetInsecureSkipVerify(bool) B
+	SetInsecureSkipVerify(bool) Self
 	// SetIncludeSystemCAs controls inclusion of the host system's CA pool. Default: true.
-	SetIncludeSystemCAs(bool) B
+	SetIncludeSystemCAs(bool) Self
 	// AddCACertFiles adds CA certs from PEM file paths; files are watched for changes.
-	AddCACertFiles(...string) B
+	AddCACertFiles(...string) Self
 	// AddCACertBytes adds PEM-encoded CA cert bytes; each blob may contain
 	// multiple certs.
-	AddCACertBytes(...[]byte) B
+	AddCACertBytes(...[]byte) Self
 	// AddCACertBytesRefreshable adds a refreshable source of PEM-encoded CA cert bytes.
-	AddCACertBytesRefreshable(refreshable.Refreshable[[][]byte]) B
+	AddCACertBytesRefreshable(refreshable.Refreshable[[][]byte]) Self
 	// AddCACerts adds parsed certificates to the pool.
-	AddCACerts(...*x509.Certificate) B
+	AddCACerts(...*x509.Certificate) Self
 	// SetClientCertFiles sets client cert and key file paths for mutual TLS.
 	// Matches [tls.LoadX509KeyPair] argument order (cert first, key second).
-	SetClientCertFiles(certFile, keyFile string) B
+	SetClientCertFiles(certFile, keyFile string) Self
 	// SetClientCertBytes sets client cert and key bytes for mutual TLS.
 	// Matches [tls.X509KeyPair] argument order (cert first, key second).
-	SetClientCertBytes(certBytes, keyBytes []byte) B
+	SetClientCertBytes(certBytes, keyBytes []byte) Self
 	// SetDynamicCertReload controls whether cert/key files are re-read on each handshake.
-	SetDynamicCertReload(bool) B
+	SetDynamicCertReload(bool) Self
 
 	// BuildTLSConfig returns the configured TLS config. If [TLSConfigBuilder.SetTLSConfig]
 	// was called with a non-nil value, that config (cloned) is returned and the
