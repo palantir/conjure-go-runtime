@@ -34,7 +34,7 @@ import (
 // no-argument Disable* setters (DisableTracing, DisableTraceHeaderPropagation,
 // DisablePanicRecovery, DisableClientTraceMetrics) are code-API-only and have
 // no refreshable variant by design.
-type ServiceBuilder[Self baseBuilder[Self]] interface {
+type ServiceBuilder[Self Cloneable[Self]] interface {
 	Clone() Self
 	Apply(...Param[Self]) Self
 
