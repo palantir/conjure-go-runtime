@@ -21,7 +21,6 @@ import (
 	"time"
 
 	"github.com/palantir/pkg/refreshable/v2"
-	werror "github.com/palantir/witchcraft-go-error"
 	"github.com/palantir/witchcraft-go-logging/wlog/svclog/svc1log"
 	"golang.org/x/net/proxy"
 )
@@ -82,8 +81,11 @@ func (b *Builder) SetKeepAlive(d time.Duration) *Builder {
 }
 
 // SetSocksProxyURL sets a SOCKS5 proxy URL for TCP connections. Pass "" to clear.
-// Only socks5:// URLs are supported; use SetHTTPProxyURL for http(s) proxies.
+// Only socks5:// and socks5h:// URLs are supported; use SetHTTPProxyURL for
+// http(s) proxies. An invalid URL or scheme defers an error to Build; setting a
+// valid URL (or clearing it) replaces any prior error for this field.
 func (b *Builder) SetSocksProxyURL(s string) *Builder {
+	b.errs.clearField(fieldSocksProxy)
 	if s == "" {
 		b.dialerParams = refreshable.View(b.dialerParams, func(p dialerParams) dialerParams {
 			p.SocksProxyURL = nil
@@ -91,9 +93,9 @@ func (b *Builder) SetSocksProxyURL(s string) *Builder {
 		})
 		return b
 	}
-	proxyURL, err := url.Parse(s)
+	proxyURL, err := parseProxyURL(s, "SOCKS proxy URL", "socks5", "socks5h")
 	if err != nil {
-		b.errs = append(b.errs, werror.Wrap(err, "failed to parse SOCKS proxy URL"))
+		b.errs.setField(fieldSocksProxy, err)
 		return b
 	}
 	b.dialerParams = refreshable.View(b.dialerParams, func(p dialerParams) dialerParams {
@@ -134,7 +136,7 @@ func (r *refreshableDialer) Dial(network, address string) (net.Conn, error) {
 // Otherwise the dialer is built from those settings and rebuilds
 // automatically when any refreshable source changes.
 func (b *Builder) BuildDialer(ctx context.Context) (ContextDialer, error) {
-	if err := builderErrors(ctx, b.errs); err != nil {
+	if err := b.errs.joined(ctx); err != nil {
 		return nil, err
 	}
 	if b.dialerOverride != nil {

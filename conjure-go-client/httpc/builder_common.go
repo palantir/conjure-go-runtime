@@ -17,6 +17,9 @@ package httpc
 import (
 	"context"
 	"errors"
+	"maps"
+	"net/url"
+	"slices"
 
 	werror "github.com/palantir/witchcraft-go-error"
 )
@@ -61,8 +64,68 @@ func ParamVarArgs[B baseBuilder[B], X any](p func(B, ...X) B, xs []X) Param[B] {
 	return func(b B) B { return p(b, xs...) }
 }
 
-// returns the combined deferred errors, or nil.
-func builderErrors(ctx context.Context, errs []error) error {
+// builderField identifies a builder setting that can carry a deferred,
+// replaceable validation error. Re-setting the field (with a valid value, or a
+// clearing call like SetNoProxy) drops its prior error, so the builder always
+// reflects the current desired state rather than an append-only history.
+type builderField int
+
+const (
+	fieldBaseURLs builderField = iota
+	fieldHTTPProxy
+	fieldSocksProxy
+	fieldMaxAttempts
+)
+
+// builderErrors collects the validation errors a builder defers until Build.
+// byField holds errors tied to a replaceable setting (replaced or cleared when
+// that setting is set again); unscoped holds errors not tied to a single
+// replaceable field (e.g. a whole-config ApplyConfig failure).
+type builderErrors struct {
+	byField  map[builderField]error
+	unscoped []error
+}
+
+// setField records err for f, or clears any prior error for f when err is nil.
+func (e *builderErrors) setField(f builderField, err error) {
+	if err == nil {
+		delete(e.byField, f)
+		return
+	}
+	if e.byField == nil {
+		e.byField = make(map[builderField]error)
+	}
+	e.byField[f] = err
+}
+
+// clearField drops any deferred error for each of the given fields.
+func (e *builderErrors) clearField(fields ...builderField) {
+	for _, f := range fields {
+		delete(e.byField, f)
+	}
+}
+
+// addUnscoped records an error not tied to a replaceable field.
+func (e *builderErrors) addUnscoped(err error) {
+	e.unscoped = append(e.unscoped, err)
+}
+
+func (e builderErrors) clone() builderErrors {
+	return builderErrors{
+		byField:  maps.Clone(e.byField),
+		unscoped: slices.Clone(e.unscoped),
+	}
+}
+
+// joined returns the combined deferred errors, or nil. Field errors are ordered
+// by field id (then unscoped) so the message is deterministic.
+func (e builderErrors) joined(ctx context.Context) error {
+	fields := slices.Sorted(maps.Keys(e.byField))
+	errs := make([]error, 0, len(fields)+len(e.unscoped))
+	for _, f := range fields {
+		errs = append(errs, e.byField[f])
+	}
+	errs = append(errs, e.unscoped...)
 	switch len(errs) {
 	case 0:
 		return nil
@@ -71,4 +134,19 @@ func builderErrors(ctx context.Context, errs []error) error {
 	default:
 		return werror.WrapWithContextParams(ctx, errors.Join(errs...), "builder configuration errors")
 	}
+}
+
+// parseProxyURL validates a proxy URL string against the same rules as
+// ApplyConfig: it must be a request URI with one of the supported schemes.
+func parseProxyURL(s, label string, schemes ...string) (*url.URL, error) {
+	proxyURL, err := url.ParseRequestURI(s)
+	if err != nil {
+		return nil, werror.Wrap(err, "invalid "+label)
+	}
+	if !slices.Contains(schemes, proxyURL.Scheme) {
+		return nil, werror.Error("invalid "+label+": unsupported scheme",
+			werror.SafeParam("scheme", proxyURL.Scheme),
+			werror.SafeParam("supportedSchemes", schemes))
+	}
+	return proxyURL, nil
 }

@@ -216,7 +216,7 @@ type tlsParams struct {
 // refreshable CA byte sources, or TLS file params change. Errors if CA files
 // cannot be read or system CAs cannot be loaded.
 func (b *Builder) BuildTLSConfig(ctx context.Context) (refreshable.Validated[*tls.Config], error) {
-	if err := builderErrors(ctx, b.errs); err != nil {
+	if err := b.errs.joined(ctx); err != nil {
 		return nil, err
 	}
 

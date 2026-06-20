@@ -87,7 +87,7 @@ type Builder struct {
 	clientCertKey    []byte
 	clientCertCert   []byte
 	includeSystemCAs bool
-	errs             []error
+	errs             builderErrors
 }
 
 var _ BuilderAPI[*Builder] = (*Builder)(nil)
@@ -170,7 +170,7 @@ func (b *Builder) Clone() *Builder {
 		clientCertKey:       bytes.Clone(b.clientCertKey),
 		clientCertCert:      bytes.Clone(b.clientCertCert),
 		includeSystemCAs:    b.includeSystemCAs,
-		errs:                slices.Clone(b.errs),
+		errs:                b.errs.clone(),
 	}
 	return clone
 }
@@ -191,7 +191,7 @@ func (b *Builder) Apply(params ...Param[*Builder]) *Builder {
 func (b *Builder) ApplyConfig(ctx context.Context, config ClientConfig) *Builder {
 	params, err := newValidatedClientParams(ctx, config)
 	if err != nil {
-		b.errs = append(b.errs, werror.WrapWithContextParams(ctx, err, "invalid client config"))
+		b.errs.addUnscoped(werror.WrapWithContextParams(ctx, err, "invalid client config"))
 		return b
 	}
 	if params.serviceName != "" {
@@ -316,7 +316,7 @@ func (b *Builder) ApplyServicesConfigRefreshable(ctx context.Context, services r
 func (b *Builder) ApplyConfigRefreshable(ctx context.Context, config refreshable.Refreshable[ClientConfig]) *Builder {
 	validParams, err := refreshable.MapWithErrorAuto(ctx, config, newValidatedClientParams)
 	if err != nil {
-		b.errs = append(b.errs, err)
+		b.errs.addUnscoped(err)
 		return b
 	}
 

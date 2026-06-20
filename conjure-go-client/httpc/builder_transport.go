@@ -22,7 +22,6 @@ import (
 	"time"
 
 	"github.com/palantir/pkg/refreshable/v2"
-	werror "github.com/palantir/witchcraft-go-error"
 	"github.com/palantir/witchcraft-go-logging/wlog/svclog/svc1log"
 	"golang.org/x/net/http2"
 )
@@ -175,8 +174,11 @@ func (b *Builder) SetHTTP2PingTimeout(d time.Duration) *Builder {
 }
 
 // SetHTTPProxyURL sets an HTTP/HTTPS proxy URL for requests. Pass "" to clear.
-// Use SetSocksProxyURL for socks5:// proxies.
+// Use SetSocksProxyURL for socks5:// proxies. An invalid URL or scheme defers an
+// error to Build; setting a valid URL (or clearing it) replaces any prior error
+// for this field.
 func (b *Builder) SetHTTPProxyURL(s string) *Builder {
+	b.errs.clearField(fieldHTTPProxy)
 	if s == "" {
 		b.transportParams = refreshable.View(b.transportParams, func(p transportParams) transportParams {
 			p.HTTPProxyURL = nil
@@ -184,9 +186,9 @@ func (b *Builder) SetHTTPProxyURL(s string) *Builder {
 		})
 		return b
 	}
-	proxyURL, err := url.Parse(s)
+	proxyURL, err := parseProxyURL(s, "HTTP proxy URL", "http", "https")
 	if err != nil {
-		b.errs = append(b.errs, werror.Wrap(err, "failed to parse HTTP proxy URL"))
+		b.errs.setField(fieldHTTPProxy, err)
 		return b
 	}
 	b.transportParams = refreshable.View(b.transportParams, func(p transportParams) transportParams {
@@ -196,8 +198,10 @@ func (b *Builder) SetHTTPProxyURL(s string) *Builder {
 	return b
 }
 
-// SetNoProxy clears all proxy configuration (HTTP, SOCKS, and environment).
+// SetNoProxy clears all proxy configuration (HTTP, SOCKS, and environment),
+// along with any deferred HTTP or SOCKS proxy validation errors.
 func (b *Builder) SetNoProxy() *Builder {
+	b.errs.clearField(fieldHTTPProxy, fieldSocksProxy)
 	b.dialerParams = refreshable.View(b.dialerParams, func(p dialerParams) dialerParams {
 		p.SocksProxyURL = nil
 		return p
@@ -291,7 +295,7 @@ func newTransport(ctx context.Context, p transportParams, tlsConfig *tls.Config,
 // parameters change. The returned value has no middleware wrapping; use
 // [Builder.BuildHTTPClient] or [Builder.Build] for the full stack.
 func (b *Builder) BuildTransport(ctx context.Context) (http.RoundTripper, error) {
-	if err := builderErrors(ctx, b.errs); err != nil {
+	if err := b.errs.joined(ctx); err != nil {
 		return nil, err
 	}
 	if b.transport != nil {
