@@ -78,6 +78,21 @@ func (w *wrappedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	return w.middleware.RoundTrip(req, w.base)
 }
 
+// CloseIdleConnections forwards the standard optional capability down the wrapper
+// chain so a *http.Client built from a wrapped transport can still release idle
+// connections on the underlying *http.Transport.
+func (w *wrappedTransport) CloseIdleConnections() {
+	closeIdleConnections(w.base)
+}
+
+// closeIdleConnections invokes the optional CloseIdleConnections capability on rt
+// if it implements it, matching net/http.Client.CloseIdleConnections's behavior.
+func closeIdleConnections(rt http.RoundTripper) {
+	if c, ok := rt.(interface{ CloseIdleConnections() }); ok {
+		c.CloseIdleConnections()
+	}
+}
+
 // telemetryMiddleware increments metrics, starts a per-request span, and propagates B3 trace headers.
 type telemetryMiddleware struct {
 	serviceName         refreshable.Refreshable[string]

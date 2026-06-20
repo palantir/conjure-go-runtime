@@ -249,6 +249,12 @@ func (r *refreshableTransport) RoundTrip(req *http.Request) (*http.Response, err
 	return r.Refreshable.Unvalidated().RoundTrip(req)
 }
 
+// CloseIdleConnections releases idle connections on the live *http.Transport,
+// preserving the standard optional capability through this wrapper.
+func (r *refreshableTransport) CloseIdleConnections() {
+	r.Refreshable.Unvalidated().CloseIdleConnections()
+}
+
 func newTransport(ctx context.Context, p transportParams, tlsConfig *tls.Config, dialer ContextDialer) *http.Transport {
 	var transportProxy func(*http.Request) (*url.URL, error)
 	if p.HTTPProxyURL != nil {
@@ -309,14 +315,17 @@ func (b *Builder) BuildTransport(ctx context.Context) (http.RoundTripper, error)
 	if err != nil {
 		return nil, err
 	}
-	rebuild := false
+	var prev *http.Transport
 	mapped := refreshable.MergeValidatedAndRefreshableAuto(ctx, tlsConfig, b.transportParams, func(t *tls.Config, p transportParams) *http.Transport {
-		if rebuild {
+		next := newTransport(ctx, p, t, dialer)
+		if prev != nil {
 			svc1log.FromContext(ctx).Debug("Reconstructing HTTP Transport")
-		} else {
-			rebuild = true
+			// Release idle connections pooled on the transport being retired;
+			// in-flight requests on it are unaffected (only idle conns close).
+			prev.CloseIdleConnections()
 		}
-		return newTransport(ctx, p, t, dialer)
+		prev = next
+		return next
 	})
 	return &refreshableTransport{Refreshable: mapped}, nil
 }
