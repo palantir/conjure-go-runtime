@@ -30,12 +30,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// nonZeroBuilder returns a Builder with every field set to a distinguishable
-// non-zero value. If you add a field to Builder, populate it here too — the
-// sanity loop in TestBuilder_ClonePreservesAllFields fails otherwise, which
-// in turn ensures the Clone preservation check actually exercises the field.
+// nonZeroBuilder returns a Builder whose core has every field set to a
+// distinguishable non-zero value. If you add a field to BuilderCore, populate it
+// here too — the sanity loop in TestBuilder_ClonePreservesAllFields fails
+// otherwise, which in turn ensures the Clone preservation check actually
+// exercises the field.
 func nonZeroBuilder() *Builder {
-	return &Builder{
+	b := &Builder{}
+	b.BuilderCore = &BuilderCore[*Builder]{
+		self:            b,
 		serviceName:     refreshable.New("svc"),
 		timeout:         refreshable.New(time.Second),
 		dialerOverride:  &net.Dialer{Timeout: time.Second},
@@ -74,6 +77,7 @@ func nonZeroBuilder() *Builder {
 			byField: map[builderField]builderError{fieldBaseURLs: staticBuilderError(errors.New("oops"))},
 		},
 	}
+	return b
 }
 
 // TestBuilder_ClonePreservesAllFields catches the most common Clone() bug
@@ -83,21 +87,27 @@ func nonZeroBuilder() *Builder {
 func TestBuilder_ClonePreservesAllFields(t *testing.T) {
 	src := nonZeroBuilder()
 
-	// Sanity: nonZeroBuilder must populate every Builder field. If you added a
-	// field and didn't populate it here, this fails before we even Clone.
-	srcVal := reflect.ValueOf(src).Elem()
+	// Sanity: nonZeroBuilder must populate every BuilderCore field. If you added
+	// a field and didn't populate it here, this fails before we even Clone.
+	srcVal := reflect.ValueOf(src.BuilderCore).Elem()
 	srcType := srcVal.Type()
 	for i := 0; i < srcVal.NumField(); i++ {
 		name := srcType.Field(i).Name
 		require.False(t, srcVal.Field(i).IsZero(),
-			"nonZeroBuilder did not populate Builder.%s — add it so the Clone check exercises it", name)
+			"nonZeroBuilder did not populate BuilderCore.%s — add it so the Clone check exercises it", name)
 	}
 
 	clone := src.Clone()
 	require.NotNil(t, clone)
 
-	// Every field in the clone must be non-zero, i.e. Clone preserved it.
-	cloneVal := reflect.ValueOf(clone).Elem()
+	// CloneCoreFor must rebind self to the new leaf rather than leave it pointing
+	// at the source; otherwise chaining off the clone would mutate the original.
+	assert.Same(t, clone, clone.BuilderCore.self, "clone.self must point at the clone leaf")
+	assert.NotSame(t, src.BuilderCore.self, clone.BuilderCore.self, "clone must not share the source's self")
+
+	// Every core field in the clone must be non-zero, i.e. Clone preserved it.
+	// self is included: CloneCoreFor sets it to the non-nil clone leaf.
+	cloneVal := reflect.ValueOf(clone.BuilderCore).Elem()
 	for i := 0; i < cloneVal.NumField(); i++ {
 		name := srcType.Field(i).Name
 		assert.False(t, cloneVal.Field(i).IsZero(),

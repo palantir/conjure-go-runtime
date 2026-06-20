@@ -82,125 +82,125 @@ type TransportBuilder[Self TransportBuilder[Self]] interface {
 }
 
 // SetMaxIdleConns sets the maximum total idle connections across hosts. Default: 200.
-func (b *Builder) SetMaxIdleConns(n int) *Builder {
+func (b *BuilderCore[Self]) SetMaxIdleConns(n int) Self {
 	b.transportParams = refreshable.View(b.transportParams, func(p transportParams) transportParams {
 		p.MaxIdleConns = n
 		return p
 	})
-	return b
+	return b.self
 }
 
 // SetMaxIdleConnsPerHost sets the maximum number of idle connections per host. Default: 100.
-func (b *Builder) SetMaxIdleConnsPerHost(n int) *Builder {
+func (b *BuilderCore[Self]) SetMaxIdleConnsPerHost(n int) Self {
 	b.transportParams = refreshable.View(b.transportParams, func(p transportParams) transportParams {
 		p.MaxIdleConnsPerHost = n
 		return p
 	})
-	return b
+	return b.self
 }
 
 // DisableKeepAlives disables HTTP keep-alive connections, forcing a new connection per request.
-func (b *Builder) DisableKeepAlives() *Builder {
+func (b *BuilderCore[Self]) DisableKeepAlives() Self {
 	b.transportParams = refreshable.View(b.transportParams, func(p transportParams) transportParams {
 		p.DisableKeepAlives = true
 		return p
 	})
-	return b
+	return b.self
 }
 
 // SetIdleConnTimeout sets how long idle connections remain in the pool before closing. Default: 90s.
-func (b *Builder) SetIdleConnTimeout(d time.Duration) *Builder {
+func (b *BuilderCore[Self]) SetIdleConnTimeout(d time.Duration) Self {
 	b.transportParams = refreshable.View(b.transportParams, func(p transportParams) transportParams {
 		p.IdleConnTimeout = d
 		return p
 	})
-	return b
+	return b.self
 }
 
 // SetExpectContinueTimeout sets the timeout for waiting for a 100 Continue response. Default: 1s.
-func (b *Builder) SetExpectContinueTimeout(d time.Duration) *Builder {
+func (b *BuilderCore[Self]) SetExpectContinueTimeout(d time.Duration) Self {
 	b.transportParams = refreshable.View(b.transportParams, func(p transportParams) transportParams {
 		p.ExpectContinueTimeout = d
 		return p
 	})
-	return b
+	return b.self
 }
 
 // SetResponseHeaderTimeout sets the timeout for reading response headers. Default: 0 (no timeout).
-func (b *Builder) SetResponseHeaderTimeout(d time.Duration) *Builder {
+func (b *BuilderCore[Self]) SetResponseHeaderTimeout(d time.Duration) Self {
 	b.transportParams = refreshable.View(b.transportParams, func(p transportParams) transportParams {
 		p.ResponseHeaderTimeout = d
 		return p
 	})
-	return b
+	return b.self
 }
 
 // SetTLSHandshakeTimeout sets the timeout for the TLS handshake. Default: 10s.
-func (b *Builder) SetTLSHandshakeTimeout(d time.Duration) *Builder {
+func (b *BuilderCore[Self]) SetTLSHandshakeTimeout(d time.Duration) Self {
 	b.transportParams = refreshable.View(b.transportParams, func(p transportParams) transportParams {
 		p.TLSHandshakeTimeout = d
 		return p
 	})
-	return b
+	return b.self
 }
 
 // DisableHTTP2 disables HTTP/2 support, forcing HTTP/1.1.
-func (b *Builder) DisableHTTP2() *Builder {
+func (b *BuilderCore[Self]) DisableHTTP2() Self {
 	b.transportParams = refreshable.View(b.transportParams, func(p transportParams) transportParams {
 		p.DisableHTTP2 = true
 		return p
 	})
-	return b
+	return b.self
 }
 
 // SetHTTP2ReadIdleTimeout sets the idle interval after which an HTTP/2 connection is health-checked
 // with a ping. Default: 30s.
-func (b *Builder) SetHTTP2ReadIdleTimeout(d time.Duration) *Builder {
+func (b *BuilderCore[Self]) SetHTTP2ReadIdleTimeout(d time.Duration) Self {
 	b.transportParams = refreshable.View(b.transportParams, func(p transportParams) transportParams {
 		p.HTTP2ReadIdleTimeout = d
 		return p
 	})
-	return b
+	return b.self
 }
 
 // SetHTTP2PingTimeout sets the timeout for HTTP/2 ping health checks. Default: 15s.
 // Only meaningful when HTTP2ReadIdleTimeout > 0.
-func (b *Builder) SetHTTP2PingTimeout(d time.Duration) *Builder {
+func (b *BuilderCore[Self]) SetHTTP2PingTimeout(d time.Duration) Self {
 	b.transportParams = refreshable.View(b.transportParams, func(p transportParams) transportParams {
 		p.HTTP2PingTimeout = d
 		return p
 	})
-	return b
+	return b.self
 }
 
 // SetHTTPProxyURL sets an HTTP/HTTPS proxy URL for requests. Pass "" to clear.
 // Use SetSocksProxyURL for socks5:// proxies. An invalid URL or scheme defers an
 // error to Build; setting a valid URL (or clearing it) replaces any prior error
 // for this field.
-func (b *Builder) SetHTTPProxyURL(s string) *Builder {
+func (b *BuilderCore[Self]) SetHTTPProxyURL(s string) Self {
 	b.errs.clearField(fieldHTTPProxy)
 	if s == "" {
 		b.transportParams = refreshable.View(b.transportParams, func(p transportParams) transportParams {
 			p.HTTPProxyURL = nil
 			return p
 		})
-		return b
+		return b.self
 	}
 	proxyURL, err := parseProxyURL(s, "HTTP proxy URL", "http", "https")
 	if err != nil {
 		b.errs.setField(fieldHTTPProxy, err)
-		return b
+		return b.self
 	}
 	b.transportParams = refreshable.View(b.transportParams, func(p transportParams) transportParams {
 		p.HTTPProxyURL = proxyURL
 		return p
 	})
-	return b
+	return b.self
 }
 
 // SetNoProxy clears all proxy configuration (HTTP, SOCKS, and environment),
 // along with any deferred HTTP or SOCKS proxy validation errors.
-func (b *Builder) SetNoProxy() *Builder {
+func (b *BuilderCore[Self]) SetNoProxy() Self {
 	b.errs.clearField(fieldHTTPProxy, fieldSocksProxy)
 	b.dialerParams = refreshable.View(b.dialerParams, func(p dialerParams) dialerParams {
 		p.SocksProxyURL = nil
@@ -211,17 +211,17 @@ func (b *Builder) SetNoProxy() *Builder {
 		p.ProxyFromEnvironment = false
 		return p
 	})
-	return b
+	return b.self
 }
 
 // SetProxyFromEnvironment configures the proxy from HTTP_PROXY, HTTPS_PROXY, and NO_PROXY
 // environment variables.
-func (b *Builder) SetProxyFromEnvironment() *Builder {
+func (b *BuilderCore[Self]) SetProxyFromEnvironment() Self {
 	b.transportParams = refreshable.View(b.transportParams, func(p transportParams) transportParams {
 		p.ProxyFromEnvironment = true
 		return p
 	})
-	return b
+	return b.self
 }
 
 type transportParams struct {
@@ -300,7 +300,7 @@ func newTransport(ctx context.Context, p transportParams, tlsConfig *tls.Config,
 // Otherwise the transport is built and rebuilds when transport, TLS, or dialer
 // parameters change. The returned value has no middleware wrapping; use
 // [Builder.BuildHTTPClient] or [Builder.Build] for the full stack.
-func (b *Builder) BuildTransport(ctx context.Context) (http.RoundTripper, error) {
+func (b *BuilderCore[Self]) BuildTransport(ctx context.Context) (http.RoundTripper, error) {
 	if b.transport != nil {
 		// The override replaces the constructed transport; proxy errors are moot.
 		if err := b.errs.joined(ctx, fieldConfig); err != nil {

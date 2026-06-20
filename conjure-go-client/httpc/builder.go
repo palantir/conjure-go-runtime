@@ -46,13 +46,23 @@ type BuilderAPI[Self BuilderAPI[Self]] interface {
 	ServiceBuilder[Self]
 }
 
-// Builder is the concrete [BuilderAPI] returned by [NewBuilder]. In
-// addition to [BuilderAPI.Build], it exposes BuildDialer, BuildTLSConfig,
-// BuildTransport, and BuildHTTPClient for building intermediate artifacts.
+// BuilderCore holds every builder setting and implements all of [BuilderAPI]'s
+// setters. It is generic over the embedding leaf type Self: each setter returns
+// b.self, so a downstream builder that embeds *BuilderCore[*MyBuilder] inherits
+// leaf-typed chaining (every Set* returns *MyBuilder) without re-declaring a
+// single setter. [Builder] is the zero-extra-fields leaf.
 //
-// Builder is NOT safe for concurrent use; call [Builder.Clone] before mutating
-// in another goroutine.
-type Builder struct {
+// self is wired by [NewBuilderCore] and [BuilderCore.CloneCoreFor]; those (plus
+// the leaf's own Clone) are the ONLY ways to construct a core, because self is
+// unexported. A core whose self was never set returns a nil leaf from the first
+// setter and panics on the next chained call, so never construct a bare
+// &BuilderCore{} or &Builder{}.
+//
+// BuilderCore is NOT safe for concurrent use; Clone before mutating in another
+// goroutine.
+type BuilderCore[Self Cloneable[Self]] struct {
+	self Self
+
 	serviceName     refreshable.Refreshable[string]
 	timeout         refreshable.Refreshable[time.Duration]
 	dialerOverride  ContextDialer // escape hatch: replaces dialer construction
@@ -90,10 +100,39 @@ type Builder struct {
 	errs             builderErrors
 }
 
+// Builder is the concrete [BuilderAPI] returned by [NewBuilder]: the
+// zero-extra-fields leaf over [BuilderCore]. In addition to [BuilderAPI.Build],
+// it exposes BuildDialer, BuildTLSConfig, BuildTransport, and BuildHTTPClient
+// for building intermediate artifacts.
+//
+// Builder is NOT safe for concurrent use; call [Builder.Clone] before mutating
+// in another goroutine.
+type Builder struct {
+	*BuilderCore[*Builder]
+}
+
 var _ BuilderAPI[*Builder] = (*Builder)(nil)
 
-// NewBuilder creates a Builder seeded with sane defaults.
+// NewBuilder creates a [Builder] seeded with sane defaults.
 func NewBuilder() *Builder {
+	b := &Builder{}
+	b.BuilderCore = NewBuilderCore(b)
+	return b
+}
+
+// NewBuilderCore creates a [BuilderCore] seeded with the same defaults as
+// [NewBuilder] and wired to the given leaf. Downstream builders embedding
+// *BuilderCore[*MyBuilder] call this from their own constructor:
+//
+//	func NewMyBuilder() *MyBuilder {
+//	    b := &MyBuilder{}
+//	    b.BuilderCore = httpc.NewBuilderCore(b)
+//	    return b
+//	}
+//
+// self must be the pointer that embeds the returned core; passing anything else
+// breaks leaf-typed chaining (see [BuilderCore]).
+func NewBuilderCore[Self Cloneable[Self]](self Self) *BuilderCore[Self] {
 	const (
 		defaultDialTimeout           = 10 * time.Second
 		defaultHTTPTimeout           = 60 * time.Second
@@ -108,7 +147,8 @@ func NewBuilder() *Builder {
 		defaultInitialBackoff        = 250 * time.Millisecond
 		defaultMaxBackoff            = 2 * time.Second
 	)
-	return &Builder{
+	return &BuilderCore[Self]{
+		self:        self,
 		serviceName: refreshable.New(""),
 		timeout:     refreshable.New(defaultHTTPTimeout),
 		dialerParams: refreshable.New(dialerParams{
@@ -136,11 +176,33 @@ func NewBuilder() *Builder {
 // Clone returns a deep copy of the builder. Refreshable fields are shared
 // (the original and the clone observe the same source).
 func (b *Builder) Clone() *Builder {
+	c := &Builder{}
+	c.BuilderCore = b.BuilderCore.CloneCoreFor(c)
+	return c
+}
+
+// CloneCoreFor returns a deep copy of the core rebound to self, so the clone's
+// setters return the new leaf rather than the original. Refreshable fields are
+// shared (original and clone observe the same source); tlsConfig is deep-cloned
+// and slices/maps are copied so mutating one builder's collections never affects
+// the other. A leaf's Clone delegates here:
+//
+//	func (b *MyBuilder) Clone() *MyBuilder {
+//	    c := &MyBuilder{ /* copy leaf fields */ }
+//	    c.BuilderCore = b.BuilderCore.CloneCoreFor(c)
+//	    return c
+//	}
+//
+// There is deliberately no no-arg Clone on the core: a naive field copy would
+// leave the clone's self pointing at the original, so each leaf must supply the
+// fresh self.
+func (b *BuilderCore[Self]) CloneCoreFor(self Self) *BuilderCore[Self] {
 	var clonedTLSConfig *tls.Config
 	if b.tlsConfig != nil {
 		clonedTLSConfig = b.tlsConfig.Clone()
 	}
-	clone := &Builder{
+	clone := &BuilderCore[Self]{
+		self:                self,
 		serviceName:         b.serviceName,
 		timeout:             b.timeout,
 		dialerOverride:      b.dialerOverride,
@@ -176,23 +238,28 @@ func (b *Builder) Clone() *Builder {
 }
 
 // Apply applies the given Param functions to the builder in sequence.
-func (b *Builder) Apply(params ...Param[*Builder]) *Builder {
+func (b *BuilderCore[Self]) Apply(params ...Param[Self]) Self {
 	for _, p := range params {
 		if p != nil {
-			p(b)
+			p(b.self)
 		}
 	}
-	return b
+	return b.self
 }
 
 // ApplyConfig applies each field config explicitly sets; unset fields leave
 // the builder's existing value unchanged. Validation errors are deferred until
 // Build.
-func (b *Builder) ApplyConfig(ctx context.Context, config ClientConfig) *Builder {
+//
+// The internal SetServiceName/SetBaseURLs/... calls below are not virtual: they
+// dispatch to the [BuilderCore] method, never a leaf override (Go has no virtual
+// dispatch). A downstream leaf therefore cannot intercept config application by
+// shadowing a setter.
+func (b *BuilderCore[Self]) ApplyConfig(ctx context.Context, config ClientConfig) Self {
 	params, err := newValidatedClientParams(ctx, config)
 	if err != nil {
 		b.errs.setField(fieldConfig, werror.WrapWithContextParams(ctx, err, "invalid client config"))
-		return b
+		return b.self
 	}
 	b.errs.clearField(fieldConfig)
 	if params.serviceName != "" {
@@ -286,20 +353,20 @@ func (b *Builder) ApplyConfig(ctx context.Context, config ClientConfig) *Builder
 	if len(params.metricsTags) > 0 {
 		b.metricsTagProviders = append(b.metricsTagProviders, StaticTagsProvider(params.metricsTags))
 	}
-	return b
+	return b.self
 }
 
 // ApplyServicesConfig looks up the merged [ClientConfig] for serviceName via
 // [ServicesConfig.ClientConfig] and applies it. Equivalent to
 // b.ApplyConfig(ctx, services.ClientConfig(serviceName)).
-func (b *Builder) ApplyServicesConfig(ctx context.Context, services ServicesConfig, serviceName string) *Builder {
+func (b *BuilderCore[Self]) ApplyServicesConfig(ctx context.Context, services ServicesConfig, serviceName string) Self {
 	return b.ApplyConfig(ctx, services.ClientConfig(serviceName))
 }
 
 // ApplyServicesConfigRefreshable is the refreshable analog of
 // [Builder.ApplyServicesConfig]: it derives a refreshable [ClientConfig] for
 // serviceName and applies it via [Builder.ApplyConfigRefreshable].
-func (b *Builder) ApplyServicesConfigRefreshable(ctx context.Context, services refreshable.Refreshable[ServicesConfig], serviceName string) *Builder {
+func (b *BuilderCore[Self]) ApplyServicesConfigRefreshable(ctx context.Context, services refreshable.Refreshable[ServicesConfig], serviceName string) Self {
 	clientConfig := refreshable.MapAuto(services, func(s ServicesConfig) ClientConfig {
 		return s.ClientConfig(serviceName)
 	})
@@ -317,7 +384,7 @@ func (b *Builder) ApplyServicesConfigRefreshable(ctx context.Context, services r
 // static SetFoo setters) replace the refreshable wiring for that field. To
 // avoid losing dynamic updates, call refreshable-aware setters first or set
 // final values on the builder before applying refreshable config.
-func (b *Builder) ApplyConfigRefreshable(ctx context.Context, config refreshable.Refreshable[ClientConfig]) *Builder {
+func (b *BuilderCore[Self]) ApplyConfigRefreshable(ctx context.Context, config refreshable.Refreshable[ClientConfig]) Self {
 	validParams, _ := refreshable.MapWithErrorAuto(ctx, config, newValidatedClientParams)
 	b.errs.setFieldProvider(fieldConfig, validatedBuilderError(validParams))
 
@@ -484,5 +551,5 @@ func (b *Builder) ApplyConfigRefreshable(ctx context.Context, config refreshable
 		return validParams.Unvalidated().metricsTags
 	}))
 
-	return b
+	return b.self
 }

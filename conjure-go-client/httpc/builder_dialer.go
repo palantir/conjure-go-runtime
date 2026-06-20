@@ -57,52 +57,52 @@ type DialerBuilder[Self DialerBuilder[Self]] interface {
 // transport built by [Builder.Build]) returns it as-is, skipping the internal
 // SetDialTimeout/SetKeepAlive/SetSocksProxyURL construction path. Pass nil to
 // re-enable internal construction.
-func (b *Builder) SetDialer(d ContextDialer) *Builder {
+func (b *BuilderCore[Self]) SetDialer(d ContextDialer) Self {
 	b.dialerOverride = d
-	return b
+	return b.self
 }
 
 // SetDialTimeout sets the maximum duration for establishing a TCP connection. Default: 10s.
-func (b *Builder) SetDialTimeout(d time.Duration) *Builder {
+func (b *BuilderCore[Self]) SetDialTimeout(d time.Duration) Self {
 	b.dialerParams = refreshable.View(b.dialerParams, func(p dialerParams) dialerParams {
 		p.DialTimeout = d
 		return p
 	})
-	return b
+	return b.self
 }
 
 // SetKeepAlive sets the interval between TCP keep-alive probes. Default: 30s.
-func (b *Builder) SetKeepAlive(d time.Duration) *Builder {
+func (b *BuilderCore[Self]) SetKeepAlive(d time.Duration) Self {
 	b.dialerParams = refreshable.View(b.dialerParams, func(p dialerParams) dialerParams {
 		p.KeepAlive = d
 		return p
 	})
-	return b
+	return b.self
 }
 
 // SetSocksProxyURL sets a SOCKS5 proxy URL for TCP connections. Pass "" to clear.
 // Only socks5:// and socks5h:// URLs are supported; use SetHTTPProxyURL for
 // http(s) proxies. An invalid URL or scheme defers an error to Build; setting a
 // valid URL (or clearing it) replaces any prior error for this field.
-func (b *Builder) SetSocksProxyURL(s string) *Builder {
+func (b *BuilderCore[Self]) SetSocksProxyURL(s string) Self {
 	b.errs.clearField(fieldSocksProxy)
 	if s == "" {
 		b.dialerParams = refreshable.View(b.dialerParams, func(p dialerParams) dialerParams {
 			p.SocksProxyURL = nil
 			return p
 		})
-		return b
+		return b.self
 	}
 	proxyURL, err := parseProxyURL(s, "SOCKS proxy URL", "socks5", "socks5h")
 	if err != nil {
 		b.errs.setField(fieldSocksProxy, err)
-		return b
+		return b.self
 	}
 	b.dialerParams = refreshable.View(b.dialerParams, func(p dialerParams) dialerParams {
 		p.SocksProxyURL = proxyURL
 		return p
 	})
-	return b
+	return b.self
 }
 
 // ContextDialer is the dialer interface returned by [Builder.BuildDialer];
@@ -135,7 +135,7 @@ func (r *refreshableDialer) Dial(network, address string) (net.Conn, error) {
 // SetDialTimeout/SetKeepAlive/SetSocksProxyURL settings are ignored.
 // Otherwise the dialer is built from those settings and rebuilds
 // automatically when any refreshable source changes.
-func (b *Builder) BuildDialer(ctx context.Context) (ContextDialer, error) {
+func (b *BuilderCore[Self]) BuildDialer(ctx context.Context) (ContextDialer, error) {
 	if b.dialerOverride != nil {
 		// The override fully specifies the dialer; only a failed config blocks it.
 		if err := b.errs.joined(ctx, fieldConfig); err != nil {

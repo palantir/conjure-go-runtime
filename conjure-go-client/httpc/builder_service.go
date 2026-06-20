@@ -116,14 +116,14 @@ type ServiceBuilder[Self Cloneable[Self]] interface {
 }
 
 // SetServiceName sets the logical service name used in metrics tags and log fields.
-func (b *Builder) SetServiceName(s string) *Builder {
+func (b *BuilderCore[Self]) SetServiceName(s string) Self {
 	b.serviceName = refreshable.New(s)
-	return b
+	return b.self
 }
 
-func (b *Builder) SetServiceNameRefreshable(r refreshable.Refreshable[string]) *Builder {
+func (b *BuilderCore[Self]) SetServiceNameRefreshable(r refreshable.Refreshable[string]) Self {
 	b.serviceName = r
-	return b
+	return b.self
 }
 
 // SetBaseURLs sets the base URLs; each request is prefixed with one chosen by
@@ -131,10 +131,10 @@ func (b *Builder) SetServiceNameRefreshable(r refreshable.Refreshable[string]) *
 // [Builder.ApplyConfig] (url.ParseRequestURI); unlike config, direct setters do
 // not drop empty strings — an empty URL is invalid. An invalid URL defers an
 // error to Build, replacing any prior base-URL error.
-func (b *Builder) SetBaseURLs(urls ...string) *Builder {
+func (b *BuilderCore[Self]) SetBaseURLs(urls ...string) Self {
 	b.errs.setField(fieldBaseURLs, validateBaseURIs(urls))
 	b.uris = refreshable.New(urls)
-	return b
+	return b.self
 }
 
 // SetBaseURLsRefreshable supplies refreshable base URLs. The error deferred to
@@ -142,29 +142,29 @@ func (b *Builder) SetBaseURLs(urls ...string) *Builder {
 // that updates to a valid value before Build no longer fails. Invalid refreshes
 // are ignored: the live URI list retains the last valid value (matching
 // [Builder.ApplyConfigRefreshable]) rather than poisoning the client.
-func (b *Builder) SetBaseURLsRefreshable(r refreshable.Refreshable[[]string]) *Builder {
+func (b *BuilderCore[Self]) SetBaseURLsRefreshable(r refreshable.Refreshable[[]string]) Self {
 	validated, _ := refreshable.ValidateAuto(context.Background(), r, func(_ context.Context, uris []string) error {
 		return validateBaseURIs(uris)
 	})
 	b.errs.setFieldProvider(fieldBaseURLs, validatedBuilderError(validated))
 	b.uris = refreshable.MapFromValidatedAuto(validated, func(uris []string) []string { return uris })
-	return b
+	return b.self
 }
 
 // SetAllowCreateWithEmptyURIs allows Build to succeed with no URIs configured.
 // Requests then fail with [ErrEmptyURIs] until URIs are supplied.
-func (b *Builder) SetAllowCreateWithEmptyURIs(allow bool) *Builder {
+func (b *BuilderCore[Self]) SetAllowCreateWithEmptyURIs(allow bool) Self {
 	b.allowEmptyURIs = allow
-	return b
+	return b.self
 }
 
 // SetURLSelector sets the strategy for ordering base URLs per request. The
 // factory is invoked with the current base URLs, and again whenever they change.
 // Defaults to [BalancedURLSelector] when unset. Use [RandomURLSelector] for
 // uniform ordering, or supply a custom [URLSelector] factory.
-func (b *Builder) SetURLSelector(factory func([]string) URLSelector) *Builder {
+func (b *BuilderCore[Self]) SetURLSelector(factory func([]string) URLSelector) Self {
 	b.urlSelectorFactory = factory
-	return b
+	return b.self
 }
 
 // authHeaderFunc returns the Authorization header value, or "" to leave the
@@ -175,14 +175,14 @@ type authHeaderFunc func(ctx context.Context) (string, error)
 
 // SetAuthToken sets a static bearer token, sent as "Authorization: Bearer <token>"
 // unless the request already has an Authorization header.
-func (b *Builder) SetAuthToken(t string) *Builder {
+func (b *BuilderCore[Self]) SetAuthToken(t string) Self {
 	b.authHeader = func(context.Context) (string, error) {
 		return bearerAuthHeader(t), nil
 	}
-	return b
+	return b.self
 }
 
-func (b *Builder) SetAuthTokenProvider(p TokenProvider) *Builder {
+func (b *BuilderCore[Self]) SetAuthTokenProvider(p TokenProvider) Self {
 	b.authHeader = func(ctx context.Context) (string, error) {
 		token, err := p(ctx)
 		if err != nil {
@@ -190,12 +190,12 @@ func (b *Builder) SetAuthTokenProvider(p TokenProvider) *Builder {
 		}
 		return bearerAuthHeader(token), nil
 	}
-	return b
+	return b.self
 }
 
 // SetAuthTokenRefreshable supplies a refreshable bearer token. A nil current
 // value disables auth.
-func (b *Builder) SetAuthTokenRefreshable(r refreshable.Refreshable[*string]) *Builder {
+func (b *BuilderCore[Self]) SetAuthTokenRefreshable(r refreshable.Refreshable[*string]) Self {
 	b.authHeader = func(context.Context) (string, error) {
 		s := r.Current()
 		if s == nil {
@@ -203,18 +203,18 @@ func (b *Builder) SetAuthTokenRefreshable(r refreshable.Refreshable[*string]) *B
 		}
 		return bearerAuthHeader(*s), nil
 	}
-	return b
+	return b.self
 }
 
 // SetBasicAuth sets static basic auth credentials.
-func (b *Builder) SetBasicAuth(user, password string) *Builder {
+func (b *BuilderCore[Self]) SetBasicAuth(user, password string) Self {
 	b.authHeader = func(context.Context) (string, error) {
 		return basicAuthHeader(user, password), nil
 	}
-	return b
+	return b.self
 }
 
-func (b *Builder) SetBasicAuthProvider(p BasicAuthProvider) *Builder {
+func (b *BuilderCore[Self]) SetBasicAuthProvider(p BasicAuthProvider) Self {
 	b.authHeader = func(ctx context.Context) (string, error) {
 		auth, err := p(ctx)
 		if err != nil {
@@ -222,13 +222,13 @@ func (b *Builder) SetBasicAuthProvider(p BasicAuthProvider) *Builder {
 		}
 		return basicAuthHeader(auth.User, auth.Password), nil
 	}
-	return b
+	return b.self
 }
 
 // SetBasicAuthOptionalProvider installs a provider that may return nil to
 // skip basic auth for an individual request (the Authorization header is left
 // unset). Use this when auth is optional or conditional on request context.
-func (b *Builder) SetBasicAuthOptionalProvider(p BasicAuthOptionalProvider) *Builder {
+func (b *BuilderCore[Self]) SetBasicAuthOptionalProvider(p BasicAuthOptionalProvider) Self {
 	b.authHeader = func(ctx context.Context) (string, error) {
 		auth, err := p(ctx)
 		if err != nil {
@@ -239,12 +239,12 @@ func (b *Builder) SetBasicAuthOptionalProvider(p BasicAuthOptionalProvider) *Bui
 		}
 		return basicAuthHeader(auth.User, auth.Password), nil
 	}
-	return b
+	return b.self
 }
 
 // SetBasicAuthRefreshable supplies refreshable basic auth credentials. A nil
 // current value disables auth.
-func (b *Builder) SetBasicAuthRefreshable(r refreshable.Refreshable[*BasicAuth]) *Builder {
+func (b *BuilderCore[Self]) SetBasicAuthRefreshable(r refreshable.Refreshable[*BasicAuth]) Self {
 	b.authHeader = func(context.Context) (string, error) {
 		auth := r.Current()
 		if auth == nil {
@@ -252,38 +252,38 @@ func (b *Builder) SetBasicAuthRefreshable(r refreshable.Refreshable[*BasicAuth])
 		}
 		return basicAuthHeader(auth.User, auth.Password), nil
 	}
-	return b
+	return b.self
 }
 
 // AddHeader appends one or more values to a header on every request. For
 // per-request headers, use [Overrides.WithAddedHeader] or [Endpoint.WithAddedHeader].
-func (b *Builder) AddHeader(key, value string, additionalValues ...string) *Builder {
+func (b *BuilderCore[Self]) AddHeader(key, value string, additionalValues ...string) Self {
 	b.headerValues = append(b.headerValues, addValue[http.Header]{
 		name:   http.CanonicalHeaderKey(key),
 		values: append([]string{value}, additionalValues...),
 	})
-	return b
+	return b.self
 }
 
 // SetHeader sets a header on every request to the given value(s), replacing
 // any prior values. For per-request headers, use [Overrides.WithHeader] or
 // [Endpoint.WithHeader]. A per-request header for the same key takes precedence.
-func (b *Builder) SetHeader(key, value string, additionalValues ...string) *Builder {
+func (b *BuilderCore[Self]) SetHeader(key, value string, additionalValues ...string) Self {
 	b.headerValues = append(b.headerValues, setValue[http.Header]{
 		name:   http.CanonicalHeaderKey(key),
 		values: append([]string{value}, additionalValues...),
 	})
-	return b
+	return b.self
 }
 
 // SetUserAgent sets the User-Agent header on every request.
-func (b *Builder) SetUserAgent(s string) *Builder {
+func (b *BuilderCore[Self]) SetUserAgent(s string) Self {
 	return b.SetHeader("User-Agent", s)
 }
 
 // SetOverrideRequestHost overrides Host on every request, decoupling it from
 // the URL host (useful for virtual-host routing).
-func (b *Builder) SetOverrideRequestHost(host string) *Builder {
+func (b *BuilderCore[Self]) SetOverrideRequestHost(host string) Self {
 	return b.AddInnerMiddleware(MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
 		req.Host = host
 		return next.RoundTrip(req)
@@ -292,132 +292,132 @@ func (b *Builder) SetOverrideRequestHost(host string) *Builder {
 
 // AddMiddleware appends an outer middleware: inside telemetry, outside the inner
 // middleware. Last added is outermost.
-func (b *Builder) AddMiddleware(m Middleware) *Builder {
+func (b *BuilderCore[Self]) AddMiddleware(m Middleware) Self {
 	b.middlewares = append(b.middlewares, m)
-	return b
+	return b.self
 }
 
 // AddInnerMiddleware prepends an inner middleware that runs inside the outer
 // middleware, just outside the auth and header decoration.
-func (b *Builder) AddInnerMiddleware(m Middleware) *Builder {
+func (b *BuilderCore[Self]) AddInnerMiddleware(m Middleware) Self {
 	b.innerMiddlewares = append([]Middleware{m}, b.innerMiddlewares...)
-	return b
+	return b.self
 }
 
 // SetTimeout sets the per-attempt timeout (applied as *http.Client.Timeout, so
 // it covers the entire attempt including body reads). The retry loop resets
 // the timer on each attempt. Default: 60s.
-func (b *Builder) SetTimeout(d time.Duration) *Builder {
+func (b *BuilderCore[Self]) SetTimeout(d time.Duration) Self {
 	b.timeout = refreshable.New(d)
-	return b
+	return b.self
 }
 
-func (b *Builder) SetTimeoutRefreshable(r refreshable.Refreshable[time.Duration]) *Builder {
+func (b *BuilderCore[Self]) SetTimeoutRefreshable(r refreshable.Refreshable[time.Duration]) Self {
 	b.timeout = r
-	return b
+	return b.self
 }
 
 // SetMaxAttempts sets total attempts (initial + retries). nil = default
 // (2 per base URL); pointer to 0 = unlimited; n > 0 = exactly n. Negative
 // values defer an error to Build.
-func (b *Builder) SetMaxAttempts(p *int) *Builder {
+func (b *BuilderCore[Self]) SetMaxAttempts(p *int) Self {
 	b.errs.clearField(fieldMaxAttempts)
 	if p != nil && *p < 0 {
 		b.errs.setField(fieldMaxAttempts, werror.ErrorWithContextParams(context.Background(),
 			"SetMaxAttempts: value must be nil, 0 (unlimited), or positive",
 			werror.SafeParam("value", *p)))
-		return b
+		return b.self
 	}
 	b.maxAttempts = refreshable.New(p)
-	return b
+	return b.self
 }
 
-func (b *Builder) SetMaxAttemptsRefreshable(r refreshable.Refreshable[*int]) *Builder {
+func (b *BuilderCore[Self]) SetMaxAttemptsRefreshable(r refreshable.Refreshable[*int]) Self {
 	b.maxAttempts = r
-	return b
+	return b.self
 }
 
 // SetInitialBackoff sets the initial retry backoff. Default: 250ms.
-func (b *Builder) SetInitialBackoff(d time.Duration) *Builder {
+func (b *BuilderCore[Self]) SetInitialBackoff(d time.Duration) Self {
 	b.initialBackoff = refreshable.New(d)
-	return b
+	return b.self
 }
 
-func (b *Builder) SetInitialBackoffRefreshable(r refreshable.Refreshable[time.Duration]) *Builder {
+func (b *BuilderCore[Self]) SetInitialBackoffRefreshable(r refreshable.Refreshable[time.Duration]) Self {
 	b.initialBackoff = r
-	return b
+	return b.self
 }
 
 // SetMaxBackoff sets the maximum retry backoff. Default: 2s.
-func (b *Builder) SetMaxBackoff(d time.Duration) *Builder {
+func (b *BuilderCore[Self]) SetMaxBackoff(d time.Duration) Self {
 	b.maxBackoff = refreshable.New(d)
-	return b
+	return b.self
 }
 
-func (b *Builder) SetMaxBackoffRefreshable(r refreshable.Refreshable[time.Duration]) *Builder {
+func (b *BuilderCore[Self]) SetMaxBackoffRefreshable(r refreshable.Refreshable[time.Duration]) Self {
 	b.maxBackoff = r
-	return b
+	return b.self
 }
 
 // SetMetrics enables request metrics and appends the given tag providers to
 // any already installed (e.g. by [Builder.ApplyConfig]). See README.md for the
 // full metrics catalog.
-func (b *Builder) SetMetrics(providers ...TagsProvider) *Builder {
+func (b *BuilderCore[Self]) SetMetrics(providers ...TagsProvider) Self {
 	b.disableMetrics = refreshable.New(false)
 	b.metricsTagProviders = append(b.metricsTagProviders, providers...)
-	return b
+	return b.self
 }
 
 // SetDisableMetrics toggles request metric emission. Refreshable counterpart:
 // [Builder.SetDisableMetricsRefreshable]. Refreshable support exists for this
 // flag (and not the other Disable* setters) because metrics emission is
 // surfaced in [MetricsConfig] and can be toggled from config at runtime.
-func (b *Builder) SetDisableMetrics(disable bool) *Builder {
+func (b *BuilderCore[Self]) SetDisableMetrics(disable bool) Self {
 	b.disableMetrics = refreshable.New(disable)
-	return b
+	return b.self
 }
 
-func (b *Builder) SetDisableMetricsRefreshable(r refreshable.Refreshable[bool]) *Builder {
+func (b *BuilderCore[Self]) SetDisableMetricsRefreshable(r refreshable.Refreshable[bool]) Self {
 	b.disableMetrics = r
-	return b
+	return b.self
 }
 
 // DisableTracing disables per-request span creation. Trace header propagation
 // is controlled separately via DisableTraceHeaderPropagation.
-func (b *Builder) DisableTracing() *Builder {
+func (b *BuilderCore[Self]) DisableTracing() Self {
 	b.disableRequestSpan = true
-	return b
+	return b.self
 }
 
 // DisableTraceHeaderPropagation suppresses outbound B3 trace headers (X-B3-TraceId, etc.).
-func (b *Builder) DisableTraceHeaderPropagation() *Builder {
+func (b *BuilderCore[Self]) DisableTraceHeaderPropagation() Self {
 	b.disableTraceHeaders = true
-	return b
+	return b.self
 }
 
 // DisableClientTraceMetrics suppresses detailed metrics using httptrace.ClientTrace.
-func (b *Builder) DisableClientTraceMetrics() *Builder {
+func (b *BuilderCore[Self]) DisableClientTraceMetrics() Self {
 	b.disableTraceMetrics = true
-	return b
+	return b.self
 }
 
 // DisablePanicRecovery removes the outer panic-recovery middleware layer.
-func (b *Builder) DisablePanicRecovery() *Builder {
+func (b *BuilderCore[Self]) DisablePanicRecovery() Self {
 	b.disableRecovery = true
-	return b
+	return b.self
 }
 
 // SetTransport injects a pre-built http.RoundTripper, bypassing the dialer,
 // TLS, and transport builders. The middleware stack still wraps it.
-func (b *Builder) SetTransport(rt http.RoundTripper) *Builder {
+func (b *BuilderCore[Self]) SetTransport(rt http.RoundTripper) Self {
 	b.transport = rt
-	return b
+	return b.self
 }
 
 // Build constructs a [RebuildableClient]. Errors if no base URLs were set
 // (unless [Builder.SetAllowCreateWithEmptyURIs] was called) or if any setter
 // deferred a validation error (e.g., a malformed proxy URL).
-func (b *Builder) Build(ctx context.Context) (RebuildableClient[*Builder], error) {
+func (b *BuilderCore[Self]) Build(ctx context.Context) (RebuildableClient[Self], error) {
 	if err := b.errs.joined(ctx); err != nil {
 		return nil, err
 	}
@@ -439,7 +439,7 @@ func (b *Builder) Build(ctx context.Context) (RebuildableClient[*Builder], error
 	}
 	uriScorer := newRefreshableSelector(b.uris, selectorFactory)
 
-	return &standardClient[*Builder]{
+	return &standardClient[Self]{
 		serviceName:    b.serviceName,
 		transport:      transport,
 		middleware:     b.bakeMiddleware(),
@@ -449,14 +449,14 @@ func (b *Builder) Build(ctx context.Context) (RebuildableClient[*Builder], error
 		maxAttempts:    b.maxAttempts,
 		initialBackoff: b.initialBackoff,
 		maxBackoff:     b.maxBackoff,
-		builder:        b.Clone(),
+		builder:        b.self.Clone(),
 	}, nil
 }
 
 // intrinsicHeaderValues returns the client's baked header contributors, lowest
 // precedence first: the auth provider, then headers from SetHeader/AddHeader.
 // [Send] resolves these below any per-request contributors.
-func (b *Builder) intrinsicHeaderValues() []requestValue[http.Header] {
+func (b *BuilderCore[Self]) intrinsicHeaderValues() []requestValue[http.Header] {
 	var values []requestValue[http.Header]
 	if b.authHeader != nil {
 		values = append(values, authValue{provider: b.authHeader})
@@ -471,7 +471,7 @@ func (b *Builder) intrinsicHeaderValues() []requestValue[http.Header] {
 // applied separately as request-value contributors (see [intrinsicHeaderValues]).
 // Refreshable behavior lives inside the middlewares and is read per request, so
 // the result is static. Per-request middlewares are layered in below this by [Send].
-func (b *Builder) bakeMiddleware() Middleware {
+func (b *BuilderCore[Self]) bakeMiddleware() Middleware {
 	var middlewares []Middleware
 	middlewares = append(middlewares, b.innerMiddlewares...)
 	middlewares = append(middlewares, b.middlewares...)
@@ -492,7 +492,7 @@ func (b *Builder) bakeMiddleware() Middleware {
 // configured timeout. Unlike [Builder.Build], it performs no retries, URI
 // scoring, or QoS redirect handling — it is the escape hatch for callers that
 // want a plain *http.Client that still carries auth and telemetry.
-func (b *Builder) BuildHTTPClient(ctx context.Context) (refreshable.Refreshable[*http.Client], error) {
+func (b *BuilderCore[Self]) BuildHTTPClient(ctx context.Context) (refreshable.Refreshable[*http.Client], error) {
 	transport, err := b.BuildTransport(ctx)
 	if err != nil {
 		return nil, err

@@ -79,54 +79,54 @@ type TLSConfigBuilder[Self TLSConfigBuilder[Self]] interface {
 
 // SetTLSConfig replaces all TLS settings with the provided *tls.Config (cloned).
 // When set, all Add* and Set* TLS methods on this builder are ignored.
-func (b *Builder) SetTLSConfig(cfg *tls.Config) *Builder {
+func (b *BuilderCore[Self]) SetTLSConfig(cfg *tls.Config) Self {
 	if cfg == nil {
 		b.tlsConfig = nil
 	} else {
 		b.tlsConfig = cfg.Clone()
 	}
-	return b
+	return b.self
 }
 
 // SetInsecureSkipVerify controls whether the client verifies the server's
 // certificate. Ignored when [Builder.SetTLSConfig] installed an escape-hatch
 // config (the caller owns InsecureSkipVerify on that config).
-func (b *Builder) SetInsecureSkipVerify(skip bool) *Builder {
+func (b *BuilderCore[Self]) SetInsecureSkipVerify(skip bool) Self {
 	b.tlsFileParams = refreshable.View(b.tlsFileParams, func(p tlsFileParams) tlsFileParams {
 		p.InsecureSkipVerify = skip
 		return p
 	})
-	return b
+	return b.self
 }
 
 // SetIncludeSystemCAs controls whether the host system's trusted CA certificates
 // are included in the root CA pool. Default: true.
-func (b *Builder) SetIncludeSystemCAs(include bool) *Builder {
+func (b *BuilderCore[Self]) SetIncludeSystemCAs(include bool) Self {
 	b.includeSystemCAs = include
-	return b
+	return b.self
 }
 
 // AddCACertFiles adds CA certificates from PEM file paths. Files are watched for
 // changes; updates trigger a TLS config and transport rebuild.
-func (b *Builder) AddCACertFiles(files ...string) *Builder {
+func (b *BuilderCore[Self]) AddCACertFiles(files ...string) Self {
 	b.tlsFileParams = refreshable.View(b.tlsFileParams, func(p tlsFileParams) tlsFileParams {
 		p.CAFiles = append(p.CAFiles, files...)
 		return p
 	})
-	return b
+	return b.self
 }
 
 // AddCACertBytes adds PEM-encoded CA certificate bytes to the pool. Each blob
 // may contain multiple certificates.
-func (b *Builder) AddCACertBytes(certBytes ...[]byte) *Builder {
+func (b *BuilderCore[Self]) AddCACertBytes(certBytes ...[]byte) Self {
 	b.caByteSlices = append(b.caByteSlices, certBytes...)
-	return b
+	return b.self
 }
 
 // AddCACertBytesRefreshable adds a refreshable source of PEM-encoded CA certificate bytes.
 // When the refreshable updates, the pool is rebuilt with the new certificates combined
 // with all other CA sources.
-func (b *Builder) AddCACertBytesRefreshable(r refreshable.Refreshable[[][]byte]) *Builder {
+func (b *BuilderCore[Self]) AddCACertBytesRefreshable(r refreshable.Refreshable[[][]byte]) Self {
 	if b.tlsCABytes != nil {
 		b.tlsCABytes = refreshable.MergeAuto(b.tlsCABytes, r, func(existingBytes, newBytes [][]byte) [][]byte {
 			merged := make([][]byte, 0, len(existingBytes)+len(newBytes))
@@ -137,23 +137,23 @@ func (b *Builder) AddCACertBytesRefreshable(r refreshable.Refreshable[[][]byte])
 	} else {
 		b.tlsCABytes = r
 	}
-	return b
+	return b.self
 }
 
 // AddCACerts adds parsed certificates to the pool.
-func (b *Builder) AddCACerts(certs ...*x509.Certificate) *Builder {
+func (b *BuilderCore[Self]) AddCACerts(certs ...*x509.Certificate) Self {
 	for _, cert := range certs {
 		pemBlock := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert.Raw})
 		b.caByteSlices = append(b.caByteSlices, pemBlock)
 	}
-	return b
+	return b.self
 }
 
 // SetClientCertFiles sets client certificate and key file paths for mutual TLS.
 // Argument order matches [tls.LoadX509KeyPair]: cert first, key second.
 // Files are watched for changes; updates trigger a TLS config rebuild. For
 // per-handshake re-reading of rotated files, also call SetDynamicCertReload(true).
-func (b *Builder) SetClientCertFiles(certFile, keyFile string) *Builder {
+func (b *BuilderCore[Self]) SetClientCertFiles(certFile, keyFile string) Self {
 	b.clientCertKey = nil
 	b.clientCertCert = nil
 	b.tlsFileParams = refreshable.View(b.tlsFileParams, func(p tlsFileParams) tlsFileParams {
@@ -161,12 +161,12 @@ func (b *Builder) SetClientCertFiles(certFile, keyFile string) *Builder {
 		p.CertFile = certFile
 		return p
 	})
-	return b
+	return b.self
 }
 
 // SetClientCertBytes sets client certificate and key bytes for mutual TLS.
 // Argument order matches [tls.X509KeyPair]: cert first, key second.
-func (b *Builder) SetClientCertBytes(certBytes, keyBytes []byte) *Builder {
+func (b *BuilderCore[Self]) SetClientCertBytes(certBytes, keyBytes []byte) Self {
 	b.clientCertKey = bytes.Clone(keyBytes)
 	b.clientCertCert = bytes.Clone(certBytes)
 	b.tlsFileParams = refreshable.View(b.tlsFileParams, func(p tlsFileParams) tlsFileParams {
@@ -174,17 +174,17 @@ func (b *Builder) SetClientCertBytes(certBytes, keyBytes []byte) *Builder {
 		p.CertFile = ""
 		return p
 	})
-	return b
+	return b.self
 }
 
 // SetDynamicCertReload controls whether client cert/key files are re-read on each
 // TLS handshake. Useful for environments with frequent cert rotation.
-func (b *Builder) SetDynamicCertReload(enabled bool) *Builder {
+func (b *BuilderCore[Self]) SetDynamicCertReload(enabled bool) Self {
 	b.tlsFileParams = refreshable.View(b.tlsFileParams, func(p tlsFileParams) tlsFileParams {
 		p.DynamicCertReload = enabled
 		return p
 	})
-	return b
+	return b.self
 }
 
 // tlsFileParams holds file-based and flag-based TLS settings. Separated from
@@ -215,7 +215,7 @@ type tlsParams struct {
 // are ignored. Otherwise the config is built and rebuilds when CA files,
 // refreshable CA byte sources, or TLS file params change. Errors if CA files
 // cannot be read or system CAs cannot be loaded.
-func (b *Builder) BuildTLSConfig(ctx context.Context) (refreshable.Validated[*tls.Config], error) {
+func (b *BuilderCore[Self]) BuildTLSConfig(ctx context.Context) (refreshable.Validated[*tls.Config], error) {
 	// TLS construction is independent of base URLs, proxies, and retries; only a
 	// failed config blocks it (CA-file errors surface inline below).
 	if err := b.errs.joined(ctx, fieldConfig); err != nil {
