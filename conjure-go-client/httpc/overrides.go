@@ -19,7 +19,6 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/palantir/conjure-go-runtime/v3/conjure-go-contract/errors"
 	"github.com/palantir/pkg/bytesbuffers"
 )
 
@@ -184,17 +183,13 @@ func (c Overrides) WithTimeout(d time.Duration) Overrides {
 	return c
 }
 
-// WithErrorDecoder sets a per-request error decoder that overrides the client-level decoder.
+// WithErrorDecoder sets a per-request error decoder that overrides the
+// client-level decoder. For typed Conjure errors, use
+// conjureerrors.WithConjureErrorDecoder.
 func (c Overrides) WithErrorDecoder(d ErrorDecoder) Overrides {
 	c = c.Clone()
 	c.errorDecoder = d
 	return c
-}
-
-// WithConjureErrorDecoder is a convenience for WithErrorDecoder(
-// [DefaultErrorDecoderWithConjure](ced)).
-func (c Overrides) WithConjureErrorDecoder(ced errors.ConjureErrorDecoder) Overrides {
-	return c.WithErrorDecoder(DefaultErrorDecoderWithConjure(ced))
 }
 
 // WithBasicAuth sets per-request basic auth credentials. Takes precedence

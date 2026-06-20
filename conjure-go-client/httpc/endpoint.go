@@ -23,7 +23,6 @@ import (
 	"time"
 
 	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/internal"
-	"github.com/palantir/conjure-go-runtime/v3/conjure-go-contract/errors"
 	"github.com/palantir/pkg/bytesbuffers"
 )
 
@@ -70,11 +69,10 @@ type RequestOverrides[D any] interface {
 	// all retries.
 	WithTimeout(time.Duration) D
 	// WithErrorDecoder sets a per-request error decoder; overrides the
-	// endpoint-level decoder and [DefaultErrorDecoder].
+	// endpoint-level decoder and [DefaultErrorDecoder]. For typed Conjure errors,
+	// use conjureerrors.WithConjureErrorDecoder, which keeps the
+	// conjure-go-contract/errors dependency off this interface.
 	WithErrorDecoder(ErrorDecoder) D
-	// WithConjureErrorDecoder is a convenience for
-	// WithErrorDecoder([DefaultErrorDecoderWithConjure](ced)).
-	WithConjureErrorDecoder(ced errors.ConjureErrorDecoder) D
 	// WithBasicAuth sets per-request basic auth credentials, overriding any client-level auth.
 	WithBasicAuth(user, password string) D
 	// WithMiddleware appends a per-request middleware that runs once per attempt
@@ -276,12 +274,6 @@ func (e Endpoint[Req, Resp]) WithAddedQueryValues(q url.Values) Endpoint[Req, Re
 func (e Endpoint[Req, Resp]) WithTimeout(d time.Duration) Endpoint[Req, Resp] {
 	e.overrides = e.overrides.WithTimeout(d)
 	return e
-}
-
-// WithConjureErrorDecoder is a convenience for
-// WithErrorDecoder([DefaultErrorDecoderWithConjure](ced)).
-func (e Endpoint[Req, Resp]) WithConjureErrorDecoder(ced errors.ConjureErrorDecoder) Endpoint[Req, Resp] {
-	return e.WithErrorDecoder(DefaultErrorDecoderWithConjure(ced))
 }
 
 // WithErrorDecoder sets a per-request error decoder that overrides the client-level decoder.

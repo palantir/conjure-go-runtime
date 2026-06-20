@@ -22,7 +22,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpc"
+	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpc/conjureerrors"
 	"github.com/palantir/conjure-go-runtime/v3/conjure-go-contract/codecs"
 	"github.com/palantir/conjure-go-runtime/v3/conjure-go-contract/errors"
 	werror "github.com/palantir/witchcraft-go-error"
@@ -232,7 +232,7 @@ func WithRequestTimeout(timeout time.Duration) RequestParam {
 
 func WithRequestConjureErrorDecoder(ced errors.ConjureErrorDecoder) RequestParam {
 	return requestParamFunc(func(b *requestBuilder) error {
-		b.errorDecoderMiddleware = httpc.DefaultErrorDecoderWithConjure(ced)
+		b.errorDecoderMiddleware = conjureerrors.DefaultErrorDecoderWithConjure(ced)
 		return nil
 	})
 }

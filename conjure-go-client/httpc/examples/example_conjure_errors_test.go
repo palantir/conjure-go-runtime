@@ -29,7 +29,7 @@ import (
 // DefaultErrorDecoder unmarshals the standard Conjure error types automatically, so
 // GetConjureError can pull the typed error out of the wrapped chain and branch on its
 // code, name, or parameters. For custom error types, register a decoder with
-// Endpoint.WithConjureErrorDecoder (or DefaultErrorDecoderWithConjure).
+// conjureerrors.WithConjureErrorDecoder (or conjureerrors.DefaultErrorDecoderWithConjure).
 func Example_conjureErrors() {
 	ctx := context.Background()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

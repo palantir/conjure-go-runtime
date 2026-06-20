@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpc"
+	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpc/conjureerrors"
 	"github.com/palantir/conjure-go-runtime/v3/conjure-go-contract/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -115,8 +116,8 @@ func TestOverrides_NoErrorDecoder_BypassesDefault(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, httpResp.StatusCode)
 }
 
-// T6: Overrides.WithConjureErrorDecoder is equivalent to wrapping with
-// DefaultErrorDecoderWithConjure.
+// T6: conjureerrors.WithConjureErrorDecoder is equivalent to wrapping with
+// conjureerrors.DefaultErrorDecoderWithConjure.
 func TestOverrides_WithConjureErrorDecoder(t *testing.T) {
 	server := newTestServer(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -132,7 +133,7 @@ func TestOverrides_WithConjureErrorDecoder(t *testing.T) {
 
 	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "Err", "/err").
 		WithDecoder(httpc.VoidDecoder()).
-		WithOverrides(httpc.Overrides{}.WithConjureErrorDecoder(ced))
+		WithOverrides(conjureerrors.WithConjureErrorDecoder(httpc.Overrides{}, ced))
 
 	client := &httpTestClient{server: server}
 	_, _, err := ep.Execute(context.Background(), client)

@@ -150,9 +150,10 @@ Both `Endpoint` and `Overrides` implement the `RequestOverrides[D]` interface:
 - `WithAddedQuery(key, value, additionalValues...)` -- appends one or more values
 - `WithAddedQueryValues(url.Values)` -- bulk append from a `url.Values` map
 - `WithTimeout(time.Duration)` -- per-attempt timeout (use a ctx deadline for total)
-- `WithErrorDecoder(ErrorDecoder)` -- per-call error decoder
-- `WithConjureErrorDecoder(errors.ConjureErrorDecoder)` -- convenience for the
-  default decoder configured with a Conjure typed-error registry
+- `WithErrorDecoder(ErrorDecoder)` -- per-call error decoder. For a Conjure
+  typed-error registry, use the free function
+  `conjureerrors.WithConjureErrorDecoder(d, ced)` (in the `httpc/conjureerrors`
+  sub-package, so this interface stays free of `conjure-go-contract/errors`)
 - `WithBasicAuth(user, pw)` -- per-call basic auth (see [Auth precedence](#auth-precedence))
 - `WithMiddleware(Middleware)` -- append a per-request middleware (runs per attempt)
 - `WithBufferPool(bytesbuffers.Pool)` -- per-call buffer pool for encoders
