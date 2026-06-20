@@ -193,7 +193,7 @@ func TestApplyConfig_ValidationErrors_InvalidURI(t *testing.T) {
 		ApplyConfig(context.Background(), cfg).
 		Build(context.Background())
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid url")
+	assert.Contains(t, err.Error(), "invalid base URL")
 }
 
 func TestApplyConfig_ValidationErrors_InvalidProxyURL(t *testing.T) {
@@ -219,7 +219,7 @@ func TestApplyConfig_ValidationErrors_UnsupportedProxyScheme(t *testing.T) {
 		ApplyConfig(context.Background(), cfg).
 		Build(context.Background())
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "only http(s) and socks5 are supported")
+	assert.Contains(t, err.Error(), "unsupported scheme")
 }
 
 func TestApplyConfig_ValidationErrors_MissingTokenFile(t *testing.T) {

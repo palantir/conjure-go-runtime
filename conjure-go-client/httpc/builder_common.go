@@ -21,6 +21,7 @@ import (
 	"net/url"
 	"slices"
 
+	"github.com/palantir/pkg/refreshable/v2"
 	werror "github.com/palantir/witchcraft-go-error"
 )
 
@@ -75,27 +76,57 @@ const (
 	fieldHTTPProxy
 	fieldSocksProxy
 	fieldMaxAttempts
+	// fieldConfig is the whole-config validation error from ApplyConfig /
+	// ApplyConfigRefreshable. It is global: every Build* checks it, since a
+	// failed ApplyConfig means the config silently did not apply.
+	fieldConfig
 )
 
-// builderErrors collects the validation errors a builder defers until Build.
-// byField holds errors tied to a replaceable setting (replaced or cleared when
-// that setting is set again); unscoped holds errors not tied to a single
-// replaceable field (e.g. a whole-config ApplyConfig failure).
-type builderErrors struct {
-	byField  map[builderField]error
-	unscoped []error
+// builderError yields the current deferred error for a field, or nil. Static
+// fields wrap a fixed error; refreshable-backed fields evaluate their Validated
+// each time, so a refreshable that recovers before Build clears the error.
+type builderError func(context.Context) error
+
+func staticBuilderError(err error) builderError {
+	return func(context.Context) error { return err }
 }
 
-// setField records err for f, or clears any prior error for f when err is nil.
+func validatedBuilderError[T any](v refreshable.Validated[T]) builderError {
+	return func(context.Context) error {
+		_, err := v.Validation()
+		return err
+	}
+}
+
+// builderErrors collects the validation errors a builder defers until Build,
+// keyed by the field they belong to so that re-setting (or clearing) a field
+// replaces its error. Errors are evaluated lazily via [builderError] providers
+// so refreshable-backed fields reflect their current validity at Build time.
+type builderErrors struct {
+	byField map[builderField]builderError
+}
+
+// setField records a static err for f, or clears any prior error for f when err
+// is nil.
 func (e *builderErrors) setField(f builderField, err error) {
 	if err == nil {
-		delete(e.byField, f)
+		e.clearField(f)
+		return
+	}
+	e.setFieldProvider(f, staticBuilderError(err))
+}
+
+// setFieldProvider records a dynamic error provider for f, or clears f when
+// provider is nil.
+func (e *builderErrors) setFieldProvider(f builderField, provider builderError) {
+	if provider == nil {
+		e.clearField(f)
 		return
 	}
 	if e.byField == nil {
-		e.byField = make(map[builderField]error)
+		e.byField = make(map[builderField]builderError)
 	}
-	e.byField[f] = err
+	e.byField[f] = provider
 }
 
 // clearField drops any deferred error for each of the given fields.
@@ -105,27 +136,31 @@ func (e *builderErrors) clearField(fields ...builderField) {
 	}
 }
 
-// addUnscoped records an error not tied to a replaceable field.
-func (e *builderErrors) addUnscoped(err error) {
-	e.unscoped = append(e.unscoped, err)
-}
-
 func (e builderErrors) clone() builderErrors {
-	return builderErrors{
-		byField:  maps.Clone(e.byField),
-		unscoped: slices.Clone(e.unscoped),
-	}
+	return builderErrors{byField: maps.Clone(e.byField)}
 }
 
-// joined returns the combined deferred errors, or nil. Field errors are ordered
-// by field id (then unscoped) so the message is deterministic.
-func (e builderErrors) joined(ctx context.Context) error {
-	fields := slices.Sorted(maps.Keys(e.byField))
-	errs := make([]error, 0, len(fields)+len(e.unscoped))
-	for _, f := range fields {
-		errs = append(errs, e.byField[f])
+// joined evaluates the deferred errors for the given fields (or every field when
+// none are named) and returns them combined, or nil. Fields are evaluated in id
+// order so the message is deterministic. Naming fields lets each Build* scope
+// itself to the settings it actually consumes (e.g. BuildHTTPClient ignores base
+// URLs); fieldConfig is named by every Build* because a failed config is global.
+func (e builderErrors) joined(ctx context.Context, fields ...builderField) error {
+	keys := fields
+	if len(keys) == 0 {
+		keys = slices.Sorted(maps.Keys(e.byField))
+	} else {
+		keys = slices.Clone(keys)
+		slices.Sort(keys)
 	}
-	errs = append(errs, e.unscoped...)
+	var errs []error
+	for _, f := range keys {
+		if provider, ok := e.byField[f]; ok {
+			if err := provider(ctx); err != nil {
+				errs = append(errs, err)
+			}
+		}
+	}
 	switch len(errs) {
 	case 0:
 		return nil
@@ -149,4 +184,26 @@ func parseProxyURL(s, label string, schemes ...string) (*url.URL, error) {
 			werror.SafeParam("supportedSchemes", schemes))
 	}
 	return proxyURL, nil
+}
+
+// validateBaseURI parses a single base URI with the same parser config validation
+// uses (url.ParseRequestURI). An empty string is invalid; callers that allow
+// empties (ApplyConfig drops them) must filter before calling this.
+func validateBaseURI(uri string) error {
+	if _, err := url.ParseRequestURI(uri); err != nil {
+		return werror.Wrap(err, "invalid base URL", werror.UnsafeParam("url", uri))
+	}
+	return nil
+}
+
+// validateBaseURIs validates every URI exactly as given — the strict
+// direct-setter rule, with no empty-string filtering. Shared with the config
+// path's per-URI check via [validateBaseURI].
+func validateBaseURIs(uris []string) error {
+	for _, uri := range uris {
+		if err := validateBaseURI(uri); err != nil {
+			return err
+		}
+	}
+	return nil
 }

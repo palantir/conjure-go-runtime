@@ -17,7 +17,6 @@ package httpc
 import (
 	"context"
 	"net/http"
-	"net/url"
 	"time"
 
 	"github.com/palantir/pkg/refreshable/v2"
@@ -128,39 +127,28 @@ func (b *Builder) SetServiceNameRefreshable(r refreshable.Refreshable[string]) *
 }
 
 // SetBaseURLs sets the base URLs; each request is prefixed with one chosen by
-// the URI scoring strategy. Each URL is validated with the same rules as
-// [Builder.ApplyConfig]; an invalid one defers an error to Build, replacing any
-// prior base-URL error.
+// the URI scoring strategy. Each URL is validated with the same URI parser as
+// [Builder.ApplyConfig] (url.ParseRequestURI); unlike config, direct setters do
+// not drop empty strings — an empty URL is invalid. An invalid URL defers an
+// error to Build, replacing any prior base-URL error.
 func (b *Builder) SetBaseURLs(urls ...string) *Builder {
 	b.errs.setField(fieldBaseURLs, validateBaseURIs(urls))
 	b.uris = refreshable.New(urls)
 	return b
 }
 
-// SetBaseURLsRefreshable supplies refreshable base URLs. The initial value is
-// validated and an invalid one fails Build. Later invalid refreshes are ignored:
-// the live URI list retains the last valid value (matching
+// SetBaseURLsRefreshable supplies refreshable base URLs. The error deferred to
+// Build is re-evaluated against the live value, so an initially-invalid source
+// that updates to a valid value before Build no longer fails. Invalid refreshes
+// are ignored: the live URI list retains the last valid value (matching
 // [Builder.ApplyConfigRefreshable]) rather than poisoning the client.
 func (b *Builder) SetBaseURLsRefreshable(r refreshable.Refreshable[[]string]) *Builder {
-	validated, _, err := refreshable.Validate(context.Background(), r, func(_ context.Context, uris []string) error {
+	validated, _ := refreshable.ValidateAuto(context.Background(), r, func(_ context.Context, uris []string) error {
 		return validateBaseURIs(uris)
 	})
-	b.errs.setField(fieldBaseURLs, err)
+	b.errs.setFieldProvider(fieldBaseURLs, validatedBuilderError(validated))
 	b.uris = refreshable.MapFromValidatedAuto(validated, func(uris []string) []string { return uris })
 	return b
-}
-
-// validateBaseURIs rejects any URI that [newValidatedClientParams] would reject:
-// each must parse as a request URI. Unlike the config path, nothing is dropped —
-// an empty string is treated as invalid so the builder reflects exactly what the
-// caller passed.
-func validateBaseURIs(uris []string) error {
-	for _, uri := range uris {
-		if _, err := url.ParseRequestURI(uri); err != nil {
-			return werror.Wrap(err, "invalid base URL", werror.UnsafeParam("url", uri))
-		}
-	}
-	return nil
 }
 
 // SetAllowCreateWithEmptyURIs allows Build to succeed with no URIs configured.

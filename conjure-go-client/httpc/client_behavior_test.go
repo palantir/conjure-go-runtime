@@ -216,14 +216,22 @@ func TestBuilder_ErrorAccumulation_BuildTransport(t *testing.T) {
 	assert.Contains(t, err.Error(), "HTTP proxy URL")
 }
 
-// TestBuilder_ErrorAccumulation_BuildTLSConfig verifies that accumulated errors
-// are surfaced by BuildTLSConfig.
+// TestBuilder_ErrorAccumulation_BuildTLSConfig verifies BuildTLSConfig is scoped:
+// it ignores unrelated setter errors (e.g. a SOCKS proxy) but still surfaces a
+// global config validation error.
 func TestBuilder_ErrorAccumulation_BuildTLSConfig(t *testing.T) {
+	// A SOCKS proxy error is unrelated to TLS and must not block BuildTLSConfig.
 	_, err := httpc.NewBuilder().
 		SetSocksProxyURL("%%").
 		BuildTLSConfig(t.Context())
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "SOCKS proxy URL")
+	require.NoError(t, err, "BuildTLSConfig should ignore an unrelated SOCKS proxy error")
+
+	// A failed ApplyConfig is global and still blocks BuildTLSConfig.
+	_, err = httpc.NewBuilder().
+		ApplyConfig(t.Context(), httpc.ClientConfig{ProxyURL: new("ftp://bad")}).
+		BuildTLSConfig(t.Context())
+	require.Error(t, err, "a failed config should block BuildTLSConfig")
+	assert.Contains(t, err.Error(), "invalid client config")
 }
 
 // ---------------------------------------------------------------------------

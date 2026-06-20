@@ -275,11 +275,13 @@ func newValidatedClientParams(ctx context.Context, config ClientConfig) (validat
 	if len(config.URIs) > 0 {
 		uris := make([]string, 0, len(config.URIs))
 		for _, uriStr := range config.URIs {
+			// Config drops empty URIs; the per-URI parser is shared with the
+			// direct setters via validateBaseURI (which rejects empties).
 			if uriStr == "" {
 				continue
 			}
-			if _, err := url.ParseRequestURI(uriStr); err != nil {
-				return validatedClientParams{}, werror.Wrap(err, "invalid url")
+			if err := validateBaseURI(uriStr); err != nil {
+				return validatedClientParams{}, err
 			}
 			uris = append(uris, uriStr)
 		}
@@ -315,17 +317,17 @@ func newValidatedClientParams(ctx context.Context, config ClientConfig) (validat
 	}
 
 	if config.ProxyURL != nil {
-		proxyURL, err := url.ParseRequestURI(*config.ProxyURL)
+		// Shared with the direct proxy setters; config accepts either family in
+		// the single ProxyURL field and routes by scheme.
+		proxyURL, err := parseProxyURL(*config.ProxyURL, "proxy url", "http", "https", "socks5", "socks5h")
 		if err != nil {
-			return validatedClientParams{}, werror.Wrap(err, "invalid proxy url")
+			return validatedClientParams{}, err
 		}
 		switch proxyURL.Scheme {
 		case "http", "https":
 			p.httpProxyURL = proxyURL
-		case "socks5", "socks5h":
-			p.socksProxyURL = proxyURL
 		default:
-			return validatedClientParams{}, werror.Error("invalid proxy url: only http(s) and socks5 are supported")
+			p.socksProxyURL = proxyURL
 		}
 	}
 

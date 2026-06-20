@@ -301,11 +301,16 @@ func newTransport(ctx context.Context, p transportParams, tlsConfig *tls.Config,
 // parameters change. The returned value has no middleware wrapping; use
 // [Builder.BuildHTTPClient] or [Builder.Build] for the full stack.
 func (b *Builder) BuildTransport(ctx context.Context) (http.RoundTripper, error) {
-	if err := b.errs.joined(ctx); err != nil {
-		return nil, err
-	}
 	if b.transport != nil {
+		// The override replaces the constructed transport; proxy errors are moot.
+		if err := b.errs.joined(ctx, fieldConfig); err != nil {
+			return nil, err
+		}
 		return b.transport, nil
+	}
+	// SOCKS proxy errors surface via BuildDialer below.
+	if err := b.errs.joined(ctx, fieldConfig, fieldHTTPProxy); err != nil {
+		return nil, err
 	}
 	tlsConfig, err := b.BuildTLSConfig(ctx)
 	if err != nil {

@@ -191,9 +191,10 @@ func (b *Builder) Apply(params ...Param[*Builder]) *Builder {
 func (b *Builder) ApplyConfig(ctx context.Context, config ClientConfig) *Builder {
 	params, err := newValidatedClientParams(ctx, config)
 	if err != nil {
-		b.errs.addUnscoped(werror.WrapWithContextParams(ctx, err, "invalid client config"))
+		b.errs.setField(fieldConfig, werror.WrapWithContextParams(ctx, err, "invalid client config"))
 		return b
 	}
+	b.errs.clearField(fieldConfig)
 	if params.serviceName != "" {
 		b.SetServiceName(params.serviceName)
 	}
@@ -307,18 +308,18 @@ func (b *Builder) ApplyServicesConfigRefreshable(ctx context.Context, services r
 
 // ApplyConfigRefreshable wires up refreshable overlays for each field the
 // config sets; unset fields fall back to the builder's value at call time.
-// Validation errors are deferred until Build.
+// The config validation error is deferred until Build and re-evaluated against
+// the live config, so a source that is initially invalid but becomes valid
+// before Build no longer fails. While invalid, the overlays fall back to the
+// builder's pre-config values.
 //
 // Caveat: subsequent calls to static SetAuthToken / SetBasicAuth (and other
 // static SetFoo setters) replace the refreshable wiring for that field. To
 // avoid losing dynamic updates, call refreshable-aware setters first or set
 // final values on the builder before applying refreshable config.
 func (b *Builder) ApplyConfigRefreshable(ctx context.Context, config refreshable.Refreshable[ClientConfig]) *Builder {
-	validParams, err := refreshable.MapWithErrorAuto(ctx, config, newValidatedClientParams)
-	if err != nil {
-		b.errs.addUnscoped(err)
-		return b
-	}
+	validParams, _ := refreshable.MapWithErrorAuto(ctx, config, newValidatedClientParams)
+	b.errs.setFieldProvider(fieldConfig, validatedBuilderError(validParams))
 
 	// For each field, install a refreshable that overlays the config value
 	// (when set) on top of the builder's existing value (captured now).

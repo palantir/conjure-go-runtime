@@ -136,11 +136,15 @@ func (r *refreshableDialer) Dial(network, address string) (net.Conn, error) {
 // Otherwise the dialer is built from those settings and rebuilds
 // automatically when any refreshable source changes.
 func (b *Builder) BuildDialer(ctx context.Context) (ContextDialer, error) {
-	if err := b.errs.joined(ctx); err != nil {
-		return nil, err
-	}
 	if b.dialerOverride != nil {
+		// The override fully specifies the dialer; only a failed config blocks it.
+		if err := b.errs.joined(ctx, fieldConfig); err != nil {
+			return nil, err
+		}
 		return b.dialerOverride, nil
+	}
+	if err := b.errs.joined(ctx, fieldConfig, fieldSocksProxy); err != nil {
+		return nil, err
 	}
 	rebuild := false
 	mapped := refreshable.MapAuto(b.dialerParams, func(p dialerParams) ContextDialer {

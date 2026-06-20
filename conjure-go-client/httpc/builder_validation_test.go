@@ -188,3 +188,70 @@ func TestBuilder_SetBaseURLsRefreshable_InvalidRefreshRetainsLastValid(t *testin
 	assert.Equal(t, 2, server1Hits)
 	assert.Equal(t, 1, server2Hits)
 }
+
+// TestBuilder_SetBaseURLsRefreshable_RecoversBeforeBuild verifies an initially
+// invalid refreshable that becomes valid before Build no longer fails (the
+// deferred error is re-evaluated against the live value).
+func TestBuilder_SetBaseURLsRefreshable_RecoversBeforeBuild(t *testing.T) {
+	ctx := context.Background()
+	uris := refreshable.New([]string{"://bad"})
+	b := httpc.NewBuilder().SetBaseURLsRefreshable(uris)
+
+	_, err := b.Build(ctx)
+	require.Error(t, err, "initial invalid value should fail Build")
+
+	uris.Update([]string{"https://ok.example.com"})
+	_, err = b.Build(ctx)
+	require.NoError(t, err, "Build should succeed once the refreshable recovers")
+}
+
+// TestBuilder_ApplyConfig_BadThenGood verifies a bad config followed by a good
+// config recovers (fieldConfig is replaceable, not append-only).
+func TestBuilder_ApplyConfig_BadThenGood(t *testing.T) {
+	ctx := context.Background()
+	b := httpc.NewBuilder().
+		ApplyConfig(ctx, httpc.ClientConfig{URIs: []string{"://bad"}}).
+		ApplyConfig(ctx, httpc.ClientConfig{URIs: []string{"https://ok.example.com"}})
+
+	_, err := b.Build(ctx)
+	require.NoError(t, err, "a later valid ApplyConfig should clear the prior config error")
+}
+
+// TestBuilder_ApplyConfigRefreshable_RecoversBeforeBuild verifies a refreshable
+// config that starts invalid and becomes valid before Build no longer fails.
+func TestBuilder_ApplyConfigRefreshable_RecoversBeforeBuild(t *testing.T) {
+	ctx := context.Background()
+	cfg := refreshable.New(httpc.ClientConfig{URIs: []string{"://bad"}})
+	b := httpc.NewBuilder().ApplyConfigRefreshable(ctx, cfg)
+
+	_, err := b.Build(ctx)
+	require.Error(t, err, "initial invalid config should fail Build")
+
+	cfg.Update(httpc.ClientConfig{URIs: []string{"https://ok.example.com"}})
+	_, err = b.Build(ctx)
+	require.NoError(t, err, "Build should succeed once the config recovers")
+}
+
+// TestBuilder_BuildHTTPClient_IgnoresBadBaseURLs verifies the escape-hatch
+// *http.Client builder is not blocked by base-URL or max-attempts errors, which
+// it does not consume.
+func TestBuilder_BuildHTTPClient_IgnoresBadBaseURLs(t *testing.T) {
+	ctx := context.Background()
+
+	_, err := httpc.NewBuilder().SetBaseURLs("://bad").BuildHTTPClient(ctx)
+	require.NoError(t, err, "BuildHTTPClient should ignore bad base URLs")
+
+	_, err = httpc.NewBuilder().SetMaxAttempts(new(-1)).BuildHTTPClient(ctx)
+	require.NoError(t, err, "BuildHTTPClient should ignore bad max attempts")
+}
+
+// TestBuilder_BuildTransport_SetTransport_IgnoresProxyError verifies a transport
+// override bypasses a stale proxy validation error.
+func TestBuilder_BuildTransport_SetTransport_IgnoresProxyError(t *testing.T) {
+	rt, err := httpc.NewBuilder().
+		SetHTTPProxyURL("ftp://bad-proxy").
+		SetTransport(http.DefaultTransport).
+		BuildTransport(context.Background())
+	require.NoError(t, err, "SetTransport should bypass the deferred HTTP proxy error")
+	assert.Equal(t, http.DefaultTransport, rt)
+}

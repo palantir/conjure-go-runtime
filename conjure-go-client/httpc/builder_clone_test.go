@@ -71,8 +71,7 @@ func nonZeroBuilder() *Builder {
 		clientCertCert:   []byte{7, 8, 9},
 		includeSystemCAs: true,
 		errs: builderErrors{
-			byField:  map[builderField]error{fieldBaseURLs: errors.New("oops")},
-			unscoped: []error{errors.New("boom")},
+			byField: map[builderField]builderError{fieldBaseURLs: staticBuilderError(errors.New("oops"))},
 		},
 	}
 }
@@ -117,7 +116,6 @@ func TestBuilder_ClonePreservesAllFields(t *testing.T) {
 	src.caByteSlices[0] = nil
 	src.clientCertKey[0] = 0
 	src.clientCertCert[0] = 0
-	src.errs.unscoped[0] = nil
 	delete(src.errs.byField, fieldBaseURLs)
 
 	assert.NotNil(t, clone.middlewares[0], "middlewares slice must be deep-cloned")
@@ -127,6 +125,5 @@ func TestBuilder_ClonePreservesAllFields(t *testing.T) {
 	assert.NotNil(t, clone.caByteSlices[0], "caByteSlices outer slice must be deep-cloned")
 	assert.NotZero(t, clone.clientCertKey[0], "clientCertKey must be deep-cloned")
 	assert.NotZero(t, clone.clientCertCert[0], "clientCertCert must be deep-cloned")
-	assert.NotNil(t, clone.errs.unscoped[0], "errs.unscoped slice must be deep-cloned")
 	assert.NotEmpty(t, clone.errs.byField, "errs.byField map must be deep-cloned")
 }
