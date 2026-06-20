@@ -137,3 +137,15 @@ func TestBuilder_ClonePreservesAllFields(t *testing.T) {
 	assert.NotZero(t, clone.clientCertCert[0], "clientCertCert must be deep-cloned")
 	assert.NotEmpty(t, clone.errs.byField, "errs.byField map must be deep-cloned")
 }
+
+// TestBuilderCore_UnwiredSelfPanics documents the footgun the constructors guard
+// against: a core whose self was never wired returns the zero leaf (a nil
+// *Builder) from the first setter, so the next chained call panics. Always
+// construct via NewBuilder / NewBuilderCore / CloneCoreFor.
+func TestBuilderCore_UnwiredSelfPanics(t *testing.T) {
+	unwired := &BuilderCore[*Builder]{} // self left as the zero *Builder (nil)
+	require.Nil(t, unwired.SetServiceName("svc"), "unwired self returns the zero leaf")
+	assert.Panics(t, func() {
+		unwired.SetServiceName("svc").SetTimeout(time.Second)
+	}, "chaining a second setter off an unwired core must panic")
+}
