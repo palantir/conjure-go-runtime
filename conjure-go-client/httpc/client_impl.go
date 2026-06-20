@@ -18,6 +18,7 @@ import (
 	"context"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -33,16 +34,18 @@ import (
 // call policy. [Builder.Build] returns one; callers reach it through [Send] or
 // [Endpoint.Execute] rather than assembling the pieces themselves.
 //
-// [Send] composes the pieces per attempt as selector → Middleware → per-request
-// middleware → Transport, then layers retries, URL scoring, and QoS redirects on
-// top. Exposing the pieces (rather than a single RoundTrip) keeps [Send] in
-// control of composition, so a hand-built request can't drop auth or telemetry.
+// [Send] composes the pieces per attempt as selector → Middleware → auth/header
+// decoration → per-request middleware → Transport, then layers retries, URL
+// scoring, and QoS redirects on top. Exposing the pieces (rather than a single
+// RoundTrip) keeps [Send] in control of composition, so a hand-built request
+// can't drop auth or telemetry.
 type Client interface {
 	// Transport performs one attempt with no middleware decoration. nil falls
 	// back to http.DefaultTransport.
 	Transport() http.RoundTripper
-	// Middleware is the intrinsic stack baked by the builder (telemetry, user
-	// middleware, auth), applied around every attempt. nil means none.
+	// Middleware is the intrinsic stack baked by the builder (telemetry and user
+	// middleware), applied around every attempt. nil means none. Auth and builder
+	// headers are applied separately as request-value contributors.
 	Middleware() Middleware
 	// URLSelector orders the base URLs and observes each attempt's outcome.
 	URLSelector() URLSelector
@@ -83,11 +86,26 @@ type CallPolicy struct {
 
 // SendOptions configures a single [Send] call: the per-call policy plus any
 // per-request middlewares. The middlewares run innermost — below the client's
-// intrinsic stack (auth included), just above the transport — so a request can
-// override auth, and they run on every attempt with the resolved URL.
+// intrinsic stack and its auth/header decoration, just above the transport — so
+// a request can override auth, and they run on every attempt with the resolved URL.
 type SendOptions struct {
 	CallPolicy
 	Middlewares []Middleware
+
+	// headerValues and queryValues are per-request contributors [Send] resolves
+	// onto every attempt, above the client's intrinsic header values. Populated
+	// by [Endpoint.Execute]; the legacy httpclient bridge leaves them nil. They
+	// are unexported to keep the per-request decoration in-package.
+	headerValues []requestValue[http.Header]
+	queryValues  []requestValue[url.Values]
+}
+
+// intrinsicValuer is the unexported capability a [Client] may implement to
+// contribute its baked header values (auth, builder headers) to [Send]'s
+// resolution. The builder's client implements it; custom Client implementations
+// (test doubles, escape hatches) do not and correctly contribute none.
+type intrinsicValuer interface {
+	intrinsicHeaderValues() []requestValue[http.Header]
 }
 
 // standardClient is the [RebuildableClient] returned by [Builder.Build]. It
@@ -98,6 +116,7 @@ type standardClient[B ServiceBuilder[B]] struct {
 	serviceName    refreshable.Refreshable[string]
 	transport      http.RoundTripper
 	middleware     Middleware
+	headerValues   []requestValue[http.Header]
 	uriScorer      URLSelector
 	timeout        refreshable.Refreshable[time.Duration]
 	maxAttempts    refreshable.Refreshable[*int]
@@ -109,6 +128,10 @@ type standardClient[B ServiceBuilder[B]] struct {
 func (c *standardClient[B]) Transport() http.RoundTripper { return c.transport }
 
 func (c *standardClient[B]) Middleware() Middleware { return c.middleware }
+
+func (c *standardClient[B]) intrinsicHeaderValues() []requestValue[http.Header] {
+	return c.headerValues
+}
 
 func (c *standardClient[B]) URLSelector() URLSelector { return c.uriScorer }
 
@@ -134,9 +157,10 @@ func (c *standardClient[B]) Builder() B { return c.builder.Clone() }
 // (301/302/303) are followed by the call-scoped http.Client; 307/308 are handed
 // back to the retrier as Conjure QoS relocations.
 //
-// Each attempt is composed as selector → client.Middleware → opts.Middlewares →
-// client.Transport, so the intrinsic stack (auth, telemetry) always runs and the
-// per-request middlewares run innermost — on every attempt with the resolved URL.
+// Each attempt is composed as selector → client.Middleware → auth/header
+// decoration → opts.Middlewares → client.Transport, so the intrinsic stack
+// (telemetry) and the auth/header contributors always run, while per-request
+// middlewares run innermost — on every attempt with the resolved URL.
 //
 // Send returns the raw final response; callers decode errors and bodies. It is
 // the loop [Endpoint.Execute] and the legacy httpclient bridge share.
@@ -155,11 +179,29 @@ func Send(ctx context.Context, client Client, req *http.Request, opts SendOption
 	backoff := retry.Start(ctx, retry.WithInitialBackoff(opts.InitialBackoff), retry.WithMaxBackoff(opts.MaxBackoff))
 	retrier := internal.NewRequestRetrier(uris, backoff, attempts)
 
+	// Resolve the client's intrinsic header values (auth, builder headers) below
+	// the per-request contributors so the latter win. The decoration applies them
+	// per attempt, inside the intrinsic middleware (so telemetry recovers/metering
+	// covers auth) and outside the per-request middlewares (so an imperative
+	// WithMiddleware can still override on the wire).
+	var intrinsic []requestValue[http.Header]
+	if v, ok := client.(intrinsicValuer); ok {
+		intrinsic = v.intrinsicHeaderValues()
+	}
+	var decoration Middleware
+	if len(intrinsic) > 0 || len(opts.headerValues) > 0 || len(opts.queryValues) > 0 {
+		decoration = decorationMiddleware{
+			headerValues: slices.Concat(intrinsic, opts.headerValues),
+			queryValues:  opts.queryValues,
+		}
+	}
+
 	// Per-attempt transport (innermost to outermost): the raw transport, the
-	// per-request middlewares, the client's intrinsic stack, then the selector so
-	// it observes every attempt (and redirect hop). The http.Client follows
-	// standard redirects and enforces the per-attempt timeout.
+	// per-request middlewares, the auth/header decoration, the client's intrinsic
+	// stack, then the selector so it observes every attempt (and redirect hop).
+	// The http.Client follows standard redirects and enforces the per-attempt timeout.
 	transport := wrapTransport(client.Transport(), opts.Middlewares...)
+	transport = wrapTransport(transport, decoration)
 	transport = wrapTransport(transport, client.Middleware())
 	hc := &http.Client{
 		Transport: wrapTransport(transport, selector),

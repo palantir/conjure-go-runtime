@@ -65,7 +65,10 @@ func TestMiddlewareOrdering(t *testing.T) {
 			},
 		},
 		{
-			Name: "WithInnerMiddleware overwrites WithAddHeader middleware",
+			// Builder Set/AddHeader are resolved by the decoration that runs after
+			// the inner middleware, so the AddHeader contributor appends to the
+			// value the inner middleware set.
+			Name: "WithAddHeader appends after WithInnerMiddleware Set",
 			ClientParams: []ClientParam{
 				WithAddHeader("X-Test", "value1"),
 				WithInnerMiddleware(MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
@@ -74,7 +77,7 @@ func TestMiddlewareOrdering(t *testing.T) {
 				})),
 			},
 			ExpectHeaders: http.Header{
-				"X-Test": []string{"value2"},
+				"X-Test": []string{"value2", "value1"},
 			},
 		},
 		{
@@ -91,7 +94,7 @@ func TestMiddlewareOrdering(t *testing.T) {
 			},
 		},
 		{
-			Name: "WithInnerMiddleware adds to WithAddHeader",
+			Name: "WithAddHeader appends after WithInnerMiddleware Add",
 			ClientParams: []ClientParam{
 				WithAddHeader("X-Test", "value1"),
 				WithInnerMiddleware(MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
@@ -100,7 +103,7 @@ func TestMiddlewareOrdering(t *testing.T) {
 				})),
 			},
 			ExpectHeaders: http.Header{
-				"X-Test": []string{"value1", "value2"},
+				"X-Test": []string{"value2", "value1"},
 			},
 		},
 		{

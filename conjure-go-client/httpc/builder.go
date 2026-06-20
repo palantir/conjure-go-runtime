@@ -62,9 +62,10 @@ type Builder struct {
 	tlsFileParams   refreshable.Refreshable[tlsFileParams]
 	tlsCABytes      refreshable.Refreshable[[][]byte]
 
-	middlewares      []Middleware   // outer: applied after built-in middleware
-	innerMiddlewares []Middleware   // inner: applied before built-in middleware
-	authHeader       authHeaderFunc // single auth slot; Set*Auth* methods replace it
+	middlewares      []Middleware                // outer: applied after built-in middleware
+	innerMiddlewares []Middleware                // inner: applied before built-in middleware
+	authHeader       authHeaderFunc              // single auth slot; Set*Auth* methods replace it
+	headerValues     []requestValue[http.Header] // SetHeader/AddHeader contributors, resolved per request
 
 	disableMetrics      refreshable.Refreshable[bool]
 	metricsTagProviders []TagsProvider
@@ -151,6 +152,7 @@ func (b *Builder) Clone() *Builder {
 		middlewares:         slices.Clone(b.middlewares),
 		innerMiddlewares:    slices.Clone(b.innerMiddlewares),
 		authHeader:          b.authHeader,
+		headerValues:        slices.Clone(b.headerValues),
 		disableMetrics:      b.disableMetrics,
 		metricsTagProviders: slices.Clone(b.metricsTagProviders),
 		disableRequestSpan:  b.disableRequestSpan,

@@ -373,40 +373,18 @@ func (e Endpoint[Req, Resp]) Execute(ctx context.Context, client Client) (Resp, 
 		req.Header.Set("Accept", e.accept)
 	}
 
-	// Set replaces (including Accept/Content-Type); Add accumulates on top.
-	for k, vs := range e.overrides.setHeaders {
-		req.Header[k] = append([]string(nil), vs...)
+	// Headers and query become per-request contributors resolved by [Send] above
+	// the client's intrinsic values, so they take precedence over client auth and
+	// headers without eagerly mutating req (and without invoking an overridden
+	// auth provider). Per-request middlewares run innermost (per attempt, with
+	// the resolved URL). A per-request timeout overrides the per-attempt bound;
+	// a total-call deadline is the caller's job via ctx.
+	opts := SendOptions{
+		CallPolicy:   client.CallPolicy(),
+		Middlewares:  e.overrides.middlewares,
+		headerValues: e.overrides.headerValues(),
+		queryValues:  e.overrides.queryValues(),
 	}
-	for k, vs := range e.overrides.addHeaders {
-		for _, v := range vs {
-			req.Header.Add(k, v)
-		}
-	}
-
-	if len(e.overrides.setQuery) > 0 || len(e.overrides.addQuery) > 0 {
-		q := make(url.Values)
-		for k, vs := range e.overrides.setQuery {
-			q[k] = append([]string(nil), vs...)
-		}
-		for k, vs := range e.overrides.addQuery {
-			for _, v := range vs {
-				q.Add(k, v)
-			}
-		}
-		req.URL.RawQuery = q.Encode()
-	}
-
-	// Set basic auth before the stack runs so the client's set-if-absent auth
-	// middleware sees it and skips — endpoint auth wins without invoking the
-	// client's auth provider.
-	if e.overrides.basicAuth != nil {
-		req.SetBasicAuth(e.overrides.basicAuth.user, e.overrides.basicAuth.password)
-	}
-
-	// Start from the client's default policy; a per-request timeout overrides
-	// the per-attempt bound. A total-call deadline is the caller's job via ctx.
-	// Per-request middlewares run innermost (per attempt, with the resolved URL).
-	opts := SendOptions{CallPolicy: client.CallPolicy(), Middlewares: e.overrides.middlewares}
 	if e.overrides.timeout != nil {
 		opts.Timeout = *e.overrides.timeout
 	}

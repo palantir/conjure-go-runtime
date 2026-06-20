@@ -48,6 +48,7 @@ func nonZeroBuilder() *Builder {
 		middlewares:      []Middleware{MiddlewareFunc(func(*http.Request, http.RoundTripper) (*http.Response, error) { return nil, nil })},
 		innerMiddlewares: []Middleware{MiddlewareFunc(func(*http.Request, http.RoundTripper) (*http.Response, error) { return nil, nil })},
 		authHeader:       func(context.Context) (string, error) { return "Bearer x", nil },
+		headerValues:     []requestValue[http.Header]{setValue[http.Header]{name: "X-Test", values: []string{"v"}}},
 
 		disableMetrics:      refreshable.New(true),
 		metricsTagProviders: []TagsProvider{TagsProviderFunc(func(*http.Request, *http.Response, error) metrics.Tags { return nil })},
@@ -108,6 +109,7 @@ func TestBuilder_ClonePreservesAllFields(t *testing.T) {
 	// be unaffected. (slices.Clone / bytes.Clone produce a fresh outer slice.)
 	src.middlewares[0] = nil
 	src.innerMiddlewares[0] = nil
+	src.headerValues[0] = nil
 	src.metricsTagProviders[0] = nil
 	src.caByteSlices[0] = nil
 	src.clientCertKey[0] = 0
@@ -116,6 +118,7 @@ func TestBuilder_ClonePreservesAllFields(t *testing.T) {
 
 	assert.NotNil(t, clone.middlewares[0], "middlewares slice must be deep-cloned")
 	assert.NotNil(t, clone.innerMiddlewares[0], "innerMiddlewares slice must be deep-cloned")
+	assert.NotNil(t, clone.headerValues[0], "headerValues slice must be deep-cloned")
 	assert.NotNil(t, clone.metricsTagProviders[0], "metricsTagProviders slice must be deep-cloned")
 	assert.NotNil(t, clone.caByteSlices[0], "caByteSlices outer slice must be deep-cloned")
 	assert.NotZero(t, clone.clientCertKey[0], "clientCertKey must be deep-cloned")

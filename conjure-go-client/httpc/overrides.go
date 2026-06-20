@@ -280,3 +280,38 @@ func (c Overrides) merge(o Overrides) Overrides {
 	out.middlewares = append(out.middlewares, o.middlewares...)
 	return out
 }
+
+// headerValues flattens the merged header overrides into [Send] contributors:
+// every set header first, then every added header, then basic auth as a
+// trailing Authorization set (the highest per-request precedence). Emitting
+// sets before adds preserves "set replaces, adds append" for a key present in
+// both, and a set clears earlier adds during resolution.
+func (c Overrides) headerValues() []requestValue[http.Header] {
+	var values []requestValue[http.Header]
+	for k, vs := range c.setHeaders {
+		values = append(values, setValue[http.Header]{name: k, values: vs})
+	}
+	for k, vs := range c.addHeaders {
+		values = append(values, addValue[http.Header]{name: k, values: vs})
+	}
+	if c.basicAuth != nil {
+		values = append(values, setValue[http.Header]{
+			name:   "Authorization",
+			values: []string{basicAuthHeader(c.basicAuth.user, c.basicAuth.password)},
+		})
+	}
+	return values
+}
+
+// queryValues flattens the merged query overrides into [Send] contributors,
+// sets before adds (see [Overrides.headerValues]).
+func (c Overrides) queryValues() []requestValue[url.Values] {
+	var values []requestValue[url.Values]
+	for k, vs := range c.setQuery {
+		values = append(values, setValue[url.Values]{name: k, values: vs})
+	}
+	for k, vs := range c.addQuery {
+		values = append(values, addValue[url.Values]{name: k, values: vs})
+	}
+	return values
+}

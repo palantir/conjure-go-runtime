@@ -93,7 +93,7 @@ func TestEndpointExecute_BasicAuthOverridesAuthorizationHeader(t *testing.T) {
 
 	_, _, err = ep.Execute(context.Background(), client)
 	require.NoError(t, err)
-	// Basic auth runs after the headers loop, so it wins.
+	// Basic auth is the trailing Authorization contributor, so it wins.
 	assert.Equal(t, "Basic dTpw", seen)
 }
 

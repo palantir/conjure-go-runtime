@@ -16,7 +16,6 @@ package httpc
 
 import (
 	"context"
-	"encoding/base64"
 	"net/http"
 	"time"
 
@@ -78,10 +77,10 @@ type ServiceBuilder[B ServiceBuilder[B]] interface {
 	SetOverrideRequestHost(string) B
 
 	// AddMiddleware appends an outer middleware: inside telemetry, outside the
-	// inner middleware and the auth header. Last added is outermost.
+	// inner middleware. Last added is outermost.
 	AddMiddleware(Middleware) B
-	// AddInnerMiddleware prepends an inner middleware that runs closest to the
-	// transport, inside the outer middleware and just before the auth header.
+	// AddInnerMiddleware prepends an inner middleware that runs inside the outer
+	// middleware, just outside the auth and header decoration.
 	AddInnerMiddleware(Middleware) B
 
 	// SetTimeout sets the per-attempt timeout. The retry loop resets the timer
@@ -156,36 +155,10 @@ func (b *Builder) SetURLSelector(factory func([]string) URLSelector) *Builder {
 }
 
 // authHeaderFunc returns the Authorization header value, or "" to leave the
-// header unset.
+// header unset. Wrapped in an [authValue] contributor, it runs only when no
+// higher-precedence contributor (a request header or per-request basic auth)
+// claims Authorization.
 type authHeaderFunc func(ctx context.Context) (string, error)
-
-// authHeaderMiddleware sets Authorization from provider unless the header is
-// already set on the request or the provider returns empty.
-func authHeaderMiddleware(provider authHeaderFunc) Middleware {
-	return MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
-		if req.Header.Get("Authorization") == "" {
-			v, err := provider(req.Context())
-			if err != nil {
-				return nil, err
-			}
-			if v != "" {
-				req.Header.Set("Authorization", v)
-			}
-		}
-		return next.RoundTrip(req)
-	})
-}
-
-func bearerAuthHeader(token string) string {
-	if token == "" {
-		return ""
-	}
-	return "Bearer " + token
-}
-
-func basicAuthHeader(user, password string) string {
-	return "Basic " + base64.StdEncoding.EncodeToString([]byte(user+":"+password))
-}
 
 // SetAuthToken sets a static bearer token, sent as "Authorization: Bearer <token>"
 // unless the request already has an Authorization header.
@@ -272,26 +245,22 @@ func (b *Builder) SetBasicAuthRefreshable(r refreshable.Refreshable[*BasicAuth])
 // AddHeader appends one or more values to a header on every request. For
 // per-request headers, use [Overrides.WithAddedHeader] or [Endpoint.WithAddedHeader].
 func (b *Builder) AddHeader(key, value string, additionalValues ...string) *Builder {
-	return b.AddInnerMiddleware(MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
-		req.Header.Add(key, value)
-		for _, v := range additionalValues {
-			req.Header.Add(key, v)
-		}
-		return next.RoundTrip(req)
-	}))
+	b.headerValues = append(b.headerValues, addValue[http.Header]{
+		name:   http.CanonicalHeaderKey(key),
+		values: append([]string{value}, additionalValues...),
+	})
+	return b
 }
 
 // SetHeader sets a header on every request to the given value(s), replacing
 // any prior values. For per-request headers, use [Overrides.WithHeader] or
-// [Endpoint.WithHeader].
+// [Endpoint.WithHeader]. A per-request header for the same key takes precedence.
 func (b *Builder) SetHeader(key, value string, additionalValues ...string) *Builder {
-	return b.AddInnerMiddleware(MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
-		req.Header.Set(key, value)
-		for _, v := range additionalValues {
-			req.Header.Add(key, v)
-		}
-		return next.RoundTrip(req)
-	}))
+	b.headerValues = append(b.headerValues, setValue[http.Header]{
+		name:   http.CanonicalHeaderKey(key),
+		values: append([]string{value}, additionalValues...),
+	})
+	return b
 }
 
 // SetUserAgent sets the User-Agent header on every request.
@@ -309,14 +278,14 @@ func (b *Builder) SetOverrideRequestHost(host string) *Builder {
 }
 
 // AddMiddleware appends an outer middleware: inside telemetry, outside the inner
-// middleware and the auth header. Last added is outermost.
+// middleware. Last added is outermost.
 func (b *Builder) AddMiddleware(m Middleware) *Builder {
 	b.middlewares = append(b.middlewares, m)
 	return b
 }
 
-// AddInnerMiddleware prepends an inner middleware that runs closest to the
-// transport, inside the outer middleware and just before the auth header.
+// AddInnerMiddleware prepends an inner middleware that runs inside the outer
+// middleware, just outside the auth and header decoration.
 func (b *Builder) AddInnerMiddleware(m Middleware) *Builder {
 	b.innerMiddlewares = append([]Middleware{m}, b.innerMiddlewares...)
 	return b
@@ -460,6 +429,7 @@ func (b *Builder) Build(ctx context.Context) (RebuildableClient[*Builder], error
 		serviceName:    b.serviceName,
 		transport:      transport,
 		middleware:     b.bakeMiddleware(),
+		headerValues:   b.intrinsicHeaderValues(),
 		uriScorer:      uriScorer,
 		timeout:        b.timeout,
 		maxAttempts:    b.maxAttempts,
@@ -469,17 +439,26 @@ func (b *Builder) Build(ctx context.Context) (RebuildableClient[*Builder], error
 	}, nil
 }
 
-// bakeMiddleware composes the client's intrinsic stack: auth (innermost), then
-// inner middlewares, user outer middlewares, and telemetry (outermost).
-// Telemetry is outermost so its panic recovery (which tags the error with the
-// request span) and its metrics/span cover every user middleware. Refreshable
-// behavior lives inside the middlewares and is read per request, so the result
-// is static. Per-request middlewares are layered in below this by [Send].
+// intrinsicHeaderValues returns the client's baked header contributors, lowest
+// precedence first: the auth provider, then headers from SetHeader/AddHeader.
+// [Send] resolves these below any per-request contributors.
+func (b *Builder) intrinsicHeaderValues() []requestValue[http.Header] {
+	var values []requestValue[http.Header]
+	if b.authHeader != nil {
+		values = append(values, authValue{provider: b.authHeader})
+	}
+	return append(values, b.headerValues...)
+}
+
+// bakeMiddleware composes the client's intrinsic stack: inner middlewares
+// (innermost), user outer middlewares, then telemetry (outermost). Telemetry is
+// outermost so its panic recovery (which tags the error with the request span)
+// and its metrics/span cover every user middleware. Auth and builder headers are
+// applied separately as request-value contributors (see [intrinsicHeaderValues]).
+// Refreshable behavior lives inside the middlewares and is read per request, so
+// the result is static. Per-request middlewares are layered in below this by [Send].
 func (b *Builder) bakeMiddleware() Middleware {
 	var middlewares []Middleware
-	if b.authHeader != nil {
-		middlewares = append(middlewares, authHeaderMiddleware(b.authHeader))
-	}
 	middlewares = append(middlewares, b.innerMiddlewares...)
 	middlewares = append(middlewares, b.middlewares...)
 	middlewares = append(middlewares, &telemetryMiddleware{
@@ -503,6 +482,9 @@ func (b *Builder) BuildHTTPClient(ctx context.Context) (refreshable.Refreshable[
 	transport, err := b.BuildTransport(ctx)
 	if err != nil {
 		return nil, err
+	}
+	if headerValues := b.intrinsicHeaderValues(); len(headerValues) > 0 {
+		transport = wrapTransport(transport, decorationMiddleware{headerValues: headerValues})
 	}
 	transport = wrapTransport(transport, b.bakeMiddleware())
 	mapped := refreshable.MapAuto(b.timeout, func(timeout time.Duration) *http.Client {
