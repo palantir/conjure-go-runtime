@@ -61,11 +61,14 @@ type Client interface {
 //
 // The type parameter B preserves the concrete builder type so downstream code
 // that defines a custom builder gets back its own type rather than *Builder.
+// B is bound only by the minimal [baseBuilder] (Clone/Apply) contract, not the
+// full [BuilderAPI]: the rebuild path only needs to clone the seed builder, so a
+// custom builder need not satisfy every setter to be rebuildable.
 //
 // A Client wrapper does NOT automatically satisfy RebuildableClient. Wrappers
 // that want callers to reach the underlying builder should implement Builder()
 // themselves, typically forwarding to the wrapped Client.
-type RebuildableClient[B ServiceBuilder[B]] interface {
+type RebuildableClient[B baseBuilder[B]] interface {
 	Client
 	Builder() B
 }
@@ -112,7 +115,7 @@ type intrinsicValuer interface {
 // holds the raw transport and the intrinsic middleware stack separately;
 // refreshable behavior lives inside the middlewares (read per request) and in
 // CallPolicy.
-type standardClient[B ServiceBuilder[B]] struct {
+type standardClient[B baseBuilder[B]] struct {
 	serviceName    refreshable.Refreshable[string]
 	transport      http.RoundTripper
 	middleware     Middleware
