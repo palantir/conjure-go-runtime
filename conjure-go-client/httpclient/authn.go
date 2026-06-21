@@ -17,7 +17,6 @@ package httpclient
 import (
 	"context"
 	"encoding/base64"
-	"net/http"
 )
 
 // TokenProvider accepts a context and returns either:
@@ -45,7 +44,11 @@ type BasicAuthProvider func(context.Context) (BasicAuth, error)
 // (3) a nil BasicAuth and a non-nil error.
 type BasicAuthOptionalProvider func(context.Context) (*BasicAuth, error)
 
-func setBasicAuth(h http.Header, username, password string) {
+// basicAuthValue returns the Authorization header value for HTTP basic auth with the given
+// credentials. Cross-host redirect protection lives in httpc core (the auth contributor is
+// gated during request decoration), so the bridge no longer needs its own redirect-aware
+// header setter — all bridge auth flows through httpc's single Authorizer path.
+func basicAuthValue(username, password string) string {
 	basicAuthBytes := []byte(username + ":" + password)
-	h.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString(basicAuthBytes))
+	return "Basic " + base64.StdEncoding.EncodeToString(basicAuthBytes)
 }

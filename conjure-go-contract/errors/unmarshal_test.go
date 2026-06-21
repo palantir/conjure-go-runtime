@@ -133,12 +133,12 @@ func TestUnmarshalError(t *testing.T) {
 		{
 			name:      "other json",
 			inRaw:     `{"foo":"bar"}`,
-			expectErr: "failed to unmarshal body using registered type: errors: error name does not match regexp `^(([A-Z][a-z0-9]+)+):(([A-Z][a-z0-9]+)+)$`",
+			expectErr: "failed to unmarshal body as generic conjure error: errors: error name does not match regexp `^(([A-Z][a-z0-9]+)+):(([A-Z][a-z0-9]+)+)$`",
 		},
 		{
 			name:      "incomplete error json",
 			inRaw:     `{"errorName":"Default:Internal"}`,
-			expectErr: "failed to unmarshal body using registered type: errors: invalid combination of default error name and error code",
+			expectErr: "failed to unmarshal body as generic conjure error: errors: invalid combination of default error name and error code",
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {

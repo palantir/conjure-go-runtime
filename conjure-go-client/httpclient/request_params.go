@@ -74,6 +74,12 @@ func WithHeader(key, value string) RequestParam {
 	})
 }
 
+// WithConjureErrorParameterFormatHeader sets the "Accept-Conjure-Error-Parameter-Format"
+// header on a request so that conjure servers serialize error parameters in the requested format.
+func WithConjureErrorParameterFormatHeader(format errors.ConjureErrorParameterFormat) RequestParam {
+	return WithHeader(errors.AcceptConjureErrorParameterFormatHeader, string(format))
+}
+
 // WithQueryValues sets a header on a request.
 func WithQueryValues(query url.Values) RequestParam {
 	return requestParamFunc(func(b *requestBuilder) error {
@@ -217,7 +223,7 @@ func WithRequestErrorDecoder(errorDecoder ErrorDecoder) RequestParam {
 // username and password for this request only and takes precedence over any client-scoped authorization.
 func WithRequestBasicAuth(username, password string) RequestParam {
 	return requestParamFunc(func(b *requestBuilder) error {
-		setBasicAuth(b.headers, username, password)
+		b.headers.Set("Authorization", basicAuthValue(username, password))
 		return nil
 	})
 }
