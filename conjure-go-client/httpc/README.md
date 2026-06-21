@@ -126,7 +126,7 @@ every endpoint call via `WithOverrides`:
 
 ```go
 type myServiceClient struct {
-    client    httpc.Client
+    client    httpc.Runtime
     overrides httpc.Overrides
 }
 
@@ -296,6 +296,15 @@ This makes the package usable in three modes: full client (`Build`), partial
 client with caller-supplied sub-component (`SetDialer`/`SetTLSConfig`/`SetTransport`),
 or just the sub-component on its own (`BuildDialer`/`BuildTLSConfig`/`BuildTransport`).
 
+### Extending the builder
+
+To add your own fields while keeping the fluent, leaf-typed chaining, embed
+`*httpc.BuilderCore[*MyBuilder]` and provide a constructor (wiring `self` via
+`httpc.NewBuilderCore`) plus a `Clone` (via `BuilderCore.CloneCoreFor`). Every base
+setter is promoted and returns `*MyBuilder`, so base and custom setters interleave in
+one chain, and the `RebuildableRuntime` from `Build` hands your concrete type back
+from `Builder()` across rebuilds. See `examples/example_custom_builder_test.go`.
+
 ## Middleware
 
 `Middleware` wraps HTTP round-trips for cross-cutting concerns:
@@ -310,7 +319,7 @@ type Middleware interface {
 
 1. **Builder outer** (`AddMiddleware`) -- runs inside telemetry, outside the inner middleware and auth header.
 2. **Builder inner** (`AddInnerMiddleware`) -- runs closest to the transport, inside the outer middleware and just before auth.
-3. **Per-request** (`Overrides.WithMiddleware` or `Endpoint.WithMiddleware`) -- applied per attempt by `Endpoint.Execute`, inside telemetry alongside the builder outer middleware.
+3. **Per-request** (`Overrides.WithMiddleware` or `Endpoint.WithMiddleware`) -- carried in `SendOptions.Middlewares` and applied by the runtime per attempt, inside telemetry alongside the builder outer middleware.
 
 The full stack from outermost to innermost:
 
@@ -334,9 +343,9 @@ request changes are not overwritten. The auth-header middleware sits closest to
 the transport so caller-supplied Authorization headers (set anywhere upstream)
 are not overwritten — see [Auth precedence](#auth-precedence).
 
-(Per-request middleware is applied by the seam that `Builder`-built clients bake
-just inside telemetry. A `Client` not built via `Builder` lacks that seam; embed
-a built client to honor per-request middleware.)
+(The standard runtime applies `SendOptions.Middlewares` per attempt, just inside
+telemetry. A custom `Runtime` receives them in `opts` and may honor or ignore
+them — there is no hidden seam to satisfy.)
 
 Error decoding is **not** a middleware layer. It runs in `Endpoint.Execute` after
 `Send` returns the raw HTTP response (see [Error handling](#error-handling)).
@@ -474,11 +483,11 @@ var (
 
 // Service client holds transport + per-client overrides.
 type itemServiceClient struct {
-    client    httpc.Client
+    client    httpc.Runtime
     overrides httpc.Overrides
 }
 
-func NewItemServiceClient(client httpc.Client, params ...httpc.Param[*itemServiceClientBuilder]) ItemServiceClient {
+func NewItemServiceClient(client httpc.Runtime, params ...httpc.Param[*itemServiceClientBuilder]) ItemServiceClient {
     c := &itemServiceClient{client: client}
     b := &itemServiceClientBuilder{inner: c}
     for _, p := range params {
@@ -518,8 +527,8 @@ func (c *itemServiceClient) DeleteItem(ctx context.Context, id string) error {
 new value without modifying the original. They are safe to share across goroutines
 and store as package-level variables.
 
-`Client` (the interface returned by `Build`) is safe for concurrent use; multiple
-goroutines may execute requests through it simultaneously.
+The runtime returned by `Build` (a `RebuildableRuntime`) is safe for concurrent use;
+multiple goroutines may execute requests through it simultaneously.
 
 `Builder` is **not** safe for concurrent use. All setter methods mutate the receiver.
 To share a configuration across goroutines, call `Clone()` to create an independent

@@ -240,13 +240,19 @@ b.SetTimeout(30 * time.Second)  // modifies b in place
 // Use b.Clone() if you need an independent copy.
 ```
 
-### The Client interface is simpler
+### The client contract is one method
 
 The old `Client` interface had `Do`, `Get`, `Head`, `Post`, `Put`, `Delete` methods.
-The new `Client` exposes the pieces the request loop needs: `Transport` for a
-single raw attempt, `Middleware` for the intrinsic stack, plus `URLSelector` and
-`CallPolicy`. The retry/scoring loop lives in the free function `Send`, which
-`Endpoint.Execute` calls. HTTP method selection happens at the endpoint level.
+The new contract is `Runtime`, a single method:
+
+```go
+Send(ctx context.Context, req *http.Request, opts SendOptions) (*http.Response, error)
+```
+
+`Builder.Build` returns the standard implementation (a `RebuildableRuntime`) that owns
+the retry/scoring/telemetry loop internally; `Endpoint.Execute` drives requests through
+it, and you can call `Send` directly for the low-level path. A test fake or wrapper
+implements the single `Send` method. HTTP method selection happens at the endpoint level.
 
 ### `WithConfig` now requires context
 
@@ -339,5 +345,6 @@ Path templates use `{param}` placeholders (Conjure style). Greedy parameters
    the same signatures but live in the `httpc` package.
 
 9. **Update tests**: Replace `*http.Response` assertions with typed response assertions.
-    The new `Client` interface (`Do(*http.Request) (*http.Response, error)`) is easy
-    to mock or satisfy with a test `httptest.Server`.
+    The new `Runtime` interface is a single method
+    (`Send(ctx, *http.Request, SendOptions) (*http.Response, error)`), so it's easy to mock
+    with a one-method fake or satisfy with a builder-built client over an `httptest.Server`.
