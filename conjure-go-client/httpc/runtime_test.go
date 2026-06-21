@@ -105,4 +105,64 @@ func TestExecute_OneMethodRuntimeFake(t *testing.T) {
 	require.NotNil(t, fake.gotReq)
 	assert.Equal(t, http.MethodGet, fake.gotReq.Method)
 	assert.Equal(t, "/items/widget", fake.gotReq.URL.Path)
+	assert.Empty(t, fake.gotReq.Header, "decoration travels in opts.Values, not pre-written on req")
+
+	// Snapshot lets a one-method fake inspect the decoration it received — the
+	// endpoint header and the JSON Accept are both carried in opts.Values.
+	header, _, err := fake.gotOpts.Values.Snapshot(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, "acme", header.Get("X-Tenant"))
+	assert.Equal(t, "application/json", header.Get("Accept"))
+}
+
+// TestEndpoint_CodecHeadersBeatBuilderHeaders covers review finding #1: a
+// client-level SetHeader must not override the endpoint's codec headers (Accept
+// from WithAccept, Content-Type from the encoder), which now flow through
+// SendOptions.Values above the builder-intrinsic layer.
+func TestEndpoint_CodecHeadersBeatBuilderHeaders(t *testing.T) {
+	var gotAccept, gotContentType string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAccept = r.Header.Get("Accept")
+		gotContentType = r.Header.Get("Content-Type")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"name":"ok"}`)
+	}))
+	t.Cleanup(server.Close)
+
+	ctx := context.Background()
+	client, err := httpc.NewBuilder().
+		SetBaseURLs(server.URL).
+		SetHeader("Accept", "wrong/accept").
+		SetHeader("Content-Type", "wrong/content-type").
+		Build(ctx)
+	require.NoError(t, err)
+
+	ep := httpc.NewJSONPOST[widgetItem, widgetItem]("Create", "/items")
+	_, _, err = ep.WithBody(widgetItem{Name: "x"}).Execute(ctx, client)
+	require.NoError(t, err)
+
+	assert.Equal(t, "application/json", gotAccept, "endpoint WithAccept beats builder SetHeader(Accept)")
+	assert.Equal(t, "application/json", gotContentType, "JSON encoder Content-Type beats builder SetHeader(Content-Type)")
+}
+
+// TestEndpoint_PerCallHeaderBeatsEndpointAccept covers the upper end of the
+// precedence: a per-call WithHeader still wins over the endpoint's WithAccept.
+func TestEndpoint_PerCallHeaderBeatsEndpointAccept(t *testing.T) {
+	var gotAccept string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAccept = r.Header.Get("Accept")
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	t.Cleanup(server.Close)
+
+	ctx := context.Background()
+	client, err := httpc.NewBuilder().SetBaseURLs(server.URL).Build(ctx)
+	require.NoError(t, err)
+
+	ep := httpc.NewGET[struct{}]("Get", "/x").
+		WithDecoder(httpc.VoidDecoder()).
+		WithAccept("application/json")
+	_, _, err = ep.WithHeader("Accept", "text/plain").Execute(ctx, client)
+	require.NoError(t, err)
+	assert.Equal(t, "text/plain", gotAccept, "per-call WithHeader(Accept) beats endpoint WithAccept")
 }

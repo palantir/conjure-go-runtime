@@ -101,9 +101,6 @@ func (c *clientImpl) Do(ctx context.Context, params ...RequestParam) (*http.Resp
 		return nil, werror.WrapWithContextParams(ctx, err, "failed to build new HTTP request")
 	}
 	req.Header = b.headers
-	if q := b.query.Encode(); q != "" {
-		req.URL.RawQuery = q
-	}
 
 	cleanup, err := b.bodyMiddleware.setRequestBody(req)
 	if err != nil {
@@ -111,7 +108,27 @@ func (c *clientImpl) Do(ctx context.Context, params ...RequestParam) (*http.Resp
 	}
 	defer cleanup()
 
-	var opts httpc.SendOptions
+	// Carry request headers and query as SendOptions.Values rather than mutating req
+	// directly, so they resolve per attempt ABOVE the client's intrinsic auth and
+	// headers — a request Authorization (e.g. WithRequestBasicAuth) and request
+	// headers/query take precedence over client-scoped values, as documented. Body
+	// headers (Content-Type) that setRequestBody put on req.Header travel too.
+	var values httpc.RequestValues
+	for key, vs := range req.Header {
+		if len(vs) == 0 {
+			continue
+		}
+		values = values.WithHeader(key, vs[0], vs[1:]...)
+	}
+	for key, vs := range b.query {
+		if len(vs) == 0 {
+			continue
+		}
+		values = values.WithQuery(key, vs[0], vs[1:]...)
+	}
+	req.Header = make(http.Header)
+
+	opts := httpc.SendOptions{Values: values}
 	if b.requestTimeout != nil {
 		opts.Policy = opts.Policy.WithTimeout(*b.requestTimeout)
 	}

@@ -365,17 +365,20 @@ func (e Endpoint[Req, Resp]) Execute(ctx context.Context, client Runtime) (Resp,
 		req.Header.Set("Accept", e.accept)
 	}
 
-	// Headers and query travel as RequestValues so the runtime resolves them per
-	// attempt above its intrinsic values — they take precedence over client auth
-	// and headers without eagerly mutating req (and without invoking an overridden
-	// auth provider). Per-request middlewares run innermost (per attempt, with the
-	// resolved URL). A per-request timeout overrides the per-attempt bound; a
-	// total-call deadline is the caller's job via ctx.
+	// The encoder's Content-Type and the Accept header were written straight onto
+	// req. Hoist them into a codec-level RequestValues below the endpoint/per-call
+	// overrides, then clear req's headers, so every header resolves through the same
+	// per-attempt path: endpoint codec headers sit ABOVE builder-intrinsic headers
+	// (a client SetHeader("Accept"/"Content-Type") can't override them) while a
+	// per-call WithHeader still wins. Per-request middlewares run innermost (per
+	// attempt, with the resolved URL); a per-request timeout overrides the
+	// per-attempt bound (a total-call deadline is the caller's job via ctx).
 	opts := SendOptions{
-		Values:      e.overrides.requestValues(),
+		Values:      requestValuesFromHeader(req.Header).concat(e.overrides.requestValues()),
 		Middlewares: e.overrides.middlewares,
 		Policy:      e.overrides.callPolicyOverrides(),
 	}
+	req.Header = make(http.Header)
 
 	resp, err := client.Send(ctx, req, opts)
 	if err != nil {

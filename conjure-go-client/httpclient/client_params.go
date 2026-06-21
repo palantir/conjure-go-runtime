@@ -17,7 +17,6 @@ package httpclient
 import (
 	"context"
 	"crypto/tls"
-	"net/http"
 	"net/url"
 	"time"
 
@@ -430,16 +429,12 @@ func WithBasicAuthProvider(provider BasicAuthProvider) ClientOrHTTPClientParam {
 // BasicAuth value is non-nil then its values are set on the header, while if the returned BasicAuth value is nil then
 // no basic authentication header values are set.
 func WithBasicAuthOptionalProvider(provider BasicAuthOptionalProvider) ClientOrHTTPClientParam {
-	return WithInnerMiddleware(MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
-		basicAuth, err := provider(req.Context())
-		if err != nil {
-			return nil, err
-		}
-		if basicAuth != nil {
-			setBasicAuth(req.Header, basicAuth.User, basicAuth.Password)
-		}
-		return next.RoundTrip(req)
-	}))
+	// Route through the builder's optional-auth slot (not an inner middleware) so it
+	// resolves at the intrinsic-auth layer: a returned non-nil credential wins as the
+	// Authorization contributor and a nil result leaves the header unset, instead of
+	// being overwritten by other configured intrinsic auth applied during decoration.
+	return builderClientOrHTTPClientParam(httpc.Param1((*httpc.Builder).SetBasicAuthOptionalProvider,
+		func(ctx context.Context) (*httpc.BasicAuth, error) { return provider(ctx) }))
 }
 
 // WithRandomURIScoring adds middleware that randomizes the order URIs are prioritized in for each request.

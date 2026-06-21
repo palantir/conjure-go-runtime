@@ -118,6 +118,30 @@ func TestRoundTripperWithBasicAuthProvider(t *testing.T) {
 	assert.True(t, wrappedRTInvoked)
 }
 
+// TestRequestHeaderBeatsClientHeader verifies a per-request WithHeader takes
+// precedence over a client-level WithSetHeader for the same key, now that bridge
+// request headers travel as SendOptions.Values above the client's intrinsic headers.
+func TestRequestHeaderBeatsClientHeader(t *testing.T) {
+	var got string
+	server := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		got = req.Header.Get("X-Custom")
+		rw.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	client, err := httpclient.NewClient(
+		httpclient.WithBaseURLs([]string{server.URL}),
+		httpclient.WithSetHeader("X-Custom", "client"),
+	)
+	require.NoError(t, err)
+
+	resp, err := client.Get(context.Background(), httpclient.WithHeader("X-Custom", "request"))
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	require.NoError(t, resp.Body.Close())
+	assert.Equal(t, "request", got, "per-request WithHeader beats client WithSetHeader")
+}
+
 func TestAuthHeaders(t *testing.T) {
 	username, password, token := "user", "pass", "eyJ..."
 	apiTokenFile := filepath.Join(t.TempDir(), "token.txt")
@@ -242,6 +266,34 @@ func TestAuthHeaders(t *testing.T) {
 			Name:          "WithRequestBasicAuth param",
 			Server:        basicAuthServer,
 			RequestParams: []httpclient.RequestParam{httpclient.WithRequestBasicAuth(username, password)},
+		},
+		{
+			Name:          "WithRequestBasicAuth beats bearer config",
+			Server:        basicAuthServer,
+			Config:        httpclient.ClientConfig{APIToken: &token},
+			RequestParams: []httpclient.RequestParam{httpclient.WithRequestBasicAuth(username, password)},
+		},
+		{
+			Name:          "WithRequestBasicAuth beats WithAuthToken param",
+			Server:        basicAuthServer,
+			ClientParams:  []httpclient.ClientOrHTTPClientParam{httpclient.WithAuthToken(token)},
+			RequestParams: []httpclient.RequestParam{httpclient.WithRequestBasicAuth(username, password)},
+		},
+		{
+			Name:   "WithBasicAuthOptionalProvider present beats bearer config",
+			Server: basicAuthServer,
+			Config: httpclient.ClientConfig{APIToken: &token},
+			ClientParams: []httpclient.ClientOrHTTPClientParam{httpclient.WithBasicAuthOptionalProvider(func(ctx context.Context) (*httpclient.BasicAuth, error) {
+				return &httpclient.BasicAuth{User: username, Password: password}, nil
+			})},
+		},
+		{
+			Name:   "WithBasicAuthOptionalProvider nil clears bearer config",
+			Server: noAuthServer,
+			Config: httpclient.ClientConfig{APIToken: &token},
+			ClientParams: []httpclient.ClientOrHTTPClientParam{httpclient.WithBasicAuthOptionalProvider(func(ctx context.Context) (*httpclient.BasicAuth, error) {
+				return nil, nil
+			})},
 		},
 	} {
 		t.Run(tc.Name, func(t *testing.T) {

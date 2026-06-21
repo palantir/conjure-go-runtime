@@ -15,6 +15,7 @@
 package httpc
 
 import (
+	"context"
 	"net/http"
 	"net/url"
 	"slices"
@@ -66,6 +67,24 @@ func (v RequestValues) WithBasicAuth(user, password string) RequestValues {
 	return v.withHeader(setValue[http.Header]{name: "Authorization", values: []string{basicAuthHeader(user, password)}})
 }
 
+// Snapshot resolves the values onto fresh http.Header and url.Values using the
+// same per-key precedence the standard runtime applies per attempt (later set
+// wins, adds accumulate). It is read-only — it mutates no request — and is the
+// intended way a custom [Runtime] or a test fake inspects the decoration carried
+// in [SendOptions.Values]. ctx is passed to any lazy contributor (e.g. an auth
+// provider), so its error surfaces here rather than mid-attempt.
+func (v RequestValues) Snapshot(ctx context.Context) (http.Header, url.Values, error) {
+	header := make(http.Header)
+	if err := resolveValues(ctx, header, v.headerValues...); err != nil {
+		return nil, nil, err
+	}
+	query := make(url.Values)
+	if err := resolveValues(ctx, query, v.queryValues...); err != nil {
+		return nil, nil, err
+	}
+	return header, query, nil
+}
+
 func (v RequestValues) withHeader(rv requestValue[http.Header]) RequestValues {
 	v.headerValues = append(slices.Clone(v.headerValues), rv)
 	return v
@@ -94,6 +113,18 @@ func (v RequestValues) concat(other RequestValues) RequestValues {
 
 func (v RequestValues) isEmpty() bool {
 	return len(v.headerValues) == 0 && len(v.queryValues) == 0
+}
+
+// requestValuesFromHeader lifts headers already written onto a request into
+// replacing contributors, so they resolve through the same per-attempt precedence
+// path (above builder-intrinsic values) instead of being overwritten by intrinsic
+// decoration. Keys are taken as-is (http.Header stores them canonicalized).
+func requestValuesFromHeader(h http.Header) RequestValues {
+	var v RequestValues
+	for name, values := range h {
+		v = v.withHeader(setValue[http.Header]{name: name, values: values})
+	}
+	return v
 }
 
 // CallPolicyOverrides is a per-send override set merged onto a runtime's default

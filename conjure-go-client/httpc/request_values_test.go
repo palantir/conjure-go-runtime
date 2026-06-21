@@ -82,3 +82,20 @@ func TestRequestValues_ConcatPrecedence(t *testing.T) {
 	assert.Equal(t, intrinsic, intrinsic.concat(RequestValues{}))
 	assert.Equal(t, perCall, RequestValues{}.concat(perCall))
 }
+
+// TestRequestValues_Snapshot covers the read-only snapshot exposed for fakes and
+// custom runtimes: it resolves headers/query/basic-auth with the same precedence
+// the runtime applies per attempt, without mutating anything.
+func TestRequestValues_Snapshot(t *testing.T) {
+	v := RequestValues{}.
+		WithHeader("X-A", "1").
+		WithAddedHeader("X-A", "2").
+		WithQuery("q", "x").
+		WithBasicAuth("u", "p")
+
+	header, query, err := v.Snapshot(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, []string{"1", "2"}, header["X-A"], "set then add accumulates")
+	assert.Equal(t, "x", query.Get("q"))
+	assert.Equal(t, basicAuthHeader("u", "p"), header.Get("Authorization"))
+}
