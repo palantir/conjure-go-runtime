@@ -151,7 +151,7 @@ resp, httpResp, err := getItem.Call().WithPathParam("itemId", id).Execute(ctx, c
 ### Overrides
 
 `Overrides` is a standalone copy-on-write value holding per-request configuration:
-headers, query params, timeout, error decoder, basic auth, middleware, and buffer
+headers, query params, timeout, error decoder, authorization, middleware, and buffer
 pool. Generated service clients typically embed an `Overrides` and merge it into
 every call via `Call.WithOverrides`; see [the service-client example](example_service_test.go).
 
@@ -172,7 +172,7 @@ The endpoint descriptors (`BodyEndpoint`/`NoBodyEndpoint`), the per-call `Call`,
   sub-package, so this interface stays free of `conjure-go-contract/errors`)
 - `WithNoErrorDecoder()` -- skip error decoding; `Execute` returns the raw response
 - `WithDefaultErrorDecoder()` -- clear an inherited decoder so `DefaultErrorDecoder` applies
-- `WithAuthorization(Authorizer)` -- per-call auth, e.g. `WithAuthorization(httpc.BasicCredentials(user, pw))` or `WithAuthorization(httpc.NoAuthorization())` to send none (see [Auth precedence](#auth-precedence))
+- `WithAuthorization(Authorizer)` -- per-call auth, e.g. `WithAuthorization(httpc.BasicCredentials(user, pw))` or `WithAuthorization(httpc.NoAuthorization())` to send none (see [Auth](#auth))
 - `WithDefaultAuthorization()` -- clear per-call auth so lower-priority auth / an explicit header wins
 - `WithMiddleware(Middleware)` -- append a per-request middleware (runs per attempt)
 - `WithBufferPool(bytesbuffers.Pool)` -- per-call buffer pool for encoders (nil clears it)
@@ -185,7 +185,8 @@ to the client/runtime timeout; `WithDefaultErrorDecoder` falls back to
 `DefaultErrorDecoder()` (there is no client decoder); `WithDefaultAuthorization` drops
 the per-call authorizer so lower-priority auth or an explicit `Authorization`
 header applies; `WithDefaultBufferPool` encodes without a pool.
-`WithUnlimitedTimeout` / `WithNoErrorDecoder` are the two explicit "off" states.
+`WithUnlimitedTimeout`, `WithNoErrorDecoder`, and
+`WithAuthorization(NoAuthorization())` are the explicit "off" states.
 
 These methods serve two configuration layers that compose at execute time:
 
@@ -199,7 +200,7 @@ These methods serve two configuration layers that compose at execute time:
 When per-invocation values combine with the descriptor defaults (and when an `Overrides`
 is merged in):
 - Headers and query params are **additive** across both layers
-- The scalars (timeout, error decoder, basic auth, buffer pool) use **last-wins**: the
+- The scalars (timeout, error decoder, authorization, buffer pool) use **last-wins**: the
   per-call layer wins for any scalar it set, including an explicit clear via
   `WithDefault*` (a scalar the per-call layer never set leaves the descriptor default)
 - Middlewares are **appended** (descriptor defaults first, then per-call)
@@ -368,7 +369,7 @@ The standard runtime applies the URI selector and builds a call-scoped
 `*http.Client` per attempt. Every user middleware layer — builder and per-request
 — runs inside telemetry with the resolved URL, so it is traced, metered, and
 panic-recovered. Auth and header values are resolved per attempt as the
-request-value decoration (see [Auth precedence](#auth-precedence)) just outside the
+request-value decoration (see [Auth](#auth)) just outside the
 per-request middleware, so an imperative per-request middleware runs last and can
 still override the resolved request on the wire.
 

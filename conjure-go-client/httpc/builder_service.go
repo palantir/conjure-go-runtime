@@ -388,7 +388,7 @@ func (b *BuilderCore[Self]) Build(ctx context.Context) (RebuildableRuntime[Self]
 }
 
 // intrinsicHeaderValues returns the client's baked header contributors, lowest
-// precedence first: the auth provider, then headers from SetHeader/AddHeader.
+// precedence first: the authorizer, then headers from SetHeader/AddHeader.
 // The runtime resolves these below any per-request contributors.
 func (b *BuilderCore[Self]) intrinsicHeaderValues() []requestValue[http.Header] {
 	var values []requestValue[http.Header]

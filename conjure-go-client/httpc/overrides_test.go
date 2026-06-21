@@ -161,7 +161,7 @@ func TestOverrides_WithOverrides_Merge(t *testing.T) {
 		require.Error(t, err)
 	})
 
-	t.Run("basic auth last wins", func(t *testing.T) {
+	t.Run("authorization last wins", func(t *testing.T) {
 		server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 			user, pass, ok := r.BasicAuth()
 			assert.True(t, ok)

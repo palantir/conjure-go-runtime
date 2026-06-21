@@ -78,7 +78,7 @@ func TestSetInsecureSkipVerify_DoesNotMutateEscapeHatch(t *testing.T) {
 }
 
 // T4: Overrides.WithAuthorization wins over an Overrides.WithHeader("Authorization", ...).
-func TestEndpointExecute_BasicAuthOverridesAuthorizationHeader(t *testing.T) {
+func TestEndpointExecute_AuthorizerOverridesAuthorizationHeader(t *testing.T) {
 	var seen string
 	transport := &roundTripFunc{fn: func(req *http.Request) (*http.Response, error) {
 		seen = req.Header.Get("Authorization")
@@ -94,7 +94,7 @@ func TestEndpointExecute_BasicAuthOverridesAuthorizationHeader(t *testing.T) {
 
 	_, _, err = ep.Call().Execute(context.Background(), client)
 	require.NoError(t, err)
-	// Basic auth is the trailing Authorization contributor, so it wins.
+	// The authorizer is the trailing Authorization contributor, so it wins.
 	assert.Equal(t, "Basic dTpw", seen)
 }
 
@@ -186,8 +186,8 @@ func TestParam_Helpers(t *testing.T) {
 	require.NotNil(t, client)
 }
 
-// T9: BasicAuthOptionalProvider returning nil leaves the Authorization header unset.
-func TestBuilder_BasicAuthOptionalProvider_NilSkipsAuth(t *testing.T) {
+// T9: OptionalBasicCredentials returning nil leaves the Authorization header unset.
+func TestBuilder_OptionalBasicCredentials_NilSkipsAuth(t *testing.T) {
 	var seen string
 	transport := &roundTripFunc{fn: func(req *http.Request) (*http.Response, error) {
 		seen = req.Header.Get("Authorization")
@@ -203,7 +203,7 @@ func TestBuilder_BasicAuthOptionalProvider_NilSkipsAuth(t *testing.T) {
 	ep := httpc.NewNoBodyEndpoint[struct{}](http.MethodGet, "T", "/t").WithDecoder(httpc.VoidDecoder())
 	_, _, err = ep.Call().Execute(context.Background(), client)
 	require.NoError(t, err)
-	assert.Empty(t, seen, "nil from BasicAuthOptionalProvider should leave Authorization unset")
+	assert.Empty(t, seen, "nil from OptionalBasicCredentials should leave Authorization unset")
 }
 
 // T10: SetMaxAttempts with a negative value defers a validation error to Build.

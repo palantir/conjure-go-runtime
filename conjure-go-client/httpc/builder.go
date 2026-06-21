@@ -268,7 +268,7 @@ func (b *BuilderCore[Self]) ApplyConfig(ctx context.Context, config ClientConfig
 	if params.uris != nil {
 		b.SetBaseURLs(params.uris...)
 	}
-	// Only install the auth middleware the config explicitly specifies.
+	// Only install the authorizer the config explicitly specifies.
 	if params.apiToken != nil {
 		b.SetAuthToken(*params.apiToken)
 	} else if params.basicAuth != nil {

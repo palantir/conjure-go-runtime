@@ -590,7 +590,7 @@ func TestBuilder_SetDialer_ShortCircuits(t *testing.T) {
 // transport.
 func TestBuilder_SetTransport_FullClientPathWithCustomRoundTripper(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "Bearer test-token", r.Header.Get("Authorization"), "auth middleware should still run")
+		assert.Equal(t, "Bearer test-token", r.Header.Get("Authorization"), "auth decoration should still run")
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"message":"in-process"}`))
 	})

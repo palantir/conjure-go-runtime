@@ -163,7 +163,7 @@ func TestEndpointExecute_BasicAuth(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestEndpointExecute_BasicAuthOverridesClientAuth(t *testing.T) {
+func TestEndpointExecute_AuthorizerOverridesClientAuth(t *testing.T) {
 	var gotAuth string
 	var providerCalled bool
 	transport := &roundTripFunc{fn: func(req *http.Request) (*http.Response, error) {

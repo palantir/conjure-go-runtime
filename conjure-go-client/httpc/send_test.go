@@ -96,7 +96,7 @@ func TestSend_PerRequestMiddlewareInsideTelemetry(t *testing.T) {
 }
 
 // TestSend_PerRequestMiddlewareOverridesAuth verifies placement B: per-request
-// middleware runs below the client's auth middleware, so it can override the
+// middleware runs below the client's auth decoration, so it can override the
 // Authorization header the client set.
 func TestSend_PerRequestMiddlewareOverridesAuth(t *testing.T) {
 	var gotAuth string
