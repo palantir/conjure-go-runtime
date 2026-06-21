@@ -50,7 +50,7 @@ func Example_tlsCertificates() {
 	if err != nil {
 		panic(err)
 	}
-	_, _, err = ping.Execute(ctx, untrusting)
+	_, _, err = ping.Call().Execute(ctx, untrusting)
 	fmt.Println("untrusted CA, failed:", err != nil)
 
 	// Trusting the server's self-signed certificate as a root CA succeeds.
@@ -62,7 +62,7 @@ func Example_tlsCertificates() {
 	if err != nil {
 		panic(err)
 	}
-	_, _, err = ping.Execute(ctx, trusting)
+	_, _, err = ping.Call().Execute(ctx, trusting)
 	fmt.Println("trusted CA, failed:", err != nil)
 	// Output:
 	// untrusted CA, failed: true

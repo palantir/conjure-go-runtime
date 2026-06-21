@@ -1,8 +1,10 @@
 # httpc
 
 Package `httpc` provides a type-safe, endpoint-centric HTTP client for Go services.
-Clients are configured via fluent builders and make requests through reusable `Endpoint`
-descriptors that pair typed encoders/decoders with HTTP method and path templates.
+Clients are configured via fluent builders and make requests through reusable endpoint
+descriptors that pair typed encoders/decoders with HTTP method and path templates. An
+endpoint descriptor is immutable and reusable; each invocation derives a per-call `Call`
+from it (carrying the body, path params, and any per-call overrides) and executes that.
 
 If you are migrating from the sibling `httpclient` package, see [MIGRATION.md](MIGRATION.md).
 
@@ -16,13 +18,11 @@ client, err := httpc.NewBuilder().
     SetAuthToken(token).
     Build(ctx)
 
-// 2. Define an endpoint (typically a package-level var).
-var getItem = httpc.NewGET[GetItemResponse]("GetItem", "/api/v1/items/{itemId}").
-    WithDecoder(httpc.JSONDecoder[GetItemResponse]()).
-    WithAccept("application/json")
+// 2. Define an endpoint descriptor (typically a package-level var).
+var getItem = httpc.NewGET[GetItemResponse]("GetItem", "/api/v1/items/{itemId}").WithJSON()
 
-// 3. Execute.
-resp, _, err := getItem.
+// 3. Derive a Call and execute it.
+resp, _, err := getItem.Call().
     WithPathParam("itemId", "item-42").
     Execute(ctx, client)
 ```
@@ -69,7 +69,7 @@ type Runtime interface {
 }
 ```
 
-`Endpoint.Execute` builds a *path-only* request plus a `SendOptions` and calls
+`Call.Execute` builds a *path-only* request plus a `SendOptions` and calls
 `Send`. You can also call `Send` directly for low-level requests; see
 [`Example_sendLowLevel`](examples/example_send_low_level_test.go) and
 [`Example_sendRequestValues`](examples/example_send_request_values_test.go).
@@ -86,48 +86,62 @@ a new builder seeded with the client's current settings, allowing reconfiguratio
 without starting from scratch. See
 [`Example_rebuildableClient`](examples/example_rebuildable_client_test.go).
 
-### Endpoint
+### Endpoints and Calls
 
-`Endpoint[Req, Resp]` is a copy-on-write request descriptor. It defines the HTTP method,
-a Conjure-style path template (e.g. `/items/{itemId}`), a typed encoder for the request
-body, and a typed decoder for the response body. Every method on `Endpoint` returns a new
-value without modifying the original, making endpoints safe to store as package-level vars
-and derive per-call variants concurrently.
+An endpoint descriptor defines the HTTP method, a Conjure-style path template (e.g.
+`/items/{itemId}`), and the typed codec. It is split into two types so body presence is
+enforced by the type system:
 
-**Constructors** with sensible defaults for the type parameters:
+- `BodyEndpoint[Req, Resp]` — methods that send a body (POST/PUT/PATCH). Its
+  `Call(body Req)` takes the request body, so a body endpoint cannot be executed
+  without one.
+- `NoBodyEndpoint[Resp]` — methods that send no body (GET/DELETE/HEAD). Its `Call()`
+  takes no argument.
 
-| Constructor | Req type | Use case |
-|-------------|----------|----------|
-| `NewGET[Resp]` | `Void` | GET with no body |
-| `NewDELETE[Resp]` | `Void` | DELETE with no body |
-| `NewHEAD[Resp]` | `Void` | HEAD with no body |
-| `NewPOST[Req, Resp]` | caller-chosen | POST with body |
-| `NewPUT[Req, Resp]` | caller-chosen | PUT with body |
-| `NewPATCH[Req, Resp]` | caller-chosen | PATCH with body |
-| `NewEndpoint[Req, Resp]` | caller-chosen | Any method |
+Both are copy-on-write — every method returns a new value — so descriptors are safe to
+store as package-level vars and reuse concurrently. Both produce a per-invocation
+`Call[Resp]`, which owns the body, filled path params, and per-call overrides, and which
+carries `Execute`.
 
-`Void` is an alias for `struct{}`; body-less endpoints take Req = `Void` and
-call `Execute(ctx, client)` directly (no `WithBody`).
+**Constructors:**
 
-**Configuration** (each returns a new `Endpoint`):
+| Constructor | Returns | Use case |
+|-------------|---------|----------|
+| `NewGET[Resp]` | `NoBodyEndpoint[Resp]` | GET, no body |
+| `NewDELETE[Resp]` | `NoBodyEndpoint[Resp]` | DELETE, no body |
+| `NewHEAD[Resp]` | `NoBodyEndpoint[Resp]` | HEAD, no body |
+| `NewNoBodyEndpoint[Resp]` | `NoBodyEndpoint[Resp]` | any bodyless method |
+| `NewPOST[Req, Resp]` | `BodyEndpoint[Req, Resp]` | POST with body |
+| `NewPUT[Req, Resp]` | `BodyEndpoint[Req, Resp]` | PUT with body |
+| `NewPATCH[Req, Resp]` | `BodyEndpoint[Req, Resp]` | PATCH with body |
+| `NewBodyEndpoint[Req, Resp]` | `BodyEndpoint[Req, Resp]` | any method with a body |
 
-- `WithEncoder(BodyEncoder[Req])` -- serialization for request body
-- `WithDecoder(BodyDecoder[Resp])` -- deserialization for response body
+A POST/PUT/PATCH/DELETE that intentionally sends *no* body uses `NewNoBodyEndpoint`
+(there is no `WithNoBody`).
+
+**Descriptor configuration** (each returns a new descriptor):
+
+- `WithEncoder(BodyEncoder[Req])` (BodyEndpoint only) -- request body serialization
+- `WithDecoder(BodyDecoder[Resp])` -- response body deserialization
 - `WithAccept(string)` -- sets the Accept header
+- `WithJSON()` -- sugar: JSON decoder + `Accept: application/json` (and, on a
+  BodyEndpoint, a JSON request encoder)
+- plus the `RequestOverrides` methods below, as **static defaults** for the RPC
 
-**Path parameters** use named replacement in Conjure-style templates.
-Greedy parameters (`{param*}`) preserve slashes while escaping each segment.
-See [`Example_pathAndQueryParams`](examples/example_path_and_query_params_test.go)
-and [`Example_greedyPathParam`](examples/example_greedy_path_param_test.go).
+**Path parameters** are filled per call on the `Call` via `WithPathParam`, using named
+replacement in Conjure-style templates. Greedy parameters (`{param*}`) preserve slashes
+while escaping each segment. See
+[`Example_pathAndQueryParams`](examples/example_path_and_query_params_test.go) and
+[`Example_greedyPathParam`](examples/example_greedy_path_param_test.go).
 
-**Execution:**
+**Execution** — derive a `Call` from the descriptor, configure it, and execute:
 
 ```go
-// With a request body:
-resp, httpResp, err := endpoint.WithBody(requestBody).Execute(ctx, client)
+// Body endpoint — Call takes the body:
+resp, httpResp, err := createItem.Call(requestBody).Execute(ctx, client)
 
-// Without a request body (Req = Void):
-resp, httpResp, err := endpoint.Execute(ctx, client)
+// No-body endpoint — Call takes no argument:
+resp, httpResp, err := getItem.Call().WithPathParam("itemId", id).Execute(ctx, client)
 ```
 
 ### Overrides
@@ -135,9 +149,10 @@ resp, httpResp, err := endpoint.Execute(ctx, client)
 `Overrides` is a standalone copy-on-write value holding per-request configuration:
 headers, query params, timeout, error decoder, basic auth, middleware, and buffer
 pool. Generated service clients typically embed an `Overrides` and merge it into
-every endpoint call via `WithOverrides`; see [the service-client example](example_service_test.go).
+every call via `Call.WithOverrides`; see [the service-client example](example_service_test.go).
 
-Both `Endpoint` and `Overrides` implement the `RequestOverrides[D]` interface:
+The endpoint descriptors (`BodyEndpoint`/`NoBodyEndpoint`), the per-call `Call`, and
+`Overrides` all implement the `RequestOverrides[D]` interface:
 
 - `WithHeader(key, value, additionalValues...)` -- replaces all values for `key`
 - `WithAddedHeader(key, value, additionalValues...)` -- appends one or more values
@@ -159,7 +174,7 @@ Both `Endpoint` and `Overrides` implement the `RequestOverrides[D]` interface:
 - `WithBufferPool(bytesbuffers.Pool)` -- per-call buffer pool for encoders (nil clears it)
 - `WithDefaultBufferPool()` -- clear an inherited buffer pool
 
-The `WithDefault*` methods clear this layer's scalar (one an `Endpoint` or a lower
+The `WithDefault*` methods clear this layer's scalar (one a descriptor or a lower
 override layer set) so the lower/default behavior applies, rather than only
 replacing it. What "default" means is per-scalar: `WithDefaultTimeout` falls back
 to the client/runtime timeout; `WithDefaultErrorDecoder` falls back to
@@ -168,22 +183,22 @@ the per-call credential so lower-priority auth or an explicit `Authorization`
 header applies; `WithDefaultBufferPool` encodes without a pool.
 `WithUnlimitedTimeout` / `WithNoErrorDecoder` are the two explicit "off" states.
 
-The two implementations represent two configuration layers that compose at
-execute time:
+These methods serve two configuration layers that compose at execute time:
 
-- On `Endpoint`, these methods set **static defaults** baked into the
-  package-level descriptor — useful for headers or middlewares that are part
-  of the RPC's definition.
-- On `Overrides`, they capture **caller-supplied per-request values** that a
-  service-client struct merges in via `WithOverrides` — useful for headers
-  derived from the call site context.
+- On a **descriptor** (`BodyEndpoint`/`NoBodyEndpoint`), they set **static defaults**
+  baked into the package-level descriptor — useful for headers or middlewares that are
+  part of the RPC's definition.
+- On a **`Call`** (or an `Overrides` merged into one via `Call.WithOverrides`), they
+  capture **per-invocation values** — useful for headers derived from the call site
+  context. A `Call` seeds from the descriptor's defaults, then per-call values win.
 
-When an `Overrides` is merged into an `Endpoint`:
+When per-invocation values combine with the descriptor defaults (and when an `Overrides`
+is merged in):
 - Headers and query params are **additive** across both layers
-- The scalars (timeout, error decoder, basic auth, buffer pool) use
-  **last-wins**: Overrides wins for any scalar it set, including an explicit
-  clear via `WithDefault*` (a scalar Overrides never set leaves the Endpoint's)
-- Middlewares are **appended** (Endpoint defaults first, then Overrides)
+- The scalars (timeout, error decoder, basic auth, buffer pool) use **last-wins**: the
+  per-call layer wins for any scalar it set, including an explicit clear via
+  `WithDefault*` (a scalar the per-call layer never set leaves the descriptor default)
+- Middlewares are **appended** (descriptor defaults first, then per-call)
 
 ### Codecs
 
@@ -323,7 +338,7 @@ type Middleware interface {
 
 1. **Builder outer** (`AddMiddleware`) -- runs inside telemetry, outside the inner middleware and the request-value decoration.
 2. **Builder inner** (`AddInnerMiddleware`) -- runs inside the outer middleware, just outside the request-value decoration.
-3. **Per-request** (`Overrides.WithMiddleware` or `Endpoint.WithMiddleware`) -- carried in `SendOptions.Middlewares` and applied by the runtime **innermost**, closest to the transport, so it can still override the resolved request (even auth) on the wire.
+3. **Per-request** (`Call.WithMiddleware`, or as a descriptor/`Overrides` default) -- carried in `SendOptions.Middlewares` and applied by the runtime **innermost**, closest to the transport, so it can still override the resolved request (even auth) on the wire.
 
 The full stack the standard runtime composes, outermost to innermost:
 
@@ -334,8 +349,8 @@ Runtime.Send: retry loop, per-attempt timeout, redirect handling
   -> Telemetry (metrics + tracing + B3 trace headers + panic recovery)
   -> Builder outer middleware (AddMiddleware)
   -> Builder inner middleware (AddInnerMiddleware)
-  -> Request-value decoration (builder auth/headers + endpoint/per-call headers & query)
-  -> Per-request middleware (Overrides / Endpoint)
+  -> Request-value decoration (builder auth/headers + descriptor/per-call headers & query)
+  -> Per-request middleware (from the Call)
   -> http.Transport
 ```
 
@@ -351,7 +366,7 @@ still override the resolved request on the wire.
 `opts` and may apply, inspect via `RequestValues.Snapshot`, or ignore them — there
 is no hidden seam to satisfy.)
 
-Error decoding is **not** a middleware layer. It runs in `Endpoint.Execute` after
+Error decoding is **not** a middleware layer. It runs in `Call.Execute` after
 `Send` returns the raw HTTP response (see [Error handling](#error-handling)).
 For middleware examples, see
 [`Example_middlewareOrdering`](examples/example_middleware_ordering_test.go),
@@ -407,7 +422,7 @@ When metrics are enabled (via `SetMetrics`), the client emits detailed request i
 | `client.connection.idle-return-error` | Meter | Pool saturation events |
 | `client.request.write-error` | Meter | Request write failures |
 
-Common tags: `service-name`, `method` (HTTP verb), `method-name` (RPC name from Endpoint),
+Common tags: `service-name`, `method` (HTTP verb), `method-name` (RPC name from the endpoint),
 `family` (1xx/2xx/3xx/4xx/5xx/timeout/other).
 See [`Example_metrics`](examples/example_metrics_test.go).
 
@@ -418,11 +433,11 @@ error decoder attempts to unmarshal Conjure error bodies from JSON responses and
 falls back to including the raw body text.
 Use `StatusCodeFromError` and `LocationFromError` to inspect decoded errors.
 
-Custom error decoders are set on `Endpoint` (static default for the RPC) or
-`Overrides` (per-call), both via `WithErrorDecoder`. The Overrides decoder
-takes priority; if neither is set, `Endpoint.Execute` falls back to
-`DefaultErrorDecoder()`. `WithDefaultErrorDecoder()` clears an inherited
-endpoint decoder so a call falls back to `DefaultErrorDecoder()`.
+Custom error decoders are set on a descriptor (static default for the RPC) or a
+`Call`/`Overrides` (per-call), via `WithErrorDecoder`. The per-call decoder takes
+priority; if neither is set, `Call.Execute` falls back to `DefaultErrorDecoder()`.
+`WithDefaultErrorDecoder()` clears an inherited decoder so a call falls back to
+`DefaultErrorDecoder()`.
 
 To opt out of error decoding for a specific endpoint or call, use
 `WithNoErrorDecoder()` (equivalently, set `NoErrorDecoder()`).
@@ -435,17 +450,16 @@ and [`Example_inspectRawErrors`](examples/example_inspect_raw_errors_test.go).
 Multiple layers can set the `Authorization` header. From highest to lowest
 priority on each request:
 
-1. **`Overrides.WithBasicAuth(user, pw)`** -- per-call basic auth from the
-   service-client struct's `Overrides`. Applied by `Endpoint.Execute` after
-   all `WithHeader` values are written, so it overrides any explicit
-   `Authorization` header.
-2. **`Endpoint.WithBasicAuth(user, pw)`** -- static basic auth baked into the
-   endpoint descriptor. Same mechanism as (1); merged via `WithOverrides`
-   semantics (Overrides wins when both are set). `WithDefaultBasicAuth()` clears
-   (1)/(2) so a lower layer applies.
-3. **`Overrides.WithHeader("Authorization", ...)`** -- explicit caller header.
-   Wins over `Endpoint.WithHeader` for the same key.
-4. **`Endpoint.WithHeader("Authorization", ...)`** -- explicit static header.
+1. **Per-call basic auth** (`Call.WithBasicAuth`, or an `Overrides.WithBasicAuth`
+   merged into the call) -- applied by `Call.Execute` after all `WithHeader` values
+   are written, so it overrides any explicit `Authorization` header.
+2. **Descriptor basic auth** (`BodyEndpoint`/`NoBodyEndpoint` `.WithBasicAuth`) --
+   static basic auth baked into the descriptor. Same mechanism as (1); the per-call
+   layer wins when both are set. `WithDefaultBasicAuth()` clears (1)/(2) so a lower
+   layer applies.
+3. **Per-call `WithHeader("Authorization", ...)`** -- explicit caller header.
+   Wins over a descriptor's `WithHeader` for the same key.
+4. **Descriptor `WithHeader("Authorization", ...)`** -- explicit static header.
 5. **`Builder.SetBasicAuth` / `SetAuthToken` / `SetAuthTokenProvider` /
    `SetBasicAuthOptionalProvider` / `Set*Refreshable`** -- client-level
    middleware. Sets `Authorization` only when the header is still empty after
@@ -469,16 +483,17 @@ See [`Example_tracing`](examples/example_tracing_test.go).
 
 ## Service client pattern
 
-Generated Conjure service clients should define package-level `Endpoint` values,
-store an `httpc.Runtime` plus service-wide `httpc.Overrides`, and implement each
-RPC by filling path/body values, merging overrides, and calling `Execute`. See
-[the service-client example](example_service_test.go).
+Generated Conjure service clients should define package-level endpoint descriptors,
+store an `httpc.Runtime` plus service-wide `httpc.Overrides`, and implement each RPC by
+deriving a `Call` (with the body), filling path params, merging overrides, and calling
+`Execute`. See [the service-client example](example_service_test.go).
 
 ## Concurrency
 
-`Endpoint` and `Overrides` use **copy-on-write** semantics: every method returns a
-new value without modifying the original. They are safe to share across goroutines
-and store as package-level variables.
+The endpoint descriptors (`BodyEndpoint`/`NoBodyEndpoint`), `Call`, and `Overrides` use
+**copy-on-write** semantics: every method returns a new value without modifying the
+original. Descriptors are safe to share across goroutines and store as package-level
+variables; each invocation derives its own `Call`.
 
 The runtime returned by `Build` (a `RebuildableRuntime`) is safe for concurrent use;
 multiple goroutines may execute requests through it simultaneously.

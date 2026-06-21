@@ -64,7 +64,7 @@ func TestSend_PerRequestMiddlewareRunsPerAttempt(t *testing.T) {
 		WithDecoder(httpc.VoidDecoder()).
 		WithMiddleware(mw)
 
-	_, _, err = ep.Execute(t.Context(), client)
+	_, _, err = ep.Call().Execute(t.Context(), client)
 	require.NoError(t, err)
 	assert.Equal(t, int32(2), mwCalls.Load(), "per-request middleware should run on each attempt")
 	assert.True(t, sawResolvedURL.Load(), "per-request middleware should see the resolved per-attempt URL")
@@ -90,7 +90,7 @@ func TestSend_PerRequestMiddlewareInsideTelemetry(t *testing.T) {
 		WithDecoder(httpc.VoidDecoder()).
 		WithMiddleware(mw)
 
-	_, _, err = ep.Execute(t.Context(), client)
+	_, _, err = ep.Call().Execute(t.Context(), client)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "recovered panic")
 }
@@ -120,7 +120,7 @@ func TestSend_PerRequestMiddlewareOverridesAuth(t *testing.T) {
 		WithDecoder(httpc.VoidDecoder()).
 		WithMiddleware(mw)
 
-	_, _, err = ep.Execute(t.Context(), client)
+	_, _, err = ep.Call().Execute(t.Context(), client)
 	require.NoError(t, err)
 	assert.Equal(t, "Bearer request-token", gotAuth)
 }
@@ -146,7 +146,7 @@ func TestSend_NilMiddlewareWithPerRequest(t *testing.T) {
 		WithDecoder(httpc.VoidDecoder()).
 		WithMiddleware(mw)
 
-	_, _, err := ep.Execute(t.Context(), client)
+	_, _, err := ep.Call().Execute(t.Context(), client)
 	require.NoError(t, err)
 	assert.True(t, called)
 }

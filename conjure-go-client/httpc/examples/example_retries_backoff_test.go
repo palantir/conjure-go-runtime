@@ -47,7 +47,7 @@ func Example_retriesAndBackoff() {
 
 	// Endpoints are values; declare them once and reuse across calls.
 	var (
-		ping = httpc.NewJSONGET[struct{}]("Ping", "/ping")
+		ping = httpc.NewGET[struct{}]("Ping", "/ping").WithJSON()
 	)
 
 	client, err := httpc.NewBuilder().
@@ -61,7 +61,7 @@ func Example_retriesAndBackoff() {
 		panic(err)
 	}
 
-	if _, _, err = ping.Execute(ctx, client); err != nil {
+	if _, _, err = ping.Call().Execute(ctx, client); err != nil {
 		panic(err)
 	}
 	fmt.Println("server attempts:", attempts.Load())

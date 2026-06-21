@@ -48,7 +48,7 @@ func Example_middlewareOrdering() {
 
 	// Endpoints are values; declare them once and reuse across calls.
 	var (
-		ping = httpc.NewJSONGET[struct{}]("Ping", "/ping")
+		ping = httpc.NewGET[struct{}]("Ping", "/ping").WithJSON()
 	)
 
 	client, err := httpc.NewBuilder().
@@ -62,7 +62,7 @@ func Example_middlewareOrdering() {
 		panic(err)
 	}
 
-	if _, _, err = ping.WithMiddleware(probe("per-request")).Execute(ctx, client); err != nil {
+	if _, _, err = ping.WithMiddleware(probe("per-request")).Call().Execute(ctx, client); err != nil {
 		panic(err)
 	}
 	// Output:

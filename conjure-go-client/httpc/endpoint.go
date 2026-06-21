@@ -15,41 +15,37 @@
 package httpc
 
 import (
-	"context"
-	"fmt"
 	"net/http"
 	"net/url"
-	"strings"
 	"time"
 
-	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/internal"
 	"github.com/palantir/pkg/bytesbuffers"
 )
 
-// RequestOverrides is the per-request configuration shared by [Endpoint] and
-// [Overrides]. Every method is copy-on-write: it returns a new value with the
-// override applied, so deriving variants from a shared base is safe:
+// RequestOverrides is the per-request configuration shared by the endpoint
+// descriptors ([BodyEndpoint], [NoBodyEndpoint]), the per-invocation [Call], and
+// the reusable [Overrides] bag. Every method is copy-on-write: it returns a new
+// value with the override applied, so deriving variants from a shared base is safe:
 //
 //	base := ep.WithAddedHeader("X-Tenant", "acme")
 //	v1 := base.WithAddedHeader("Api-Version", "1")
 //	v2 := base.WithAddedHeader("Api-Version", "2") // base and v1 are unaffected
 //
-// The type parameter D is the concrete implementing type, so methods on
-// Endpoint return Endpoint and methods on Overrides return Overrides.
+// The type parameter D is the concrete implementing type, so methods on a
+// BodyEndpoint return a BodyEndpoint, methods on a Call return a Call, etc.
 //
-// The two implementations represent two configuration layers that are
-// composed at execute time:
+// The implementations represent two configuration layers composed at execute time:
 //
-//   - On [Endpoint], these methods set static defaults baked into the
-//     package-level descriptor (e.g. a constant Accept-Language header for
-//     every call to a given RPC).
-//   - On [Overrides], they capture caller-supplied per-request values that
-//     a service-client struct merges in via [Endpoint.WithOverrides]
-//     (e.g. headers derived from the call site context).
+//   - On a descriptor ([BodyEndpoint]/[NoBodyEndpoint]), these methods set static
+//     defaults baked into the package-level descriptor (e.g. a constant
+//     Accept-Language header for every call to a given RPC).
+//   - On a [Call] (or an [Overrides] merged into one via [Call.WithOverrides]),
+//     they capture per-invocation values (e.g. headers derived from the call site
+//     context).
 //
 // Headers and query parameters accumulate across both layers; scalar values
 // (timeout, error decoder, basic auth, buffer pool) are last-wins — the
-// Overrides layer wins for any scalar it set, including an explicit clear
+// per-invocation layer wins for any scalar it set, including an explicit clear
 // (WithDefault* / WithUnlimitedTimeout / WithNoErrorDecoder).
 type RequestOverrides[D any] interface {
 	// WithHeader sets a request header to the given value(s), replacing any
@@ -81,10 +77,10 @@ type RequestOverrides[D any] interface {
 	// use conjureerrors.WithConjureErrorDecoder, which keeps the
 	// conjure-go-contract/errors dependency off this interface.
 	WithErrorDecoder(ErrorDecoder) D
-	// WithNoErrorDecoder skips error decoding entirely; [Endpoint.Execute] returns
+	// WithNoErrorDecoder skips error decoding entirely; [Call.Execute] returns
 	// the raw response for every status code.
 	WithNoErrorDecoder() D
-	// WithDefaultErrorDecoder clears any decoder set here so [Endpoint.Execute]
+	// WithDefaultErrorDecoder clears any decoder set here so [Call.Execute]
 	// falls back to [DefaultErrorDecoder].
 	WithDefaultErrorDecoder() D
 	// WithBasicAuth sets per-request basic auth credentials, overriding any client-level auth.
@@ -104,376 +100,330 @@ type RequestOverrides[D any] interface {
 	WithDefaultBufferPool() D
 }
 
-// Endpoint is a copy-on-write descriptor pairing an HTTP method and path with
-// a typed encoder and decoder. Methods return a new value, so an Endpoint is
-// safe to store as a package-level var and derive per-call variants from.
-//
-// Construct via [NewGET], [NewPOST], [NewJSONPOST], etc., or [NewEndpoint] for
-// arbitrary methods. For body-less endpoints, Req is [Void] and Execute is
-// called with httpc.Void{}.
-//
-//	var createItem = httpc.NewJSONPOST[CreateReq, CreateResp]("CreateItem", "/api/v1/items")
-//	resp, _, err := createItem.WithAddedHeader("Idempotency-Key", key).Execute(ctx, client, req)
-//
-// Endpoint implements all of [RequestOverrides]; values set this way are
-// static defaults attached to the package-level descriptor. Caller-supplied
-// per-request configuration belongs on a separate [Overrides] value merged in
-// via [Endpoint.WithOverrides]; the two layers compose at execute time
-// (additive for headers/query, last-wins for scalars).
-type Endpoint[Req, Resp any] struct {
-	method    string
-	path      string
-	name      string
-	accept    string
-	overrides Overrides
-	encoder   BodyEncoder[Req]
-	decoder   BodyDecoder[Resp]
-	body      Req
-	hasBody   bool
+// endpointCore is the immutable descriptor state shared by [BodyEndpoint] and
+// [NoBodyEndpoint]: the HTTP method, RPC name, path template, Accept header, the
+// response decoder, and the endpoint-level static request defaults.
+type endpointCore[Resp any] struct {
+	method       string
+	pathTemplate string
+	name         string
+	accept       string
+	decoder      BodyDecoder[Resp]
+	defaults     Overrides
 }
 
-// NewEndpoint creates an Endpoint with the given method, RPC name, and path
-// template. The RPC name is used in tracing spans and metrics tags.
-func NewEndpoint[Req, Resp any](method, name, path string) Endpoint[Req, Resp] {
-	return Endpoint[Req, Resp]{
-		method: method,
-		path:   path,
-		name:   name,
-	}
+// BodyEndpoint is a copy-on-write descriptor for an RPC that sends a request
+// body: an HTTP method and path template paired with a typed encoder/decoder.
+// Methods return a new value, so a BodyEndpoint is safe to store as a
+// package-level var and derive variants from. Construct via [NewPOST], [NewPUT],
+// [NewPATCH], or [NewBodyEndpoint] for an arbitrary method.
+//
+//	var createItem = httpc.NewPOST[CreateReq, CreateResp]("CreateItem", "/api/v1/items").WithJSON()
+//	resp, _, err := createItem.Call(req).WithAddedHeader("Idempotency-Key", key).Execute(ctx, client)
+//
+// A BodyEndpoint produces a per-invocation [Call] via [BodyEndpoint.Call], which
+// takes the request body — so a body endpoint cannot be executed without one.
+// Configuration set directly on the descriptor is a static default; per-call
+// configuration belongs on the [Call] (see [RequestOverrides]).
+type BodyEndpoint[Req, Resp any] struct {
+	core    endpointCore[Resp]
+	encoder BodyEncoder[Req]
+}
+
+// NoBodyEndpoint is a copy-on-write descriptor for an RPC that sends no request
+// body (GET/DELETE/HEAD). Like [BodyEndpoint] it is safe to store as a
+// package-level var. Construct via [NewGET], [NewDELETE], [NewHEAD], or
+// [NewNoBodyEndpoint] for an arbitrary bodyless method.
+//
+//	var getItem = httpc.NewGET[GetItemResponse]("GetItem", "/api/v1/items/{itemId}").WithJSON()
+//	resp, _, err := getItem.Call().WithPathParam("itemId", id).Execute(ctx, client)
+//
+// A NoBodyEndpoint produces a per-invocation [Call] via [NoBodyEndpoint.Call],
+// which takes no body.
+type NoBodyEndpoint[Resp any] struct {
+	core endpointCore[Resp]
+}
+
+// NewBodyEndpoint creates a [BodyEndpoint] with the given method, RPC name, and
+// path template. The RPC name is used in tracing spans and metrics tags.
+func NewBodyEndpoint[Req, Resp any](method, name, path string) BodyEndpoint[Req, Resp] {
+	return BodyEndpoint[Req, Resp]{core: endpointCore[Resp]{method: method, pathTemplate: path, name: name}}
+}
+
+// NewNoBodyEndpoint creates a [NoBodyEndpoint] with the given (bodyless) method,
+// RPC name, and path template.
+func NewNoBodyEndpoint[Resp any](method, name, path string) NoBodyEndpoint[Resp] {
+	return NoBodyEndpoint[Resp]{core: endpointCore[Resp]{method: method, pathTemplate: path, name: name}}
 }
 
 // NewGET creates a GET endpoint with no request body.
-func NewGET[Resp any](name, path string) Endpoint[Void, Resp] {
-	return NewEndpoint[Void, Resp](http.MethodGet, name, path)
+func NewGET[Resp any](name, path string) NoBodyEndpoint[Resp] {
+	return NewNoBodyEndpoint[Resp](http.MethodGet, name, path)
 }
 
 // NewDELETE creates a DELETE endpoint with no request body.
-func NewDELETE[Resp any](name, path string) Endpoint[Void, Resp] {
-	return NewEndpoint[Void, Resp](http.MethodDelete, name, path)
+func NewDELETE[Resp any](name, path string) NoBodyEndpoint[Resp] {
+	return NewNoBodyEndpoint[Resp](http.MethodDelete, name, path)
 }
 
 // NewHEAD creates a HEAD endpoint with no request body.
-func NewHEAD[Resp any](name, path string) Endpoint[Void, Resp] {
-	return NewEndpoint[Void, Resp](http.MethodHead, name, path)
+func NewHEAD[Resp any](name, path string) NoBodyEndpoint[Resp] {
+	return NewNoBodyEndpoint[Resp](http.MethodHead, name, path)
 }
 
 // NewPOST creates a POST endpoint with a typed request body.
-func NewPOST[Req, Resp any](name, path string) Endpoint[Req, Resp] {
-	return NewEndpoint[Req, Resp](http.MethodPost, name, path)
+func NewPOST[Req, Resp any](name, path string) BodyEndpoint[Req, Resp] {
+	return NewBodyEndpoint[Req, Resp](http.MethodPost, name, path)
 }
 
 // NewPUT creates a PUT endpoint with a typed request body.
-func NewPUT[Req, Resp any](name, path string) Endpoint[Req, Resp] {
-	return NewEndpoint[Req, Resp](http.MethodPut, name, path)
+func NewPUT[Req, Resp any](name, path string) BodyEndpoint[Req, Resp] {
+	return NewBodyEndpoint[Req, Resp](http.MethodPut, name, path)
 }
 
 // NewPATCH creates a PATCH endpoint with a typed request body.
-func NewPATCH[Req, Resp any](name, path string) Endpoint[Req, Resp] {
-	return NewEndpoint[Req, Resp](http.MethodPatch, name, path)
+func NewPATCH[Req, Resp any](name, path string) BodyEndpoint[Req, Resp] {
+	return NewBodyEndpoint[Req, Resp](http.MethodPatch, name, path)
 }
 
-// NewJSONGET is NewGET preconfigured with a JSON decoder and Accept: application/json.
-func NewJSONGET[Resp any](name, path string) Endpoint[Void, Resp] {
-	return NewGET[Resp](name, path).
-		WithDecoder(JSONDecoder[Resp]()).
-		WithAccept("application/json")
-}
-
-// NewJSONPOST is NewPOST preconfigured with JSON encoder, JSON decoder, and Accept: application/json.
-func NewJSONPOST[Req, Resp any](name, path string) Endpoint[Req, Resp] {
-	return NewPOST[Req, Resp](name, path).
-		WithEncoder(JSONEncoder[Req]()).
-		WithDecoder(JSONDecoder[Resp]()).
-		WithAccept("application/json")
-}
-
-// NewJSONPUT is NewPUT preconfigured with JSON encoder, JSON decoder, and Accept: application/json.
-func NewJSONPUT[Req, Resp any](name, path string) Endpoint[Req, Resp] {
-	return NewPUT[Req, Resp](name, path).
-		WithEncoder(JSONEncoder[Req]()).
-		WithDecoder(JSONDecoder[Resp]()).
-		WithAccept("application/json")
-}
-
-// NewJSONPATCH is NewPATCH preconfigured with JSON encoder, JSON decoder, and Accept: application/json.
-func NewJSONPATCH[Req, Resp any](name, path string) Endpoint[Req, Resp] {
-	return NewPATCH[Req, Resp](name, path).
-		WithEncoder(JSONEncoder[Req]()).
-		WithDecoder(JSONDecoder[Resp]()).
-		WithAccept("application/json")
-}
-
-// NewJSONDELETE is NewDELETE preconfigured with a JSON decoder and Accept: application/json.
-func NewJSONDELETE[Resp any](name, path string) Endpoint[Void, Resp] {
-	return NewDELETE[Resp](name, path).
-		WithDecoder(JSONDecoder[Resp]()).
-		WithAccept("application/json")
-}
+// --- BodyEndpoint descriptor configuration ---
 
 // WithEncoder sets the body encoder for the request.
-func (e Endpoint[Req, Resp]) WithEncoder(enc BodyEncoder[Req]) Endpoint[Req, Resp] {
+func (e BodyEndpoint[Req, Resp]) WithEncoder(enc BodyEncoder[Req]) BodyEndpoint[Req, Resp] {
 	e.encoder = enc
 	return e
 }
 
 // WithDecoder sets the body decoder for the response.
-func (e Endpoint[Req, Resp]) WithDecoder(dec BodyDecoder[Resp]) Endpoint[Req, Resp] {
-	e.decoder = dec
+func (e BodyEndpoint[Req, Resp]) WithDecoder(dec BodyDecoder[Resp]) BodyEndpoint[Req, Resp] {
+	e.core.decoder = dec
 	return e
 }
 
 // WithAccept sets the Accept header. Pass "" to send no Accept header (the default).
-// Per-request WithHeader("Accept", ...) overrides this.
-func (e Endpoint[Req, Resp]) WithAccept(accept string) Endpoint[Req, Resp] {
-	e.accept = accept
+// A per-call WithHeader("Accept", ...) overrides this.
+func (e BodyEndpoint[Req, Resp]) WithAccept(accept string) BodyEndpoint[Req, Resp] {
+	e.core.accept = accept
 	return e
 }
 
-// WithPathParam fills a named {key} placeholder in the path template with
-// url.PathEscape(fmt.Sprint(value)). Parameters can be filled in any order:
-//
-//	var ep = httpc.NewGET[Resp]("GetItem", "/items/{itemId}/version/{version}")
-//	ep.WithPathParam("itemId", id).WithPathParam("version", v)
-//
-// A trailing greedy placeholder ({key*}) preserves slashes while still escaping
-// each individual segment:
-//
-//	var ep = httpc.NewGET[Resp]("GetFile", "/files/{filePath*}")
-//	ep.WithPathParam("filePath", "dir/sub dir/file.txt")
-//	// → /files/dir/sub%20dir/file.txt
-func (e Endpoint[Req, Resp]) WithPathParam(key string, value any) Endpoint[Req, Resp] {
-	s := fmt.Sprint(value)
-	if glob := "{" + key + "*}"; strings.Contains(e.path, glob) {
-		segments := strings.Split(s, "/")
-		for i, seg := range segments {
-			segments[i] = url.PathEscape(seg)
+// WithJSON configures JSON for both directions: a JSON request encoder, a JSON
+// response decoder, and Accept: application/json. It is sugar for
+// WithEncoder(JSONEncoder[Req]()).WithDecoder(JSONDecoder[Resp]()).WithAccept("application/json").
+func (e BodyEndpoint[Req, Resp]) WithJSON() BodyEndpoint[Req, Resp] {
+	e.encoder = JSONEncoder[Req]()
+	e.core.decoder = JSONDecoder[Resp]()
+	e.core.accept = "application/json"
+	return e
+}
+
+func (e BodyEndpoint[Req, Resp]) WithHeader(key, value string, additionalValues ...string) BodyEndpoint[Req, Resp] {
+	e.core.defaults = e.core.defaults.WithHeader(key, value, additionalValues...)
+	return e
+}
+
+func (e BodyEndpoint[Req, Resp]) WithAddedHeader(key, value string, additionalValues ...string) BodyEndpoint[Req, Resp] {
+	e.core.defaults = e.core.defaults.WithAddedHeader(key, value, additionalValues...)
+	return e
+}
+
+func (e BodyEndpoint[Req, Resp]) WithQuery(key, value string, additionalValues ...string) BodyEndpoint[Req, Resp] {
+	e.core.defaults = e.core.defaults.WithQuery(key, value, additionalValues...)
+	return e
+}
+
+func (e BodyEndpoint[Req, Resp]) WithAddedQuery(key, value string, additionalValues ...string) BodyEndpoint[Req, Resp] {
+	e.core.defaults = e.core.defaults.WithAddedQuery(key, value, additionalValues...)
+	return e
+}
+
+func (e BodyEndpoint[Req, Resp]) WithAddedQueryValues(q url.Values) BodyEndpoint[Req, Resp] {
+	e.core.defaults = e.core.defaults.WithAddedQueryValues(q)
+	return e
+}
+
+func (e BodyEndpoint[Req, Resp]) WithTimeout(d time.Duration) BodyEndpoint[Req, Resp] {
+	e.core.defaults = e.core.defaults.WithTimeout(d)
+	return e
+}
+
+func (e BodyEndpoint[Req, Resp]) WithUnlimitedTimeout() BodyEndpoint[Req, Resp] {
+	e.core.defaults = e.core.defaults.WithUnlimitedTimeout()
+	return e
+}
+
+func (e BodyEndpoint[Req, Resp]) WithDefaultTimeout() BodyEndpoint[Req, Resp] {
+	e.core.defaults = e.core.defaults.WithDefaultTimeout()
+	return e
+}
+
+func (e BodyEndpoint[Req, Resp]) WithErrorDecoder(d ErrorDecoder) BodyEndpoint[Req, Resp] {
+	e.core.defaults = e.core.defaults.WithErrorDecoder(d)
+	return e
+}
+
+func (e BodyEndpoint[Req, Resp]) WithNoErrorDecoder() BodyEndpoint[Req, Resp] {
+	e.core.defaults = e.core.defaults.WithNoErrorDecoder()
+	return e
+}
+
+func (e BodyEndpoint[Req, Resp]) WithDefaultErrorDecoder() BodyEndpoint[Req, Resp] {
+	e.core.defaults = e.core.defaults.WithDefaultErrorDecoder()
+	return e
+}
+
+func (e BodyEndpoint[Req, Resp]) WithBasicAuth(user, password string) BodyEndpoint[Req, Resp] {
+	e.core.defaults = e.core.defaults.WithBasicAuth(user, password)
+	return e
+}
+
+func (e BodyEndpoint[Req, Resp]) WithDefaultBasicAuth() BodyEndpoint[Req, Resp] {
+	e.core.defaults = e.core.defaults.WithDefaultBasicAuth()
+	return e
+}
+
+func (e BodyEndpoint[Req, Resp]) WithMiddleware(m Middleware) BodyEndpoint[Req, Resp] {
+	e.core.defaults = e.core.defaults.WithMiddleware(m)
+	return e
+}
+
+func (e BodyEndpoint[Req, Resp]) WithBufferPool(p bytesbuffers.Pool) BodyEndpoint[Req, Resp] {
+	e.core.defaults = e.core.defaults.WithBufferPool(p)
+	return e
+}
+
+func (e BodyEndpoint[Req, Resp]) WithDefaultBufferPool() BodyEndpoint[Req, Resp] {
+	e.core.defaults = e.core.defaults.WithDefaultBufferPool()
+	return e
+}
+
+// Call begins a request invocation with the given body, which the endpoint's
+// encoder encodes when [Call.Execute] runs. Per-call configuration and Execute
+// live on the returned [Call].
+func (e BodyEndpoint[Req, Resp]) Call(body Req) Call[Resp] {
+	encoder := e.encoder
+	name := e.core.name
+	return newCall(e.core, func(req *http.Request) error {
+		if encoder == nil {
+			return errNoEncoder(name)
 		}
-		e.path = strings.ReplaceAll(e.path, glob, strings.Join(segments, "/"))
-	} else {
-		e.path = strings.ReplaceAll(e.path, "{"+key+"}", url.PathEscape(s))
-	}
+		return encoder.Encode(req, body)
+	})
+}
+
+// --- NoBodyEndpoint descriptor configuration ---
+
+// WithDecoder sets the body decoder for the response.
+func (e NoBodyEndpoint[Resp]) WithDecoder(dec BodyDecoder[Resp]) NoBodyEndpoint[Resp] {
+	e.core.decoder = dec
 	return e
 }
 
-// WithHeader sets a header to the given value(s), replacing any previously
-// added or set values for the key.
-func (e Endpoint[Req, Resp]) WithHeader(key, value string, additionalValues ...string) Endpoint[Req, Resp] {
-	e.overrides = e.overrides.WithHeader(key, value, additionalValues...)
+// WithAccept sets the Accept header. Pass "" to send no Accept header (the default).
+// A per-call WithHeader("Accept", ...) overrides this.
+func (e NoBodyEndpoint[Resp]) WithAccept(accept string) NoBodyEndpoint[Resp] {
+	e.core.accept = accept
 	return e
 }
 
-// WithAddedHeader appends one or more values to a header; multiple calls with
-// the same key accumulate.
-func (e Endpoint[Req, Resp]) WithAddedHeader(key, value string, additionalValues ...string) Endpoint[Req, Resp] {
-	e.overrides = e.overrides.WithAddedHeader(key, value, additionalValues...)
+// WithJSON configures a JSON response decoder and Accept: application/json. It is
+// sugar for WithDecoder(JSONDecoder[Resp]()).WithAccept("application/json"). There
+// is no request encoder — a NoBodyEndpoint sends no body.
+func (e NoBodyEndpoint[Resp]) WithJSON() NoBodyEndpoint[Resp] {
+	e.core.decoder = JSONDecoder[Resp]()
+	e.core.accept = "application/json"
 	return e
 }
 
-// WithQuery sets a query parameter to the given value(s), replacing any
-// previously added or set values for the key.
-func (e Endpoint[Req, Resp]) WithQuery(key, value string, additionalValues ...string) Endpoint[Req, Resp] {
-	e.overrides = e.overrides.WithQuery(key, value, additionalValues...)
+func (e NoBodyEndpoint[Resp]) WithHeader(key, value string, additionalValues ...string) NoBodyEndpoint[Resp] {
+	e.core.defaults = e.core.defaults.WithHeader(key, value, additionalValues...)
 	return e
 }
 
-// WithAddedQuery appends one or more values to a query parameter.
-func (e Endpoint[Req, Resp]) WithAddedQuery(key, value string, additionalValues ...string) Endpoint[Req, Resp] {
-	e.overrides = e.overrides.WithAddedQuery(key, value, additionalValues...)
+func (e NoBodyEndpoint[Resp]) WithAddedHeader(key, value string, additionalValues ...string) NoBodyEndpoint[Resp] {
+	e.core.defaults = e.core.defaults.WithAddedHeader(key, value, additionalValues...)
 	return e
 }
 
-// WithAddedQueryValues appends every key/value pair in q to the request query.
-func (e Endpoint[Req, Resp]) WithAddedQueryValues(q url.Values) Endpoint[Req, Resp] {
-	e.overrides = e.overrides.WithAddedQueryValues(q)
+func (e NoBodyEndpoint[Resp]) WithQuery(key, value string, additionalValues ...string) NoBodyEndpoint[Resp] {
+	e.core.defaults = e.core.defaults.WithQuery(key, value, additionalValues...)
 	return e
 }
 
-// WithTimeout sets a per-attempt timeout that overrides the client-level
-// timeout. The runtime applies it to each attempt via the call-scoped *http.Client.
-// A zero duration disables the per-attempt timeout (see WithUnlimitedTimeout).
-// Use a context deadline for a whole-call deadline that spans all retries.
-func (e Endpoint[Req, Resp]) WithTimeout(d time.Duration) Endpoint[Req, Resp] {
-	e.overrides = e.overrides.WithTimeout(d)
+func (e NoBodyEndpoint[Resp]) WithAddedQuery(key, value string, additionalValues ...string) NoBodyEndpoint[Resp] {
+	e.core.defaults = e.core.defaults.WithAddedQuery(key, value, additionalValues...)
 	return e
 }
 
-// WithUnlimitedTimeout disables the per-attempt timeout for this endpoint.
-func (e Endpoint[Req, Resp]) WithUnlimitedTimeout() Endpoint[Req, Resp] {
-	e.overrides = e.overrides.WithUnlimitedTimeout()
+func (e NoBodyEndpoint[Resp]) WithAddedQueryValues(q url.Values) NoBodyEndpoint[Resp] {
+	e.core.defaults = e.core.defaults.WithAddedQueryValues(q)
 	return e
 }
 
-// WithDefaultTimeout clears any per-attempt timeout so the client-level timeout applies.
-func (e Endpoint[Req, Resp]) WithDefaultTimeout() Endpoint[Req, Resp] {
-	e.overrides = e.overrides.WithDefaultTimeout()
+func (e NoBodyEndpoint[Resp]) WithTimeout(d time.Duration) NoBodyEndpoint[Resp] {
+	e.core.defaults = e.core.defaults.WithTimeout(d)
 	return e
 }
 
-// WithErrorDecoder sets a static error decoder for this endpoint, used by
-// Execute instead of [DefaultErrorDecoder]. A decoder set on a per-call
-// [Overrides] (merged via [Endpoint.WithOverrides]) takes priority.
-func (e Endpoint[Req, Resp]) WithErrorDecoder(d ErrorDecoder) Endpoint[Req, Resp] {
-	e.overrides = e.overrides.WithErrorDecoder(d)
+func (e NoBodyEndpoint[Resp]) WithUnlimitedTimeout() NoBodyEndpoint[Resp] {
+	e.core.defaults = e.core.defaults.WithUnlimitedTimeout()
 	return e
 }
 
-// WithNoErrorDecoder skips error decoding entirely; Execute returns the raw response.
-func (e Endpoint[Req, Resp]) WithNoErrorDecoder() Endpoint[Req, Resp] {
-	e.overrides = e.overrides.WithNoErrorDecoder()
+func (e NoBodyEndpoint[Resp]) WithDefaultTimeout() NoBodyEndpoint[Resp] {
+	e.core.defaults = e.core.defaults.WithDefaultTimeout()
 	return e
 }
 
-// WithDefaultErrorDecoder clears any error decoder so Execute falls back to DefaultErrorDecoder.
-func (e Endpoint[Req, Resp]) WithDefaultErrorDecoder() Endpoint[Req, Resp] {
-	e.overrides = e.overrides.WithDefaultErrorDecoder()
+func (e NoBodyEndpoint[Resp]) WithErrorDecoder(d ErrorDecoder) NoBodyEndpoint[Resp] {
+	e.core.defaults = e.core.defaults.WithErrorDecoder(d)
 	return e
 }
 
-// WithBasicAuth sets per-request basic auth credentials, overriding any client-level auth.
-func (e Endpoint[Req, Resp]) WithBasicAuth(user, password string) Endpoint[Req, Resp] {
-	e.overrides = e.overrides.WithBasicAuth(user, password)
+func (e NoBodyEndpoint[Resp]) WithNoErrorDecoder() NoBodyEndpoint[Resp] {
+	e.core.defaults = e.core.defaults.WithNoErrorDecoder()
 	return e
 }
 
-// WithDefaultBasicAuth clears any per-request basic auth so client-level auth (or
-// an explicit Authorization header) applies.
-func (e Endpoint[Req, Resp]) WithDefaultBasicAuth() Endpoint[Req, Resp] {
-	e.overrides = e.overrides.WithDefaultBasicAuth()
+func (e NoBodyEndpoint[Resp]) WithDefaultErrorDecoder() NoBodyEndpoint[Resp] {
+	e.core.defaults = e.core.defaults.WithDefaultErrorDecoder()
 	return e
 }
 
-// WithMiddleware appends a per-request middleware.
-func (e Endpoint[Req, Resp]) WithMiddleware(m Middleware) Endpoint[Req, Resp] {
-	e.overrides = e.overrides.WithMiddleware(m)
+func (e NoBodyEndpoint[Resp]) WithBasicAuth(user, password string) NoBodyEndpoint[Resp] {
+	e.core.defaults = e.core.defaults.WithBasicAuth(user, password)
 	return e
 }
 
-// WithBufferPool sets a buffer pool that encoders may use to avoid per-request
-// allocations. Conjure-generated code sets this from endpoint tags such as
-// request-buffer-medium. Passing nil clears it (see WithDefaultBufferPool).
-func (e Endpoint[Req, Resp]) WithBufferPool(p bytesbuffers.Pool) Endpoint[Req, Resp] {
-	e.overrides = e.overrides.WithBufferPool(p)
+func (e NoBodyEndpoint[Resp]) WithDefaultBasicAuth() NoBodyEndpoint[Resp] {
+	e.core.defaults = e.core.defaults.WithDefaultBasicAuth()
 	return e
 }
 
-// WithDefaultBufferPool clears any buffer pool so encoders run without one.
-func (e Endpoint[Req, Resp]) WithDefaultBufferPool() Endpoint[Req, Resp] {
-	e.overrides = e.overrides.WithDefaultBufferPool()
+func (e NoBodyEndpoint[Resp]) WithMiddleware(m Middleware) NoBodyEndpoint[Resp] {
+	e.core.defaults = e.core.defaults.WithMiddleware(m)
 	return e
 }
 
-// WithBody attaches a request body to the endpoint. The body is encoded by
-// the endpoint's [BodyEncoder] when [Endpoint.Execute] runs. Endpoints with
-// Req = [Void] never need WithBody. For other Req, omitting WithBody sends no
-// body (the encoder is not invoked).
-func (e Endpoint[Req, Resp]) WithBody(body Req) Endpoint[Req, Resp] {
-	e.body = body
-	e.hasBody = true
+func (e NoBodyEndpoint[Resp]) WithBufferPool(p bytesbuffers.Pool) NoBodyEndpoint[Resp] {
+	e.core.defaults = e.core.defaults.WithBufferPool(p)
 	return e
 }
 
-// WithOverrides merges o into the endpoint's per-request configuration: set
-// headers/query replace and clear matching adds; add headers/query accumulate;
-// the scalars (timeout, error decoder, basic auth, buffer pool) are last-wins —
-// o wins for any it set, including an explicit clear (WithDefault* etc.);
-// middlewares append.
-func (e Endpoint[Req, Resp]) WithOverrides(o Overrides) Endpoint[Req, Resp] {
-	e.overrides = e.overrides.merge(o)
+func (e NoBodyEndpoint[Resp]) WithDefaultBufferPool() NoBodyEndpoint[Resp] {
+	e.core.defaults = e.core.defaults.WithDefaultBufferPool()
 	return e
 }
 
-// Execute builds an *http.Request from the endpoint configuration, sends it via
-// [Runtime.Send], and decodes the response. Use [Endpoint.WithBody] to attach a
-// request body; endpoints without a body (including those with Req = [Void])
-// can call Execute directly.
-//
-// The returned *http.Response has its body consumed (drained or handed to the
-// decoder). It may be non-nil on error when the server replied but the decoded
-// response represents a failure.
-func (e Endpoint[Req, Resp]) Execute(ctx context.Context, client Runtime) (Resp, *http.Response, error) {
-	var zero Resp
-
-	if i := strings.IndexByte(e.path, '{'); i != -1 {
-		j := strings.IndexByte(e.path[i:], '}')
-		if j == -1 {
-			return zero, nil, fmt.Errorf("httpc: unterminated path parameter starting at %q in %s %s", e.path[i:], e.method, e.path)
-		}
-		param := e.path[i : i+j+1]
-		return zero, nil, fmt.Errorf("httpc: path parameter %s not populated in %s %s", param, e.method, e.path)
-	}
-
-	if e.name != "" {
-		ctx = ContextWithRPCMethodName(ctx, e.name)
-	}
-	if e.overrides.bufferPool.value != nil {
-		ctx = contextWithBufferPool(ctx, e.overrides.bufferPool.value)
-	}
-
-	// Path-only request; the runtime prepends the base URI on each attempt.
-	req, err := http.NewRequestWithContext(ctx, e.method, e.path, nil)
-	if err != nil {
-		return zero, nil, err
-	}
-
-	if e.hasBody {
-		if e.encoder == nil {
-			return zero, nil, fmt.Errorf("httpc: endpoint %s has a body but no encoder; call WithEncoder before WithBody", e.name)
-		}
-		if err := e.encoder.Encode(req, e.body); err != nil {
-			return zero, nil, err
-		}
-	}
-	if e.accept != "" {
-		req.Header.Set("Accept", e.accept)
-	}
-
-	// The encoder's Content-Type and the Accept header were written straight onto
-	// req. Hoist them into a codec-level RequestValues below the endpoint/per-call
-	// overrides, then clear req's headers, so every header resolves through the same
-	// per-attempt path: endpoint codec headers sit ABOVE builder-intrinsic headers
-	// (a client SetHeader("Accept"/"Content-Type") can't override them) while a
-	// per-call WithHeader still wins. Per-request middlewares run innermost (per
-	// attempt, with the resolved URL); a per-request timeout overrides the
-	// per-attempt bound (a total-call deadline is the caller's job via ctx).
-	opts := SendOptions{
-		Values:      requestValuesFromHeader(req.Header).concat(e.overrides.requestValues()),
-		Middlewares: e.overrides.middlewares,
-		Policy:      e.overrides.callPolicyOverrides(),
-	}
-	req.Header = make(http.Header)
-
-	resp, err := client.Send(ctx, req, opts)
-	if err != nil {
-		return zero, nil, err
-	}
-
-	decoder := e.overrides.errorDecoder.value
-	if decoder == nil {
-		decoder = DefaultErrorDecoder()
-	}
-	if decoder.Handles(resp) {
-		decodeErr := decoder.DecodeError(resp)
-		internal.DrainBody(ctx, resp)
-		return zero, resp, decodeErr
-	}
-
-	if e.decoder != nil {
-		result, err := e.decoder.Decode(ctx, resp)
-		if err != nil {
-			internal.DrainBody(ctx, resp)
-			return zero, resp, err
-		}
-		// rawBodyDecoder hands the body to the caller; don't drain.
-		if _, raw := e.decoder.(rawBodyDecoder); !raw {
-			internal.DrainBody(ctx, resp)
-		}
-		return result, resp, nil
-	}
-	internal.DrainBody(ctx, resp)
-	return zero, resp, nil
+// Call begins a request invocation with no body. Per-call configuration and
+// Execute live on the returned [Call].
+func (e NoBodyEndpoint[Resp]) Call() Call[Resp] {
+	return newCall(e.core, nil)
 }
 
-// WithTraceHeader sets the X-B3-TraceId header on any RequestOverrides value.
+// WithTraceHeader sets the X-B3-TraceId header on any [RequestOverrides] value —
+// a descriptor (as a static default) or, more usefully, a [Call] or [Overrides]
+// (per invocation).
 func WithTraceHeader[D RequestOverrides[D]](d D, traceID string) D {
 	return d.WithHeader("X-B3-TraceId", traceID)
 }

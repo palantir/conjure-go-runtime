@@ -41,7 +41,7 @@ func Example_timeouts() {
 
 	// Endpoints are values; declare them once and reuse across calls.
 	var (
-		ping = httpc.NewJSONGET[struct{}]("Ping", "/ping")
+		ping = httpc.NewGET[struct{}]("Ping", "/ping").WithJSON()
 	)
 
 	client, err := httpc.NewBuilder().
@@ -54,10 +54,10 @@ func Example_timeouts() {
 		panic(err)
 	}
 
-	_, _, err = ping.Execute(ctx, client)
+	_, _, err = ping.Call().Execute(ctx, client)
 	fmt.Println("generous timeout, failed:", err != nil)
 
-	_, _, err = ping.WithTimeout(5*time.Millisecond).Execute(ctx, client)
+	_, _, err = ping.WithTimeout(5*time.Millisecond).Call().Execute(ctx, client)
 	fmt.Println("tight timeout, failed:", err != nil)
 	// Output:
 	// generous timeout, failed: false

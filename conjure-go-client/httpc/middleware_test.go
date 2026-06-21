@@ -75,7 +75,7 @@ func TestMiddlewareChain_Order(t *testing.T) {
 
 	client, err := httpc.NewBuilder().SetBaseURLs(server.URL).Build(t.Context())
 	require.NoError(t, err)
-	_, _, err = ep.Execute(t.Context(), client)
+	_, _, err = ep.Call().Execute(t.Context(), client)
 	require.NoError(t, err)
 
 	// Last added (mw3) wraps mw2 wraps mw1 wraps client.
@@ -106,7 +106,7 @@ func TestMiddlewareChain_NilSkipped(t *testing.T) {
 
 	client, err := httpc.NewBuilder().SetBaseURLs(server.URL).Build(t.Context())
 	require.NoError(t, err)
-	_, _, err = ep.Execute(t.Context(), client)
+	_, _, err = ep.Call().Execute(t.Context(), client)
 	require.NoError(t, err)
 	assert.True(t, called)
 }
@@ -125,7 +125,7 @@ func TestMiddlewareChain_EmptyPassthrough(t *testing.T) {
 		WithAccept("application/json")
 
 	client := &httpTestClient{server: server}
-	result, _, err := ep.Execute(t.Context(), client)
+	result, _, err := ep.Call().Execute(t.Context(), client)
 	require.NoError(t, err)
 	assert.Equal(t, testPayload{Name: "passthrough", Value: 0}, result)
 }
@@ -160,7 +160,7 @@ func TestMiddlewareChain_BuiltClient(t *testing.T) {
 		WithDecoder(httpc.JSONDecoder[testPayload]()).
 		WithAccept("application/json")
 
-	result, _, err := ep.Execute(t.Context(), client)
+	result, _, err := ep.Call().Execute(t.Context(), client)
 	require.NoError(t, err)
 	assert.True(t, middlewareCalled)
 	assert.Equal(t, testPayload{Name: "chain", Value: 1}, result)

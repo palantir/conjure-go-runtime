@@ -64,7 +64,7 @@ func Example_customURLSelector() {
 
 	succeeded := 0
 	for range 3 {
-		if _, _, err = ping.Execute(ctx, client); err == nil {
+		if _, _, err = ping.Call().Execute(ctx, client); err == nil {
 			succeeded++
 		}
 	}

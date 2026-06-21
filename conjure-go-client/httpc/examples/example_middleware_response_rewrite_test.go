@@ -65,7 +65,7 @@ func Example_middlewareResponseRewrite() {
 
 	// Endpoints are values; declare them once and reuse across calls.
 	var (
-		getItem = httpc.NewJSONGET[rewriteItem]("GetItem", "/items/widget")
+		getItem = httpc.NewGET[rewriteItem]("GetItem", "/items/widget").WithJSON()
 	)
 
 	client, err := httpc.NewBuilder().
@@ -77,7 +77,7 @@ func Example_middlewareResponseRewrite() {
 		panic(err)
 	}
 
-	item, _, err := getItem.Execute(ctx, client)
+	item, _, err := getItem.Call().Execute(ctx, client)
 	if err != nil {
 		panic(err)
 	}

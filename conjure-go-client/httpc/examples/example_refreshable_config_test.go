@@ -52,10 +52,10 @@ func Example_refreshableConfig() {
 
 	// Endpoints are values; declare them once and reuse across calls.
 	var (
-		where = httpc.NewJSONGET[whereItem]("Where", "/where")
+		where = httpc.NewGET[whereItem]("Where", "/where").WithJSON()
 	)
 
-	item, _, err := where.Execute(ctx, client)
+	item, _, err := where.Call().Execute(ctx, client)
 	if err != nil {
 		panic(err)
 	}
@@ -67,7 +67,7 @@ func Example_refreshableConfig() {
 		URIs:        []string{failover.URL},
 	})
 
-	item, _, err = where.Execute(ctx, client)
+	item, _, err = where.Call().Execute(ctx, client)
 	if err != nil {
 		panic(err)
 	}

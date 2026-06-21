@@ -54,7 +54,7 @@ func Example_tlsEscapeHatch() {
 	if err != nil {
 		panic(err)
 	}
-	_, _, err = ping.Execute(ctx, client)
+	_, _, err = ping.Call().Execute(ctx, client)
 	fmt.Println("escape-hatch config, failed:", err != nil)
 
 	// SetTLSConfig wins outright: SetInsecureSkipVerify is ignored, so an empty
@@ -69,7 +69,7 @@ func Example_tlsEscapeHatch() {
 	if err != nil {
 		panic(err)
 	}
-	_, _, err = ping.Execute(ctx, ignored)
+	_, _, err = ping.Call().Execute(ctx, ignored)
 	fmt.Println("skip-verify ignored under escape hatch, failed:", err != nil)
 	// Output:
 	// escape-hatch config, failed: false

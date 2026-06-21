@@ -16,10 +16,10 @@ package httpc
 
 // Compile-time interface satisfaction checks.
 
-// Endpoint satisfies RequestOverrides.
-var _ RequestOverrides[Endpoint[string, string]] = Endpoint[string, string]{}
-
-// Overrides satisfies RequestOverrides.
+// The endpoint descriptors, the per-call Call, and Overrides all satisfy RequestOverrides.
+var _ RequestOverrides[BodyEndpoint[string, string]] = BodyEndpoint[string, string]{}
+var _ RequestOverrides[NoBodyEndpoint[string]] = NoBodyEndpoint[string]{}
+var _ RequestOverrides[Call[string]] = Call[string]{}
 var _ RequestOverrides[Overrides] = Overrides{}
 
 // MiddlewareFunc satisfies Middleware.

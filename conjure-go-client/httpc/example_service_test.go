@@ -142,14 +142,15 @@ func (b *itemServiceClientBuilder) Apply(params ...httpc.Param[*itemServiceClien
 
 func (c *itemServiceClient) CreateItem(ctx context.Context, req CreateItemRequest) (CreateItemResponse, error) {
 	resp, _, err := createItemEndpoint.
+		Call(req).
 		WithOverrides(c.overrides).
-		WithBody(req).
 		Execute(ctx, c.client)
 	return resp, err
 }
 
 func (c *itemServiceClient) GetItem(ctx context.Context, itemId string) (GetItemResponse, error) {
 	resp, _, err := getItemEndpoint.
+		Call().
 		WithPathParam("itemId", itemId).
 		WithOverrides(c.overrides).
 		Execute(ctx, c.client)
@@ -158,6 +159,7 @@ func (c *itemServiceClient) GetItem(ctx context.Context, itemId string) (GetItem
 
 func (c *itemServiceClient) DeleteItem(ctx context.Context, itemId string) error {
 	_, _, err := deleteItemEndpoint.
+		Call().
 		WithPathParam("itemId", itemId).
 		WithOverrides(c.overrides).
 		Execute(ctx, c.client)
@@ -166,6 +168,7 @@ func (c *itemServiceClient) DeleteItem(ctx context.Context, itemId string) error
 
 func (c *itemServiceClient) DownloadItem(ctx context.Context, itemId string) (io.ReadCloser, error) {
 	resp, _, err := downloadItemEndpoint.
+		Call().
 		WithPathParam("itemId", itemId).
 		WithOverrides(c.overrides).
 		Execute(ctx, c.client)
@@ -295,7 +298,7 @@ func TestExampleService_MultiplePathParams(t *testing.T) {
 	client := &httpTestClient{server: server}
 
 	// Fill in params in reverse order — should still work because replacement is by name.
-	resp, _, err := ep.WithPathParam("itemId", "widget-1").WithPathParam("orgId", "acme").
+	resp, _, err := ep.Call().WithPathParam("itemId", "widget-1").WithPathParam("orgId", "acme").
 		Execute(context.Background(), client)
 	require.NoError(t, err)
 	assert.Equal(t, "widget-1", resp.ID)
@@ -317,7 +320,7 @@ func TestExampleService_GreedyPathParam(t *testing.T) {
 		t.Cleanup(server.Close)
 		client := &httpTestClient{server: server}
 
-		resp, _, err := ep.WithPathParam("filePath", "dir/subdir/file.txt").
+		resp, _, err := ep.Call().WithPathParam("filePath", "dir/subdir/file.txt").
 			Execute(context.Background(), client)
 		require.NoError(t, err)
 		assert.Equal(t, "file.txt", resp.ID)
@@ -334,7 +337,7 @@ func TestExampleService_GreedyPathParam(t *testing.T) {
 		t.Cleanup(server.Close)
 		client := &httpTestClient{server: server}
 
-		resp, _, err := ep.WithPathParam("filePath", "my docs/sub dir/file.txt").
+		resp, _, err := ep.Call().WithPathParam("filePath", "my docs/sub dir/file.txt").
 			Execute(context.Background(), client)
 		require.NoError(t, err)
 		assert.Equal(t, "file.txt", resp.ID)
@@ -353,7 +356,7 @@ func TestExampleService_GreedyPathParam(t *testing.T) {
 		t.Cleanup(server.Close)
 		client := &httpTestClient{server: server}
 
-		resp, _, err := ep2.WithPathParam("repoId", "my-repo").WithPathParam("filePath", "src/main/app.go").
+		resp, _, err := ep2.Call().WithPathParam("repoId", "my-repo").WithPathParam("filePath", "src/main/app.go").
 			Execute(context.Background(), client)
 		require.NoError(t, err)
 		assert.Equal(t, "app.go", resp.ID)
@@ -368,7 +371,7 @@ func TestExampleService_GreedyPathParam(t *testing.T) {
 		t.Cleanup(server.Close)
 		client := &httpTestClient{server: server}
 
-		resp, _, err := ep.WithPathParam("filePath", "simple.txt").
+		resp, _, err := ep.Call().WithPathParam("filePath", "simple.txt").
 			Execute(context.Background(), client)
 		require.NoError(t, err)
 		assert.Equal(t, "simple.txt", resp.ID)
@@ -446,6 +449,7 @@ func TestExampleService_WithOverridesOnEndpoint(t *testing.T) {
 		WithBasicAuth("admin", "secret")
 
 	resp, _, err := getItemEndpoint.
+		Call().
 		WithPathParam("itemId", "1").
 		WithOverrides(overrides).
 		Execute(context.Background(), client)
@@ -674,7 +678,7 @@ func TestExample_SetTransport_FullClient(t *testing.T) {
 		Build(context.Background())
 	require.NoError(t, err)
 
-	resp, _, err := getItemEndpoint.WithPathParam("itemId", "1").
+	resp, _, err := getItemEndpoint.Call().WithPathParam("itemId", "1").
 		Execute(context.Background(), client)
 	require.NoError(t, err)
 	assert.Equal(t, "1", resp.ID)

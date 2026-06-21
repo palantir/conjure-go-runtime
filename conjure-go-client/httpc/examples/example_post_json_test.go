@@ -26,8 +26,8 @@ import (
 
 // Example_postJSON sends a JSON request body and decodes a JSON response.
 //
-// NewJSONPOST wires a JSON encoder for the request type and a JSON decoder for the
-// response type, and sets Accept: application/json. WithBody supplies the value to
+// NewPOST().WithJSON() wires a JSON encoder for the request type and a JSON decoder
+// for the response type, and sets Accept: application/json. Call supplies the value to
 // encode; Content-Type: application/json is set automatically.
 func Example_postJSON() {
 	ctx := context.Background()
@@ -41,7 +41,7 @@ func Example_postJSON() {
 
 	// Endpoints are values; declare them once and reuse across calls.
 	var (
-		createItem = httpc.NewJSONPOST[postJSONRequest, postJSONResponse]("CreateItem", "/items")
+		createItem = httpc.NewPOST[postJSONRequest, postJSONResponse]("CreateItem", "/items").WithJSON()
 	)
 
 	client, err := httpc.NewBuilder().
@@ -53,7 +53,7 @@ func Example_postJSON() {
 	}
 
 	resp, _, err := createItem.
-		WithBody(postJSONRequest{Name: "widget"}).
+		Call(postJSONRequest{Name: "widget"}).
 		Execute(ctx, client)
 	if err != nil {
 		panic(err)

@@ -94,10 +94,10 @@ func TestExecute_OneMethodRuntimeFake(t *testing.T) {
 		},
 	}
 
-	ep := httpc.NewJSONGET[widgetItem]("GetItem", "/items/widget").
+	ep := httpc.NewGET[widgetItem]("GetItem", "/items/widget").WithJSON().
 		WithHeader("X-Tenant", "acme")
 
-	out, resp, err := ep.Execute(context.Background(), fake)
+	out, resp, err := ep.Call().Execute(context.Background(), fake)
 	require.NoError(t, err)
 	require.NotNil(t, resp)
 	assert.Equal(t, "widget", out.Name)
@@ -137,8 +137,8 @@ func TestEndpoint_CodecHeadersBeatBuilderHeaders(t *testing.T) {
 		Build(ctx)
 	require.NoError(t, err)
 
-	ep := httpc.NewJSONPOST[widgetItem, widgetItem]("Create", "/items")
-	_, _, err = ep.WithBody(widgetItem{Name: "x"}).Execute(ctx, client)
+	ep := httpc.NewPOST[widgetItem, widgetItem]("Create", "/items").WithJSON()
+	_, _, err = ep.Call(widgetItem{Name: "x"}).Execute(ctx, client)
 	require.NoError(t, err)
 
 	assert.Equal(t, "application/json", gotAccept, "endpoint WithAccept beats builder SetHeader(Accept)")
@@ -162,7 +162,7 @@ func TestEndpoint_PerCallHeaderBeatsEndpointAccept(t *testing.T) {
 	ep := httpc.NewGET[struct{}]("Get", "/x").
 		WithDecoder(httpc.VoidDecoder()).
 		WithAccept("application/json")
-	_, _, err = ep.WithHeader("Accept", "text/plain").Execute(ctx, client)
+	_, _, err = ep.WithHeader("Accept", "text/plain").Call().Execute(ctx, client)
 	require.NoError(t, err)
 	assert.Equal(t, "text/plain", gotAccept, "per-call WithHeader(Accept) beats endpoint WithAccept")
 }

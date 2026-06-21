@@ -42,7 +42,7 @@ func Example_pathAndQueryParams() {
 
 	// Endpoints are values; declare them once and reuse across calls.
 	var (
-		search = httpc.NewJSONGET[struct{}]("Search", "/orgs/{orgId}/items").
+		search = httpc.NewGET[struct{}]("Search", "/orgs/{orgId}/items").WithJSON().
 			WithQuery("limit", "10").
 			WithAddedQuery("tag", "red").
 			WithAddedQuery("tag", "round")
@@ -56,7 +56,7 @@ func Example_pathAndQueryParams() {
 		panic(err)
 	}
 
-	if _, _, err = search.WithPathParam("orgId", "acme").Execute(ctx, client); err != nil {
+	if _, _, err = search.Call().WithPathParam("orgId", "acme").Execute(ctx, client); err != nil {
 		panic(err)
 	}
 	// Output:

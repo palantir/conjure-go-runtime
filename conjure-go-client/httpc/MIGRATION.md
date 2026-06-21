@@ -6,24 +6,27 @@ new `conjure-go-client/httpc` package.
 ## Overview of changes
 
 The new package replaces the old package's `Client.Do(ctx, params...)` call pattern
-with an **endpoint-centric** approach where typed `Endpoint[Req, Resp]` descriptors
-define the HTTP shape of each RPC at the package level, and per-call customization
-happens through copy-on-write method chaining rather than variadic `RequestParam` functions.
+with an **endpoint-centric** approach where typed endpoint descriptors
+(`BodyEndpoint[Req, Resp]` / `NoBodyEndpoint[Resp]`) define the HTTP shape of each RPC at
+the package level. Each invocation derives a per-call `Call` from the descriptor, and
+per-call customization happens through copy-on-write method chaining rather than variadic
+`RequestParam` functions.
 
 For a runnable side-by-side migration, see
 [`Example_migrationFromHTTPClient`](examples/example_migration_from_httpclient_test.go).
 
 **Key architectural shifts:**
 
-1. **Endpoint replaces RequestParam** -- Instead of passing `WithRequestMethod`,
+1. **Endpoints replace RequestParam** -- Instead of passing `WithRequestMethod`,
    `WithPath`, `WithJSONRequest`, `WithJSONResponse`, etc. as variadic params to
-   `client.Do`, you define an `Endpoint[Req, Resp]` with typed encoder/decoder and
-   call `endpoint.WithBody(body).Execute(ctx, client)`.
+   `client.Do`, you define an endpoint descriptor with a typed encoder/decoder and call
+   `endpoint.Call(body).Execute(ctx, client)` (body endpoints) or
+   `endpoint.Call().Execute(ctx, client)` (no-body endpoints).
 
-2. **Builders are mutable, endpoints are immutable** -- The old package used immutable
-   `ClientParam`/`HTTPClientParam` option functions. The new package uses mutable
-   fluent builders (`SetFoo` modifies the receiver) with explicit `Clone()`. Endpoints
-   and Overrides remain copy-on-write (value semantics).
+2. **Builders are mutable, descriptors/Calls are immutable** -- The old package used
+   immutable `ClientParam`/`HTTPClientParam` option functions. The new package uses
+   mutable fluent builders (`SetFoo` modifies the receiver) with explicit `Clone()`.
+   Endpoint descriptors, `Call`, and `Overrides` are copy-on-write (value semantics).
 
 3. **Generics throughout** -- Builders, endpoints, codecs, and params all use Go
    generics for type safety. The builder hierarchy uses self-typed generic
@@ -69,8 +72,8 @@ Key differences:
 
 The old API built the HTTP method, path, codecs, and RPC name inline at each
 `client.Do(ctx, params...)` call. The new API defines those pieces once in a
-package-level `Endpoint`, then call sites fill path params/body values and call
-`Execute(ctx, client)`.
+package-level endpoint descriptor; each call site derives a `Call` (with the body, for
+body endpoints), fills path params, and calls `Execute(ctx, client)`.
 
 See [`Example_migrationFromHTTPClient`](examples/example_migration_from_httpclient_test.go)
 for the old-to-new shape, plus [`Example_basicGet`](examples/example_basic_get_test.go)
@@ -80,11 +83,11 @@ and POST examples.
 Key differences:
 - The HTTP method, path template, RPC name, encoder, and decoder are defined once
   in the endpoint descriptor rather than repeated at every call site.
-- Path parameters are filled by name (`WithPathParam("itemId", id)`) with automatic
-  URL escaping, instead of manual `url.PathEscape` + string concatenation.
+- Path parameters are filled by name on the `Call` (`Call().WithPathParam("itemId", id)`)
+  with automatic URL escaping, instead of manual `url.PathEscape` + string concatenation.
 - The response is returned as a typed value, not written to a pointer.
-- `httpc.Void` is the Req type parameter for body-less endpoints; their Execute
-  takes only `(ctx, client)` — no body argument.
+- No-body endpoints (`NoBodyEndpoint[Resp]` from `NewGET`/`NewDELETE`/`NewHEAD`) derive a
+  `Call` with `Call()` — no body argument; body endpoints use `Call(body)`.
 
 ## Gotchas and behavioral differences
 
@@ -110,8 +113,8 @@ should return 503 for conditions where client retry is appropriate.
 
 The old client-level `httpclient.WithDisableRestErrors()` turned off REST error
 decoding for every call. In the new package error decoding is a per-endpoint/per-call
-concern: use `WithNoErrorDecoder()` on the `Endpoint` (or a per-call `Overrides`) so
-`Execute` returns the raw response for every status code. To instead drop a custom
+concern: use `WithNoErrorDecoder()` on the endpoint descriptor (or a per-call `Call`/
+`Overrides`) so `Execute` returns the raw response for every status code. To instead drop a custom
 decoder and fall back to the default, use `WithDefaultErrorDecoder()`.
 
 ### Retry configuration: MaxRetries vs MaxAttempts
@@ -223,7 +226,7 @@ Send(ctx context.Context, req *http.Request, opts SendOptions) (*http.Response, 
 ```
 
 `Builder.Build` returns the standard implementation (a `RebuildableRuntime`) that owns
-the retry/scoring/telemetry loop internally; `Endpoint.Execute` drives requests through
+the retry/scoring/telemetry loop internally; `Call.Execute` drives requests through
 it, and you can call `Send` directly for the low-level path. A test fake or wrapper
 implements the single `Send` method. HTTP method selection happens at the endpoint level.
 
@@ -280,13 +283,14 @@ escaping individual segments. See
 1. **Replace client construction**: Change `httpclient.NewClient*` calls to
    `httpc.NewBuilder()...Build(ctx)`.
 
-2. **Define endpoints**: Create package-level `Endpoint` vars for each RPC, setting
-   method, path template, encoder, decoder, and accept header.
+2. **Define endpoints**: Create package-level descriptor vars for each RPC — a
+   `BodyEndpoint` (`NewPOST`/`NewPUT`/`NewPATCH`) or `NoBodyEndpoint`
+   (`NewGET`/`NewDELETE`/`NewHEAD`) — setting encoder, decoder, and accept (or `.WithJSON()`
+   for all three at once).
 
 3. **Replace `client.Do` calls**: For body-bearing RPCs, replace inline
-   `client.Do(ctx, params...)` with `endpoint.WithBody(body).Execute(ctx, client)`.
-   For body-less RPCs (Req = `Void`), call `endpoint.Execute(ctx, client)` — no
-   body argument.
+   `client.Do(ctx, params...)` with `endpoint.Call(body).Execute(ctx, client)`.
+   For body-less RPCs, call `endpoint.Call().Execute(ctx, client)` — no body argument.
 
 4. **Migrate request params to Overrides**: Convert per-request `WithHeader`,
    `WithRequestTimeout`, `WithRequestBasicAuth`, etc. to `Overrides` methods.

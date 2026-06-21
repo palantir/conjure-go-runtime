@@ -41,7 +41,7 @@ func TestEndpointExecute_WithBody_NoEncoder_Errors(t *testing.T) {
 		t.Fatal("client should not be called when body has no encoder")
 		return nil, nil
 	})
-	_, _, err := ep.WithBody(testPayload{Name: "x", Value: 1}).Execute(context.Background(), client)
+	_, _, err := ep.Call(testPayload{Name: "x", Value: 1}).Execute(context.Background(), client)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no encoder")
 }
@@ -56,7 +56,7 @@ func TestEndpointExecute_UnterminatedPathParam_Errors(t *testing.T) {
 		t.Fatal("client should not be called for malformed path")
 		return nil, nil
 	})
-	_, _, err := ep.Execute(context.Background(), client)
+	_, _, err := ep.Call().Execute(context.Background(), client)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unterminated")
 }
@@ -87,12 +87,12 @@ func TestEndpointExecute_BasicAuthOverridesAuthorizationHeader(t *testing.T) {
 	client, err := httpc.NewBuilder().SetBaseURLs("https://example.com").SetTransport(transport).Build(context.Background())
 	require.NoError(t, err)
 
-	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "Auth", "/auth").
+	ep := httpc.NewNoBodyEndpoint[struct{}](http.MethodGet, "Auth", "/auth").
 		WithDecoder(httpc.VoidDecoder()).
 		WithHeader("Authorization", "Bearer ignored").
 		WithBasicAuth("u", "p")
 
-	_, _, err = ep.Execute(context.Background(), client)
+	_, _, err = ep.Call().Execute(context.Background(), client)
 	require.NoError(t, err)
 	// Basic auth is the trailing Authorization contributor, so it wins.
 	assert.Equal(t, "Basic dTpw", seen)
@@ -105,12 +105,11 @@ func TestOverrides_NoErrorDecoder_BypassesDefault(t *testing.T) {
 		_, _ = w.Write([]byte("forbidden"))
 	})
 
-	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "Err", "/err").
-		WithDecoder(httpc.VoidDecoder()).
-		WithOverrides(httpc.Overrides{}.WithErrorDecoder(httpc.NoErrorDecoder()))
+	ep := httpc.NewNoBodyEndpoint[struct{}](http.MethodGet, "Err", "/err").
+		WithDecoder(httpc.VoidDecoder())
 
 	client := &httpTestClient{server: server}
-	_, httpResp, err := ep.Execute(context.Background(), client)
+	_, httpResp, err := ep.Call().WithOverrides(httpc.Overrides{}.WithErrorDecoder(httpc.NoErrorDecoder())).Execute(context.Background(), client)
 	require.NoError(t, err)
 	require.NotNil(t, httpResp)
 	assert.Equal(t, http.StatusForbidden, httpResp.StatusCode)
@@ -131,12 +130,11 @@ func TestOverrides_WithConjureErrorDecoder(t *testing.T) {
 		assert.NotEmpty(t, body)
 	}}
 
-	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "Err", "/err").
-		WithDecoder(httpc.VoidDecoder()).
-		WithOverrides(conjureerrors.WithConjureErrorDecoder(httpc.Overrides{}, ced))
+	ep := httpc.NewNoBodyEndpoint[struct{}](http.MethodGet, "Err", "/err").
+		WithDecoder(httpc.VoidDecoder())
 
 	client := &httpTestClient{server: server}
-	_, _, err := ep.Execute(context.Background(), client)
+	_, _, err := ep.Call().WithOverrides(conjureerrors.WithConjureErrorDecoder(httpc.Overrides{}, ced)).Execute(context.Background(), client)
 	require.Error(t, err)
 	assert.True(t, called, "ConjureErrorDecoder should have been invoked")
 }
@@ -166,8 +164,8 @@ func TestBuilder_SetTransport_WinsOverSetDialer(t *testing.T) {
 		Build(context.Background())
 	require.NoError(t, err)
 
-	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "T", "/test").WithDecoder(httpc.VoidDecoder())
-	_, _, err = ep.Execute(context.Background(), client)
+	ep := httpc.NewNoBodyEndpoint[struct{}](http.MethodGet, "T", "/test").WithDecoder(httpc.VoidDecoder())
+	_, _, err = ep.Call().Execute(context.Background(), client)
 	require.NoError(t, err)
 	assert.True(t, transportCalled, "the SetTransport-provided transport should be used")
 }
@@ -202,8 +200,8 @@ func TestBuilder_BasicAuthOptionalProvider_NilSkipsAuth(t *testing.T) {
 		Build(context.Background())
 	require.NoError(t, err)
 
-	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "T", "/t").WithDecoder(httpc.VoidDecoder())
-	_, _, err = ep.Execute(context.Background(), client)
+	ep := httpc.NewNoBodyEndpoint[struct{}](http.MethodGet, "T", "/t").WithDecoder(httpc.VoidDecoder())
+	_, _, err = ep.Call().Execute(context.Background(), client)
 	require.NoError(t, err)
 	assert.Empty(t, seen, "nil from BasicAuthOptionalProvider should leave Authorization unset")
 }

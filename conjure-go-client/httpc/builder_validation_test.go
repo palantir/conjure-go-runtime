@@ -167,23 +167,23 @@ func TestBuilder_SetBaseURLsRefreshable_InvalidRefreshRetainsLastValid(t *testin
 		Build(context.Background())
 	require.NoError(t, err)
 
-	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "Test", "/test").
+	ep := httpc.NewNoBodyEndpoint[struct{}](http.MethodGet, "Test", "/test").
 		WithDecoder(httpc.VoidDecoder())
 
-	_, _, err = ep.Execute(context.Background(), client)
+	_, _, err = ep.Call().Execute(context.Background(), client)
 	require.NoError(t, err)
 	assert.Equal(t, 1, server1Hits)
 
 	// An invalid refresh is ignored; the client keeps using server1.
 	uris.Update([]string{"://bad"})
-	_, _, err = ep.Execute(context.Background(), client)
+	_, _, err = ep.Call().Execute(context.Background(), client)
 	require.NoError(t, err)
 	assert.Equal(t, 2, server1Hits)
 	assert.Equal(t, 0, server2Hits)
 
 	// A subsequent valid refresh takes effect.
 	uris.Update([]string{server2.URL})
-	_, _, err = ep.Execute(context.Background(), client)
+	_, _, err = ep.Call().Execute(context.Background(), client)
 	require.NoError(t, err)
 	assert.Equal(t, 2, server1Hits)
 	assert.Equal(t, 1, server2Hits)

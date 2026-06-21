@@ -46,7 +46,7 @@ func Example_bufferPool() {
 
 	// Endpoints are values; declare them once and reuse across calls.
 	var (
-		createItem = httpc.NewJSONPOST[bufferPoolItem, struct{}]("CreateItem", "/items").
+		createItem = httpc.NewPOST[bufferPoolItem, struct{}]("CreateItem", "/items").WithJSON().
 			WithBufferPool(pool)
 	)
 
@@ -59,7 +59,7 @@ func Example_bufferPool() {
 	}
 
 	for range 3 {
-		if _, _, err = createItem.WithBody(bufferPoolItem{Name: "widget"}).Execute(ctx, client); err != nil {
+		if _, _, err = createItem.Call(bufferPoolItem{Name: "widget"}).Execute(ctx, client); err != nil {
 			panic(err)
 		}
 	}

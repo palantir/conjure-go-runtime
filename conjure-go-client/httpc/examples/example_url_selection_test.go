@@ -44,7 +44,7 @@ func Example_urlSelection() {
 
 	// Endpoints are values; declare them once and reuse across calls.
 	var (
-		ping = httpc.NewJSONGET[struct{}]("Ping", "/ping")
+		ping = httpc.NewGET[struct{}]("Ping", "/ping").WithJSON()
 	)
 
 	client, err := httpc.NewBuilder().
@@ -58,7 +58,7 @@ func Example_urlSelection() {
 
 	successes := 0
 	for range 5 {
-		if _, _, execErr := ping.Execute(ctx, client); execErr == nil {
+		if _, _, execErr := ping.Call().Execute(ctx, client); execErr == nil {
 			successes++
 		}
 	}

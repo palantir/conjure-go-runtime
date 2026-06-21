@@ -35,10 +35,10 @@ func Example_customClient() {
 
 	// Endpoints are values; declare them once and reuse across calls.
 	var (
-		getItem = httpc.NewJSONGET[customClientItem]("GetItem", "/items/widget")
+		getItem = httpc.NewGET[customClientItem]("GetItem", "/items/widget").WithJSON()
 	)
 
-	item, _, err := getItem.Execute(ctx, customClient{})
+	item, _, err := getItem.Call().Execute(ctx, customClient{})
 	if err != nil {
 		panic(err)
 	}

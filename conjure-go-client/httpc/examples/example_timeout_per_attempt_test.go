@@ -42,7 +42,7 @@ func Example_timeoutPerAttempt() {
 
 	// Endpoints are values; declare them once and reuse across calls.
 	var (
-		ping = httpc.NewJSONGET[struct{}]("Ping", "/ping")
+		ping = httpc.NewGET[struct{}]("Ping", "/ping").WithJSON()
 	)
 
 	// A generous per-attempt timeout does not cap the number of attempts: all three
@@ -57,7 +57,7 @@ func Example_timeoutPerAttempt() {
 	if err != nil {
 		panic(err)
 	}
-	if _, _, err = ping.WithTimeout(time.Second).Execute(ctx, perAttempt); err == nil {
+	if _, _, err = ping.WithTimeout(time.Second).Call().Execute(ctx, perAttempt); err == nil {
 		panic("expected an error")
 	}
 	fmt.Println("attempts under per-attempt timeout:", attempts.Load())
@@ -75,7 +75,7 @@ func Example_timeoutPerAttempt() {
 	}
 	deadlineCtx, cancel := context.WithTimeout(ctx, 50*time.Millisecond)
 	defer cancel()
-	_, _, err = ping.Execute(deadlineCtx, unlimited)
+	_, _, err = ping.Call().Execute(deadlineCtx, unlimited)
 	fmt.Println("context deadline ended the call:", err != nil)
 	// Output:
 	// attempts under per-attempt timeout: 3

@@ -63,7 +63,7 @@ func Example_transportTuning() {
 
 	const requests = 3
 	for range requests {
-		if _, _, err = ping.Execute(ctx, client); err != nil {
+		if _, _, err = ping.Call().Execute(ctx, client); err != nil {
 			panic(err)
 		}
 	}

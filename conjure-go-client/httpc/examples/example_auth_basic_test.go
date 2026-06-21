@@ -42,7 +42,7 @@ func Example_basicAuth() {
 
 	// Endpoints are values; declare them once and reuse across calls.
 	var (
-		ping = httpc.NewJSONGET[struct{}]("Ping", "/ping")
+		ping = httpc.NewGET[struct{}]("Ping", "/ping").WithJSON()
 	)
 
 	authed, err := httpc.NewBuilder().
@@ -53,7 +53,7 @@ func Example_basicAuth() {
 	if err != nil {
 		panic(err)
 	}
-	if _, _, err = ping.Execute(ctx, authed); err != nil {
+	if _, _, err = ping.Call().Execute(ctx, authed); err != nil {
 		panic(err)
 	}
 
@@ -67,7 +67,7 @@ func Example_basicAuth() {
 	if err != nil {
 		panic(err)
 	}
-	if _, _, err = ping.Execute(ctx, optional); err != nil {
+	if _, _, err = ping.Call().Execute(ctx, optional); err != nil {
 		panic(err)
 	}
 	// Output:

@@ -53,7 +53,7 @@ func Example_tracing() {
 		panic(err)
 	}
 
-	if _, _, err = httpc.WithTraceHeader(ping, "4bf92f3577b34da6").Execute(ctx, client); err != nil {
+	if _, _, err = httpc.WithTraceHeader(ping, "4bf92f3577b34da6").Call().Execute(ctx, client); err != nil {
 		panic(err)
 	}
 	// Output:

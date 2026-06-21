@@ -43,7 +43,7 @@ func Example_headers() {
 
 	// Endpoints are values; declare them once and reuse across calls.
 	var (
-		getItem = httpc.NewJSONGET[struct{}]("GetItem", "/items/widget").
+		getItem = httpc.NewGET[struct{}]("GetItem", "/items/widget").WithJSON().
 			WithHeader("X-Tenant", "acme").                // beats the builder's SetHeader
 			WithAddedHeader("X-Trace-Tags", "team=search") // adds to the builder's value
 	)
@@ -58,7 +58,7 @@ func Example_headers() {
 		panic(err)
 	}
 
-	if _, _, err = getItem.Execute(ctx, client); err != nil {
+	if _, _, err = getItem.Call().Execute(ctx, client); err != nil {
 		panic(err)
 	}
 	// Output:

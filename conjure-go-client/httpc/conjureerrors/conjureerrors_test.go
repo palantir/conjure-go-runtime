@@ -72,14 +72,14 @@ func TestWithConjureErrorDecoder_OnEndpoint(t *testing.T) {
 
 	ced := &probeConjureDecoder{}
 	ep := conjureerrors.WithConjureErrorDecoder(
-		httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "Err", "/err").WithDecoder(httpc.VoidDecoder()),
+		httpc.NewGET[struct{}]("Err", "/err").WithDecoder(httpc.VoidDecoder()),
 		ced,
 	)
 
 	client, err := httpc.NewBuilder().SetBaseURLs(server.URL).Build(context.Background())
 	require.NoError(t, err)
 
-	_, _, err = ep.Execute(context.Background(), client)
+	_, _, err = ep.Call().Execute(context.Background(), client)
 	require.Error(t, err)
 	assert.True(t, ced.called, "custom ConjureErrorDecoder should have been invoked via the endpoint")
 }

@@ -41,8 +41,8 @@ func Example_greedyPathParam() {
 
 	// Endpoints are values; declare them once and reuse across calls.
 	var (
-		greedy = httpc.NewJSONGET[struct{}]("GetFile", "/files/{filePath*}")
-		plain  = httpc.NewJSONGET[struct{}]("GetByName", "/lookup/{name}")
+		greedy = httpc.NewGET[struct{}]("GetFile", "/files/{filePath*}").WithJSON()
+		plain  = httpc.NewGET[struct{}]("GetByName", "/lookup/{name}").WithJSON()
 	)
 
 	client, err := httpc.NewBuilder().
@@ -55,10 +55,10 @@ func Example_greedyPathParam() {
 
 	value := "my docs/report.txt"
 
-	if _, _, err = greedy.WithPathParam("filePath", value).Execute(ctx, client); err != nil {
+	if _, _, err = greedy.Call().WithPathParam("filePath", value).Execute(ctx, client); err != nil {
 		panic(err)
 	}
-	if _, _, err = plain.WithPathParam("name", value).Execute(ctx, client); err != nil {
+	if _, _, err = plain.Call().WithPathParam("name", value).Execute(ctx, client); err != nil {
 		panic(err)
 	}
 	// Output:

@@ -74,14 +74,14 @@ func Example_replayableStreamingBody() {
 
 	// With replay, the 503 first attempt is retried with a fresh stream and succeeds.
 	open := func() (io.ReadCloser, error) { return io.NopCloser(strings.NewReader("payload")), nil }
-	if _, _, err := replayUpload.WithBody(open).Execute(ctx, newClient()); err != nil {
+	if _, _, err := replayUpload.Call(open).Execute(ctx, newClient()); err != nil {
 		panic(err)
 	}
 	fmt.Println("with replay, attempts:", attempts.Load())
 
 	// Without replay the stream can't be reopened, so the 503 is returned as-is.
 	attempts.Store(0)
-	_, _, err := onceUpload.WithBody(io.NopCloser(strings.NewReader("payload"))).Execute(ctx, newClient())
+	_, _, err := onceUpload.Call(io.NopCloser(strings.NewReader("payload"))).Execute(ctx, newClient())
 	fmt.Println("without replay, attempts:", attempts.Load())
 	fmt.Println("without replay, failed:", err != nil)
 	// Output:

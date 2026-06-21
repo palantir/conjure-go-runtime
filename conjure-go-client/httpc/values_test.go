@@ -46,7 +46,7 @@ func TestSend_PerRequestHeaderBeatsBuilderHeader(t *testing.T) {
 		WithDecoder(httpc.VoidDecoder()).
 		WithHeader("X-Custom", "request")
 
-	_, _, err = ep.Execute(t.Context(), client)
+	_, _, err = ep.Call().Execute(t.Context(), client)
 	require.NoError(t, err)
 	assert.Equal(t, "request", got)
 }
@@ -76,7 +76,7 @@ func TestSend_AuthorizationHeaderSuppressesErroringProvider(t *testing.T) {
 		WithDecoder(httpc.VoidDecoder()).
 		WithHeader("Authorization", "Bearer explicit")
 
-	_, _, err = ep.Execute(t.Context(), client)
+	_, _, err = ep.Call().Execute(t.Context(), client)
 	require.NoError(t, err)
 	assert.Equal(t, "Bearer explicit", got)
 	assert.False(t, providerCalled.Load(), "auth provider must not run when Authorization is set explicitly")
@@ -112,7 +112,7 @@ func TestSend_QueryResolvesPerAttempt(t *testing.T) {
 		WithDecoder(httpc.VoidDecoder()).
 		WithAddedQuery("q", "v")
 
-	_, _, err = ep.Execute(t.Context(), client)
+	_, _, err = ep.Call().Execute(t.Context(), client)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"v"}, gotQuery, "query must be resolved once per attempt, not duplicated on retry")
 }
@@ -131,7 +131,7 @@ func TestSend_NilMiddlewareClientDecoratesHeaders(t *testing.T) {
 		WithDecoder(httpc.VoidDecoder()).
 		WithHeader("X-Custom", "v")
 
-	_, _, err := ep.Execute(t.Context(), client)
+	_, _, err := ep.Call().Execute(t.Context(), client)
 	require.NoError(t, err)
 	assert.Equal(t, "v", got)
 }

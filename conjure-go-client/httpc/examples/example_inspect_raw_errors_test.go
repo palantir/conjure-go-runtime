@@ -54,7 +54,7 @@ func Example_inspectRawErrors() {
 		panic(err)
 	}
 
-	body, resp, err := getItem.Execute(ctx, client)
+	body, resp, err := getItem.Call().Execute(ctx, client)
 	if err != nil {
 		panic(err)
 	}

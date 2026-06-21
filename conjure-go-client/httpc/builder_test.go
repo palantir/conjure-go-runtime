@@ -61,11 +61,11 @@ func TestBuilder_BasicBuild(t *testing.T) {
 		Build(context.Background())
 	require.NoError(t, err)
 
-	ep := httpc.NewEndpoint[struct{}, builderTestPayload](http.MethodGet, "GetTest", "/api/test").
+	ep := httpc.NewNoBodyEndpoint[builderTestPayload](http.MethodGet, "GetTest", "/api/test").
 		WithDecoder(httpc.JSONDecoder[builderTestPayload]()).
 		WithAccept("application/json")
 
-	result, _, err := ep.Execute(context.Background(), client)
+	result, _, err := ep.Call().Execute(context.Background(), client)
 	require.NoError(t, err)
 	assert.Equal(t, "hello", result.Message)
 }
@@ -125,11 +125,11 @@ func TestBuilder_RebuildableRuntime(t *testing.T) {
 		Build(context.Background())
 	require.NoError(t, err)
 
-	ep := httpc.NewEndpoint[struct{}, builderTestPayload](http.MethodGet, "Test", "/test").
+	ep := httpc.NewNoBodyEndpoint[builderTestPayload](http.MethodGet, "Test", "/test").
 		WithDecoder(httpc.JSONDecoder[builderTestPayload]()).
 		WithAccept("application/json")
 
-	result, _, err := ep.Execute(context.Background(), client2)
+	result, _, err := ep.Call().Execute(context.Background(), client2)
 	require.NoError(t, err)
 	assert.Equal(t, "reconfigured", result.Message)
 }
@@ -178,10 +178,10 @@ func TestBuilder_Middleware(t *testing.T) {
 		Build(context.Background())
 	require.NoError(t, err)
 
-	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "MW", "/mw").
+	ep := httpc.NewNoBodyEndpoint[struct{}](http.MethodGet, "MW", "/mw").
 		WithDecoder(httpc.VoidDecoder())
 
-	_, _, err = ep.Execute(context.Background(), client)
+	_, _, err = ep.Call().Execute(context.Background(), client)
 	require.NoError(t, err)
 	assert.True(t, middlewareSeen)
 }
@@ -203,12 +203,12 @@ func TestBuilder_PostWithBody(t *testing.T) {
 		Build(context.Background())
 	require.NoError(t, err)
 
-	ep := httpc.NewEndpoint[builderTestPayload, builderTestPayload](http.MethodPost, "Create", "/create").
+	ep := httpc.NewBodyEndpoint[builderTestPayload, builderTestPayload](http.MethodPost, "Create", "/create").
 		WithEncoder(httpc.JSONEncoder[builderTestPayload]()).
 		WithDecoder(httpc.JSONDecoder[builderTestPayload]()).
 		WithAccept("application/json")
 
-	result, _, err := ep.WithBody(builderTestPayload{Message: "request"}).Execute(context.Background(), client)
+	result, _, err := ep.Call(builderTestPayload{Message: "request"}).Execute(context.Background(), client)
 	require.NoError(t, err)
 	assert.Equal(t, "response", result.Message)
 }
@@ -242,11 +242,11 @@ func TestBuilder_ErrorDecoder(t *testing.T) {
 		Build(context.Background())
 	require.NoError(t, err)
 
-	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "Fail", "/fail").
+	ep := httpc.NewNoBodyEndpoint[struct{}](http.MethodGet, "Fail", "/fail").
 		WithDecoder(httpc.VoidDecoder()).
 		WithErrorDecoder(&builderTestErrorDecoder{})
 
-	_, _, err = ep.Execute(context.Background(), client)
+	_, _, err = ep.Call().Execute(context.Background(), client)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "builder-decoded error")
 }
@@ -287,10 +287,10 @@ func TestBuilder_Headers(t *testing.T) {
 		Build(context.Background())
 	require.NoError(t, err)
 
-	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "Headers", "/headers").
+	ep := httpc.NewNoBodyEndpoint[struct{}](http.MethodGet, "Headers", "/headers").
 		WithDecoder(httpc.VoidDecoder())
 
-	_, _, err = ep.Execute(context.Background(), client)
+	_, _, err = ep.Call().Execute(context.Background(), client)
 	require.NoError(t, err)
 }
 
@@ -306,10 +306,10 @@ func TestBuilder_DefaultErrorDecoder_StatusCode(t *testing.T) {
 		Build(context.Background())
 	require.NoError(t, err)
 
-	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "Fail", "/fail").
+	ep := httpc.NewNoBodyEndpoint[struct{}](http.MethodGet, "Fail", "/fail").
 		WithDecoder(httpc.VoidDecoder())
 
-	_, _, err = ep.Execute(context.Background(), client)
+	_, _, err = ep.Call().Execute(context.Background(), client)
 	require.Error(t, err)
 
 	statusCode, ok := httpc.StatusCodeFromError(err)
@@ -331,10 +331,10 @@ func TestBuilder_DefaultErrorDecoder_NonJSONBody(t *testing.T) {
 		Build(context.Background())
 	require.NoError(t, err)
 
-	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "Fail", "/fail").
+	ep := httpc.NewNoBodyEndpoint[struct{}](http.MethodGet, "Fail", "/fail").
 		WithDecoder(httpc.VoidDecoder())
 
-	_, _, err = ep.Execute(context.Background(), client)
+	_, _, err = ep.Call().Execute(context.Background(), client)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "400 Bad Request")
 
@@ -365,10 +365,10 @@ func TestBuilder_DefaultErrorDecoder_ConjureJSON(t *testing.T) {
 		Build(context.Background())
 	require.NoError(t, err)
 
-	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "GetMissing", "/missing").
+	ep := httpc.NewNoBodyEndpoint[struct{}](http.MethodGet, "GetMissing", "/missing").
 		WithDecoder(httpc.VoidDecoder())
 
-	_, _, err = ep.Execute(context.Background(), client)
+	_, _, err = ep.Call().Execute(context.Background(), client)
 	require.Error(t, err)
 
 	statusCode, ok := httpc.StatusCodeFromError(err)
@@ -391,10 +391,10 @@ func TestBuilder_DefaultErrorDecoder_EmptyBody(t *testing.T) {
 		Build(context.Background())
 	require.NoError(t, err)
 
-	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "Down", "/down").
+	ep := httpc.NewNoBodyEndpoint[struct{}](http.MethodGet, "Down", "/down").
 		WithDecoder(httpc.VoidDecoder())
 
-	_, _, err = ep.Execute(context.Background(), client)
+	_, _, err = ep.Call().Execute(context.Background(), client)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "503 Service Unavailable")
 
@@ -550,10 +550,10 @@ func TestRefreshable_URIPropagation(t *testing.T) {
 		Build(context.Background())
 	require.NoError(t, err)
 
-	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "Test", "/test").
+	ep := httpc.NewNoBodyEndpoint[struct{}](http.MethodGet, "Test", "/test").
 		WithDecoder(httpc.VoidDecoder())
 
-	_, _, err = ep.Execute(context.Background(), client)
+	_, _, err = ep.Call().Execute(context.Background(), client)
 	require.NoError(t, err)
 	assert.Equal(t, 1, server1Hits)
 	assert.Equal(t, 0, server2Hits)
@@ -561,7 +561,7 @@ func TestRefreshable_URIPropagation(t *testing.T) {
 	// Update URIs to point to server2.
 	uris.Update([]string{server2.URL})
 
-	_, _, err = ep.Execute(context.Background(), client)
+	_, _, err = ep.Call().Execute(context.Background(), client)
 	require.NoError(t, err)
 	assert.Equal(t, 1, server1Hits)
 	assert.Equal(t, 1, server2Hits)
@@ -612,11 +612,11 @@ func TestBuilder_SetTransport_FullClientPathWithCustomRoundTripper(t *testing.T)
 		Build(context.Background())
 	require.NoError(t, err)
 
-	ep := httpc.NewEndpoint[struct{}, builderTestPayload](http.MethodGet, "GetTest", "/api/test").
+	ep := httpc.NewNoBodyEndpoint[builderTestPayload](http.MethodGet, "GetTest", "/api/test").
 		WithDecoder(httpc.JSONDecoder[builderTestPayload]()).
 		WithAccept("application/json")
 
-	result, _, err := ep.Execute(context.Background(), client)
+	result, _, err := ep.Call().Execute(context.Background(), client)
 	require.NoError(t, err)
 	assert.Equal(t, 1, calls, "custom transport should have been invoked exactly once")
 	assert.Equal(t, "in-process", result.Message)

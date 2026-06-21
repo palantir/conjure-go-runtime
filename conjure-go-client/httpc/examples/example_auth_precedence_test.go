@@ -43,7 +43,7 @@ func Example_authPrecedence() {
 
 	// Endpoints are values; declare them once and reuse across calls.
 	var (
-		ping = httpc.NewJSONGET[struct{}]("Ping", "/ping").
+		ping = httpc.NewGET[struct{}]("Ping", "/ping").WithJSON().
 			WithHeader("Authorization", "Bearer explicit-token")
 	)
 
@@ -61,7 +61,7 @@ func Example_authPrecedence() {
 		panic(err)
 	}
 
-	if _, _, err = ping.Execute(ctx, client); err != nil {
+	if _, _, err = ping.Call().Execute(ctx, client); err != nil {
 		panic(err)
 	}
 

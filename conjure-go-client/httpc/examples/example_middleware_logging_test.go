@@ -52,7 +52,7 @@ func Example_middlewareLogging() {
 
 	// Endpoints are values; declare them once and reuse across calls.
 	var (
-		getItem = httpc.NewJSONGET[loggingItem]("GetItem", "/items/widget")
+		getItem = httpc.NewGET[loggingItem]("GetItem", "/items/widget").WithJSON()
 	)
 
 	client, err := httpc.NewBuilder().
@@ -64,7 +64,7 @@ func Example_middlewareLogging() {
 		panic(err)
 	}
 
-	item, _, err := getItem.Execute(ctx, client)
+	item, _, err := getItem.Call().Execute(ctx, client)
 	if err != nil {
 		panic(err)
 	}

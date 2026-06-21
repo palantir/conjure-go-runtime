@@ -47,7 +47,7 @@ func Example_compressedBody() {
 
 	// Endpoints are values; declare them once and reuse across calls.
 	var (
-		createItem = httpc.NewJSONPOST[compressedItem, struct{}]("CreateItem", "/items").
+		createItem = httpc.NewPOST[compressedItem, struct{}]("CreateItem", "/items").WithJSON().
 			WithEncoder(httpc.GZIPEncoder(httpc.JSONEncoder[compressedItem]()))
 	)
 
@@ -59,7 +59,7 @@ func Example_compressedBody() {
 		panic(err)
 	}
 
-	if _, _, err = createItem.WithBody(compressedItem{Name: "widget"}).Execute(ctx, client); err != nil {
+	if _, _, err = createItem.Call(compressedItem{Name: "widget"}).Execute(ctx, client); err != nil {
 		panic(err)
 	}
 	// Output:

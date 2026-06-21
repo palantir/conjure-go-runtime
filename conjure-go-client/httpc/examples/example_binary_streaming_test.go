@@ -57,7 +57,7 @@ func Example_binaryStreaming() {
 	}
 
 	payload := io.NopCloser(strings.NewReader("hello, world"))
-	download, _, err := upload.WithBody(payload).Execute(ctx, client)
+	download, _, err := upload.Call(payload).Execute(ctx, client)
 	if err != nil {
 		panic(err)
 	}

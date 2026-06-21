@@ -84,7 +84,7 @@ func Example_customBuilder() {
 	if err != nil {
 		panic(err)
 	}
-	if _, _, err = ping.Execute(ctx, client); err != nil {
+	if _, _, err = ping.Call().Execute(ctx, client); err != nil {
 		panic(err)
 	}
 

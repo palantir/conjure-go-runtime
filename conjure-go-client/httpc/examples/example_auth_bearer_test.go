@@ -41,7 +41,7 @@ func Example_bearerToken() {
 
 	// Endpoints are values; declare them once and reuse across calls.
 	var (
-		ping = httpc.NewJSONGET[struct{}]("Ping", "/ping")
+		ping = httpc.NewGET[struct{}]("Ping", "/ping").WithJSON()
 	)
 
 	issued := 0
@@ -58,7 +58,7 @@ func Example_bearerToken() {
 	}
 
 	for range 2 {
-		if _, _, err = ping.Execute(ctx, client); err != nil {
+		if _, _, err = ping.Call().Execute(ctx, client); err != nil {
 			panic(err)
 		}
 	}

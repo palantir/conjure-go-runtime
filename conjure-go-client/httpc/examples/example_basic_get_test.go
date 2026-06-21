@@ -40,7 +40,7 @@ func Example_basicGet() {
 
 	// Endpoints are values; declare them once and reuse across calls.
 	var (
-		getItem = httpc.NewJSONGET[basicGetItem]("GetItem", "/items/{id}")
+		getItem = httpc.NewGET[basicGetItem]("GetItem", "/items/{id}").WithJSON()
 	)
 
 	client, err := httpc.NewBuilder().
@@ -51,7 +51,7 @@ func Example_basicGet() {
 		panic(err)
 	}
 
-	item, _, err := getItem.WithPathParam("id", "widget").Execute(ctx, client)
+	item, _, err := getItem.Call().WithPathParam("id", "widget").Execute(ctx, client)
 	if err != nil {
 		panic(err)
 	}

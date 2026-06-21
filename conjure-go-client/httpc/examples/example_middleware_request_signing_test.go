@@ -67,7 +67,7 @@ func Example_middlewareRequestSigning() {
 
 	// Endpoints are values; declare them once and reuse across calls.
 	var (
-		putItem = httpc.NewJSONPUT[signingItem, struct{}]("PutItem", "/items/widget")
+		putItem = httpc.NewPUT[signingItem, struct{}]("PutItem", "/items/widget").WithJSON()
 	)
 
 	client, err := httpc.NewBuilder().
@@ -79,7 +79,7 @@ func Example_middlewareRequestSigning() {
 		panic(err)
 	}
 
-	if _, _, err = putItem.WithBody(signingItem{Name: "widget"}).Execute(ctx, client); err != nil {
+	if _, _, err = putItem.Call(signingItem{Name: "widget"}).Execute(ctx, client); err != nil {
 		panic(err)
 	}
 	// Output:

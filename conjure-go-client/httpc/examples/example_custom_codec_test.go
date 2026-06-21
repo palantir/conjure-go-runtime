@@ -68,7 +68,7 @@ func Example_customCodec() {
 		panic(err)
 	}
 
-	reply, _, err := echo.WithBody("ping").Execute(ctx, client)
+	reply, _, err := echo.Call("ping").Execute(ctx, client)
 	if err != nil {
 		panic(err)
 	}

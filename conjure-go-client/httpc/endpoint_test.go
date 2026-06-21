@@ -100,13 +100,13 @@ func TestEndpointExecute_JSONRoundTrip(t *testing.T) {
 		_, _ = w.Write([]byte(`{"name":"response","value":2}`))
 	})
 
-	ep := httpc.NewEndpoint[testPayload, testPayload](http.MethodPost, "CreateItem", "/api/v1/items").
+	ep := httpc.NewBodyEndpoint[testPayload, testPayload](http.MethodPost, "CreateItem", "/api/v1/items").
 		WithEncoder(httpc.JSONEncoder[testPayload]()).
 		WithDecoder(httpc.JSONDecoder[testPayload]()).
 		WithAccept("application/json")
 
 	client := &httpTestClient{server: server}
-	result, _, err := ep.WithBody(testPayload{Name: "test", Value: 1}).Execute(context.Background(), client)
+	result, _, err := ep.Call(testPayload{Name: "test", Value: 1}).Execute(context.Background(), client)
 	require.NoError(t, err)
 	assert.Equal(t, testPayload{Name: "response", Value: 2}, result)
 }
@@ -118,13 +118,13 @@ func TestEndpointExecute_Headers(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 
-	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "Test", "/test").
+	ep := httpc.NewNoBodyEndpoint[struct{}](http.MethodGet, "Test", "/test").
 		WithDecoder(httpc.VoidDecoder()).
 		WithAddedHeader("X-Custom", "val1").
 		WithAddedHeader("X-Other", "val2")
 
 	client := &httpTestClient{server: server}
-	_, _, err := ep.Execute(context.Background(), client)
+	_, _, err := ep.Call().Execute(context.Background(), client)
 	require.NoError(t, err)
 }
 
@@ -135,13 +135,13 @@ func TestEndpointExecute_QueryParams(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 
-	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "Search", "/search").
+	ep := httpc.NewNoBodyEndpoint[struct{}](http.MethodGet, "Search", "/search").
 		WithDecoder(httpc.VoidDecoder()).
 		WithAddedQuery("foo", "bar").
 		WithAddedQuery("page", "2")
 
 	client := &httpTestClient{server: server}
-	_, _, err := ep.Execute(context.Background(), client)
+	_, _, err := ep.Call().Execute(context.Background(), client)
 	require.NoError(t, err)
 }
 
@@ -154,12 +154,12 @@ func TestEndpointExecute_BasicAuth(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 
-	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "Auth", "/auth").
+	ep := httpc.NewNoBodyEndpoint[struct{}](http.MethodGet, "Auth", "/auth").
 		WithDecoder(httpc.VoidDecoder()).
 		WithBasicAuth("myuser", "mypass")
 
 	client := &httpTestClient{server: server}
-	_, _, err := ep.Execute(context.Background(), client)
+	_, _, err := ep.Call().Execute(context.Background(), client)
 	require.NoError(t, err)
 }
 
@@ -185,11 +185,11 @@ func TestEndpointExecute_BasicAuthOverridesClientAuth(t *testing.T) {
 		Build(context.Background())
 	require.NoError(t, err)
 
-	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "Auth", "/auth").
+	ep := httpc.NewNoBodyEndpoint[struct{}](http.MethodGet, "Auth", "/auth").
 		WithDecoder(httpc.VoidDecoder()).
 		WithBasicAuth("request-user", "request-pass")
 
-	_, _, err = ep.Execute(context.Background(), client)
+	_, _, err = ep.Call().Execute(context.Background(), client)
 	require.NoError(t, err)
 	assert.Equal(t, "Basic cmVxdWVzdC11c2VyOnJlcXVlc3QtcGFzcw==", gotAuth)
 	assert.False(t, providerCalled)
@@ -209,11 +209,11 @@ func TestEndpointExecute_Timeout(t *testing.T) {
 		Build(context.Background())
 	require.NoError(t, err)
 
-	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "Slow", "/slow").
+	ep := httpc.NewNoBodyEndpoint[struct{}](http.MethodGet, "Slow", "/slow").
 		WithDecoder(httpc.VoidDecoder()).
 		WithTimeout(50 * time.Millisecond)
 
-	_, _, err = ep.Execute(context.Background(), client)
+	_, _, err = ep.Call().Execute(context.Background(), client)
 	require.Error(t, err)
 }
 
@@ -228,11 +228,11 @@ func TestEndpointExecute_ZeroTimeoutDoesNotCancelContext(t *testing.T) {
 		}, nil
 	})
 
-	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "Test", "/test").
+	ep := httpc.NewNoBodyEndpoint[struct{}](http.MethodGet, "Test", "/test").
 		WithDecoder(httpc.VoidDecoder()).
 		WithTimeout(0)
 
-	_, _, err := ep.Execute(context.Background(), client)
+	_, _, err := ep.Call().Execute(context.Background(), client)
 	require.NoError(t, err)
 }
 
@@ -242,12 +242,12 @@ func TestEndpointExecute_ErrorDecoder(t *testing.T) {
 		_, _ = w.Write([]byte("forbidden"))
 	})
 
-	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "Err", "/err").
+	ep := httpc.NewNoBodyEndpoint[struct{}](http.MethodGet, "Err", "/err").
 		WithDecoder(httpc.VoidDecoder()).
 		WithErrorDecoder(&testErrorDecoder{})
 
 	client := &httpTestClient{server: server}
-	_, _, err := ep.Execute(context.Background(), client)
+	_, _, err := ep.Call().Execute(context.Background(), client)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "test error: Forbidden")
 }
@@ -261,11 +261,11 @@ func TestEndpointExecute_ErrorDecoderFallsBackToDefault(t *testing.T) {
 		_, _ = w.Write([]byte("forbidden"))
 	})
 
-	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "Err", "/err").
+	ep := httpc.NewNoBodyEndpoint[struct{}](http.MethodGet, "Err", "/err").
 		WithDecoder(httpc.VoidDecoder())
 
 	client := &httpTestClient{server: server}
-	_, _, err := ep.Execute(context.Background(), client)
+	_, _, err := ep.Call().Execute(context.Background(), client)
 	require.Error(t, err)
 	code, ok := httpc.StatusCodeFromError(err)
 	require.True(t, ok)
@@ -280,12 +280,12 @@ func TestEndpointExecute_NoErrorDecoderBypassesDefault(t *testing.T) {
 		_, _ = w.Write([]byte("forbidden"))
 	})
 
-	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "Err", "/err").
+	ep := httpc.NewNoBodyEndpoint[struct{}](http.MethodGet, "Err", "/err").
 		WithDecoder(httpc.VoidDecoder()).
 		WithErrorDecoder(httpc.NoErrorDecoder())
 
 	client := &httpTestClient{server: server}
-	_, httpResp, err := ep.Execute(context.Background(), client)
+	_, httpResp, err := ep.Call().Execute(context.Background(), client)
 	require.NoError(t, err)
 	require.NotNil(t, httpResp)
 	assert.Equal(t, http.StatusForbidden, httpResp.StatusCode)
@@ -345,10 +345,9 @@ func TestClientDo_PreservesEscapedPathSegments(t *testing.T) {
 	require.NoError(t, err)
 
 	ep := httpc.NewGET[struct{}]("GetItem", "/items/{itemId}").
-		WithDecoder(httpc.VoidDecoder()).
-		WithPathParam("itemId", "a/b")
+		WithDecoder(httpc.VoidDecoder())
 
-	_, _, err = ep.Execute(context.Background(), client)
+	_, _, err = ep.Call().WithPathParam("itemId", "a/b").Execute(context.Background(), client)
 	require.NoError(t, err)
 	assert.Equal(t, "/base%2Froot/items/a%2Fb", gotEscapedPath)
 }
@@ -366,13 +365,13 @@ func TestEndpointExecute_Middleware(t *testing.T) {
 		return next.RoundTrip(req)
 	})
 
-	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "MW", "/mw").
+	ep := httpc.NewNoBodyEndpoint[struct{}](http.MethodGet, "MW", "/mw").
 		WithDecoder(httpc.VoidDecoder()).
 		WithMiddleware(mw)
 
 	client, err := httpc.NewBuilder().SetBaseURLs(server.URL).Build(context.Background())
 	require.NoError(t, err)
-	_, _, err = ep.Execute(context.Background(), client)
+	_, _, err = ep.Call().Execute(context.Background(), client)
 	require.NoError(t, err)
 	assert.True(t, middlewareCalled)
 }
@@ -400,11 +399,11 @@ func TestEndpointExecute_PerRequestMiddlewarePerAttempt(t *testing.T) {
 		return next.RoundTrip(req)
 	})
 
-	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "Retry", "/retry").
+	ep := httpc.NewNoBodyEndpoint[struct{}](http.MethodGet, "Retry", "/retry").
 		WithDecoder(httpc.VoidDecoder()).
 		WithMiddleware(mw)
 
-	_, _, err = ep.Execute(context.Background(), client)
+	_, _, err = ep.Call().Execute(context.Background(), client)
 	require.NoError(t, err)
 	require.Len(t, hosts, 2, "per-request middleware should run once per attempt")
 	for _, h := range hosts {
@@ -429,12 +428,12 @@ func TestEndpointExecute_PerRequestMiddlewareInsideTelemetry(t *testing.T) {
 		return next.RoundTrip(req)
 	})
 
-	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "T", "/t").
+	ep := httpc.NewNoBodyEndpoint[struct{}](http.MethodGet, "T", "/t").
 		WithDecoder(httpc.VoidDecoder()).
 		WithMiddleware(mw)
 
 	ctx := httpc.ContextWithForUserAgent(context.Background(), "test-ua")
-	_, _, err = ep.Execute(ctx, client)
+	_, _, err = ep.Call().Execute(ctx, client)
 	require.NoError(t, err)
 	assert.Equal(t, "test-ua", seenForUserAgent,
 		"per-request middleware should run inside telemetry, after For-User-Agent injection")
@@ -446,11 +445,11 @@ func TestEndpointExecute_Void(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 
-	ep := httpc.NewEndpoint[httpc.Void, httpc.Void](http.MethodDelete, "DeleteItem", "/item/1").
+	ep := httpc.NewNoBodyEndpoint[httpc.Void](http.MethodDelete, "DeleteItem", "/item/1").
 		WithDecoder(httpc.VoidDecoder())
 
 	client := &httpTestClient{server: server}
-	_, _, err := ep.Execute(context.Background(), client)
+	_, _, err := ep.Call().Execute(context.Background(), client)
 	require.NoError(t, err)
 }
 
@@ -465,13 +464,13 @@ func TestEndpointExecute_RPCMethodName(t *testing.T) {
 		return next.RoundTrip(req)
 	})
 
-	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "MyRPCMethod", "/rpc").
+	ep := httpc.NewNoBodyEndpoint[struct{}](http.MethodGet, "MyRPCMethod", "/rpc").
 		WithDecoder(httpc.VoidDecoder()).
 		WithMiddleware(mw)
 
 	client, err := httpc.NewBuilder().SetBaseURLs(server.URL).Build(context.Background())
 	require.NoError(t, err)
-	_, _, err = ep.Execute(context.Background(), client)
+	_, _, err = ep.Call().Execute(context.Background(), client)
 	require.NoError(t, err)
 
 	name, ok := httpc.RPCMethodName(capturedCtx)
@@ -494,7 +493,7 @@ func TestEndpointExecute_ForUserAgentFromContext(t *testing.T) {
 
 	ctx := httpc.ContextWithForUserAgent(t.Context(), "end-user-agent")
 	_, _, err = httpc.NewGET[httpc.Void]("ForUserAgent", "/test").WithDecoder(httpc.VoidDecoder()).
-		Execute(ctx, client)
+		Call().Execute(ctx, client)
 	require.NoError(t, err)
 	assert.Equal(t, "end-user-agent", got)
 }
@@ -516,7 +515,7 @@ func TestEndpointExecute_ForUserAgentDoesNotOverrideHeader(t *testing.T) {
 	_, _, err = httpc.NewGET[httpc.Void]("ForUserAgent", "/test").
 		WithDecoder(httpc.VoidDecoder()).
 		WithHeader("For-User-Agent", "request-value").
-		Execute(ctx, client)
+		Call().Execute(ctx, client)
 	require.NoError(t, err)
 	assert.Equal(t, "request-value", got)
 }
@@ -527,7 +526,7 @@ func TestEndpointExecute_CopyOnWrite(t *testing.T) {
 		_, _ = w.Write([]byte(`{"name":"ok","value":0}`))
 	})
 
-	base := httpc.NewEndpoint[struct{}, testPayload](http.MethodGet, "GetItems", "/items").
+	base := httpc.NewNoBodyEndpoint[testPayload](http.MethodGet, "GetItems", "/items").
 		WithDecoder(httpc.JSONDecoder[testPayload]()).
 		WithAccept("application/json")
 
@@ -538,9 +537,9 @@ func TestEndpointExecute_CopyOnWrite(t *testing.T) {
 	client := &httpTestClient{server: server}
 
 	// Both should work independently.
-	_, _, err := v1.Execute(context.Background(), client)
+	_, _, err := v1.Call().Execute(context.Background(), client)
 	require.NoError(t, err)
-	_, _, err = v2.Execute(context.Background(), client)
+	_, _, err = v2.Call().Execute(context.Background(), client)
 	require.NoError(t, err)
 }
 
@@ -550,10 +549,10 @@ func TestEndpointExecute_NoDecoder(t *testing.T) {
 		_, _ = w.Write([]byte("ignored"))
 	})
 
-	ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "NoDec", "/nodec")
+	ep := httpc.NewNoBodyEndpoint[struct{}](http.MethodGet, "NoDec", "/nodec")
 
 	client := &httpTestClient{server: server}
-	result, _, err := ep.Execute(context.Background(), client)
+	result, _, err := ep.Call().Execute(context.Background(), client)
 	require.NoError(t, err)
 	assert.Equal(t, struct{}{}, result)
 }
@@ -565,12 +564,12 @@ func TestEndpointExecute_BinaryDecoder(t *testing.T) {
 		_, _ = w.Write([]byte(expected))
 	})
 
-	ep := httpc.NewEndpoint[struct{}, io.ReadCloser](http.MethodGet, "Download", "/download").
+	ep := httpc.NewNoBodyEndpoint[io.ReadCloser](http.MethodGet, "Download", "/download").
 		WithDecoder(httpc.BinaryDecoder()).
 		WithAccept("application/octet-stream")
 
 	client := &httpTestClient{server: server}
-	result, _, err := ep.Execute(context.Background(), client)
+	result, _, err := ep.Call().Execute(context.Background(), client)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	defer func() { _ = result.Close() }()
@@ -600,7 +599,7 @@ func TestNewGET(t *testing.T) {
 		WithAccept("application/json")
 
 	client := &httpTestClient{server: server}
-	result, _, err := ep.Execute(context.Background(), client)
+	result, _, err := ep.Call().Execute(context.Background(), client)
 	require.NoError(t, err)
 	assert.Equal(t, testPayload{Name: "get", Value: 1}, result)
 }
@@ -615,7 +614,7 @@ func TestNewDELETE(t *testing.T) {
 		WithDecoder(httpc.VoidDecoder())
 
 	client := &httpTestClient{server: server}
-	_, _, err := ep.Execute(context.Background(), client)
+	_, _, err := ep.Call().Execute(context.Background(), client)
 	require.NoError(t, err)
 }
 
@@ -629,7 +628,7 @@ func TestNewHEAD(t *testing.T) {
 		WithDecoder(httpc.VoidDecoder())
 
 	client := &httpTestClient{server: server}
-	_, _, err := ep.Execute(context.Background(), client)
+	_, _, err := ep.Call().Execute(context.Background(), client)
 	require.NoError(t, err)
 }
 
@@ -648,7 +647,7 @@ func TestNewPOST(t *testing.T) {
 		WithAccept("application/json")
 
 	client := &httpTestClient{server: server}
-	result, _, err := ep.WithBody(testPayload{Name: "post", Value: 1}).Execute(context.Background(), client)
+	result, _, err := ep.Call(testPayload{Name: "post", Value: 1}).Execute(context.Background(), client)
 	require.NoError(t, err)
 	assert.Equal(t, testPayload{Name: "created", Value: 2}, result)
 }
@@ -664,7 +663,7 @@ func TestNewPUT(t *testing.T) {
 		WithDecoder(httpc.VoidDecoder())
 
 	client := &httpTestClient{server: server}
-	_, _, err := ep.WithBody(testPayload{Name: "put", Value: 1}).Execute(context.Background(), client)
+	_, _, err := ep.Call(testPayload{Name: "put", Value: 1}).Execute(context.Background(), client)
 	require.NoError(t, err)
 }
 
@@ -679,13 +678,13 @@ func TestNewPATCH(t *testing.T) {
 		WithDecoder(httpc.VoidDecoder())
 
 	client := &httpTestClient{server: server}
-	_, _, err := ep.WithBody(testPayload{Name: "patch", Value: 1}).Execute(context.Background(), client)
+	_, _, err := ep.Call(testPayload{Name: "patch", Value: 1}).Execute(context.Background(), client)
 	require.NoError(t, err)
 }
 
 // Tests for JSON convenience constructors
 
-func TestNewJSONGET(t *testing.T) {
+func TestWithJSON_GET(t *testing.T) {
 	server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, http.MethodGet, r.Method)
 		assert.Equal(t, "application/json", r.Header.Get("Accept"))
@@ -694,13 +693,13 @@ func TestNewJSONGET(t *testing.T) {
 	})
 
 	client := &httpTestClient{server: server}
-	result, _, err := httpc.NewJSONGET[testPayload]("GetItem", "/items/1").
-		Execute(context.Background(), client)
+	result, _, err := httpc.NewGET[testPayload]("GetItem", "/items/1").WithJSON().
+		Call().Execute(context.Background(), client)
 	require.NoError(t, err)
 	assert.Equal(t, testPayload{Name: "json-get", Value: 1}, result)
 }
 
-func TestNewJSONPOST(t *testing.T) {
+func TestWithJSON_POST(t *testing.T) {
 	server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, http.MethodPost, r.Method)
 		assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
@@ -712,13 +711,13 @@ func TestNewJSONPOST(t *testing.T) {
 	})
 
 	client := &httpTestClient{server: server}
-	result, _, err := httpc.NewJSONPOST[testPayload, testPayload]("CreateItem", "/items").
-		WithBody(testPayload{Name: "req", Value: 1}).Execute(context.Background(), client)
+	result, _, err := httpc.NewPOST[testPayload, testPayload]("CreateItem", "/items").WithJSON().
+		Call(testPayload{Name: "req", Value: 1}).Execute(context.Background(), client)
 	require.NoError(t, err)
 	assert.Equal(t, testPayload{Name: "resp", Value: 2}, result)
 }
 
-func TestNewJSONPUT(t *testing.T) {
+func TestWithJSON_PUT(t *testing.T) {
 	server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, http.MethodPut, r.Method)
 		assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
@@ -730,8 +729,8 @@ func TestNewJSONPUT(t *testing.T) {
 	})
 
 	client := &httpTestClient{server: server}
-	result, _, err := httpc.NewJSONPUT[testPayload, testPayload]("UpdateItem", "/items/1").
-		WithBody(testPayload{Name: "update", Value: 3}).Execute(context.Background(), client)
+	result, _, err := httpc.NewPUT[testPayload, testPayload]("UpdateItem", "/items/1").WithJSON().
+		Call(testPayload{Name: "update", Value: 3}).Execute(context.Background(), client)
 	require.NoError(t, err)
 	assert.Equal(t, testPayload{Name: "updated", Value: 4}, result)
 }
@@ -761,7 +760,7 @@ func TestEndpointExecute_CompressionRoundTrip(t *testing.T) {
 		WithAccept("application/json")
 
 	client := &httpTestClient{server: server}
-	result, _, err := ep.WithBody(testPayload{Name: "compressed", Value: 42}).Execute(context.Background(), client)
+	result, _, err := ep.Call(testPayload{Name: "compressed", Value: 42}).Execute(context.Background(), client)
 	require.NoError(t, err)
 	assert.Equal(t, testPayload{Name: "ok", Value: 0}, result)
 }
@@ -779,7 +778,7 @@ func TestEndpointExecute_ResponseBodyDrained(t *testing.T) {
 		WithAccept("application/json")
 
 	client := &httpTestClient{server: server}
-	result, _, err := ep.Execute(context.Background(), client)
+	result, _, err := ep.Call().Execute(context.Background(), client)
 	require.NoError(t, err)
 	assert.Equal(t, testPayload{Name: "ok", Value: 1}, result)
 }
@@ -795,13 +794,13 @@ func TestEndpointExecute_BinaryEncoderOnce(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 
-	ep := httpc.NewEndpoint[io.ReadCloser, struct{}](http.MethodPost, "Upload", "/upload").
+	ep := httpc.NewBodyEndpoint[io.ReadCloser, struct{}](http.MethodPost, "Upload", "/upload").
 		WithEncoder(httpc.BinaryEncoder("application/octet-stream")).
 		WithDecoder(httpc.VoidDecoder())
 
 	client := &httpTestClient{server: server}
 	body := io.NopCloser(strings.NewReader("stream data"))
-	_, _, err := ep.WithBody(body).Execute(context.Background(), client)
+	_, _, err := ep.Call(body).Execute(context.Background(), client)
 	require.NoError(t, err)
 }
 
@@ -831,7 +830,7 @@ func TestEndpointExecute_BufferPoolFromClient(t *testing.T) {
 		WithAccept("application/json").
 		WithBufferPool(pool)
 
-	result, _, err := ep.WithBody(testPayload{Name: "pooled", Value: 7}).Execute(t.Context(), client)
+	result, _, err := ep.Call(testPayload{Name: "pooled", Value: 7}).Execute(t.Context(), client)
 	require.NoError(t, err)
 	assert.Equal(t, testPayload{Name: "ok", Value: 0}, result)
 	assert.Equal(t, 1, pool.gets, "pool should have been used for encoding")
@@ -853,7 +852,7 @@ func TestEndpointExecute_NoBufferPool(t *testing.T) {
 		WithAccept("application/json")
 
 	client := &httpTestClient{server: server}
-	result, _, err := ep.WithBody(testPayload{Name: "nop", Value: 0}).Execute(context.Background(), client)
+	result, _, err := ep.Call(testPayload{Name: "nop", Value: 0}).Execute(context.Background(), client)
 	require.NoError(t, err)
 	assert.Equal(t, testPayload{Name: "ok", Value: 0}, result)
 }
@@ -871,7 +870,7 @@ func TestEndpointExecute_BinaryDecoderNotDrained(t *testing.T) {
 		WithAccept("application/octet-stream")
 
 	client := &httpTestClient{server: server}
-	result, _, err := ep.Execute(context.Background(), client)
+	result, _, err := ep.Call().Execute(context.Background(), client)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 
@@ -919,7 +918,7 @@ func TestEndpointExecute_PoolWithCompression(t *testing.T) {
 		WithAccept("application/json").
 		WithBufferPool(pool)
 
-	result, _, err := ep.WithBody(testPayload{Name: "pool-zlib", Value: 9}).Execute(t.Context(), client)
+	result, _, err := ep.Call(testPayload{Name: "pool-zlib", Value: 9}).Execute(t.Context(), client)
 	require.NoError(t, err)
 	assert.Equal(t, testPayload{Name: "ok", Value: 0}, result)
 	// Pool was used by JSONEncoder, and buffer was returned when compression read the body.
@@ -935,7 +934,7 @@ func TestEndpointExecute_UnpopulatedPathParam(t *testing.T) {
 		t.Fatal("handler should not be called")
 	})}
 
-	_, _, err := ep.Execute(context.Background(), client)
+	_, _, err := ep.Call().Execute(context.Background(), client)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "{itemId}")
 	assert.Contains(t, err.Error(), "not populated")
@@ -949,7 +948,7 @@ func TestEndpointExecute_UnpopulatedGreedyPathParam(t *testing.T) {
 		t.Fatal("handler should not be called")
 	})}
 
-	_, _, err := ep.Execute(context.Background(), client)
+	_, _, err := ep.Call().Execute(context.Background(), client)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "{filePath*}")
 	assert.Contains(t, err.Error(), "not populated")
@@ -957,15 +956,14 @@ func TestEndpointExecute_UnpopulatedGreedyPathParam(t *testing.T) {
 
 func TestEndpointExecute_PartialPathParams(t *testing.T) {
 	ep := httpc.NewGET[struct{}]("GetOrgItem", "/orgs/{orgId}/items/{itemId}").
-		WithDecoder(httpc.VoidDecoder()).
-		WithPathParam("orgId", "acme")
+		WithDecoder(httpc.VoidDecoder())
 	// itemId is still unfilled
 
 	client := &httpTestClient{server: newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		t.Fatal("handler should not be called")
 	})}
 
-	_, _, err := ep.Execute(context.Background(), client)
+	_, _, err := ep.Call().WithPathParam("orgId", "acme").Execute(context.Background(), client)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "{itemId}")
 	assert.Contains(t, err.Error(), "not populated")

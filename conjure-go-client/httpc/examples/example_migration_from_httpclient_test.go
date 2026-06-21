@@ -41,13 +41,13 @@ import (
 //	WithMaxRetries(n)                     SetMaxAttempts(new(n + 1))
 //	WithConfig(cfg)                       ApplyConfig(ctx, cfg)
 //
-//	httpclient RequestParam               httpc Endpoint
+//	httpclient RequestParam               httpc endpoint
 //	----------------------------------    ----------------------------------
-//	WithRequestMethod(GET) + WithPath     NewJSONGET[T]("Op", "/path")
+//	WithRequestMethod(GET) + WithPath     NewGET[T]("Op", "/path").WithJSON()
 //	WithJSONResponse(&out)                type parameter T (decoded result)
-//	WithJSONRequest(in)                   NewJSONPOST[I, O] + WithBody(in)
+//	WithJSONRequest(in)                   NewPOST[I, O]().WithJSON().Call(in)
 //	WithPathf("/items/%s", id)            path built by the endpoint
-//	WithRequestTimeout(d)                 Endpoint.WithTimeout(d)
+//	WithRequestTimeout(d)                 endpoint.WithTimeout(d)
 func Example_migrationFromHTTPClient() {
 	ctx := context.Background()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -81,10 +81,10 @@ func Example_migrationFromHTTPClient() {
 	//
 	// Endpoints are values; declare them once and reuse across calls.
 	var (
-		getItem = httpc.NewJSONGET[migrationItem]("GetItem", "/items/widget")
+		getItem = httpc.NewGET[migrationItem]("GetItem", "/items/widget").WithJSON()
 	)
 
-	item, _, err := getItem.Execute(ctx, client)
+	item, _, err := getItem.Call().Execute(ctx, client)
 	if err != nil {
 		panic(err)
 	}

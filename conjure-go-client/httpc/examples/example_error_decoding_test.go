@@ -38,7 +38,7 @@ func Example_errorDecoding() {
 
 	// Endpoints are values; declare them once and reuse across calls.
 	var (
-		getItem = httpc.NewJSONGET[struct{}]("GetItem", "/items/widget")
+		getItem = httpc.NewGET[struct{}]("GetItem", "/items/widget").WithJSON()
 	)
 
 	client, err := httpc.NewBuilder().
@@ -49,7 +49,7 @@ func Example_errorDecoding() {
 		panic(err)
 	}
 
-	_, _, err = getItem.Execute(ctx, client)
+	_, _, err = getItem.Call().Execute(ctx, client)
 	if err == nil {
 		panic("expected an error")
 	}

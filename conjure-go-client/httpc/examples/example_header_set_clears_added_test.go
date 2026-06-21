@@ -44,7 +44,7 @@ func Example_headerSetClearsAdded() {
 
 	// Endpoints are values; declare them once and reuse across calls.
 	var (
-		getX = httpc.NewJSONGET[struct{}]("Get", "/x")
+		getX = httpc.NewGET[struct{}]("Get", "/x").WithJSON()
 	)
 
 	client, err := httpc.NewBuilder().
@@ -61,7 +61,7 @@ func Example_headerSetClearsAdded() {
 		WithAddedHeader("X-Tag", "a").
 		WithAddedHeader("X-Tag", "b") // both X-Tag adds accumulate
 
-	if _, _, err = getX.WithOverrides(overrides).Execute(ctx, client); err != nil {
+	if _, _, err = getX.Call().WithOverrides(overrides).Execute(ctx, client); err != nil {
 		panic(err)
 	}
 	// Output:

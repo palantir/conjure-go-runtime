@@ -54,7 +54,7 @@ func Example_proxy() {
 		panic(err)
 	}
 
-	if _, _, err = ping.Execute(ctx, client); err != nil {
+	if _, _, err = ping.Call().Execute(ctx, client); err != nil {
 		panic(err)
 	}
 	fmt.Println("requests via proxy:", viaProxy.Load())
