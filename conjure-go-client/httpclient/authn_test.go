@@ -118,6 +118,36 @@ func TestRoundTripperWithBasicAuthProvider(t *testing.T) {
 	assert.True(t, wrappedRTInvoked)
 }
 
+// TestNilBasicAuthProvider_ErrorsNotPanic guards the bridge contract: a nil
+// basic-auth provider must reach httpc's guarded constructor (which yields an
+// Authorizer that errors at resolution) rather than being wrapped in a non-nil
+// closure that panics when invoked.
+func TestNilBasicAuthProvider_ErrorsNotPanic(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		param httpclient.ClientOrHTTPClientParam
+	}{
+		{"WithBasicAuthProvider", httpclient.WithBasicAuthProvider(nil)},
+		{"WithBasicAuthOptionalProvider", httpclient.WithBasicAuthOptionalProvider(nil)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			client, err := httpclient.NewClient(
+				httpclient.WithBaseURLs([]string{"https://localhost"}),
+				httpclient.WithMaxRetries(0),
+				tc.param,
+			)
+			require.NoError(t, err, "a nil provider must not fail client construction")
+
+			var doErr error
+			require.NotPanics(t, func() {
+				_, doErr = client.Get(context.Background())
+			})
+			require.Error(t, doErr, "a nil provider must surface an error at request time")
+			assert.Contains(t, doErr.Error(), "nil provider passed to auth constructor")
+		})
+	}
+}
+
 // TestRequestHeaderBeatsClientHeader verifies a per-request WithHeader takes
 // precedence over a client-level WithSetHeader for the same key, now that bridge
 // request headers travel as SendOptions.Values above the client's intrinsic headers.

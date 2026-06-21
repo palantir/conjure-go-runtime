@@ -419,8 +419,11 @@ func WithBasicAuth(user, password string) ClientOrHTTPClientParam {
 // WithBasicAuthProvider sets the request's Authorization header to use HTTP Basic Authentication.
 // The provider is expected to always return a nonempty BasicAuth value, or an error.
 func WithBasicAuthProvider(provider BasicAuthProvider) ClientOrHTTPClientParam {
+	// Pass provider straight through (BasicAuth is an alias for httpc.BasicAuth, so the
+	// types are identical) rather than wrapping it — a wrapping closure is never nil and
+	// would defeat BasicCredentialsProvider's nil guard, panicking on a nil provider.
 	return builderClientOrHTTPClientParam(httpc.Param1((*httpc.Builder).SetAuth,
-		httpc.BasicCredentialsProvider(func(ctx context.Context) (httpc.BasicAuth, error) { return provider(ctx) })))
+		httpc.BasicCredentialsProvider(provider)))
 }
 
 // WithBasicAuthOptionalProvider sets the request's Authorization header to use HTTP Basic Authentication based on the
@@ -431,9 +434,11 @@ func WithBasicAuthOptionalProvider(provider BasicAuthOptionalProvider) ClientOrH
 	// Route through the builder's single auth slot so it resolves at the intrinsic-auth
 	// layer: a returned non-nil credential wins as the Authorization contributor and a
 	// nil result leaves the header unset, instead of being overwritten by other
-	// configured intrinsic auth applied during decoration.
+	// configured intrinsic auth applied during decoration. Pass provider straight through
+	// (BasicAuth is an alias for httpc.BasicAuth) so OptionalBasicCredentials' nil guard
+	// fires on a nil provider instead of a wrapping closure panicking.
 	return builderClientOrHTTPClientParam(httpc.Param1((*httpc.Builder).SetAuth,
-		httpc.OptionalBasicCredentials(func(ctx context.Context) (*httpc.BasicAuth, error) { return provider(ctx) })))
+		httpc.OptionalBasicCredentials(provider)))
 }
 
 // WithRandomURIScoring adds middleware that randomizes the order URIs are prioritized in for each request.
