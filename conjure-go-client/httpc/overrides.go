@@ -17,6 +17,7 @@ package httpc
 import (
 	"net/http"
 	"net/url"
+	"slices"
 	"time"
 
 	"github.com/palantir/pkg/bytesbuffers"
@@ -46,9 +47,9 @@ func setOverride[T any](v T) overrideValue[T] { return overrideValue[T]{value: v
 // typically stored as a field on a generated service-client struct.
 //
 // At merge time the two layers compose: headers and query parameters
-// accumulate across both; scalar values (timeout, error decoder, basic auth)
-// are last-wins with the Overrides value taking precedence over the
-// Endpoint-level default; middlewares append.
+// accumulate across both; scalar values (timeout, error decoder, basic auth,
+// buffer pool) are last-wins with the Overrides value taking precedence over
+// the Endpoint-level default; middlewares append.
 //
 // All methods are copy-on-write, so Overrides is safe to share across
 // goroutines.
@@ -58,10 +59,7 @@ func setOverride[T any](v T) overrideValue[T] { return overrideValue[T]{value: v
 // Calling WithHeader after WithAddedHeader for the same key discards the
 // added values (Set wins).
 type Overrides struct {
-	setHeaders   http.Header
-	addHeaders   http.Header
-	setQuery     url.Values
-	addQuery     url.Values
+	values       RequestValues                 // header & query contributors (resolved with later-wins precedence)
 	timeout      overrideValue[*time.Duration] // unset/nil = inherit; &0 = unlimited; &d = d
 	errorDecoder overrideValue[ErrorDecoder]   // unset/nil = DefaultErrorDecoder; NoErrorDecoder{} = skip
 	basicAuth    overrideValue[*basicAuthOverride]
@@ -69,32 +67,13 @@ type Overrides struct {
 	bufferPool   overrideValue[bytesbuffers.Pool]
 }
 
-// Clone returns a deep copy of the Overrides value.
+// Clone returns a deep copy of the Overrides value. (The contributor and
+// middleware slices are append-only copy-on-write, so callers rarely need this;
+// it remains for explicit isolation.)
 func (c Overrides) Clone() Overrides {
 	out := c
-	if c.setHeaders != nil {
-		out.setHeaders = c.setHeaders.Clone()
-	}
-	if c.addHeaders != nil {
-		out.addHeaders = c.addHeaders.Clone()
-	}
-	if c.setQuery != nil {
-		cp := make(url.Values, len(c.setQuery))
-		for k, v := range c.setQuery {
-			cp[k] = append([]string(nil), v...)
-		}
-		out.setQuery = cp
-	}
-	if c.addQuery != nil {
-		cp := make(url.Values, len(c.addQuery))
-		for k, v := range c.addQuery {
-			cp[k] = append([]string(nil), v...)
-		}
-		out.addQuery = cp
-	}
 	if c.middlewares != nil {
-		out.middlewares = make([]Middleware, len(c.middlewares))
-		copy(out.middlewares, c.middlewares)
+		out.middlewares = slices.Clone(c.middlewares)
 	}
 	if c.timeout.value != nil {
 		out.timeout.value = new(*c.timeout.value)
@@ -108,79 +87,39 @@ func (c Overrides) Clone() Overrides {
 // WithHeader sets a request header to the given value(s), replacing any
 // previously added or set values for the key.
 func (c Overrides) WithHeader(key, value string, additionalValues ...string) Overrides {
-	c = c.Clone()
-	if c.setHeaders == nil {
-		c.setHeaders = make(http.Header)
-	}
-	c.setHeaders.Set(key, value)
-	for _, v := range additionalValues {
-		c.setHeaders.Add(key, v)
-	}
-	if c.addHeaders != nil {
-		delete(c.addHeaders, http.CanonicalHeaderKey(key))
-	}
+	c.values = c.values.WithHeader(key, value, additionalValues...)
 	return c
 }
 
 // WithAddedHeader appends one or more values to a request header. Multiple
 // calls with the same key accumulate values.
 func (c Overrides) WithAddedHeader(key, value string, additionalValues ...string) Overrides {
-	c = c.Clone()
-	if c.addHeaders == nil {
-		c.addHeaders = make(http.Header)
-	}
-	c.addHeaders.Add(key, value)
-	for _, v := range additionalValues {
-		c.addHeaders.Add(key, v)
-	}
+	c.values = c.values.WithAddedHeader(key, value, additionalValues...)
 	return c
 }
 
 // WithQuery sets a query parameter to the given value(s), replacing any
 // previously added or set values for the key.
 func (c Overrides) WithQuery(key, value string, additionalValues ...string) Overrides {
-	c = c.Clone()
-	if c.setQuery == nil {
-		c.setQuery = make(url.Values)
-	}
-	c.setQuery.Set(key, value)
-	for _, v := range additionalValues {
-		c.setQuery.Add(key, v)
-	}
-	if c.addQuery != nil {
-		delete(c.addQuery, key)
-	}
+	c.values = c.values.WithQuery(key, value, additionalValues...)
 	return c
 }
 
 // WithAddedQuery appends one or more values to a query parameter. Multiple
 // calls with the same key accumulate values.
 func (c Overrides) WithAddedQuery(key, value string, additionalValues ...string) Overrides {
-	c = c.Clone()
-	if c.addQuery == nil {
-		c.addQuery = make(url.Values)
-	}
-	c.addQuery.Add(key, value)
-	for _, v := range additionalValues {
-		c.addQuery.Add(key, v)
-	}
+	c.values = c.values.WithAddedQuery(key, value, additionalValues...)
 	return c
 }
 
 // WithAddedQueryValues appends every key/value pair in q to the request
 // query; preserves multi-value keys.
 func (c Overrides) WithAddedQueryValues(q url.Values) Overrides {
-	if len(q) == 0 {
-		return c
-	}
-	c = c.Clone()
-	if c.addQuery == nil {
-		c.addQuery = make(url.Values, len(q))
-	}
 	for k, vs := range q {
-		for _, v := range vs {
-			c.addQuery.Add(k, v)
+		if len(vs) == 0 {
+			continue
 		}
+		c.values = c.values.WithAddedQuery(k, vs[0], vs[1:]...)
 	}
 	return c
 }
@@ -192,7 +131,6 @@ func (c Overrides) WithAddedQueryValues(q url.Values) Overrides {
 // the explicit spelling. To drop this override and inherit the client timeout,
 // use [Overrides.WithDefaultTimeout].
 func (c Overrides) WithTimeout(d time.Duration) Overrides {
-	c = c.Clone()
 	c.timeout = setOverride(&d)
 	return c
 }
@@ -206,7 +144,6 @@ func (c Overrides) WithUnlimitedTimeout() Overrides {
 // WithDefaultTimeout clears any endpoint- or override-level per-attempt timeout
 // so the request inherits the client-level timeout.
 func (c Overrides) WithDefaultTimeout() Overrides {
-	c = c.Clone()
 	c.timeout = setOverride[*time.Duration](nil)
 	return c
 }
@@ -217,21 +154,19 @@ func (c Overrides) WithDefaultTimeout() Overrides {
 // use [Overrides.WithNoErrorDecoder]; to drop an inherited decoder and fall
 // back to [DefaultErrorDecoder] use [Overrides.WithDefaultErrorDecoder].
 func (c Overrides) WithErrorDecoder(d ErrorDecoder) Overrides {
-	c = c.Clone()
 	c.errorDecoder = setOverride(d)
 	return c
 }
 
-// WithNoErrorDecoder skips error decoding entirely: [Endpoint.Execute] returns
-// the raw response for every status code instead of decoding an error.
+// WithNoErrorDecoder skips error decoding entirely: [Call.Execute] returns the
+// raw response for every status code instead of decoding an error.
 func (c Overrides) WithNoErrorDecoder() Overrides {
 	return c.WithErrorDecoder(NoErrorDecoder())
 }
 
 // WithDefaultErrorDecoder clears any endpoint- or override-level error decoder
-// so [Endpoint.Execute] falls back to [DefaultErrorDecoder].
+// so [Call.Execute] falls back to [DefaultErrorDecoder].
 func (c Overrides) WithDefaultErrorDecoder() Overrides {
-	c = c.Clone()
 	c.errorDecoder = setOverride[ErrorDecoder](nil)
 	return c
 }
@@ -243,7 +178,6 @@ func (c Overrides) WithDefaultErrorDecoder() Overrides {
 // this override so lower-priority auth (or an explicit Authorization header)
 // applies, use [Overrides.WithDefaultBasicAuth].
 func (c Overrides) WithBasicAuth(user, password string) Overrides {
-	c = c.Clone()
 	c.basicAuth = setOverride(&basicAuthOverride{user: user, password: password})
 	return c
 }
@@ -251,15 +185,13 @@ func (c Overrides) WithBasicAuth(user, password string) Overrides {
 // WithDefaultBasicAuth clears any endpoint- or override-level per-request basic
 // auth, so the client-level auth or an explicit Authorization header applies.
 func (c Overrides) WithDefaultBasicAuth() Overrides {
-	c = c.Clone()
 	c.basicAuth = setOverride[*basicAuthOverride](nil)
 	return c
 }
 
 // WithMiddleware appends a per-request middleware to the chain.
 func (c Overrides) WithMiddleware(m Middleware) Overrides {
-	c = c.Clone()
-	c.middlewares = append(c.middlewares, m)
+	c.middlewares = append(slices.Clone(c.middlewares), m)
 	return c
 }
 
@@ -267,7 +199,6 @@ func (c Overrides) WithMiddleware(m Middleware) Overrides {
 // per-request allocations. Overrides the pool set on the [Endpoint], if any.
 // Passing nil clears the pool, equivalent to [Overrides.WithDefaultBufferPool].
 func (c Overrides) WithBufferPool(p bytesbuffers.Pool) Overrides {
-	c = c.Clone()
 	c.bufferPool = setOverride(p)
 	return c
 }
@@ -275,56 +206,19 @@ func (c Overrides) WithBufferPool(p bytesbuffers.Pool) Overrides {
 // WithDefaultBufferPool clears any endpoint- or override-level buffer pool so
 // encoders run without one.
 func (c Overrides) WithDefaultBufferPool() Overrides {
-	c = c.Clone()
 	c.bufferPool = setOverride[bytesbuffers.Pool](nil)
 	return c
 }
 
-// merge combines the receiver with o: set headers/query from o replace and
-// clear matching add entries; add headers/query accumulate; the scalar
-// overrides (timeout, error decoder, basic auth, buffer pool) are last-wins —
-// o wins for any scalar it set, including an explicit clear (e.g.
-// WithDefaultTimeout / WithDefaultBasicAuth), which is why o cleared a scalar it
-// never set leaves the receiver's value intact; middlewares append.
+// merge combines the receiver with o: o's header/query contributors resolve
+// after the receiver's (so o's sets replace and its adds accumulate); the
+// scalar overrides (timeout, error decoder, basic auth, buffer pool) are
+// last-wins — o wins for any scalar it set, including an explicit clear (e.g.
+// WithDefaultTimeout / WithDefaultBasicAuth), so a scalar o never set leaves the
+// receiver's value intact; middlewares append.
 func (c Overrides) merge(o Overrides) Overrides {
-	out := c.Clone()
-
-	for k, vs := range o.setHeaders {
-		if out.setHeaders == nil {
-			out.setHeaders = make(http.Header)
-		}
-		out.setHeaders[k] = append([]string(nil), vs...)
-		if out.addHeaders != nil {
-			delete(out.addHeaders, k)
-		}
-	}
-	for k, vs := range o.addHeaders {
-		for _, v := range vs {
-			if out.addHeaders == nil {
-				out.addHeaders = make(http.Header)
-			}
-			out.addHeaders.Add(k, v)
-		}
-	}
-
-	for k, vs := range o.setQuery {
-		if out.setQuery == nil {
-			out.setQuery = make(url.Values)
-		}
-		out.setQuery[k] = append([]string(nil), vs...)
-		if out.addQuery != nil {
-			delete(out.addQuery, k)
-		}
-	}
-	for k, vs := range o.addQuery {
-		for _, v := range vs {
-			if out.addQuery == nil {
-				out.addQuery = make(url.Values)
-			}
-			out.addQuery.Add(k, v)
-		}
-	}
-
+	out := c
+	out.values = c.values.concat(o.values)
 	if o.timeout.set {
 		out.timeout = o.timeout
 	}
@@ -337,52 +231,22 @@ func (c Overrides) merge(o Overrides) Overrides {
 	if o.bufferPool.set {
 		out.bufferPool = o.bufferPool
 	}
-	out.middlewares = append(out.middlewares, o.middlewares...)
+	out.middlewares = append(slices.Clone(c.middlewares), o.middlewares...)
 	return out
 }
 
-// headerValues flattens the merged header overrides into request contributors:
-// every set header first, then every added header, then basic auth as a
-// trailing Authorization set (the highest per-request precedence). Emitting
-// sets before adds preserves "set replaces, adds append" for a key present in
-// both, and a set clears earlier adds during resolution.
-func (c Overrides) headerValues() []requestValue[http.Header] {
-	var values []requestValue[http.Header]
-	for k, vs := range c.setHeaders {
-		values = append(values, setValue[http.Header]{name: k, values: vs})
-	}
-	for k, vs := range c.addHeaders {
-		values = append(values, addValue[http.Header]{name: k, values: vs})
-	}
-	if c.basicAuth.value != nil {
-		values = append(values, setValue[http.Header]{
-			name:   "Authorization",
-			values: []string{basicAuthHeader(c.basicAuth.value.user, c.basicAuth.value.password)},
-		})
-	}
-	return values
-}
-
-// queryValues flattens the merged query overrides into request contributors,
-// sets before adds (see [Overrides.headerValues]).
-func (c Overrides) queryValues() []requestValue[url.Values] {
-	var values []requestValue[url.Values]
-	for k, vs := range c.setQuery {
-		values = append(values, setValue[url.Values]{name: k, values: vs})
-	}
-	for k, vs := range c.addQuery {
-		values = append(values, addValue[url.Values]{name: k, values: vs})
-	}
-	return values
-}
-
-// requestValues bundles the merged header and query overrides into the public
-// [RequestValues] the runtime resolves per attempt.
+// requestValues returns the header and query contributors the runtime resolves
+// per attempt: the accumulated header/query values plus, when set, basic auth as
+// a trailing Authorization contributor (the highest per-request precedence, so
+// it beats any Authorization header set via WithHeader regardless of order).
 func (c Overrides) requestValues() RequestValues {
-	return RequestValues{
-		headerValues: c.headerValues(),
-		queryValues:  c.queryValues(),
+	if c.basicAuth.value == nil {
+		return c.values
 	}
+	return c.values.withHeader(setValue[http.Header]{
+		name:   "Authorization",
+		values: []string{basicAuthHeader(c.basicAuth.value.user, c.basicAuth.value.password)},
+	})
 }
 
 // callPolicyOverrides maps the per-request scalar overrides onto a
