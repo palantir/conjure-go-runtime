@@ -117,8 +117,8 @@ func TestSend_QueryResolvesPerAttempt(t *testing.T) {
 	assert.Equal(t, []string{"v"}, gotQuery, "query must be resolved once per attempt, not duplicated on retry")
 }
 
-// A Client whose Middleware() is nil and that does not contribute intrinsic
-// values still has its per-request header contributors decorated onto the request.
+// A minimal runtime with no builder auth or intrinsic values still has the
+// endpoint's per-request header contributors decorated onto the request.
 func TestSend_NilMiddlewareClientDecoratesHeaders(t *testing.T) {
 	var got string
 	server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
@@ -126,7 +126,7 @@ func TestSend_NilMiddlewareClientDecoratesHeaders(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 
-	client := &httpTestClient{server: server} // Middleware() == nil, not an intrinsicValuer
+	client := &httpTestClient{server: server} // no intrinsic values, no extra middleware
 	ep := httpc.NewGET[struct{}]("Hdr", "/test").
 		WithDecoder(httpc.VoidDecoder()).
 		WithHeader("X-Custom", "v")

@@ -18,7 +18,6 @@ import (
 	"context"
 	"net/http"
 	"net/url"
-	"slices"
 	"strings"
 	"time"
 
@@ -29,29 +28,19 @@ import (
 	"github.com/palantir/witchcraft-go-logging/wlog/svclog/svc1log"
 )
 
-// Client is the configuration [Send] needs to drive a full request: a raw
-// transport, the intrinsic middleware stack, a base-URL selector, and a default
-// call policy. [Builder.Build] returns one; callers reach it through [Send] or
-// [Endpoint.Execute] rather than assembling the pieces themselves.
+// Client sends a request to a configured service and returns the response. It is
+// the behavior-first contract callers actually need: [Builder.Build] returns the
+// standard implementation, and [Endpoint.Execute] drives requests through it. A
+// custom implementation (a test fake, a wrapper) need only implement Send.
 //
-// [Send] composes the pieces per attempt as selector → Middleware → auth/header
-// decoration → per-request middleware → Transport, then layers retries, URL
-// scoring, and QoS redirects on top. Exposing the pieces (rather than a single
-// RoundTrip) keeps [Send] in control of composition, so a hand-built request
-// can't drop auth or telemetry.
+// The standard implementation owns base-URL selection, retries, QoS redirects,
+// telemetry, builder auth/header decoration, and per-attempt timeouts. It
+// resolves opts.Values and runs opts.Middlewares per attempt on a freshly cloned
+// request, so a hand-built request can't drop auth or telemetry and retries don't
+// duplicate added values. The standard runtime treats req as path-only and
+// prepends a selected base URL on each attempt.
 type Client interface {
-	// Transport performs one attempt with no middleware decoration. nil falls
-	// back to http.DefaultTransport.
-	Transport() http.RoundTripper
-	// Middleware is the intrinsic stack baked by the builder (telemetry and user
-	// middleware), applied around every attempt. nil means none. Auth and builder
-	// headers are applied separately as request-value contributors.
-	Middleware() Middleware
-	// URLSelector orders the base URLs and observes each attempt's outcome.
-	URLSelector() URLSelector
-	// CallPolicy returns the client's default per-call policy. Callers may
-	// overlay per-request overrides (e.g. a request timeout) in [SendOptions].
-	CallPolicy() CallPolicy
+	Send(ctx context.Context, req *http.Request, opts SendOptions) (*http.Response, error)
 }
 
 // RebuildableClient is a [Client] that can return a [Builder] seeded with its
@@ -87,28 +76,16 @@ type CallPolicy struct {
 	MaxBackoff     time.Duration
 }
 
-// SendOptions configures a single [Send] call: the per-call policy plus any
-// per-request middlewares. The middlewares run innermost — below the client's
-// intrinsic stack and its auth/header decoration, just above the transport — so
-// a request can override auth, and they run on every attempt with the resolved URL.
+// SendOptions is the per-send configuration for [Client.Send]: request
+// decoration (headers/query/basic auth), per-request middlewares, and call-policy
+// overrides. The standard runtime resolves Values per attempt above its
+// builder-intrinsic values, runs Middlewares innermost (just above the transport,
+// so a request can override auth), and merges Policy onto its defaults. The zero
+// value is valid.
 type SendOptions struct {
-	CallPolicy
+	Values      RequestValues
 	Middlewares []Middleware
-
-	// headerValues and queryValues are per-request contributors [Send] resolves
-	// onto every attempt, above the client's intrinsic header values. Populated
-	// by [Endpoint.Execute]; the legacy httpclient bridge leaves them nil. They
-	// are unexported to keep the per-request decoration in-package.
-	headerValues []requestValue[http.Header]
-	queryValues  []requestValue[url.Values]
-}
-
-// intrinsicValuer is the unexported capability a [Client] may implement to
-// contribute its baked header values (auth, builder headers) to [Send]'s
-// resolution. The builder's client implements it; custom Client implementations
-// (test doubles, escape hatches) do not and correctly contribute none.
-type intrinsicValuer interface {
-	intrinsicHeaderValues() []requestValue[http.Header]
+	Policy      CallPolicyOverrides
 }
 
 // standardClient is the [RebuildableClient] returned by [Builder.Build]. It
@@ -119,7 +96,7 @@ type standardClient[B Cloneable[B]] struct {
 	serviceName    refreshable.Refreshable[string]
 	transport      http.RoundTripper
 	middleware     Middleware
-	headerValues   []requestValue[http.Header]
+	intrinsic      RequestValues
 	uriScorer      URLSelector
 	timeout        refreshable.Refreshable[time.Duration]
 	maxAttempts    refreshable.Refreshable[*int]
@@ -128,17 +105,11 @@ type standardClient[B Cloneable[B]] struct {
 	builder        B
 }
 
-func (c *standardClient[B]) Transport() http.RoundTripper { return c.transport }
+func (c *standardClient[B]) Builder() B { return c.builder.Clone() }
 
-func (c *standardClient[B]) Middleware() Middleware { return c.middleware }
-
-func (c *standardClient[B]) intrinsicHeaderValues() []requestValue[http.Header] {
-	return c.headerValues
-}
-
-func (c *standardClient[B]) URLSelector() URLSelector { return c.uriScorer }
-
-func (c *standardClient[B]) CallPolicy() CallPolicy {
+// callPolicy snapshots the runtime's current default policy from its refreshable
+// settings; [SendOptions.Policy] overrides are applied on top per send.
+func (c *standardClient[B]) callPolicy() CallPolicy {
 	var maxAttempts *int
 	if c.maxAttempts != nil {
 		maxAttempts = c.maxAttempts.Current()
@@ -151,64 +122,60 @@ func (c *standardClient[B]) CallPolicy() CallPolicy {
 	}
 }
 
-func (c *standardClient[B]) Builder() B { return c.builder.Clone() }
-
-// Send runs a path-only request to completion against client. It orders the
-// base URLs via the client's [URLSelector], prepends the selected base to the
-// path per attempt, retries replayable requests across the URLs under
-// opts.CallPolicy, and applies opts.Timeout to each attempt. Standard redirects
-// (301/302/303) are followed by the call-scoped http.Client; 307/308 are handed
-// back to the retrier as Conjure QoS relocations.
+// Send runs a path-only request to completion: it orders the base URLs via the
+// runtime's URL selector, prepends the selected base to the path per attempt,
+// retries replayable requests across the URLs under the resolved [CallPolicy],
+// and applies the per-attempt timeout. Standard redirects (301/302/303) are
+// followed by the call-scoped http.Client; 307/308 are handed back to the
+// retrier as Conjure QoS relocations.
 //
-// Each attempt is composed as selector → client.Middleware → auth/header
-// decoration → opts.Middlewares → client.Transport, so the intrinsic stack
-// (telemetry) and the auth/header contributors always run, while per-request
-// middlewares run innermost — on every attempt with the resolved URL.
-//
-// Send returns the raw final response; callers decode errors and bodies. It is
-// the loop [Endpoint.Execute] and the legacy httpclient bridge share.
-func Send(ctx context.Context, client Client, req *http.Request, opts SendOptions) (*http.Response, error) {
-	selector := client.URLSelector()
+// Each attempt is composed as selector → intrinsic middleware → auth/header
+// decoration → opts.Middlewares → transport, so the intrinsic stack (telemetry)
+// and the auth/header contributors always run, while per-request middlewares run
+// innermost — on every attempt with the resolved URL. Decoration resolves the
+// runtime's builder-intrinsic values below opts.Values (so per-call values win)
+// per attempt on the freshly cloned request, so retries never duplicate added
+// values and an overridden lazy auth provider never runs.
+func (c *standardClient[B]) Send(ctx context.Context, req *http.Request, opts SendOptions) (*http.Response, error) {
+	selector := c.uriScorer
 	uris := selector.BaseURLs()
 	if len(uris) == 0 {
 		return nil, werror.WrapWithContextParams(ctx, ErrEmptyURIs{}, "")
 	}
 
+	policy := opts.Policy.applyTo(c.callPolicy())
 	attempts := 2 * len(uris)
-	if opts.MaxAttempts != nil {
-		attempts = *opts.MaxAttempts
+	if policy.MaxAttempts != nil {
+		attempts = *policy.MaxAttempts
 	}
 
-	backoff := retry.Start(ctx, retry.WithInitialBackoff(opts.InitialBackoff), retry.WithMaxBackoff(opts.MaxBackoff))
+	backoff := retry.Start(ctx, retry.WithInitialBackoff(policy.InitialBackoff), retry.WithMaxBackoff(policy.MaxBackoff))
 	retrier := internal.NewRequestRetrier(uris, backoff, attempts)
 
-	// Resolve the client's intrinsic header values (auth, builder headers) below
-	// the per-request contributors so the latter win. The decoration applies them
-	// per attempt, inside the intrinsic middleware (so telemetry recovers/metering
-	// covers auth) and outside the per-request middlewares (so an imperative
-	// WithMiddleware can still override on the wire).
-	var intrinsic []requestValue[http.Header]
-	if v, ok := client.(intrinsicValuer); ok {
-		intrinsic = v.intrinsicHeaderValues()
-	}
+	// Resolve the runtime's intrinsic values (auth, builder headers) below the
+	// per-call contributors so the latter win. Decoration applies them per attempt,
+	// inside the intrinsic middleware (so telemetry recovery/metering covers auth)
+	// and outside the per-request middlewares (so an imperative WithMiddleware can
+	// still override on the wire).
+	values := c.intrinsic.concat(opts.Values)
 	var decoration Middleware
-	if len(intrinsic) > 0 || len(opts.headerValues) > 0 || len(opts.queryValues) > 0 {
+	if !values.isEmpty() {
 		decoration = decorationMiddleware{
-			headerValues: slices.Concat(intrinsic, opts.headerValues),
-			queryValues:  opts.queryValues,
+			headerValues: values.headerValues,
+			queryValues:  values.queryValues,
 		}
 	}
 
 	// Per-attempt transport (innermost to outermost): the raw transport, the
-	// per-request middlewares, the auth/header decoration, the client's intrinsic
-	// stack, then the selector so it observes every attempt (and redirect hop).
-	// The http.Client follows standard redirects and enforces the per-attempt timeout.
-	transport := wrapTransport(client.Transport(), opts.Middlewares...)
+	// per-request middlewares, the auth/header decoration, the intrinsic stack,
+	// then the selector so it observes every attempt (and redirect hop). The
+	// http.Client follows standard redirects and enforces the per-attempt timeout.
+	transport := wrapTransport(c.transport, opts.Middlewares...)
 	transport = wrapTransport(transport, decoration)
-	transport = wrapTransport(transport, client.Middleware())
+	transport = wrapTransport(transport, c.middleware)
 	hc := &http.Client{
 		Transport: wrapTransport(transport, selector),
-		Timeout:   opts.Timeout,
+		Timeout:   policy.Timeout,
 		// 307/308 are Conjure QoS redirects handled by the retrier; 301/302/303
 		// remain the http.Client's responsibility.
 		CheckRedirect: func(redirectReq *http.Request, _ []*http.Request) error {

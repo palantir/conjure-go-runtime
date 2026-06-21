@@ -298,7 +298,7 @@ func (c Overrides) headerValues() []requestValue[http.Header] {
 	return values
 }
 
-// queryValues flattens the merged query overrides into [Send] contributors,
+// queryValues flattens the merged query overrides into request contributors,
 // sets before adds (see [Overrides.headerValues]).
 func (c Overrides) queryValues() []requestValue[url.Values] {
 	var values []requestValue[url.Values]
@@ -309,4 +309,23 @@ func (c Overrides) queryValues() []requestValue[url.Values] {
 		values = append(values, addValue[url.Values]{name: k, values: vs})
 	}
 	return values
+}
+
+// requestValues bundles the merged header and query overrides into the public
+// [RequestValues] the runtime resolves per attempt.
+func (c Overrides) requestValues() RequestValues {
+	return RequestValues{
+		headerValues: c.headerValues(),
+		queryValues:  c.queryValues(),
+	}
+}
+
+// callPolicyOverrides maps the per-request scalar overrides onto a
+// [CallPolicyOverrides]. Only a per-attempt timeout is expressible at this layer.
+func (c Overrides) callPolicyOverrides() CallPolicyOverrides {
+	var p CallPolicyOverrides
+	if c.timeout != nil {
+		p = p.WithTimeout(*c.timeout)
+	}
+	return p
 }

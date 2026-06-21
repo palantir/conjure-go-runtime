@@ -45,23 +45,37 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// httpTestClient wraps an httptest.Server as an httpc.Client with no middleware.
-// Send selects the server's base URL and round-trips via its transport.
+// httpTestClient wraps an httptest.Server as a one-method httpc.Client: Send
+// routes through a runtime pointed at the server, with telemetry and retry
+// backoff disabled so requests reach the server unchanged and tests stay fast.
 type httpTestClient struct {
 	server *httptest.Server
 }
 
-func (c *httpTestClient) Transport() http.RoundTripper {
-	return c.server.Client().Transport
+func (c *httpTestClient) Send(ctx context.Context, req *http.Request, opts httpc.SendOptions) (*http.Response, error) {
+	client, err := newBareClient(ctx, c.server.URL, c.server.Client().Transport)
+	if err != nil {
+		return nil, err
+	}
+	return client.Send(ctx, req, opts)
 }
 
-func (c *httpTestClient) Middleware() httpc.Middleware { return nil }
-
-func (c *httpTestClient) URLSelector() httpc.URLSelector {
-	return httpc.BalancedURLSelector([]string{c.server.URL})
+// newBareClient builds a runtime routing through transport against baseURL with
+// telemetry and retry backoff disabled, mirroring the minimal no-middleware test
+// client these tests relied on before Runtime.Send existed.
+func newBareClient(ctx context.Context, baseURL string, transport http.RoundTripper) (httpc.Client, error) {
+	return httpc.NewBuilder().
+		SetBaseURLs(baseURL).
+		SetTransport(transport).
+		SetInitialBackoff(0).
+		SetMaxBackoff(0).
+		DisableTracing().
+		DisableTraceHeaderPropagation().
+		DisableClientTraceMetrics().
+		DisablePanicRecovery().
+		SetDisableMetrics(true).
+		Build(ctx)
 }
-
-func (c *httpTestClient) CallPolicy() httpc.CallPolicy { return httpc.CallPolicy{} }
 
 // newTestServer creates an httptest.Server and registers cleanup.
 func newTestServer(t *testing.T, handler http.HandlerFunc) *httptest.Server {
@@ -297,21 +311,21 @@ func (e *testError) Error() string {
 	return "test error: " + http.StatusText(e.statusCode)
 }
 
-// clientFunc adapts a single-attempt function to httpc.Client, selecting a
-// dummy base URL (these tests return canned responses without a real server).
+// clientFunc adapts a single-attempt RoundTripper func to a one-method
+// httpc.Client: Send routes through a runtime that uses the func as its transport
+// against a dummy base URL (these tests return canned responses without a real
+// server).
 type clientFunc func(*http.Request) (*http.Response, error)
 
 func (f clientFunc) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
 
-func (f clientFunc) Transport() http.RoundTripper { return f }
-
-func (clientFunc) Middleware() httpc.Middleware { return nil }
-
-func (clientFunc) URLSelector() httpc.URLSelector {
-	return httpc.BalancedURLSelector([]string{"http://localhost"})
+func (f clientFunc) Send(ctx context.Context, req *http.Request, opts httpc.SendOptions) (*http.Response, error) {
+	client, err := newBareClient(ctx, "http://localhost", f)
+	if err != nil {
+		return nil, err
+	}
+	return client.Send(ctx, req, opts)
 }
-
-func (clientFunc) CallPolicy() httpc.CallPolicy { return httpc.CallPolicy{} }
 
 func TestClientDo_PreservesEscapedPathSegments(t *testing.T) {
 	var gotEscapedPath string

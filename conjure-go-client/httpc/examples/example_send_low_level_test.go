@@ -24,14 +24,15 @@ import (
 	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpc"
 )
 
-// Example_sendLowLevel sends a hand-built request through the full stack without
-// an Endpoint.
+// Example_sendLowLevel sends a hand-built request through the full runtime
+// without an Endpoint.
 //
-// httpc.Send is the loop Endpoint.Execute is built on: it runs the URL selector,
+// Send is the loop Endpoint.Execute is built on: it runs the URL selector,
 // retries, and middleware around a path-only *http.Request and returns the raw
 // response. Unlike Execute it does not decode the body or apply an error decoder,
-// so the caller handles the response directly. SendOptions carries the per-call
-// policy (and any per-request middleware).
+// so the caller handles the response directly. SendOptions carries per-request
+// decoration, middleware, and call-policy overrides; the zero value applies the
+// client's defaults.
 func Example_sendLowLevel() {
 	ctx := context.Background()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -54,7 +55,7 @@ func Example_sendLowLevel() {
 		panic(err)
 	}
 
-	resp, err := httpc.Send(ctx, client, req, httpc.SendOptions{CallPolicy: client.CallPolicy()})
+	resp, err := client.Send(ctx, req, httpc.SendOptions{})
 	if err != nil {
 		panic(err)
 	}

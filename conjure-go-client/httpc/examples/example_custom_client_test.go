@@ -26,11 +26,10 @@ import (
 
 // Example_customClient drives an Endpoint against a hand-written httpc.Client.
 //
-// httpc.Client is a small interface — Transport, Middleware, URLSelector, and
-// CallPolicy. Implementing it directly lets an Endpoint run without the builder,
-// which is handy for tests that serve canned responses from memory with no
-// httptest server. A custom Client carries no builder auth, telemetry, or
-// headers: it contributes only what these four methods return.
+// httpc.Client is a one-method interface — Send. Implementing it directly lets an
+// Endpoint run without the builder, which is handy for tests that serve canned
+// responses from memory with no httptest server. A custom Client owns the whole
+// send: it gets no builder auth, telemetry, or retries unless it adds them.
 func Example_customClient() {
 	ctx := context.Background()
 
@@ -55,20 +54,7 @@ type customClientItem struct {
 // customClient implements httpc.Client, serving every request from memory.
 type customClient struct{}
 
-func (customClient) Transport() http.RoundTripper { return cannedTransport{} }
-
-func (customClient) Middleware() httpc.Middleware { return nil }
-
-func (customClient) URLSelector() httpc.URLSelector {
-	return httpc.BalancedURLSelector([]string{"https://inventory.example"})
-}
-
-func (customClient) CallPolicy() httpc.CallPolicy { return httpc.CallPolicy{} }
-
-// cannedTransport answers every request with the same JSON item.
-type cannedTransport struct{}
-
-func (cannedTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+func (customClient) Send(_ context.Context, req *http.Request, _ httpc.SendOptions) (*http.Response, error) {
 	return &http.Response{
 		StatusCode: http.StatusOK,
 		Header:     http.Header{"Content-Type": {"application/json"}},
