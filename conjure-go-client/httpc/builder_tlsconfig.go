@@ -36,7 +36,7 @@ import (
 // other TLS settings — see [TLSConfigBuilder.BuildTLSConfig].
 //
 // A configured *Builder can produce a standalone *tls.Config via
-// [Builder.BuildTLSConfig], or provide one for a full [Client] via
+// [Builder.BuildTLSConfig], or provide one for a full [Runtime] via
 // [Builder.Build].
 type TLSConfigBuilder[Self TLSConfigBuilder[Self]] interface {
 	Clone() Self

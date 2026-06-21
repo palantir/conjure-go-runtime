@@ -30,7 +30,7 @@ import (
 // timeouts, HTTP/2, HTTP(S) proxy) and is one slice of [BuilderAPI].
 //
 // A configured *Builder can produce a standalone [http.RoundTripper] via
-// [Builder.BuildTransport], or provide one for a full [Client] via
+// [Builder.BuildTransport], or provide one for a full [Runtime] via
 // [Builder.Build]. [TransportBuilder.SetTransport] short-circuits transport
 // construction and uses the caller-provided RoundTripper instead — useful for
 // testing (e.g. an httptest recorder) or production cases that need a custom

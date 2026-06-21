@@ -38,9 +38,9 @@ type ServiceBuilder[Self Cloneable[Self]] interface {
 	Clone() Self
 	Apply(...Param[Self]) Self
 
-	// Build returns a [RebuildableClient]. Errors if required settings (e.g.,
+	// Build returns a [RebuildableRuntime]. Errors if required settings (e.g.,
 	// base URLs) are missing.
-	Build(ctx context.Context) (RebuildableClient[Self], error)
+	Build(ctx context.Context) (RebuildableRuntime[Self], error)
 
 	// SetServiceName sets the logical service name used in metrics and logs.
 	SetServiceName(string) Self
@@ -62,9 +62,9 @@ type ServiceBuilder[Self Cloneable[Self]] interface {
 	// SetAuthTokenRefreshable supplies a refreshable token; nil *string disables auth.
 	SetAuthTokenRefreshable(refreshable.Refreshable[*string]) Self
 	SetBasicAuth(user, password string) Self
-	SetBasicAuthProvider(BasicAuthProvider) Self
+	SetBasicAuthProvider(func(ctx context.Context) (BasicAuth, error)) Self
 	// SetBasicAuthOptionalProvider installs a provider that may return nil to skip auth this request.
-	SetBasicAuthOptionalProvider(BasicAuthOptionalProvider) Self
+	SetBasicAuthOptionalProvider(func(ctx context.Context) (*BasicAuth, error)) Self
 	// SetBasicAuthRefreshable supplies refreshable credentials; nil *BasicAuth disables auth.
 	SetBasicAuthRefreshable(refreshable.Refreshable[*BasicAuth]) Self
 
@@ -214,7 +214,7 @@ func (b *BuilderCore[Self]) SetBasicAuth(user, password string) Self {
 	return b.self
 }
 
-func (b *BuilderCore[Self]) SetBasicAuthProvider(p BasicAuthProvider) Self {
+func (b *BuilderCore[Self]) SetBasicAuthProvider(p func(ctx context.Context) (BasicAuth, error)) Self {
 	b.authHeader = func(ctx context.Context) (string, error) {
 		auth, err := p(ctx)
 		if err != nil {
@@ -228,7 +228,7 @@ func (b *BuilderCore[Self]) SetBasicAuthProvider(p BasicAuthProvider) Self {
 // SetBasicAuthOptionalProvider installs a provider that may return nil to
 // skip basic auth for an individual request (the Authorization header is left
 // unset). Use this when auth is optional or conditional on request context.
-func (b *BuilderCore[Self]) SetBasicAuthOptionalProvider(p BasicAuthOptionalProvider) Self {
+func (b *BuilderCore[Self]) SetBasicAuthOptionalProvider(p func(ctx context.Context) (*BasicAuth, error)) Self {
 	b.authHeader = func(ctx context.Context) (string, error) {
 		auth, err := p(ctx)
 		if err != nil {
@@ -414,10 +414,10 @@ func (b *BuilderCore[Self]) SetTransport(rt http.RoundTripper) Self {
 	return b.self
 }
 
-// Build constructs a [RebuildableClient]. Errors if no base URLs were set
+// Build constructs a [RebuildableRuntime]. Errors if no base URLs were set
 // (unless [Builder.SetAllowCreateWithEmptyURIs] was called) or if any setter
 // deferred a validation error (e.g., a malformed proxy URL).
-func (b *BuilderCore[Self]) Build(ctx context.Context) (RebuildableClient[Self], error) {
+func (b *BuilderCore[Self]) Build(ctx context.Context) (RebuildableRuntime[Self], error) {
 	if err := b.errs.joined(ctx); err != nil {
 		return nil, err
 	}
@@ -439,7 +439,7 @@ func (b *BuilderCore[Self]) Build(ctx context.Context) (RebuildableClient[Self],
 	}
 	uriScorer := newRefreshableSelector(b.uris, selectorFactory)
 
-	return &standardClient[Self]{
+	return &standardRuntime[Self]{
 		serviceName:    b.serviceName,
 		transport:      transport,
 		middleware:     b.bakeMiddleware(),
@@ -455,7 +455,7 @@ func (b *BuilderCore[Self]) Build(ctx context.Context) (RebuildableClient[Self],
 
 // intrinsicHeaderValues returns the client's baked header contributors, lowest
 // precedence first: the auth provider, then headers from SetHeader/AddHeader.
-// [Send] resolves these below any per-request contributors.
+// The runtime resolves these below any per-request contributors.
 func (b *BuilderCore[Self]) intrinsicHeaderValues() []requestValue[http.Header] {
 	var values []requestValue[http.Header]
 	if b.authHeader != nil {
@@ -470,7 +470,7 @@ func (b *BuilderCore[Self]) intrinsicHeaderValues() []requestValue[http.Header] 
 // and its metrics/span cover every user middleware. Auth and builder headers are
 // applied separately as request-value contributors (see [intrinsicHeaderValues]).
 // Refreshable behavior lives inside the middlewares and is read per request, so
-// the result is static. Per-request middlewares are layered in below this by [Send].
+// the result is static. Per-request middlewares are layered in below this by the runtime.
 func (b *BuilderCore[Self]) bakeMiddleware() Middleware {
 	var middlewares []Middleware
 	middlewares = append(middlewares, b.innerMiddlewares...)

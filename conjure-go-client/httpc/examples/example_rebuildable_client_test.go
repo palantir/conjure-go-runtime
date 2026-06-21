@@ -25,7 +25,7 @@ import (
 
 // Example_rebuildableClient reconfigures a client through its seeded builder.
 //
-// Build returns a RebuildableClient whose Builder method hands back a *Builder
+// Build returns a RebuildableRuntime whose Builder method hands back a *Builder
 // pre-populated (cloned) from the client's current configuration. Tweaking one
 // setting and calling Build again yields a new client that inherits everything
 // else — here the second client keeps the base URL and service name and changes

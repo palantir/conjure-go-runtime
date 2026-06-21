@@ -47,7 +47,7 @@ type Client interface {
 }
 
 type clientImpl struct {
-	client       httpc.Client
+	client       httpc.Runtime
 	errorDecoder ErrorDecoder
 	bufferPool   bytesbuffers.Pool
 }

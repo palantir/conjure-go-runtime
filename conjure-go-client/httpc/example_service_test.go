@@ -107,12 +107,12 @@ type ItemServiceClient interface {
 
 // itemServiceClient is the generated implementation.
 type itemServiceClient struct {
-	client    httpc.Client
+	client    httpc.Runtime
 	overrides httpc.Overrides
 }
 
 // NewItemServiceClient creates a new client for the item service.
-func NewItemServiceClient(client httpc.Client, params ...httpc.Param[*itemServiceClientBuilder]) ItemServiceClient {
+func NewItemServiceClient(client httpc.Runtime, params ...httpc.Param[*itemServiceClientBuilder]) ItemServiceClient {
 	c := &itemServiceClient{client: client}
 	b := &itemServiceClientBuilder{inner: c}
 	for _, p := range params {

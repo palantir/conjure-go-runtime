@@ -28,7 +28,7 @@ import (
 	"github.com/palantir/witchcraft-go-logging/wlog/svclog/svc1log"
 )
 
-// Client sends a request to a configured service and returns the response. It is
+// Runtime sends a request to a configured service and returns the response. It is
 // the behavior-first contract callers actually need: [Builder.Build] returns the
 // standard implementation, and [Endpoint.Execute] drives requests through it. A
 // custom implementation (a test fake, a wrapper) need only implement Send.
@@ -39,11 +39,11 @@ import (
 // request, so a hand-built request can't drop auth or telemetry and retries don't
 // duplicate added values. The standard runtime treats req as path-only and
 // prepends a selected base URL on each attempt.
-type Client interface {
+type Runtime interface {
 	Send(ctx context.Context, req *http.Request, opts SendOptions) (*http.Response, error)
 }
 
-// RebuildableClient is a [Client] that can return a [Builder] seeded with its
+// RebuildableRuntime is a [Runtime] that can return a [Builder] seeded with its
 // configuration, allowing reconfiguration without starting from scratch:
 //
 //	newClient, err := client.Builder().SetTimeout(5 * time.Second).Build(ctx)
@@ -54,16 +54,17 @@ type Client interface {
 // [BuilderAPI]: the rebuild path only needs to clone the seed builder, so a
 // custom builder need not satisfy every setter to be rebuildable.
 //
-// A Client wrapper does NOT automatically satisfy RebuildableClient. Wrappers
+// A Runtime wrapper does NOT automatically satisfy RebuildableRuntime. Wrappers
 // that want callers to reach the underlying builder should implement Builder()
-// themselves, typically forwarding to the wrapped Client.
-type RebuildableClient[B Cloneable[B]] interface {
-	Client
+// themselves, typically forwarding to the wrapped Runtime.
+type RebuildableRuntime[B Cloneable[B]] interface {
+	Runtime
 	Builder() B
 }
 
-// CallPolicy is the per-call orchestration snapshot [Send] consumes. A client's
-// defaults come from [Client.CallPolicy]; callers overlay per-request overrides.
+// CallPolicy is the per-call orchestration snapshot the standard runtime resolves
+// for a send: its refreshable defaults with any [CallPolicyOverrides] from
+// [SendOptions] applied on top.
 type CallPolicy struct {
 	// Timeout bounds each attempt. Zero disables the per-attempt timeout; a
 	// total-call deadline is the caller's responsibility via context.
@@ -76,7 +77,7 @@ type CallPolicy struct {
 	MaxBackoff     time.Duration
 }
 
-// SendOptions is the per-send configuration for [Client.Send]: request
+// SendOptions is the per-send configuration for [Runtime.Send]: request
 // decoration (headers/query/basic auth), per-request middlewares, and call-policy
 // overrides. The standard runtime resolves Values per attempt above its
 // builder-intrinsic values, runs Middlewares innermost (just above the transport,
@@ -88,11 +89,11 @@ type SendOptions struct {
 	Policy      CallPolicyOverrides
 }
 
-// standardClient is the [RebuildableClient] returned by [Builder.Build]. It
+// standardRuntime is the [RebuildableRuntime] returned by [Builder.Build]. It
 // holds the raw transport and the intrinsic middleware stack separately;
 // refreshable behavior lives inside the middlewares (read per request) and in
 // CallPolicy.
-type standardClient[B Cloneable[B]] struct {
+type standardRuntime[B Cloneable[B]] struct {
 	serviceName    refreshable.Refreshable[string]
 	transport      http.RoundTripper
 	middleware     Middleware
@@ -105,11 +106,11 @@ type standardClient[B Cloneable[B]] struct {
 	builder        B
 }
 
-func (c *standardClient[B]) Builder() B { return c.builder.Clone() }
+func (c *standardRuntime[B]) Builder() B { return c.builder.Clone() }
 
 // callPolicy snapshots the runtime's current default policy from its refreshable
 // settings; [SendOptions.Policy] overrides are applied on top per send.
-func (c *standardClient[B]) callPolicy() CallPolicy {
+func (c *standardRuntime[B]) callPolicy() CallPolicy {
 	var maxAttempts *int
 	if c.maxAttempts != nil {
 		maxAttempts = c.maxAttempts.Current()
@@ -136,7 +137,7 @@ func (c *standardClient[B]) callPolicy() CallPolicy {
 // runtime's builder-intrinsic values below opts.Values (so per-call values win)
 // per attempt on the freshly cloned request, so retries never duplicate added
 // values and an overridden lazy auth provider never runs.
-func (c *standardClient[B]) Send(ctx context.Context, req *http.Request, opts SendOptions) (*http.Response, error) {
+func (c *standardRuntime[B]) Send(ctx context.Context, req *http.Request, opts SendOptions) (*http.Response, error) {
 	selector := c.uriScorer
 	uris := selector.BaseURLs()
 	if len(uris) == 0 {

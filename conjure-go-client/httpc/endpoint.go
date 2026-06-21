@@ -64,7 +64,7 @@ type RequestOverrides[D any] interface {
 	// WithAddedQueryValues appends every key/value pair in q to the request query.
 	WithAddedQueryValues(q url.Values) D
 	// WithTimeout sets a per-attempt timeout that overrides the client-level
-	// timeout. [Send] applies it to each attempt via the call-scoped
+	// timeout. The runtime applies it to each attempt via the call-scoped
 	// *http.Client. Use a context deadline for a whole-call deadline that spans
 	// all retries.
 	WithTimeout(time.Duration) D
@@ -269,7 +269,7 @@ func (e Endpoint[Req, Resp]) WithAddedQueryValues(q url.Values) Endpoint[Req, Re
 }
 
 // WithTimeout sets a per-attempt timeout that overrides the client-level
-// timeout. [Send] applies it to each attempt via the call-scoped *http.Client.
+// timeout. The runtime applies it to each attempt via the call-scoped *http.Client.
 // Use a context deadline for a whole-call deadline that spans all retries.
 func (e Endpoint[Req, Resp]) WithTimeout(d time.Duration) Endpoint[Req, Resp] {
 	e.overrides = e.overrides.WithTimeout(d)
@@ -321,14 +321,14 @@ func (e Endpoint[Req, Resp]) WithOverrides(o Overrides) Endpoint[Req, Resp] {
 }
 
 // Execute builds an *http.Request from the endpoint configuration, sends it via
-// client.Do, and decodes the response. Use [Endpoint.WithBody] to attach a
+// [Runtime.Send], and decodes the response. Use [Endpoint.WithBody] to attach a
 // request body; endpoints without a body (including those with Req = [Void])
 // can call Execute directly.
 //
 // The returned *http.Response has its body consumed (drained or handed to the
 // decoder). It may be non-nil on error when the server replied but the decoded
 // response represents a failure.
-func (e Endpoint[Req, Resp]) Execute(ctx context.Context, client Client) (Resp, *http.Response, error) {
+func (e Endpoint[Req, Resp]) Execute(ctx context.Context, client Runtime) (Resp, *http.Response, error) {
 	var zero Resp
 
 	if i := strings.IndexByte(e.path, '{'); i != -1 {
@@ -347,7 +347,7 @@ func (e Endpoint[Req, Resp]) Execute(ctx context.Context, client Client) (Resp, 
 		ctx = contextWithBufferPool(ctx, e.overrides.bufferPool)
 	}
 
-	// Path-only request; Client prepends the base URI on each attempt.
+	// Path-only request; the runtime prepends the base URI on each attempt.
 	req, err := http.NewRequestWithContext(ctx, e.method, e.path, nil)
 	if err != nil {
 		return zero, nil, err

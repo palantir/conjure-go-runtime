@@ -59,7 +59,7 @@ client, err := httpc.NewBuilder().
 
 Key differences:
 - Variadic option functions are replaced by mutable builder methods.
-- `Build(ctx)` returns a `RebuildableClient` that retains the builder for
+- `Build(ctx)` returns a `RebuildableRuntime` that retains the builder for
   reconfiguration via `client.Builder()`.
 - `SetBaseURLs` takes variadic strings, not a slice.
 

@@ -63,7 +63,7 @@ func (c *httpTestClient) Send(ctx context.Context, req *http.Request, opts httpc
 // newBareClient builds a runtime routing through transport against baseURL with
 // telemetry and retry backoff disabled, mirroring the minimal no-middleware test
 // client these tests relied on before Runtime.Send existed.
-func newBareClient(ctx context.Context, baseURL string, transport http.RoundTripper) (httpc.Client, error) {
+func newBareClient(ctx context.Context, baseURL string, transport http.RoundTripper) (httpc.Runtime, error) {
 	return httpc.NewBuilder().
 		SetBaseURLs(baseURL).
 		SetTransport(transport).

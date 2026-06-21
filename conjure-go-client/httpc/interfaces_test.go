@@ -31,5 +31,5 @@ var _ BodyEncoder[string] = BodyEncoderFunc[string]{}
 // BodyDecoderFunc satisfies BodyDecoder.
 var _ BodyDecoder[string] = BodyDecoderFunc[string]{}
 
-// standardClient satisfies RebuildableClient (and therefore Client).
-var _ RebuildableClient[*Builder] = (*standardClient[*Builder])(nil)
+// standardRuntime satisfies RebuildableRuntime (and therefore Runtime).
+var _ RebuildableRuntime[*Builder] = (*standardRuntime[*Builder])(nil)

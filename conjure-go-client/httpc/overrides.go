@@ -276,7 +276,7 @@ func (c Overrides) merge(o Overrides) Overrides {
 	return out
 }
 
-// headerValues flattens the merged header overrides into [Send] contributors:
+// headerValues flattens the merged header overrides into request contributors:
 // every set header first, then every added header, then basic auth as a
 // trailing Authorization set (the highest per-request precedence). Emitting
 // sets before adds preserves "set replaces, adds append" for a key present in

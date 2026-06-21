@@ -32,8 +32,9 @@
 //
 // # Core concepts
 //
-//   - [Client] is a single attempt (RoundTrip) plus the base-URL selector and
-//     default call policy that [Send] uses to drive the request.
+//   - [Runtime] sends a request to a configured service: it owns base-URL
+//     selection, retries, and the default call policy. [Endpoint.Execute] drives
+//     requests through it; [Builder.Build] returns the standard implementation.
 //   - [Endpoint] is a copy-on-write per-RPC descriptor. Store one as a
 //     package-level var; derive per-call variants via its With* methods.
 //   - [Overrides] is per-request configuration that merges into an Endpoint
@@ -44,7 +45,7 @@
 //
 // # Retry and error handling
 //
-// [Send] — which [Endpoint.Execute] invokes — retries on transport errors, 429,
+// [Runtime.Send] — which [Endpoint.Execute] invokes — retries on transport errors, 429,
 // 503, and 307/308 (Conjure QoS redirect); other 4xx/5xx responses are not
 // retried. Tune with
 // [Builder.SetMaxAttempts] (nil = default, 0 = unlimited, n > 0 = exactly n),

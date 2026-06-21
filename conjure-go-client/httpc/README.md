@@ -29,35 +29,32 @@ resp, _, err := getItem.
 
 ## Core concepts
 
-### Client
+### Runtime
 
-`Client` is a small interface: the pieces the request loop composes per attempt.
+`Runtime` is a one-method interface — the behavior callers need, not the pieces:
 
 ```go
-type Client interface {
-    Transport() http.RoundTripper // one raw attempt, no middleware
-    Middleware() Middleware       // intrinsic stack: telemetry, user middleware, auth
-    URLSelector() URLSelector
-    CallPolicy() CallPolicy
+type Runtime interface {
+    Send(ctx context.Context, req *http.Request, opts SendOptions) (*http.Response, error)
 }
 ```
 
-`Send` composes these per attempt (selector → `Middleware` → per-request
-middleware → `Transport`) and adds the retry loop, base-URL selection,
-per-attempt timeout, and QoS redirect handling. `Endpoint.Execute` calls it for
-you; pass per-request overrides via `SendOptions`:
+`Endpoint.Execute` builds a *path-only* request plus a `SendOptions` and calls
+`Send`; you can also call `Send` directly:
 
 ```go
-resp, err := httpc.Send(ctx, client, req, httpc.SendOptions{CallPolicy: client.CallPolicy()})
+resp, err := client.Send(ctx, req, httpc.SendOptions{})
 ```
 
-A `Client` built via `Builder` is the usual case. Because it carries a
-`URLSelector`, `Endpoint.Execute` builds *path-only* requests and lets `Send`
-prepend a selected base URL on each attempt. A plain `*http.Client` does **not**
-satisfy the interface (it has no `URLSelector` or `CallPolicy`).
+The standard runtime returned by `Builder.Build` owns the request loop: base-URL
+selection (it prepends a selected base URL to the path-only request on each
+attempt), retries, per-attempt timeout, QoS redirect handling, telemetry, and
+builder auth/header decoration. `SendOptions` carries per-request decoration
+(`Values`), middlewares, and call-policy overrides (`Policy`). A custom runtime
+— a test fake or a wrapper — implements the single `Send` method.
 
-`RebuildableClient[B]` extends `Client` with a `Builder()` method that returns a
-new builder seeded with the client's current settings, allowing reconfiguration
+`RebuildableRuntime[B]` extends `Runtime` with a `Builder()` method that returns
+a new builder seeded with the client's current settings, allowing reconfiguration
 without starting from scratch:
 
 ```go

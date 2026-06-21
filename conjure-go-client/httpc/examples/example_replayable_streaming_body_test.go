@@ -48,7 +48,7 @@ func Example_replayableStreamingBody() {
 	}))
 	defer server.Close()
 
-	newClient := func() httpc.Client {
+	newClient := func() httpc.Runtime {
 		client, err := httpc.NewBuilder().
 			SetServiceName("inventory").
 			SetBaseURLs(server.URL).

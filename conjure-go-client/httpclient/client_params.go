@@ -420,7 +420,9 @@ func WithBasicAuth(user, password string) ClientOrHTTPClientParam {
 // WithBasicAuthProvider sets the request's Authorization header to use HTTP Basic Authentication.
 // The provider is expected to always return a nonempty BasicAuth value, or an error.
 func WithBasicAuthProvider(provider BasicAuthProvider) ClientOrHTTPClientParam {
-	return builderClientOrHTTPClientParam(httpc.Param1((*httpc.Builder).SetBasicAuthProvider, httpc.BasicAuthProvider(provider)))
+	// SetBasicAuthProvider now takes a bare func; convert so Param1 infers a
+	// single type argument from both the method expression and the provider.
+	return builderClientOrHTTPClientParam(httpc.Param1((*httpc.Builder).SetBasicAuthProvider, func(ctx context.Context) (httpc.BasicAuth, error) { return provider(ctx) }))
 }
 
 // WithBasicAuthOptionalProvider sets the request's Authorization header to use HTTP Basic Authentication based on the

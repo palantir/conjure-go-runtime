@@ -102,7 +102,7 @@ func TestBuilder_Apply(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestBuilder_RebuildableClient(t *testing.T) {
+func TestBuilder_RebuildableRuntime(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"message":"reconfigured"}`))

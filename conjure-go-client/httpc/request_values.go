@@ -24,7 +24,7 @@ import (
 // RequestValues is the public, copy-on-write decoration a [SendOptions] carries:
 // the headers, query parameters, and basic auth a runtime applies to each
 // attempt. It is the honest form of what [Endpoint.Execute] passes the runtime,
-// so a caller using [Client.Send] directly can express the same decoration:
+// so a caller using [Runtime.Send] directly can express the same decoration:
 //
 //	opts := httpc.SendOptions{
 //	    Values: httpc.RequestValues{}.WithHeader("X-Tenant", "acme").WithBasicAuth(user, pass),

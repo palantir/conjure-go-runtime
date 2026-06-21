@@ -32,7 +32,7 @@ type ErrorDecoder interface {
 	DecodeError(resp *http.Response) error
 }
 
-// ErrEmptyURIs is returned by Build and by Client.Do when the client has no
+// ErrEmptyURIs is returned by Build and by [Runtime.Send] when the client has no
 // configured base URIs.
 type ErrEmptyURIs struct{}
 
