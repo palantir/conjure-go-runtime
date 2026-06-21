@@ -62,7 +62,7 @@ func Example_middlewareOrdering() {
 		panic(err)
 	}
 
-	if _, _, err = ping.WithMiddleware(probe("per-request")).Call().Execute(ctx, client); err != nil {
+	if _, _, err = ping.Call().WithMiddleware(probe("per-request")).Execute(ctx, client); err != nil {
 		panic(err)
 	}
 	// Output:

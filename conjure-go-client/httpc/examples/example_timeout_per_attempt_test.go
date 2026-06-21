@@ -57,7 +57,7 @@ func Example_timeoutPerAttempt() {
 	if err != nil {
 		panic(err)
 	}
-	if _, _, err = ping.WithTimeout(time.Second).Call().Execute(ctx, perAttempt); err == nil {
+	if _, _, err = ping.Call().WithTimeout(time.Second).Execute(ctx, perAttempt); err == nil {
 		panic("expected an error")
 	}
 	fmt.Println("attempts under per-attempt timeout:", attempts.Load())

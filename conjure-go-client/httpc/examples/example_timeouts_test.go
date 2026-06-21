@@ -57,7 +57,7 @@ func Example_timeouts() {
 	_, _, err = ping.Call().Execute(ctx, client)
 	fmt.Println("generous timeout, failed:", err != nil)
 
-	_, _, err = ping.WithTimeout(5*time.Millisecond).Call().Execute(ctx, client)
+	_, _, err = ping.Call().WithTimeout(5*time.Millisecond).Execute(ctx, client)
 	fmt.Println("tight timeout, failed:", err != nil)
 	// Output:
 	// generous timeout, failed: false

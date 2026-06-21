@@ -111,6 +111,81 @@ func TestSendRejectsNonRelativeURL(t *testing.T) {
 	})
 }
 
+// TestSend_DirectRequestHeaderBeatsBuilderDecoration pins the precedence for a
+// caller using Send directly: headers set on the *http.Request are hoisted above
+// the builder-intrinsic layer, so they beat builder auth/headers and suppress an
+// overridden auth provider — the same contract Call.Execute provides.
+func TestSend_DirectRequestHeaderBeatsBuilderDecoration(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("request Authorization beats builder auth token", func(t *testing.T) {
+		var got string
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			got = r.Header.Get("Authorization")
+			w.WriteHeader(http.StatusNoContent)
+		}))
+		t.Cleanup(server.Close)
+		client, err := httpc.NewBuilder().SetBaseURLs(server.URL).SetAuthToken("builder-token").Build(ctx)
+		require.NoError(t, err)
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, "/x", nil)
+		require.NoError(t, err)
+		req.Header.Set("Authorization", "Bearer caller")
+
+		resp, err := client.Send(ctx, req, httpc.SendOptions{})
+		require.NoError(t, err)
+		_ = resp.Body.Close()
+		assert.Equal(t, "Bearer caller", got)
+	})
+
+	t.Run("request Authorization suppresses the builder auth provider", func(t *testing.T) {
+		providerCalled := false
+		var got string
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			got = r.Header.Get("Authorization")
+			w.WriteHeader(http.StatusNoContent)
+		}))
+		t.Cleanup(server.Close)
+		client, err := httpc.NewBuilder().SetBaseURLs(server.URL).
+			SetAuthTokenProvider(func(context.Context) (string, error) {
+				providerCalled = true
+				return "provider-token", nil
+			}).
+			Build(ctx)
+		require.NoError(t, err)
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, "/x", nil)
+		require.NoError(t, err)
+		req.Header.Set("Authorization", "Bearer caller")
+
+		resp, err := client.Send(ctx, req, httpc.SendOptions{})
+		require.NoError(t, err)
+		_ = resp.Body.Close()
+		assert.Equal(t, "Bearer caller", got)
+		assert.False(t, providerCalled, "the builder auth provider must not run when the request sets Authorization")
+	})
+
+	t.Run("request header beats builder SetHeader", func(t *testing.T) {
+		var got string
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			got = r.Header.Get("X-Env")
+			w.WriteHeader(http.StatusNoContent)
+		}))
+		t.Cleanup(server.Close)
+		client, err := httpc.NewBuilder().SetBaseURLs(server.URL).SetHeader("X-Env", "builder").Build(ctx)
+		require.NoError(t, err)
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, "/x", nil)
+		require.NoError(t, err)
+		req.Header.Set("X-Env", "caller")
+
+		resp, err := client.Send(ctx, req, httpc.SendOptions{})
+		require.NoError(t, err)
+		_ = resp.Body.Close()
+		assert.Equal(t, "caller", got)
+	})
+}
+
 type widgetItem struct {
 	Name string `json:"name"`
 }
@@ -208,7 +283,7 @@ func TestEndpoint_PerCallHeaderBeatsEndpointAccept(t *testing.T) {
 	ep := httpc.NewGET[struct{}]("Get", "/x").
 		WithDecoder(httpc.VoidDecoder()).
 		WithAccept("application/json")
-	_, _, err = ep.WithHeader("Accept", "text/plain").Call().Execute(ctx, client)
+	_, _, err = ep.Call().WithHeader("Accept", "text/plain").Execute(ctx, client)
 	require.NoError(t, err)
 	assert.Equal(t, "text/plain", gotAccept, "per-call WithHeader(Accept) beats endpoint WithAccept")
 }

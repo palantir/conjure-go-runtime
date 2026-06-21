@@ -134,9 +134,10 @@ func (c *standardRuntime[B]) callPolicy() CallPolicy {
 // decoration → opts.Middlewares → transport, so the intrinsic stack (telemetry)
 // and the auth/header contributors always run, while per-request middlewares run
 // innermost — on every attempt with the resolved URL. Decoration resolves the
-// runtime's builder-intrinsic values below opts.Values (so per-call values win)
-// per attempt on the freshly cloned request, so retries never duplicate added
-// values and an overridden lazy auth provider never runs.
+// runtime's builder-intrinsic values below any headers set directly on req and
+// below opts.Values (so request headers and per-call values both win over builder
+// auth/headers and suppress an overridden lazy auth provider) per attempt on the
+// freshly cloned request, so retries never duplicate added values.
 func (c *standardRuntime[B]) Send(ctx context.Context, req *http.Request, opts SendOptions) (*http.Response, error) {
 	if req == nil || req.URL == nil {
 		return nil, werror.ErrorWithContextParams(ctx, "httpc: request and request URL must be non-nil")
@@ -164,12 +165,18 @@ func (c *standardRuntime[B]) Send(ctx context.Context, req *http.Request, opts S
 	backoff := retry.Start(ctx, retry.WithInitialBackoff(policy.InitialBackoff), retry.WithMaxBackoff(policy.MaxBackoff))
 	retrier := internal.NewRequestRetrier(uris, backoff, attempts)
 
-	// Resolve the runtime's intrinsic values (auth, builder headers) below the
-	// per-call contributors so the latter win. Decoration applies them per attempt,
-	// inside the intrinsic middleware (so telemetry recovery/metering covers auth)
-	// and outside the per-request middlewares (so an imperative WithMiddleware can
-	// still override on the wire).
-	values := c.intrinsic.concat(opts.Values)
+	// Resolve decoration per attempt, lowest precedence first: the runtime's
+	// intrinsic values (builder auth/headers), then any headers the caller set
+	// directly on req, then opts.Values. Hoisting req's headers above the intrinsic
+	// layer means a header set on the request (like opts.Values) beats builder auth
+	// and suppresses the intrinsic auth provider, matching Call.Execute — rather than
+	// being silently overwritten by builder decoration. (req arrives header-empty from
+	// Call.Execute and the httpclient bridge, so the hoist is a no-op there.)
+	// Decoration runs inside the intrinsic middleware (so telemetry recovery/metering
+	// covers auth) and outside the per-request middlewares (so an imperative
+	// WithMiddleware can still override on the wire), resolved per attempt on the
+	// freshly cloned request so retries never duplicate added values.
+	values := c.intrinsic.concat(requestValuesFromHeader(req.Header)).concat(opts.Values)
 	var decoration Middleware
 	if !values.isEmpty() {
 		decoration = decorationMiddleware{

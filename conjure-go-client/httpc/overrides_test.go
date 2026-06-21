@@ -285,7 +285,7 @@ func TestOverrides_TimeoutStates(t *testing.T) {
 	})
 
 	t.Run("unlimited overrides the client timeout", func(t *testing.T) {
-		_, _, err := void.WithUnlimitedTimeout().Call().Execute(context.Background(), client)
+		_, _, err := void.Call().WithUnlimitedTimeout().Execute(context.Background(), client)
 		require.NoError(t, err)
 	})
 
@@ -297,7 +297,7 @@ func TestOverrides_TimeoutStates(t *testing.T) {
 	})
 
 	t.Run("custom timeout applies", func(t *testing.T) {
-		_, _, err := void.WithTimeout(10*time.Second).Call().Execute(context.Background(), client)
+		_, _, err := void.Call().WithTimeout(10*time.Second).Execute(context.Background(), client)
 		require.NoError(t, err)
 	})
 }
