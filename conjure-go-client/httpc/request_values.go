@@ -23,12 +23,12 @@ import (
 )
 
 // RequestValues is the public, copy-on-write decoration a [SendOptions] carries:
-// the headers, query parameters, and basic auth a runtime applies to each
+// the headers, query parameters, and authorization a runtime applies to each
 // attempt. It is the honest form of what [Call.Execute] passes the runtime,
 // so a caller using [Runtime.Send] directly can express the same decoration:
 //
 //	opts := httpc.SendOptions{
-//	    Values: httpc.RequestValues{}.WithHeader("X-Tenant", "acme").WithBasicAuth(user, pass),
+//	    Values: httpc.RequestValues{}.WithHeader("X-Tenant", "acme").WithAuthorization(httpc.BasicCredentials(user, pass)),
 //	}
 //
 // Resolution semantics match request overrides: a later value for a key replaces
@@ -61,10 +61,17 @@ func (v RequestValues) WithAddedQuery(key, value string, additionalValues ...str
 	return v.withQuery(addValue[url.Values]{name: key, values: prepend(value, additionalValues)})
 }
 
-// WithBasicAuth sets the Authorization header to a basic-auth credential,
-// replacing any other Authorization value for this request.
-func (v RequestValues) WithBasicAuth(user, password string) RequestValues {
-	return v.withHeader(setValue[http.Header]{name: "Authorization", values: []string{basicAuthHeader(user, password)}})
+// WithAuthorization appends the given [Authorizer] as a trailing Authorization
+// contributor. Unlike [Overrides.WithAuthorization] (a scalar that always wins),
+// this is an ordered contributor — later contributors for Authorization win
+// positionally, like every other RequestValues entry. A nil Authorizer is a
+// no-op (RequestValues has no clear/default sentinel; use [NoAuthorization] to
+// deliberately send no credentials).
+func (v RequestValues) WithAuthorization(a Authorizer) RequestValues {
+	if a == nil {
+		return v
+	}
+	return v.withHeader(authValue{provider: a})
 }
 
 // Snapshot resolves the values onto fresh http.Header and url.Values using the

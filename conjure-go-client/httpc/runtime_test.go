@@ -55,7 +55,7 @@ func TestSendOptions_PublicValuesAndPolicy(t *testing.T) {
 		Values: httpc.RequestValues{}.
 			WithHeader("X-Tenant", "acme").
 			WithAddedQuery("q", "v").
-			WithBasicAuth("user", "pass"),
+			WithAuthorization(httpc.BasicCredentials("user", "pass")),
 	}
 	resp, err := client.Send(ctx, req, opts)
 	require.NoError(t, err)
@@ -147,10 +147,10 @@ func TestSend_DirectRequestHeaderBeatsBuilderDecoration(t *testing.T) {
 		}))
 		t.Cleanup(server.Close)
 		client, err := httpc.NewBuilder().SetBaseURLs(server.URL).
-			SetAuthTokenProvider(func(context.Context) (string, error) {
+			SetAuth(httpc.BearerTokenProvider(func(context.Context) (string, error) {
 				providerCalled = true
 				return "provider-token", nil
-			}).
+			})).
 			Build(ctx)
 		require.NoError(t, err)
 

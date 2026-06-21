@@ -84,18 +84,28 @@ func TestRequestValues_ConcatPrecedence(t *testing.T) {
 }
 
 // TestRequestValues_Snapshot covers the read-only snapshot exposed for fakes and
-// custom runtimes: it resolves headers/query/basic-auth with the same precedence
+// custom runtimes: it resolves headers/query/authorization with the same precedence
 // the runtime applies per attempt, without mutating anything.
 func TestRequestValues_Snapshot(t *testing.T) {
 	v := RequestValues{}.
 		WithHeader("X-A", "1").
 		WithAddedHeader("X-A", "2").
 		WithQuery("q", "x").
-		WithBasicAuth("u", "p")
+		WithAuthorization(BasicCredentials("u", "p"))
 
 	header, query, err := v.Snapshot(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, []string{"1", "2"}, header["X-A"], "set then add accumulates")
 	assert.Equal(t, "x", query.Get("q"))
 	assert.Equal(t, basicAuthHeader("u", "p"), header.Get("Authorization"))
+}
+
+// TestRequestValues_WithAuthorizationNilNoOp verifies a nil Authorizer is a no-op
+// on RequestValues (no scalar/sentinel to clear) — an existing trailing authorizer
+// still resolves through.
+func TestRequestValues_WithAuthorizationNilNoOp(t *testing.T) {
+	v := RequestValues{}.WithAuthorization(BasicCredentials("u", "p")).WithAuthorization(nil)
+	header, _, err := v.Snapshot(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, basicAuthHeader("u", "p"), header.Get("Authorization"), "nil is a no-op, prior authorizer survives")
 }

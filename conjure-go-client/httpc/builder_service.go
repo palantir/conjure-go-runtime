@@ -56,17 +56,15 @@ type ServiceBuilder[Self Cloneable[Self]] interface {
 	// Defaults to [BalancedURLSelector].
 	SetURLSelector(func([]string) URLSelector) Self
 
-	// SetAuthToken sets a static bearer token.
+	// SetAuth sets the client's [Authorizer] — the single auth slot; a nil
+	// Authorizer clears it. Construct one via [BearerToken] / [BasicCredentials],
+	// a provider/refreshable constructor ([BearerTokenProvider],
+	// [OptionalBasicCredentials], …), or [NoAuthorization].
+	SetAuth(Authorizer) Self
+	// SetAuthToken sets a static bearer token (sugar for SetAuth(BearerToken(t))).
 	SetAuthToken(string) Self
-	SetAuthTokenProvider(TokenProvider) Self
-	// SetAuthTokenRefreshable supplies a refreshable token; nil *string disables auth.
-	SetAuthTokenRefreshable(refreshable.Refreshable[*string]) Self
+	// SetBasicAuth sets static basic auth credentials (sugar for SetAuth(BasicCredentials(...))).
 	SetBasicAuth(user, password string) Self
-	SetBasicAuthProvider(func(ctx context.Context) (BasicAuth, error)) Self
-	// SetBasicAuthOptionalProvider installs a provider that may return nil to skip auth this request.
-	SetBasicAuthOptionalProvider(func(ctx context.Context) (*BasicAuth, error)) Self
-	// SetBasicAuthRefreshable supplies refreshable credentials; nil *BasicAuth disables auth.
-	SetBasicAuthRefreshable(refreshable.Refreshable[*BasicAuth]) Self
 
 	// AddHeader appends one or more values to a header. Multiple values for one key are allowed.
 	AddHeader(key, value string, additionalValues ...string) Self
@@ -167,92 +165,28 @@ func (b *BuilderCore[Self]) SetURLSelector(factory func([]string) URLSelector) S
 	return b.self
 }
 
-// authHeaderFunc returns the Authorization header value, or "" to leave the
-// header unset. Wrapped in an [authValue] contributor, it runs only when no
-// higher-precedence contributor (a request header or per-request basic auth)
-// claims Authorization.
-type authHeaderFunc func(ctx context.Context) (string, error)
+// SetAuth sets the client's [Authorizer] — the single auth slot. A later SetAuth
+// (or its sugar) replaces it; a nil Authorizer clears it. Construct one with
+// [BearerToken] / [BasicCredentials], a provider/refreshable constructor
+// ([BearerTokenProvider], [OptionalBasicCredentials], …), or [NoAuthorization].
+// The authorizer resolves as the lowest-precedence Authorization contributor, so
+// a request header or per-call authorizer supersedes it.
+func (b *BuilderCore[Self]) SetAuth(a Authorizer) Self {
+	b.auth = a
+	return b.self
+}
 
 // SetAuthToken sets a static bearer token, sent as "Authorization: Bearer <token>"
-// unless the request already has an Authorization header.
+// unless a higher-precedence contributor claims Authorization. Sugar for
+// SetAuth(BearerToken(t)).
 func (b *BuilderCore[Self]) SetAuthToken(t string) Self {
-	b.authHeader = func(context.Context) (string, error) {
-		return bearerAuthHeader(t), nil
-	}
-	return b.self
+	return b.SetAuth(BearerToken(t))
 }
 
-func (b *BuilderCore[Self]) SetAuthTokenProvider(p TokenProvider) Self {
-	b.authHeader = func(ctx context.Context) (string, error) {
-		token, err := p(ctx)
-		if err != nil {
-			return "", err
-		}
-		return bearerAuthHeader(token), nil
-	}
-	return b.self
-}
-
-// SetAuthTokenRefreshable supplies a refreshable bearer token. A nil current
-// value disables auth.
-func (b *BuilderCore[Self]) SetAuthTokenRefreshable(r refreshable.Refreshable[*string]) Self {
-	b.authHeader = func(context.Context) (string, error) {
-		s := r.Current()
-		if s == nil {
-			return "", nil
-		}
-		return bearerAuthHeader(*s), nil
-	}
-	return b.self
-}
-
-// SetBasicAuth sets static basic auth credentials.
+// SetBasicAuth sets static basic auth credentials. Sugar for
+// SetAuth(BasicCredentials(user, password)).
 func (b *BuilderCore[Self]) SetBasicAuth(user, password string) Self {
-	b.authHeader = func(context.Context) (string, error) {
-		return basicAuthHeader(user, password), nil
-	}
-	return b.self
-}
-
-func (b *BuilderCore[Self]) SetBasicAuthProvider(p func(ctx context.Context) (BasicAuth, error)) Self {
-	b.authHeader = func(ctx context.Context) (string, error) {
-		auth, err := p(ctx)
-		if err != nil {
-			return "", err
-		}
-		return basicAuthHeader(auth.User, auth.Password), nil
-	}
-	return b.self
-}
-
-// SetBasicAuthOptionalProvider installs a provider that may return nil to
-// skip basic auth for an individual request (the Authorization header is left
-// unset). Use this when auth is optional or conditional on request context.
-func (b *BuilderCore[Self]) SetBasicAuthOptionalProvider(p func(ctx context.Context) (*BasicAuth, error)) Self {
-	b.authHeader = func(ctx context.Context) (string, error) {
-		auth, err := p(ctx)
-		if err != nil {
-			return "", err
-		}
-		if auth == nil {
-			return "", nil
-		}
-		return basicAuthHeader(auth.User, auth.Password), nil
-	}
-	return b.self
-}
-
-// SetBasicAuthRefreshable supplies refreshable basic auth credentials. A nil
-// current value disables auth.
-func (b *BuilderCore[Self]) SetBasicAuthRefreshable(r refreshable.Refreshable[*BasicAuth]) Self {
-	b.authHeader = func(context.Context) (string, error) {
-		auth := r.Current()
-		if auth == nil {
-			return "", nil
-		}
-		return basicAuthHeader(auth.User, auth.Password), nil
-	}
-	return b.self
+	return b.SetAuth(BasicCredentials(user, password))
 }
 
 // AddHeader appends one or more values to a header on every request. For
@@ -458,8 +392,8 @@ func (b *BuilderCore[Self]) Build(ctx context.Context) (RebuildableRuntime[Self]
 // The runtime resolves these below any per-request contributors.
 func (b *BuilderCore[Self]) intrinsicHeaderValues() []requestValue[http.Header] {
 	var values []requestValue[http.Header]
-	if b.authHeader != nil {
-		values = append(values, authValue{provider: b.authHeader})
+	if b.auth != nil {
+		values = append(values, authValue{provider: b.auth})
 	}
 	return append(values, b.headerValues...)
 }

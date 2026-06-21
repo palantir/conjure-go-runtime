@@ -14,12 +14,5 @@
 
 package httpc
 
-import (
-	"context"
-)
-
 // Void is the Req or Resp type for endpoints with no request or response body.
 type Void = struct{}
-
-// TokenProvider returns a bearer token for request authentication.
-type TokenProvider func(ctx context.Context) (string, error)

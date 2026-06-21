@@ -64,21 +64,23 @@ func header(t *testing.T, o Overrides) http.Header {
 	return h
 }
 
-// TestOverrides_MergeDefaultBasicAuthClears verifies merging a WithDefaultBasicAuth
-// clears the receiver's basic-auth contributor, while an unset o leaves it intact.
-func TestOverrides_MergeDefaultBasicAuthClears(t *testing.T) {
-	withAuth := Overrides{}.WithBasicAuth("u", "p")
+// TestOverrides_MergeDefaultAuthorizationClears verifies merging a
+// WithDefaultAuthorization clears the receiver's authorizer, while an unset o
+// leaves it intact.
+func TestOverrides_MergeDefaultAuthorizationClears(t *testing.T) {
+	withAuth := Overrides{}.WithAuthorization(BasicCredentials("u", "p"))
 	assert.Equal(t, basicAuthHeader("u", "p"), header(t, withAuth).Get("Authorization"))
 
 	assert.Equal(t, basicAuthHeader("u", "p"), header(t, withAuth.merge(Overrides{})).Get("Authorization"),
 		"unset o keeps the receiver's auth")
-	assert.Empty(t, header(t, withAuth.merge(Overrides{}.WithDefaultBasicAuth())).Get("Authorization"),
+	assert.Empty(t, header(t, withAuth.merge(Overrides{}.WithDefaultAuthorization())).Get("Authorization"),
 		"clear drops the receiver's auth")
 }
 
 // TestOverrides_HeaderPrecedence pins the set/add resolution after the move from
 // maps to ordered RequestValues contributors: set-then-add accumulates, add-then-set
-// replaces, and basic auth beats an explicit Authorization header in either order.
+// replaces, and the WithAuthorization scalar beats an explicit Authorization header
+// in either order (it is always emitted as the trailing contributor).
 func TestOverrides_HeaderPrecedence(t *testing.T) {
 	t.Run("set then add accumulates", func(t *testing.T) {
 		o := Overrides{}.WithHeader("X-A", "1").WithAddedHeader("X-A", "2")
@@ -88,12 +90,12 @@ func TestOverrides_HeaderPrecedence(t *testing.T) {
 		o := Overrides{}.WithAddedHeader("X-A", "1").WithHeader("X-A", "2")
 		assert.Equal(t, []string{"2"}, header(t, o).Values("X-A"))
 	})
-	t.Run("basic auth beats an Authorization header set first", func(t *testing.T) {
-		o := Overrides{}.WithHeader("Authorization", "Bearer x").WithBasicAuth("u", "p")
+	t.Run("authorizer beats an Authorization header set first", func(t *testing.T) {
+		o := Overrides{}.WithHeader("Authorization", "Bearer x").WithAuthorization(BasicCredentials("u", "p"))
 		assert.Equal(t, basicAuthHeader("u", "p"), header(t, o).Get("Authorization"))
 	})
-	t.Run("basic auth beats an Authorization header set last", func(t *testing.T) {
-		o := Overrides{}.WithBasicAuth("u", "p").WithHeader("Authorization", "Bearer x")
+	t.Run("authorizer beats an Authorization header set last", func(t *testing.T) {
+		o := Overrides{}.WithAuthorization(BasicCredentials("u", "p")).WithHeader("Authorization", "Bearer x")
 		assert.Equal(t, basicAuthHeader("u", "p"), header(t, o).Get("Authorization"))
 	})
 }

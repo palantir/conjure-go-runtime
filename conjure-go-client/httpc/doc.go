@@ -47,6 +47,21 @@
 //     goroutines. Most settings have refreshable counterparts (SetFooRefreshable)
 //     for dynamic config.
 //
+// # Authentication
+//
+// Auth is a single abstraction, [Authorizer], which yields a full Authorization
+// header value (scheme included). Install one on the builder with [Builder.SetAuth]
+// — or the [Builder.SetAuthToken] / [Builder.SetBasicAuth] sugar — and override it
+// per request with WithAuthorization. Build one with [BearerToken],
+// [BearerTokenProvider], [RefreshableBearerToken], [BasicCredentials],
+// [BasicCredentialsProvider], [OptionalBasicCredentials], or
+// [RefreshableBasicCredentials]; [NoAuthorization] deliberately sends no credentials.
+// Auth resolves by precedence, not a "set if absent" check: the highest-precedence
+// present authorizer (or an explicit Authorization header) wins and lower layers are
+// never consulted, so a failing provider cannot fail a request that overrode it.
+// WithDefaultAuthorization (or a nil [Authorizer] on the builder/[Overrides]) clears
+// a layer back to the default; [NoAuthorization] instead suppresses lower layers.
+//
 // # Retry and error handling
 //
 // [Runtime.Send] — which [Call.Execute] invokes — retries on transport errors, 429,

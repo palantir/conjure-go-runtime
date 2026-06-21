@@ -64,10 +64,10 @@ func TestSend_AuthorizationHeaderSuppressesErroringProvider(t *testing.T) {
 	client, err := httpc.NewBuilder().
 		SetBaseURLs("https://example.com").
 		SetServiceName("auth-suppress").
-		SetAuthTokenProvider(func(context.Context) (string, error) {
+		SetAuth(httpc.BearerTokenProvider(func(context.Context) (string, error) {
 			providerCalled.Store(true)
 			return "", assert.AnError
-		}).
+		})).
 		SetTransport(transport).
 		Build(t.Context())
 	require.NoError(t, err)

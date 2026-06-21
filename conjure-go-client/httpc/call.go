@@ -90,7 +90,7 @@ func (c Call[Resp]) WithPathParam(key string, value any) Call[Resp] {
 
 // WithOverrides merges o into this call's per-request configuration: o's set
 // headers/query replace and its adds accumulate; the scalars (timeout, error
-// decoder, basic auth, buffer pool) are last-wins (o wins for any it set,
+// decoder, authorizer, buffer pool) are last-wins (o wins for any it set,
 // including an explicit clear); middlewares append.
 func (c Call[Resp]) WithOverrides(o Overrides) Call[Resp] {
 	c.overrides = c.overrides.merge(o)
@@ -152,13 +152,13 @@ func (c Call[Resp]) WithDefaultErrorDecoder() Call[Resp] {
 	return c
 }
 
-func (c Call[Resp]) WithBasicAuth(user, password string) Call[Resp] {
-	c.overrides = c.overrides.WithBasicAuth(user, password)
+func (c Call[Resp]) WithAuthorization(a Authorizer) Call[Resp] {
+	c.overrides = c.overrides.WithAuthorization(a)
 	return c
 }
 
-func (c Call[Resp]) WithDefaultBasicAuth() Call[Resp] {
-	c.overrides = c.overrides.WithDefaultBasicAuth()
+func (c Call[Resp]) WithDefaultAuthorization() Call[Resp] {
+	c.overrides = c.overrides.WithDefaultAuthorization()
 	return c
 }
 

@@ -172,9 +172,9 @@ func TestOverrides_WithOverrides_Merge(t *testing.T) {
 
 		base := httpc.NewNoBodyEndpoint[struct{}](http.MethodGet, "Test", "/test").
 			WithDecoder(httpc.VoidDecoder()).
-			WithBasicAuth("original-user", "original-pass")
+			WithAuthorization(httpc.BasicCredentials("original-user", "original-pass"))
 
-		overrides := httpc.Overrides{}.WithBasicAuth("override-user", "override-pass")
+		overrides := httpc.Overrides{}.WithAuthorization(httpc.BasicCredentials("override-user", "override-pass"))
 		merged := base.Call().WithOverrides(overrides)
 
 		client := &httpTestClient{server: server}
@@ -250,7 +250,7 @@ func TestOverrides_EmptyMergeIsIdentity(t *testing.T) {
 		WithDecoder(httpc.VoidDecoder()).
 		WithAddedHeader("X-Custom", "v1").
 		WithAddedQuery("foo", "bar").
-		WithBasicAuth("user", "pass")
+		WithAuthorization(httpc.BasicCredentials("user", "pass"))
 
 	// Merge empty overrides — should produce identical behavior.
 	merged := ep.Call().WithOverrides(httpc.Overrides{})
@@ -344,38 +344,45 @@ func TestOverrides_ErrorDecoderStates(t *testing.T) {
 	})
 }
 
-// TestOverrides_DefaultBasicAuthClears verifies per-request basic auth wins over
-// an explicit Authorization header, and that WithDefaultBasicAuth clears it so
-// the lower-priority header applies.
-func TestOverrides_DefaultBasicAuthClears(t *testing.T) {
-	endpoint := httpc.NewNoBodyEndpoint[struct{}](http.MethodGet, "Get", "/x").
-		WithDecoder(httpc.VoidDecoder()).
-		WithHeader("Authorization", "Bearer explicit").
-		WithBasicAuth("user", "pass")
+// TestOverrides_DefaultAuthorizationClears verifies a per-request authorizer wins
+// over an explicit Authorization header, and that WithDefaultAuthorization clears
+// it so the lower-priority header applies. It runs the matrix over both a basic and
+// a bearer endpoint authorizer to prove the clear is not basic-auth-shaped.
+func TestOverrides_DefaultAuthorizationClears(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		auth httpc.Authorizer
+		want string // expected Authorization when the authorizer wins
+	}{
+		{"basic", httpc.BasicCredentials("user", "pass"), "Basic dXNlcjpwYXNz"},
+		{"bearer", httpc.BearerToken("endpoint-token"), "Bearer endpoint-token"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			endpoint := httpc.NewNoBodyEndpoint[struct{}](http.MethodGet, "Get", "/x").
+				WithDecoder(httpc.VoidDecoder()).
+				WithHeader("Authorization", "Bearer explicit").
+				WithAuthorization(tc.auth)
 
-	t.Run("basic auth wins over the explicit header", func(t *testing.T) {
-		server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
-			user, pass, ok := r.BasicAuth()
-			assert.True(t, ok)
-			assert.Equal(t, "user", user)
-			assert.Equal(t, "pass", pass)
-			w.WriteHeader(http.StatusNoContent)
-		})
-		_, _, err := endpoint.Call().Execute(context.Background(), &httpTestClient{server: server})
-		require.NoError(t, err)
-	})
+			t.Run("authorizer wins over the explicit header", func(t *testing.T) {
+				server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+					assert.Equal(t, tc.want, r.Header.Get("Authorization"))
+					w.WriteHeader(http.StatusNoContent)
+				})
+				_, _, err := endpoint.Call().Execute(context.Background(), &httpTestClient{server: server})
+				require.NoError(t, err)
+			})
 
-	t.Run("WithDefaultBasicAuth clears it so the explicit header wins", func(t *testing.T) {
-		server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
-			assert.Equal(t, "Bearer explicit", r.Header.Get("Authorization"))
-			_, _, ok := r.BasicAuth()
-			assert.False(t, ok, "no basic auth on the wire")
-			w.WriteHeader(http.StatusNoContent)
+			t.Run("WithDefaultAuthorization clears it so the explicit header wins", func(t *testing.T) {
+				server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+					assert.Equal(t, "Bearer explicit", r.Header.Get("Authorization"))
+					w.WriteHeader(http.StatusNoContent)
+				})
+				merged := endpoint.Call().WithOverrides(httpc.Overrides{}.WithDefaultAuthorization())
+				_, _, err := merged.Execute(context.Background(), &httpTestClient{server: server})
+				require.NoError(t, err)
+			})
 		})
-		merged := endpoint.Call().WithOverrides(httpc.Overrides{}.WithDefaultBasicAuth())
-		_, _, err := merged.Execute(context.Background(), &httpTestClient{server: server})
-		require.NoError(t, err)
-	})
+	}
 }
 
 // TestOverrides_DefaultBufferPoolClears verifies a per-call clear (and the

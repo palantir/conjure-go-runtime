@@ -446,7 +446,7 @@ func TestExampleService_WithOverridesOnEndpoint(t *testing.T) {
 	// Build overrides externally and apply to an endpoint.
 	overrides := httpc.Overrides{}.
 		WithAddedHeader("X-Custom", "custom-value").
-		WithBasicAuth("admin", "secret")
+		WithAuthorization(httpc.BasicCredentials("admin", "secret"))
 
 	resp, _, err := getItemEndpoint.
 		Call().

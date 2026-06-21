@@ -26,10 +26,10 @@ import (
 
 // Example_basicAuth configures HTTP basic auth, including a provider that may skip it.
 //
-// SetBasicAuth sends static credentials on every request. SetBasicAuthOptionalProvider
-// runs per request and may return nil to leave a request unauthenticated — useful when
-// auth is conditional on request context. The server reads credentials with
-// http.Request.BasicAuth.
+// SetBasicAuth sends static credentials on every request. SetAuth with
+// OptionalBasicCredentials runs the provider per request and may return nil to leave a
+// request unauthenticated — useful when auth is conditional on request context. The
+// server reads credentials with http.Request.BasicAuth.
 func Example_basicAuth() {
 	ctx := context.Background()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -60,9 +60,9 @@ func Example_basicAuth() {
 	optional, err := httpc.NewBuilder().
 		SetServiceName("inventory").
 		SetBaseURLs(server.URL).
-		SetBasicAuthOptionalProvider(func(context.Context) (*httpc.BasicAuth, error) {
+		SetAuth(httpc.OptionalBasicCredentials(func(context.Context) (*httpc.BasicAuth, error) {
 			return nil, nil // nil skips auth, leaving Authorization unset
-		}).
+		})).
 		Build(ctx)
 	if err != nil {
 		panic(err)

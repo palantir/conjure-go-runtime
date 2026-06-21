@@ -28,7 +28,7 @@ import (
 // supersedes the client's auth provider — and the provider never runs.
 //
 // Auth resolves by precedence, not by a runtime "set if absent" check. A per-request
-// Authorization (here via WithHeader; WithBasicAuth behaves the same) wins over the
+// Authorization (here via WithHeader; WithAuthorization behaves the same) wins over the
 // client's configured provider, so the provider is not consulted at all: no token is
 // fetched and, crucially, a failing provider cannot fail a request that was going to
 // override it anyway.
@@ -52,10 +52,10 @@ func Example_authPrecedence() {
 		SetServiceName("inventory").
 		SetBaseURLs(server.URL).
 		// This provider would fail any request that actually consulted it.
-		SetAuthTokenProvider(func(context.Context) (string, error) {
+		SetAuth(httpc.BearerTokenProvider(func(context.Context) (string, error) {
 			providerRan = true
 			return "", fmt.Errorf("token service unavailable")
-		}).
+		})).
 		Build(ctx)
 	if err != nil {
 		panic(err)

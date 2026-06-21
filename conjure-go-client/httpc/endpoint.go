@@ -44,7 +44,7 @@ import (
 //     context).
 //
 // Headers and query parameters accumulate across both layers; scalar values
-// (timeout, error decoder, basic auth, buffer pool) are last-wins — the
+// (timeout, error decoder, authorizer, buffer pool) are last-wins — the
 // per-invocation layer wins for any scalar it set, including an explicit clear
 // (WithDefault* / WithUnlimitedTimeout / WithNoErrorDecoder).
 type RequestOverrides[D any] interface {
@@ -83,11 +83,14 @@ type RequestOverrides[D any] interface {
 	// WithDefaultErrorDecoder clears any decoder set here so [Call.Execute]
 	// falls back to [DefaultErrorDecoder].
 	WithDefaultErrorDecoder() D
-	// WithBasicAuth sets per-request basic auth credentials, overriding any client-level auth.
-	WithBasicAuth(user, password string) D
-	// WithDefaultBasicAuth clears any basic auth set here so lower-priority
+	// WithAuthorization sets the per-request [Authorizer], overriding any
+	// client-level auth. Pass [NoAuthorization] to deliberately send no
+	// credentials for this request; a nil Authorizer clears the override
+	// (identical to WithDefaultAuthorization).
+	WithAuthorization(Authorizer) D
+	// WithDefaultAuthorization clears any authorizer set here so lower-priority
 	// client-level auth (or an explicit Authorization header) applies.
-	WithDefaultBasicAuth() D
+	WithDefaultAuthorization() D
 	// WithMiddleware appends a per-request middleware that runs once per attempt
 	// around the resolved request, inside telemetry like the builder middleware.
 	WithMiddleware(Middleware) D
@@ -272,13 +275,13 @@ func (e BodyEndpoint[Req, Resp]) WithDefaultErrorDecoder() BodyEndpoint[Req, Res
 	return e
 }
 
-func (e BodyEndpoint[Req, Resp]) WithBasicAuth(user, password string) BodyEndpoint[Req, Resp] {
-	e.core.defaults = e.core.defaults.WithBasicAuth(user, password)
+func (e BodyEndpoint[Req, Resp]) WithAuthorization(a Authorizer) BodyEndpoint[Req, Resp] {
+	e.core.defaults = e.core.defaults.WithAuthorization(a)
 	return e
 }
 
-func (e BodyEndpoint[Req, Resp]) WithDefaultBasicAuth() BodyEndpoint[Req, Resp] {
-	e.core.defaults = e.core.defaults.WithDefaultBasicAuth()
+func (e BodyEndpoint[Req, Resp]) WithDefaultAuthorization() BodyEndpoint[Req, Resp] {
+	e.core.defaults = e.core.defaults.WithDefaultAuthorization()
 	return e
 }
 
@@ -390,13 +393,13 @@ func (e NoBodyEndpoint[Resp]) WithDefaultErrorDecoder() NoBodyEndpoint[Resp] {
 	return e
 }
 
-func (e NoBodyEndpoint[Resp]) WithBasicAuth(user, password string) NoBodyEndpoint[Resp] {
-	e.core.defaults = e.core.defaults.WithBasicAuth(user, password)
+func (e NoBodyEndpoint[Resp]) WithAuthorization(a Authorizer) NoBodyEndpoint[Resp] {
+	e.core.defaults = e.core.defaults.WithAuthorization(a)
 	return e
 }
 
-func (e NoBodyEndpoint[Resp]) WithDefaultBasicAuth() NoBodyEndpoint[Resp] {
-	e.core.defaults = e.core.defaults.WithDefaultBasicAuth()
+func (e NoBodyEndpoint[Resp]) WithDefaultAuthorization() NoBodyEndpoint[Resp] {
+	e.core.defaults = e.core.defaults.WithDefaultAuthorization()
 	return e
 }
 

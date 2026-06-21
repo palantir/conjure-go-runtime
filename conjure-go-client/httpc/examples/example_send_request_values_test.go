@@ -58,7 +58,7 @@ func Example_sendRequestValues() {
 		Values: httpc.RequestValues{}.
 			WithHeader("X-Tenant", "acme").
 			WithQuery("q", "widget").
-			WithBasicAuth("svc", "secret"),
+			WithAuthorization(httpc.BasicCredentials("svc", "secret")),
 		Policy: httpc.CallPolicyOverrides{}.WithMaxAttempts(new(1)),
 	}
 	resp, err := client.Send(ctx, req, opts)

@@ -50,7 +50,7 @@ func nonZeroBuilder() *Builder {
 
 		middlewares:      []Middleware{MiddlewareFunc(func(*http.Request, http.RoundTripper) (*http.Response, error) { return nil, nil })},
 		innerMiddlewares: []Middleware{MiddlewareFunc(func(*http.Request, http.RoundTripper) (*http.Response, error) { return nil, nil })},
-		authHeader:       func(context.Context) (string, error) { return "Bearer x", nil },
+		auth:             AuthorizerFunc(func(context.Context) (string, error) { return "Bearer x", nil }),
 		headerValues:     []requestValue[http.Header]{setValue[http.Header]{name: "X-Test", values: []string{"v"}}},
 
 		disableMetrics:      refreshable.New(true),

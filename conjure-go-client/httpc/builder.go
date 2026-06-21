@@ -74,7 +74,7 @@ type BuilderCore[Self Cloneable[Self]] struct {
 
 	middlewares      []Middleware                // outer: applied after built-in middleware
 	innerMiddlewares []Middleware                // inner: applied before built-in middleware
-	authHeader       authHeaderFunc              // single auth slot; Set*Auth* methods replace it
+	auth             Authorizer                  // single auth slot; SetAuth (and its sugar) replace it
 	headerValues     []requestValue[http.Header] // SetHeader/AddHeader contributors, resolved per request
 
 	disableMetrics      refreshable.Refreshable[bool]
@@ -213,7 +213,7 @@ func (b *BuilderCore[Self]) CloneCoreFor(self Self) *BuilderCore[Self] {
 		tlsCABytes:          b.tlsCABytes,
 		middlewares:         slices.Clone(b.middlewares),
 		innerMiddlewares:    slices.Clone(b.innerMiddlewares),
-		authHeader:          b.authHeader,
+		auth:                b.auth,
 		headerValues:        slices.Clone(b.headerValues),
 		disableMetrics:      b.disableMetrics,
 		metricsTagProviders: slices.Clone(b.metricsTagProviders),
@@ -531,10 +531,10 @@ func (b *BuilderCore[Self]) ApplyConfigRefreshable(ctx context.Context, config r
 	// One auth provider covers both token and basic auth so that refreshes can
 	// switch between them. When neither is set, fall back to any provider
 	// installed by a prior SetAuth* call.
-	existingAuth := b.authHeader
+	existingAuth := b.auth
 	apiToken := refreshable.MapFromValidatedAuto(validParams, func(p validatedClientParams) *string { return p.apiToken })
 	basicAuthR := refreshable.MapFromValidatedAuto(validParams, func(p validatedClientParams) *BasicAuth { return p.basicAuth })
-	b.authHeader = func(ctx context.Context) (string, error) {
+	b.auth = AuthorizerFunc(func(ctx context.Context) (string, error) {
 		if s := apiToken.Current(); s != nil {
 			return bearerAuthHeader(*s), nil
 		}
@@ -542,10 +542,10 @@ func (b *BuilderCore[Self]) ApplyConfigRefreshable(ctx context.Context, config r
 			return basicAuthHeader(auth.User, auth.Password), nil
 		}
 		if existingAuth != nil {
-			return existingAuth(ctx)
+			return existingAuth.AuthorizationHeader(ctx)
 		}
 		return "", nil
-	}
+	})
 
 	b.metricsTagProviders = append(b.metricsTagProviders, TagsProviderFunc(func(*http.Request, *http.Response, error) metrics.Tags {
 		return validParams.Unvalidated().metricsTags

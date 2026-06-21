@@ -132,7 +132,7 @@ func WithAuthToken(bearerToken string) ClientOrHTTPClientParam {
 
 // WithAuthTokenProvider calls provideToken() and sets the Authorization header.
 func WithAuthTokenProvider(provideToken TokenProvider) ClientOrHTTPClientParam {
-	return builderClientOrHTTPClientParam(httpc.Param1((*httpc.Builder).SetAuthTokenProvider, httpc.TokenProvider(provideToken)))
+	return builderClientOrHTTPClientParam(httpc.Param1((*httpc.Builder).SetAuth, httpc.BearerTokenProvider(provideToken)))
 }
 
 // WithUserAgent sets the User-Agent header.
@@ -419,9 +419,8 @@ func WithBasicAuth(user, password string) ClientOrHTTPClientParam {
 // WithBasicAuthProvider sets the request's Authorization header to use HTTP Basic Authentication.
 // The provider is expected to always return a nonempty BasicAuth value, or an error.
 func WithBasicAuthProvider(provider BasicAuthProvider) ClientOrHTTPClientParam {
-	// SetBasicAuthProvider now takes a bare func; convert so Param1 infers a
-	// single type argument from both the method expression and the provider.
-	return builderClientOrHTTPClientParam(httpc.Param1((*httpc.Builder).SetBasicAuthProvider, func(ctx context.Context) (httpc.BasicAuth, error) { return provider(ctx) }))
+	return builderClientOrHTTPClientParam(httpc.Param1((*httpc.Builder).SetAuth,
+		httpc.BasicCredentialsProvider(func(ctx context.Context) (httpc.BasicAuth, error) { return provider(ctx) })))
 }
 
 // WithBasicAuthOptionalProvider sets the request's Authorization header to use HTTP Basic Authentication based on the
@@ -429,12 +428,12 @@ func WithBasicAuthProvider(provider BasicAuthProvider) ClientOrHTTPClientParam {
 // BasicAuth value is non-nil then its values are set on the header, while if the returned BasicAuth value is nil then
 // no basic authentication header values are set.
 func WithBasicAuthOptionalProvider(provider BasicAuthOptionalProvider) ClientOrHTTPClientParam {
-	// Route through the builder's optional-auth slot (not an inner middleware) so it
-	// resolves at the intrinsic-auth layer: a returned non-nil credential wins as the
-	// Authorization contributor and a nil result leaves the header unset, instead of
-	// being overwritten by other configured intrinsic auth applied during decoration.
-	return builderClientOrHTTPClientParam(httpc.Param1((*httpc.Builder).SetBasicAuthOptionalProvider,
-		func(ctx context.Context) (*httpc.BasicAuth, error) { return provider(ctx) }))
+	// Route through the builder's single auth slot so it resolves at the intrinsic-auth
+	// layer: a returned non-nil credential wins as the Authorization contributor and a
+	// nil result leaves the header unset, instead of being overwritten by other
+	// configured intrinsic auth applied during decoration.
+	return builderClientOrHTTPClientParam(httpc.Param1((*httpc.Builder).SetAuth,
+		httpc.OptionalBasicCredentials(func(ctx context.Context) (*httpc.BasicAuth, error) { return provider(ctx) })))
 }
 
 // WithRandomURIScoring adds middleware that randomizes the order URIs are prioritized in for each request.

@@ -78,7 +78,7 @@ type CallPolicy struct {
 }
 
 // SendOptions is the per-send configuration for [Runtime.Send]: request
-// decoration (headers/query/basic auth), per-request middlewares, and call-policy
+// decoration (headers/query/authorization), per-request middlewares, and call-policy
 // overrides. The standard runtime resolves Values per attempt above its
 // builder-intrinsic values, runs Middlewares innermost (just above the transport,
 // so a request can override auth), and merges Policy onto its defaults. The zero

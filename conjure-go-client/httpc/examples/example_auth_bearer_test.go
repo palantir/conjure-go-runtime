@@ -26,10 +26,10 @@ import (
 
 // Example_bearerToken attaches a bearer token via a provider.
 //
-// SetAuthTokenProvider is consulted on every request, so it can hand back a freshly
-// minted or rotated token — here a new value per call. For a fixed token use
-// SetAuthToken; for one that changes out of band use SetAuthTokenRefreshable. All
-// three send "Authorization: Bearer <token>".
+// SetAuth(BearerTokenProvider(...)) is consulted on every request, so it can hand back
+// a freshly minted or rotated token — here a new value per call. For a fixed token use
+// SetAuthToken; for one that changes out of band use RefreshableBearerToken. All three
+// send "Authorization: Bearer <token>".
 func Example_bearerToken() {
 	ctx := context.Background()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -48,10 +48,10 @@ func Example_bearerToken() {
 	client, err := httpc.NewBuilder().
 		SetServiceName("inventory").
 		SetBaseURLs(server.URL).
-		SetAuthTokenProvider(func(context.Context) (string, error) {
+		SetAuth(httpc.BearerTokenProvider(func(context.Context) (string, error) {
 			issued++
 			return fmt.Sprintf("token-%d", issued), nil
-		}).
+		})).
 		Build(ctx)
 	if err != nil {
 		panic(err)

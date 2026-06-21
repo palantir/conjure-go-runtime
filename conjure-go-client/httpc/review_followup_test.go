@@ -77,7 +77,7 @@ func TestSetInsecureSkipVerify_DoesNotMutateEscapeHatch(t *testing.T) {
 	assert.False(t, user.InsecureSkipVerify, "caller's config must not be mutated")
 }
 
-// T4: Overrides.WithBasicAuth wins over an Overrides.WithHeader("Authorization", ...).
+// T4: Overrides.WithAuthorization wins over an Overrides.WithHeader("Authorization", ...).
 func TestEndpointExecute_BasicAuthOverridesAuthorizationHeader(t *testing.T) {
 	var seen string
 	transport := &roundTripFunc{fn: func(req *http.Request) (*http.Response, error) {
@@ -90,7 +90,7 @@ func TestEndpointExecute_BasicAuthOverridesAuthorizationHeader(t *testing.T) {
 	ep := httpc.NewNoBodyEndpoint[struct{}](http.MethodGet, "Auth", "/auth").
 		WithDecoder(httpc.VoidDecoder()).
 		WithHeader("Authorization", "Bearer ignored").
-		WithBasicAuth("u", "p")
+		WithAuthorization(httpc.BasicCredentials("u", "p"))
 
 	_, _, err = ep.Call().Execute(context.Background(), client)
 	require.NoError(t, err)
@@ -196,7 +196,7 @@ func TestBuilder_BasicAuthOptionalProvider_NilSkipsAuth(t *testing.T) {
 	client, err := httpc.NewBuilder().
 		SetBaseURLs("https://example.com").
 		SetTransport(transport).
-		SetBasicAuthOptionalProvider(func(context.Context) (*httpc.BasicAuth, error) { return nil, nil }).
+		SetAuth(httpc.OptionalBasicCredentials(func(context.Context) (*httpc.BasicAuth, error) { return nil, nil })).
 		Build(context.Background())
 	require.NoError(t, err)
 

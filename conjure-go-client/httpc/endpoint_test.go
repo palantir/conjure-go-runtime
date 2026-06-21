@@ -156,7 +156,7 @@ func TestEndpointExecute_BasicAuth(t *testing.T) {
 
 	ep := httpc.NewNoBodyEndpoint[struct{}](http.MethodGet, "Auth", "/auth").
 		WithDecoder(httpc.VoidDecoder()).
-		WithBasicAuth("myuser", "mypass")
+		WithAuthorization(httpc.BasicCredentials("myuser", "mypass"))
 
 	client := &httpTestClient{server: server}
 	_, _, err := ep.Call().Execute(context.Background(), client)
@@ -177,17 +177,17 @@ func TestEndpointExecute_BasicAuthOverridesClientAuth(t *testing.T) {
 	}}
 	client, err := httpc.NewBuilder().
 		SetBaseURLs("https://example.com").
-		SetAuthTokenProvider(func(context.Context) (string, error) {
+		SetAuth(httpc.BearerTokenProvider(func(context.Context) (string, error) {
 			providerCalled = true
 			return "", assert.AnError
-		}).
+		})).
 		SetTransport(transport).
 		Build(context.Background())
 	require.NoError(t, err)
 
 	ep := httpc.NewNoBodyEndpoint[struct{}](http.MethodGet, "Auth", "/auth").
 		WithDecoder(httpc.VoidDecoder()).
-		WithBasicAuth("request-user", "request-pass")
+		WithAuthorization(httpc.BasicCredentials("request-user", "request-pass"))
 
 	_, _, err = ep.Call().Execute(context.Background(), client)
 	require.NoError(t, err)

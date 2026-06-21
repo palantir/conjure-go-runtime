@@ -16,7 +16,6 @@ package httpc
 
 import (
 	"context"
-	"encoding/base64"
 	"net/http"
 	"net/url"
 )
@@ -80,18 +79,20 @@ func (v addValue[T]) apply(_ context.Context, dst T) error {
 	return nil
 }
 
-// authValue contributes the client's Authorization header. It is the lowest
-// precedence Authorization contributor, so its provider runs only when nothing
-// else claims the header — replacing the old set-if-absent auth middleware.
+// authValue contributes an Authorization header from an [Authorizer]. Like any
+// replacing contributor it resolves by precedence: a higher-precedence
+// Authorization contributor supersedes it, in which case its authorizer never
+// runs (so a lazy, fallible auth provider never runs or errors when overridden).
+// An empty result leaves Authorization unset.
 type authValue struct {
-	provider authHeaderFunc
+	provider Authorizer
 }
 
 func (authValue) key() string    { return "Authorization" }
 func (authValue) replaces() bool { return true }
 
 func (v authValue) apply(ctx context.Context, dst http.Header) error {
-	value, err := v.provider(ctx)
+	value, err := v.provider.AuthorizationHeader(ctx)
 	if err != nil {
 		return err
 	}
@@ -151,15 +152,4 @@ func (d decorationMiddleware) RoundTrip(req *http.Request, next http.RoundTrippe
 		req.URL.RawQuery = q.Encode()
 	}
 	return next.RoundTrip(req)
-}
-
-func bearerAuthHeader(token string) string {
-	if token == "" {
-		return ""
-	}
-	return "Bearer " + token
-}
-
-func basicAuthHeader(user, password string) string {
-	return "Basic " + base64.StdEncoding.EncodeToString([]byte(user+":"+password))
 }

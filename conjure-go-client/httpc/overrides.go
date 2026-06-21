@@ -15,7 +15,6 @@
 package httpc
 
 import (
-	"net/http"
 	"net/url"
 	"slices"
 	"time"
@@ -23,15 +22,10 @@ import (
 	"github.com/palantir/pkg/bytesbuffers"
 )
 
-type basicAuthOverride struct {
-	user     string
-	password string
-}
-
 // overrideValue carries a scalar override plus whether this layer set it. An
 // unset value inherits the layer below at merge time; a set value applies even
 // when it is zero/nil, which is how a per-call Overrides clears an inherited
-// descriptor default (e.g. WithDefaultTimeout / WithDefaultBasicAuth).
+// descriptor default (e.g. WithDefaultTimeout / WithDefaultAuthorization).
 type overrideValue[T any] struct {
 	value T
 	set   bool
@@ -47,7 +41,7 @@ func setOverride[T any](v T) overrideValue[T] { return overrideValue[T]{value: v
 // on a generated service-client struct.
 //
 // At merge time the two layers compose: headers and query parameters
-// accumulate across both; scalar values (timeout, error decoder, basic auth,
+// accumulate across both; scalar values (timeout, error decoder, authorization,
 // buffer pool) are last-wins with the Overrides value taking precedence over
 // the descriptor-level default; middlewares append.
 //
@@ -62,14 +56,16 @@ type Overrides struct {
 	values       RequestValues                 // header & query contributors (resolved with later-wins precedence)
 	timeout      overrideValue[*time.Duration] // unset/nil = inherit; &0 = unlimited; &d = d
 	errorDecoder overrideValue[ErrorDecoder]   // unset/nil = DefaultErrorDecoder; NoErrorDecoder{} = skip
-	basicAuth    overrideValue[*basicAuthOverride]
+	auth         overrideValue[Authorizer]     // unset/nil = inherit; NoAuthorization() = send none
 	middlewares  []Middleware
 	bufferPool   overrideValue[bytesbuffers.Pool]
 }
 
 // Clone returns a deep copy of the Overrides value. (The contributor and
 // middleware slices are append-only copy-on-write, so callers rarely need this;
-// it remains for explicit isolation.)
+// it remains for explicit isolation.) The Authorizer is shared by design — a
+// reused authorizer must be concurrency-safe (see [Authorizer]) — so there is
+// nothing to deep-copy for it.
 func (c Overrides) Clone() Overrides {
 	out := c
 	if c.middlewares != nil {
@@ -77,9 +73,6 @@ func (c Overrides) Clone() Overrides {
 	}
 	if c.timeout.value != nil {
 		out.timeout.value = new(*c.timeout.value)
-	}
-	if c.basicAuth.value != nil {
-		out.basicAuth.value = new(*c.basicAuth.value)
 	}
 	return out
 }
@@ -171,21 +164,22 @@ func (c Overrides) WithDefaultErrorDecoder() Overrides {
 	return c
 }
 
-// WithBasicAuth sets per-request basic auth credentials. Takes precedence
-// over any Authorization header set via WithHeader (basic auth is applied
-// after headers, replacing the Authorization value) and over the client-level
-// auth installed by [Builder.SetBasicAuth] / [Builder.SetAuthToken]. To drop
-// this override so lower-priority auth (or an explicit Authorization header)
-// applies, use [Overrides.WithDefaultBasicAuth].
-func (c Overrides) WithBasicAuth(user, password string) Overrides {
-	c.basicAuth = setOverride(&basicAuthOverride{user: user, password: password})
+// WithAuthorization sets the per-request [Authorizer]. It takes precedence over
+// any Authorization header set via WithHeader (the authorizer is applied after
+// headers, replacing the Authorization value) and over the client-level auth
+// installed by [Builder.SetAuth]. Pass [NoAuthorization] to deliberately send no
+// credentials for this request. A nil Authorizer drops the override so
+// lower-priority auth (or an explicit Authorization header) applies — identical
+// to [Overrides.WithDefaultAuthorization].
+func (c Overrides) WithAuthorization(a Authorizer) Overrides {
+	c.auth = setOverride(a)
 	return c
 }
 
-// WithDefaultBasicAuth clears any endpoint- or override-level per-request basic
-// auth, so the client-level auth or an explicit Authorization header applies.
-func (c Overrides) WithDefaultBasicAuth() Overrides {
-	c.basicAuth = setOverride[*basicAuthOverride](nil)
+// WithDefaultAuthorization clears any endpoint- or override-level authorizer, so
+// the client-level auth or an explicit Authorization header applies.
+func (c Overrides) WithDefaultAuthorization() Overrides {
+	c.auth = setOverride[Authorizer](nil)
 	return c
 }
 
@@ -212,9 +206,9 @@ func (c Overrides) WithDefaultBufferPool() Overrides {
 
 // merge combines the receiver with o: o's header/query contributors resolve
 // after the receiver's (so o's sets replace and its adds accumulate); the
-// scalar overrides (timeout, error decoder, basic auth, buffer pool) are
+// scalar overrides (timeout, error decoder, authorizer, buffer pool) are
 // last-wins — o wins for any scalar it set, including an explicit clear (e.g.
-// WithDefaultTimeout / WithDefaultBasicAuth), so a scalar o never set leaves the
+// WithDefaultTimeout / WithDefaultAuthorization), so a scalar o never set leaves the
 // receiver's value intact; middlewares append.
 func (c Overrides) merge(o Overrides) Overrides {
 	out := c
@@ -225,8 +219,8 @@ func (c Overrides) merge(o Overrides) Overrides {
 	if o.errorDecoder.set {
 		out.errorDecoder = o.errorDecoder
 	}
-	if o.basicAuth.set {
-		out.basicAuth = o.basicAuth
+	if o.auth.set {
+		out.auth = o.auth
 	}
 	if o.bufferPool.set {
 		out.bufferPool = o.bufferPool
@@ -236,17 +230,16 @@ func (c Overrides) merge(o Overrides) Overrides {
 }
 
 // requestValues returns the header and query contributors the runtime resolves
-// per attempt: the accumulated header/query values plus, when set, basic auth as
-// a trailing Authorization contributor (the highest per-request precedence, so
-// it beats any Authorization header set via WithHeader regardless of order).
+// per attempt: the accumulated header/query values plus, when set, the
+// authorizer as a trailing Authorization contributor (the highest per-request
+// precedence, so it beats any Authorization header set via WithHeader regardless
+// of order — auth is a scalar here, always emitted last, unlike RequestValues'
+// ordered WithAuthorization).
 func (c Overrides) requestValues() RequestValues {
-	if c.basicAuth.value == nil {
+	if c.auth.value == nil {
 		return c.values
 	}
-	return c.values.withHeader(setValue[http.Header]{
-		name:   "Authorization",
-		values: []string{basicAuthHeader(c.basicAuth.value.user, c.basicAuth.value.password)},
-	})
+	return c.values.withHeader(authValue{provider: c.auth.value})
 }
 
 // callPolicyOverrides maps the per-request scalar overrides onto a
