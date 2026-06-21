@@ -27,6 +27,17 @@ type basicAuthOverride struct {
 	password string
 }
 
+// overrideValue carries a scalar override plus whether this layer set it. An
+// unset value inherits the layer below at merge time; a set value applies even
+// when it is zero/nil, which is how a per-call Overrides clears an inherited
+// Endpoint default (e.g. WithDefaultTimeout / WithDefaultBasicAuth).
+type overrideValue[T any] struct {
+	value T
+	set   bool
+}
+
+func setOverride[T any](v T) overrideValue[T] { return overrideValue[T]{value: v, set: true} }
+
 // Overrides is caller-supplied per-request configuration that merges into an
 // [Endpoint] via [Endpoint.WithOverrides]. It is the second of the two
 // [RequestOverrides] layers: where the same-named methods on [Endpoint] set
@@ -51,11 +62,11 @@ type Overrides struct {
 	addHeaders   http.Header
 	setQuery     url.Values
 	addQuery     url.Values
-	timeout      *time.Duration
-	errorDecoder ErrorDecoder
-	basicAuth    *basicAuthOverride
+	timeout      overrideValue[*time.Duration] // unset/nil = inherit; &0 = unlimited; &d = d
+	errorDecoder overrideValue[ErrorDecoder]   // unset/nil = DefaultErrorDecoder; NoErrorDecoder{} = skip
+	basicAuth    overrideValue[*basicAuthOverride]
 	middlewares  []Middleware
-	bufferPool   bytesbuffers.Pool
+	bufferPool   overrideValue[bytesbuffers.Pool]
 }
 
 // Clone returns a deep copy of the Overrides value.
@@ -85,11 +96,11 @@ func (c Overrides) Clone() Overrides {
 		out.middlewares = make([]Middleware, len(c.middlewares))
 		copy(out.middlewares, c.middlewares)
 	}
-	if c.timeout != nil {
-		out.timeout = new(*c.timeout)
+	if c.timeout.value != nil {
+		out.timeout.value = new(*c.timeout.value)
 	}
-	if c.basicAuth != nil {
-		out.basicAuth = new(*c.basicAuth)
+	if c.basicAuth.value != nil {
+		out.basicAuth.value = new(*c.basicAuth.value)
 	}
 	return out
 }
@@ -176,29 +187,72 @@ func (c Overrides) WithAddedQueryValues(q url.Values) Overrides {
 
 // WithTimeout sets a per-attempt timeout that overrides the client-level
 // timeout. Honored by clients built via [Builder.Build]; for whole-call
-// deadlines, use context.WithDeadline on the ctx passed to Execute.
+// deadlines, use context.WithDeadline on the ctx passed to Execute. A zero
+// duration means no per-attempt timeout; [Overrides.WithUnlimitedTimeout] is
+// the explicit spelling. To drop this override and inherit the client timeout,
+// use [Overrides.WithDefaultTimeout].
 func (c Overrides) WithTimeout(d time.Duration) Overrides {
 	c = c.Clone()
-	c.timeout = &d
+	c.timeout = setOverride(&d)
+	return c
+}
+
+// WithUnlimitedTimeout disables the per-attempt timeout for this request,
+// overriding any client-level or inherited timeout.
+func (c Overrides) WithUnlimitedTimeout() Overrides {
+	return c.WithTimeout(0)
+}
+
+// WithDefaultTimeout clears any endpoint- or override-level per-attempt timeout
+// so the request inherits the client-level timeout.
+func (c Overrides) WithDefaultTimeout() Overrides {
+	c = c.Clone()
+	c.timeout = setOverride[*time.Duration](nil)
 	return c
 }
 
 // WithErrorDecoder sets a per-request error decoder that overrides the
-// client-level decoder. For typed Conjure errors, use
-// conjureerrors.WithConjureErrorDecoder.
+// endpoint-level decoder and [DefaultErrorDecoder]. For typed Conjure errors,
+// use conjureerrors.WithConjureErrorDecoder. To skip error decoding entirely
+// use [Overrides.WithNoErrorDecoder]; to drop an inherited decoder and fall
+// back to [DefaultErrorDecoder] use [Overrides.WithDefaultErrorDecoder].
 func (c Overrides) WithErrorDecoder(d ErrorDecoder) Overrides {
 	c = c.Clone()
-	c.errorDecoder = d
+	c.errorDecoder = setOverride(d)
+	return c
+}
+
+// WithNoErrorDecoder skips error decoding entirely: [Endpoint.Execute] returns
+// the raw response for every status code instead of decoding an error.
+func (c Overrides) WithNoErrorDecoder() Overrides {
+	return c.WithErrorDecoder(NoErrorDecoder())
+}
+
+// WithDefaultErrorDecoder clears any endpoint- or override-level error decoder
+// so [Endpoint.Execute] falls back to [DefaultErrorDecoder].
+func (c Overrides) WithDefaultErrorDecoder() Overrides {
+	c = c.Clone()
+	c.errorDecoder = setOverride[ErrorDecoder](nil)
 	return c
 }
 
 // WithBasicAuth sets per-request basic auth credentials. Takes precedence
 // over any Authorization header set via WithHeader (basic auth is applied
 // after headers, replacing the Authorization value) and over the client-level
-// auth installed by [Builder.SetBasicAuth] / [Builder.SetAuthToken].
+// auth installed by [Builder.SetBasicAuth] / [Builder.SetAuthToken]. To drop
+// this override so lower-priority auth (or an explicit Authorization header)
+// applies, use [Overrides.WithDefaultBasicAuth].
 func (c Overrides) WithBasicAuth(user, password string) Overrides {
 	c = c.Clone()
-	c.basicAuth = &basicAuthOverride{user: user, password: password}
+	c.basicAuth = setOverride(&basicAuthOverride{user: user, password: password})
+	return c
+}
+
+// WithDefaultBasicAuth clears any endpoint- or override-level per-request basic
+// auth, so the client-level auth or an explicit Authorization header applies.
+func (c Overrides) WithDefaultBasicAuth() Overrides {
+	c = c.Clone()
+	c.basicAuth = setOverride[*basicAuthOverride](nil)
 	return c
 }
 
@@ -211,16 +265,27 @@ func (c Overrides) WithMiddleware(m Middleware) Overrides {
 
 // WithBufferPool sets a [bytesbuffers.Pool] that encoders may use to avoid
 // per-request allocations. Overrides the pool set on the [Endpoint], if any.
-// Pass nil to clear.
+// Passing nil clears the pool, equivalent to [Overrides.WithDefaultBufferPool].
 func (c Overrides) WithBufferPool(p bytesbuffers.Pool) Overrides {
 	c = c.Clone()
-	c.bufferPool = p
+	c.bufferPool = setOverride(p)
+	return c
+}
+
+// WithDefaultBufferPool clears any endpoint- or override-level buffer pool so
+// encoders run without one.
+func (c Overrides) WithDefaultBufferPool() Overrides {
+	c = c.Clone()
+	c.bufferPool = setOverride[bytesbuffers.Pool](nil)
 	return c
 }
 
 // merge combines the receiver with o: set headers/query from o replace and
-// clear matching add entries; add headers/query accumulate; timeout, error
-// decoder, and basic auth are last-wins (o wins if set); middlewares append.
+// clear matching add entries; add headers/query accumulate; the scalar
+// overrides (timeout, error decoder, basic auth, buffer pool) are last-wins —
+// o wins for any scalar it set, including an explicit clear (e.g.
+// WithDefaultTimeout / WithDefaultBasicAuth), which is why o cleared a scalar it
+// never set leaves the receiver's value intact; middlewares append.
 func (c Overrides) merge(o Overrides) Overrides {
 	out := c.Clone()
 
@@ -260,16 +325,16 @@ func (c Overrides) merge(o Overrides) Overrides {
 		}
 	}
 
-	if o.timeout != nil {
+	if o.timeout.set {
 		out.timeout = o.timeout
 	}
-	if o.errorDecoder != nil {
+	if o.errorDecoder.set {
 		out.errorDecoder = o.errorDecoder
 	}
-	if o.basicAuth != nil {
+	if o.basicAuth.set {
 		out.basicAuth = o.basicAuth
 	}
-	if o.bufferPool != nil {
+	if o.bufferPool.set {
 		out.bufferPool = o.bufferPool
 	}
 	out.middlewares = append(out.middlewares, o.middlewares...)
@@ -289,10 +354,10 @@ func (c Overrides) headerValues() []requestValue[http.Header] {
 	for k, vs := range c.addHeaders {
 		values = append(values, addValue[http.Header]{name: k, values: vs})
 	}
-	if c.basicAuth != nil {
+	if c.basicAuth.value != nil {
 		values = append(values, setValue[http.Header]{
 			name:   "Authorization",
-			values: []string{basicAuthHeader(c.basicAuth.user, c.basicAuth.password)},
+			values: []string{basicAuthHeader(c.basicAuth.value.user, c.basicAuth.value.password)},
 		})
 	}
 	return values
@@ -322,10 +387,12 @@ func (c Overrides) requestValues() RequestValues {
 
 // callPolicyOverrides maps the per-request scalar overrides onto a
 // [CallPolicyOverrides]. Only a per-attempt timeout is expressible at this layer.
+// A set timeout applies (a &0 disables the per-attempt timeout); an unset or
+// cleared timeout (WithDefaultTimeout) leaves the runtime's timeout in force.
 func (c Overrides) callPolicyOverrides() CallPolicyOverrides {
 	var p CallPolicyOverrides
-	if c.timeout != nil {
-		p = p.WithTimeout(*c.timeout)
+	if c.timeout.set && c.timeout.value != nil {
+		p = p.WithTimeout(*c.timeout.value)
 	}
 	return p
 }

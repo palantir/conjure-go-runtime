@@ -15,12 +15,17 @@
 package httpc_test
 
 import (
+	"bytes"
 	"context"
+	"io"
 	"net/http"
+	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpc"
+	"github.com/palantir/pkg/bytesbuffers"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -251,6 +256,175 @@ func TestOverrides_EmptyMergeIsIdentity(t *testing.T) {
 	_, _, err := merged.Execute(context.Background(), client)
 	require.NoError(t, err)
 }
+
+// TestOverrides_TimeoutStates covers the three timeout states a per-call
+// Overrides expresses against a client whose builder timeout is shorter than
+// the server's latency: a custom value, an explicit unlimited timeout, and
+// clearing back to the inherited client timeout.
+func TestOverrides_TimeoutStates(t *testing.T) {
+	server := newTestServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		time.Sleep(200 * time.Millisecond)
+		w.WriteHeader(http.StatusNoContent)
+	})
+	client, err := httpc.NewBuilder().
+		SetServiceName("timeout-states").
+		SetBaseURLs(server.URL).
+		SetTimeout(50 * time.Millisecond).
+		Build(context.Background())
+	require.NoError(t, err)
+
+	void := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "Slow", "/slow").
+		WithDecoder(httpc.VoidDecoder())
+
+	t.Run("inherited client timeout applies", func(t *testing.T) {
+		_, _, err := void.Execute(context.Background(), client)
+		require.Error(t, err, "50ms client timeout < 200ms server latency")
+	})
+
+	t.Run("unlimited overrides the client timeout", func(t *testing.T) {
+		_, _, err := void.WithUnlimitedTimeout().Execute(context.Background(), client)
+		require.NoError(t, err)
+	})
+
+	t.Run("default clears endpoint timeout and inherits the client timeout", func(t *testing.T) {
+		ep := void.WithTimeout(10 * time.Second) // on its own this would allow 200ms
+		_, _, err := ep.WithOverrides(httpc.Overrides{}.WithDefaultTimeout()).
+			Execute(context.Background(), client)
+		require.Error(t, err, "cleared back to the 50ms client timeout")
+	})
+
+	t.Run("custom timeout applies", func(t *testing.T) {
+		_, _, err := void.WithTimeout(10*time.Second).Execute(context.Background(), client)
+		require.NoError(t, err)
+	})
+}
+
+// TestOverrides_ErrorDecoderStates covers WithNoErrorDecoder (skip decoding) and
+// WithDefaultErrorDecoder (clear an inherited decoder so Execute falls back to
+// DefaultErrorDecoder), both layered over an endpoint-level custom decoder.
+func TestOverrides_ErrorDecoderStates(t *testing.T) {
+	forbidden := func(t *testing.T) *httptest.Server {
+		return newTestServer(t, func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusForbidden)
+		})
+	}
+
+	t.Run("no error decoder returns the raw response", func(t *testing.T) {
+		decoder := &countingErrorDecoder{}
+		ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "Err", "/err").
+			WithDecoder(httpc.VoidDecoder()).
+			WithErrorDecoder(decoder)
+		merged := ep.WithOverrides(httpc.Overrides{}.WithNoErrorDecoder())
+
+		client := &httpTestClient{server: forbidden(t)}
+		_, resp, err := merged.Execute(context.Background(), client)
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+		assert.Equal(t, 0, decoder.called, "decoder is bypassed entirely")
+	})
+
+	t.Run("default error decoder falls back to DefaultErrorDecoder", func(t *testing.T) {
+		decoder := &countingErrorDecoder{}
+		ep := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "Err", "/err").
+			WithDecoder(httpc.VoidDecoder()).
+			WithErrorDecoder(decoder)
+		merged := ep.WithOverrides(httpc.Overrides{}.WithDefaultErrorDecoder())
+
+		client := &httpTestClient{server: forbidden(t)}
+		_, _, err := merged.Execute(context.Background(), client)
+		require.Error(t, err)
+		assert.Equal(t, 0, decoder.called, "endpoint decoder cleared")
+		code, ok := httpc.StatusCodeFromError(err)
+		require.True(t, ok)
+		assert.Equal(t, http.StatusForbidden, code)
+	})
+}
+
+// TestOverrides_DefaultBasicAuthClears verifies per-request basic auth wins over
+// an explicit Authorization header, and that WithDefaultBasicAuth clears it so
+// the lower-priority header applies.
+func TestOverrides_DefaultBasicAuthClears(t *testing.T) {
+	endpoint := httpc.NewEndpoint[struct{}, struct{}](http.MethodGet, "Get", "/x").
+		WithDecoder(httpc.VoidDecoder()).
+		WithHeader("Authorization", "Bearer explicit").
+		WithBasicAuth("user", "pass")
+
+	t.Run("basic auth wins over the explicit header", func(t *testing.T) {
+		server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+			user, pass, ok := r.BasicAuth()
+			assert.True(t, ok)
+			assert.Equal(t, "user", user)
+			assert.Equal(t, "pass", pass)
+			w.WriteHeader(http.StatusNoContent)
+		})
+		_, _, err := endpoint.Execute(context.Background(), &httpTestClient{server: server})
+		require.NoError(t, err)
+	})
+
+	t.Run("WithDefaultBasicAuth clears it so the explicit header wins", func(t *testing.T) {
+		server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+			assert.Equal(t, "Bearer explicit", r.Header.Get("Authorization"))
+			_, _, ok := r.BasicAuth()
+			assert.False(t, ok, "no basic auth on the wire")
+			w.WriteHeader(http.StatusNoContent)
+		})
+		merged := endpoint.WithOverrides(httpc.Overrides{}.WithDefaultBasicAuth())
+		_, _, err := merged.Execute(context.Background(), &httpTestClient{server: server})
+		require.NoError(t, err)
+	})
+}
+
+// TestOverrides_DefaultBufferPoolClears verifies a per-call clear (and the
+// WithBufferPool(nil) alias) drops an endpoint's buffer pool so the encoder
+// never borrows from it.
+func TestOverrides_DefaultBufferPoolClears(t *testing.T) {
+	server := newTestServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{}`)
+	})
+	client := &httpTestClient{server: server}
+
+	execute := func(t *testing.T, ep httpc.Endpoint[widgetItem, struct{}]) {
+		_, _, err := ep.WithBody(widgetItem{Name: "x"}).Execute(context.Background(), client)
+		require.NoError(t, err)
+	}
+
+	t.Run("endpoint pool is borrowed", func(t *testing.T) {
+		var gets atomic.Int32
+		ep := httpc.NewJSONPOST[widgetItem, struct{}]("Create", "/items").
+			WithBufferPool(&countingPool{inner: bytesbuffers.NewSizedPool(1, 1024), gets: &gets})
+		execute(t, ep)
+		assert.Equal(t, int32(1), gets.Load())
+	})
+
+	t.Run("WithDefaultBufferPool clears it", func(t *testing.T) {
+		var gets atomic.Int32
+		ep := httpc.NewJSONPOST[widgetItem, struct{}]("Create", "/items").
+			WithBufferPool(&countingPool{inner: bytesbuffers.NewSizedPool(1, 1024), gets: &gets}).
+			WithOverrides(httpc.Overrides{}.WithDefaultBufferPool())
+		execute(t, ep)
+		assert.Equal(t, int32(0), gets.Load())
+	})
+
+	t.Run("WithBufferPool(nil) also clears", func(t *testing.T) {
+		var gets atomic.Int32
+		ep := httpc.NewJSONPOST[widgetItem, struct{}]("Create", "/items").
+			WithBufferPool(&countingPool{inner: bytesbuffers.NewSizedPool(1, 1024), gets: &gets}).
+			WithOverrides(httpc.Overrides{}.WithBufferPool(nil))
+		execute(t, ep)
+		assert.Equal(t, int32(0), gets.Load())
+	})
+}
+
+// countingPool wraps a bytesbuffers.Pool and counts how often a buffer is borrowed.
+type countingPool struct {
+	inner bytesbuffers.Pool
+	gets  *atomic.Int32
+}
+
+func (p *countingPool) Get() *bytes.Buffer    { p.gets.Add(1); return p.inner.Get() }
+func (p *countingPool) Put(buf *bytes.Buffer) { p.inner.Put(buf) }
 
 // countingErrorDecoder counts how many times it's called.
 type countingErrorDecoder struct {

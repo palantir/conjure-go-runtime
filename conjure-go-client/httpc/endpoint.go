@@ -65,23 +65,41 @@ type RequestOverrides[D any] interface {
 	WithAddedQueryValues(q url.Values) D
 	// WithTimeout sets a per-attempt timeout that overrides the client-level
 	// timeout. The runtime applies it to each attempt via the call-scoped
-	// *http.Client. Use a context deadline for a whole-call deadline that spans
-	// all retries.
+	// *http.Client. A zero duration disables the per-attempt timeout
+	// (WithUnlimitedTimeout is the explicit spelling). Use a context deadline for
+	// a whole-call deadline that spans all retries.
 	WithTimeout(time.Duration) D
+	// WithUnlimitedTimeout disables the per-attempt timeout, overriding any
+	// client-level or inherited timeout.
+	WithUnlimitedTimeout() D
+	// WithDefaultTimeout clears any timeout set here so the client-level timeout applies.
+	WithDefaultTimeout() D
 	// WithErrorDecoder sets a per-request error decoder; overrides the
 	// endpoint-level decoder and [DefaultErrorDecoder]. For typed Conjure errors,
 	// use conjureerrors.WithConjureErrorDecoder, which keeps the
 	// conjure-go-contract/errors dependency off this interface.
 	WithErrorDecoder(ErrorDecoder) D
+	// WithNoErrorDecoder skips error decoding entirely; [Endpoint.Execute] returns
+	// the raw response for every status code.
+	WithNoErrorDecoder() D
+	// WithDefaultErrorDecoder clears any decoder set here so [Endpoint.Execute]
+	// falls back to [DefaultErrorDecoder].
+	WithDefaultErrorDecoder() D
 	// WithBasicAuth sets per-request basic auth credentials, overriding any client-level auth.
 	WithBasicAuth(user, password string) D
+	// WithDefaultBasicAuth clears any basic auth set here so lower-priority
+	// client-level auth (or an explicit Authorization header) applies.
+	WithDefaultBasicAuth() D
 	// WithMiddleware appends a per-request middleware that runs once per attempt
 	// around the resolved request, inside telemetry like the builder middleware.
 	WithMiddleware(Middleware) D
 	// WithBufferPool sets a buffer pool that encoders may use to avoid
-	// per-request allocations. Pass nil to clear. The [bytesbuffers.Pool]
-	// dependency is intentional — mocks of this interface need to import it.
+	// per-request allocations. Passing nil clears it (see WithDefaultBufferPool).
+	// The [bytesbuffers.Pool] dependency is intentional — mocks of this interface
+	// need to import it.
 	WithBufferPool(bytesbuffers.Pool) D
+	// WithDefaultBufferPool clears any buffer pool set here so encoders run without one.
+	WithDefaultBufferPool() D
 }
 
 // Endpoint is a copy-on-write descriptor pairing an HTTP method and path with
@@ -270,9 +288,22 @@ func (e Endpoint[Req, Resp]) WithAddedQueryValues(q url.Values) Endpoint[Req, Re
 
 // WithTimeout sets a per-attempt timeout that overrides the client-level
 // timeout. The runtime applies it to each attempt via the call-scoped *http.Client.
+// A zero duration disables the per-attempt timeout (see WithUnlimitedTimeout).
 // Use a context deadline for a whole-call deadline that spans all retries.
 func (e Endpoint[Req, Resp]) WithTimeout(d time.Duration) Endpoint[Req, Resp] {
 	e.overrides = e.overrides.WithTimeout(d)
+	return e
+}
+
+// WithUnlimitedTimeout disables the per-attempt timeout for this endpoint.
+func (e Endpoint[Req, Resp]) WithUnlimitedTimeout() Endpoint[Req, Resp] {
+	e.overrides = e.overrides.WithUnlimitedTimeout()
+	return e
+}
+
+// WithDefaultTimeout clears any per-attempt timeout so the client-level timeout applies.
+func (e Endpoint[Req, Resp]) WithDefaultTimeout() Endpoint[Req, Resp] {
+	e.overrides = e.overrides.WithDefaultTimeout()
 	return e
 }
 
@@ -282,9 +313,28 @@ func (e Endpoint[Req, Resp]) WithErrorDecoder(d ErrorDecoder) Endpoint[Req, Resp
 	return e
 }
 
+// WithNoErrorDecoder skips error decoding entirely; Execute returns the raw response.
+func (e Endpoint[Req, Resp]) WithNoErrorDecoder() Endpoint[Req, Resp] {
+	e.overrides = e.overrides.WithNoErrorDecoder()
+	return e
+}
+
+// WithDefaultErrorDecoder clears any error decoder so Execute falls back to DefaultErrorDecoder.
+func (e Endpoint[Req, Resp]) WithDefaultErrorDecoder() Endpoint[Req, Resp] {
+	e.overrides = e.overrides.WithDefaultErrorDecoder()
+	return e
+}
+
 // WithBasicAuth sets per-request basic auth credentials, overriding any client-level auth.
 func (e Endpoint[Req, Resp]) WithBasicAuth(user, password string) Endpoint[Req, Resp] {
 	e.overrides = e.overrides.WithBasicAuth(user, password)
+	return e
+}
+
+// WithDefaultBasicAuth clears any per-request basic auth so client-level auth (or
+// an explicit Authorization header) applies.
+func (e Endpoint[Req, Resp]) WithDefaultBasicAuth() Endpoint[Req, Resp] {
+	e.overrides = e.overrides.WithDefaultBasicAuth()
 	return e
 }
 
@@ -296,9 +346,15 @@ func (e Endpoint[Req, Resp]) WithMiddleware(m Middleware) Endpoint[Req, Resp] {
 
 // WithBufferPool sets a buffer pool that encoders may use to avoid per-request
 // allocations. Conjure-generated code sets this from endpoint tags such as
-// request-buffer-medium. Pass nil to clear.
+// request-buffer-medium. Passing nil clears it (see WithDefaultBufferPool).
 func (e Endpoint[Req, Resp]) WithBufferPool(p bytesbuffers.Pool) Endpoint[Req, Resp] {
 	e.overrides = e.overrides.WithBufferPool(p)
+	return e
+}
+
+// WithDefaultBufferPool clears any buffer pool so encoders run without one.
+func (e Endpoint[Req, Resp]) WithDefaultBufferPool() Endpoint[Req, Resp] {
+	e.overrides = e.overrides.WithDefaultBufferPool()
 	return e
 }
 
@@ -343,8 +399,8 @@ func (e Endpoint[Req, Resp]) Execute(ctx context.Context, client Runtime) (Resp,
 	if e.name != "" {
 		ctx = ContextWithRPCMethodName(ctx, e.name)
 	}
-	if e.overrides.bufferPool != nil {
-		ctx = contextWithBufferPool(ctx, e.overrides.bufferPool)
+	if e.overrides.bufferPool.value != nil {
+		ctx = contextWithBufferPool(ctx, e.overrides.bufferPool.value)
 	}
 
 	// Path-only request; the runtime prepends the base URI on each attempt.
@@ -385,7 +441,7 @@ func (e Endpoint[Req, Resp]) Execute(ctx context.Context, client Runtime) (Resp,
 		return zero, nil, err
 	}
 
-	decoder := e.overrides.errorDecoder
+	decoder := e.overrides.errorDecoder.value
 	if decoder == nil {
 		decoder = DefaultErrorDecoder()
 	}

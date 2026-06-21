@@ -145,13 +145,24 @@ Both `Endpoint` and `Overrides` implement the `RequestOverrides[D]` interface:
 - `WithAddedQuery(key, value, additionalValues...)` -- appends one or more values
 - `WithAddedQueryValues(url.Values)` -- bulk append from a `url.Values` map
 - `WithTimeout(time.Duration)` -- per-attempt timeout (use a ctx deadline for total)
+- `WithUnlimitedTimeout()` -- disable the per-attempt timeout (also `WithTimeout(0)`)
+- `WithDefaultTimeout()` -- clear an inherited timeout so the client timeout applies
 - `WithErrorDecoder(ErrorDecoder)` -- per-call error decoder. For a Conjure
   typed-error registry, use the free function
   `conjureerrors.WithConjureErrorDecoder(d, ced)` (in the `httpc/conjureerrors`
   sub-package, so this interface stays free of `conjure-go-contract/errors`)
+- `WithNoErrorDecoder()` -- skip error decoding; `Execute` returns the raw response
+- `WithDefaultErrorDecoder()` -- clear an inherited decoder so `DefaultErrorDecoder` applies
 - `WithBasicAuth(user, pw)` -- per-call basic auth (see [Auth precedence](#auth-precedence))
+- `WithDefaultBasicAuth()` -- clear per-call basic auth so lower-priority auth / an explicit header wins
 - `WithMiddleware(Middleware)` -- append a per-request middleware (runs per attempt)
-- `WithBufferPool(bytesbuffers.Pool)` -- per-call buffer pool for encoders
+- `WithBufferPool(bytesbuffers.Pool)` -- per-call buffer pool for encoders (nil clears it)
+- `WithDefaultBufferPool()` -- clear an inherited buffer pool
+
+The `WithDefault*` methods clear a value an `Endpoint` (or a lower override layer)
+set, so a per-call `Overrides` can fall back to the client/runtime default rather
+than only replace it; `WithUnlimitedTimeout` / `WithNoErrorDecoder` are the two
+explicit "off" states.
 
 The two implementations represent two configuration layers that compose at
 execute time:
@@ -405,10 +416,12 @@ Use `StatusCodeFromError` and `LocationFromError` to inspect decoded errors.
 Custom error decoders are set on `Endpoint` (static default for the RPC) or
 `Overrides` (per-call), both via `WithErrorDecoder`. The Overrides decoder
 takes priority; if neither is set, `Endpoint.Execute` falls back to
-`DefaultErrorDecoder()`.
+`DefaultErrorDecoder()`. `WithDefaultErrorDecoder()` clears an inherited
+endpoint decoder so a call falls back to `DefaultErrorDecoder()`.
 
-To opt out of error decoding for a specific endpoint or call, pass
-`NoErrorDecoder()`. See [`Example_errorDecoding`](examples/example_error_decoding_test.go),
+To opt out of error decoding for a specific endpoint or call, use
+`WithNoErrorDecoder()` (equivalently, set `NoErrorDecoder()`).
+See [`Example_errorDecoding`](examples/example_error_decoding_test.go),
 [`Example_conjureErrors`](examples/example_conjure_errors_test.go),
 and [`Example_inspectRawErrors`](examples/example_inspect_raw_errors_test.go).
 
@@ -423,7 +436,8 @@ priority on each request:
    `Authorization` header.
 2. **`Endpoint.WithBasicAuth(user, pw)`** -- static basic auth baked into the
    endpoint descriptor. Same mechanism as (1); merged via `WithOverrides`
-   semantics (Overrides wins when both are set).
+   semantics (Overrides wins when both are set). `WithDefaultBasicAuth()` clears
+   (1)/(2) so a lower layer applies.
 3. **`Overrides.WithHeader("Authorization", ...)`** -- explicit caller header.
    Wins over `Endpoint.WithHeader` for the same key.
 4. **`Endpoint.WithHeader("Authorization", ...)`** -- explicit static header.
