@@ -132,15 +132,25 @@ func resolveValues[T headerOrQuery](ctx context.Context, dst T, vals ...requestV
 // decorationMiddleware resolves a request's header and query contributors onto
 // each attempt before it reaches the transport. Running per attempt on the
 // freshly cloned request means contributors apply to a clean slate, so retries
-// never duplicate added values.
+// never duplicate added values. Because it runs on every RoundTrip, it also runs
+// on each hop the http.Client follows for a 301/302/303 redirect; on a cross-host
+// hop it drops Authorization (see authHeaderAllowedOnRedirect) so re-resolution
+// never re-attaches a credential the stdlib stripped.
 type decorationMiddleware struct {
 	headerValues []requestValue[http.Header]
 	queryValues  []requestValue[url.Values]
 }
 
 func (d decorationMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (*http.Response, error) {
-	if len(d.headerValues) > 0 {
-		if err := resolveValues(req.Context(), req.Header, d.headerValues...); err != nil {
+	headerValues := d.headerValues
+	if len(headerValues) > 0 && !authHeaderAllowedOnRedirect(req) {
+		// The standard http.Client followed a redirect to a different host and stripped
+		// Authorization. Decoration re-resolves contributors per RoundTrip, so drop the
+		// Authorization contributors here too rather than leak the credential cross-host.
+		headerValues = withoutAuthorization(headerValues)
+	}
+	if len(headerValues) > 0 {
+		if err := resolveValues(req.Context(), req.Header, headerValues...); err != nil {
 			return nil, err
 		}
 	}
