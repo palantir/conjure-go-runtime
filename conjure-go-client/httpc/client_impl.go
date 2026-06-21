@@ -30,7 +30,7 @@ import (
 
 // Runtime sends a request to a configured service and returns the response. It is
 // the behavior-first contract callers actually need: [Builder.Build] returns the
-// standard implementation, and [Endpoint.Execute] drives requests through it. A
+// standard implementation, and [Call.Execute] drives requests through it. A
 // custom implementation (a test fake, a wrapper) need only implement Send.
 //
 // The standard implementation owns base-URL selection, retries, QoS redirects,
@@ -138,6 +138,17 @@ func (c *standardRuntime[B]) callPolicy() CallPolicy {
 // per attempt on the freshly cloned request, so retries never duplicate added
 // values and an overridden lazy auth provider never runs.
 func (c *standardRuntime[B]) Send(ctx context.Context, req *http.Request, opts SendOptions) (*http.Response, error) {
+	if req == nil || req.URL == nil {
+		return nil, werror.ErrorWithContextParams(ctx, "httpc: request and request URL must be non-nil")
+	}
+	// Reject a non-relative URL rather than silently discarding its scheme/host:
+	// the runtime supplies scheme/host/port from the selected base URL per attempt
+	// (only Path/RawPath/RawQuery are honored). Covers absolute, scheme-relative
+	// (//host/path), and opaque (scheme:opaque) URLs.
+	if req.URL.Scheme != "" || req.URL.Host != "" || req.URL.Opaque != "" {
+		return nil, werror.WrapWithContextParams(ctx, ErrNonRelativeRequestURL{}, "", werror.UnsafeParam("url", req.URL.Redacted()))
+	}
+
 	selector := c.uriScorer
 	uris := selector.BaseURLs()
 	if len(uris) == 0 {

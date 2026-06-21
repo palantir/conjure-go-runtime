@@ -40,6 +40,18 @@ func (ErrEmptyURIs) Error() string {
 	return "httpc: base URLs must not be empty"
 }
 
+// ErrNonRelativeRequestURL is returned by [Runtime.Send] when the request URL is
+// not service-relative. The standard runtime supplies the scheme, host, and port
+// from the selected base URL on each attempt, so only the request URL's Path,
+// RawPath, and RawQuery are meaningful; a scheme, host, or opaque URL would be
+// silently discarded, so it is rejected instead. (Fragment and userinfo are
+// likewise never sent, but are ignored rather than rejected.)
+type ErrNonRelativeRequestURL struct{}
+
+func (ErrNonRelativeRequestURL) Error() string {
+	return "httpc: request URL must be relative (path only); the runtime supplies scheme and host per attempt"
+}
+
 // StatusCodeFromError returns the 'statusCode' werror parameter, or ok=false
 // if the error has none. [DefaultErrorDecoder] sets this parameter; custom
 // decoders may not.

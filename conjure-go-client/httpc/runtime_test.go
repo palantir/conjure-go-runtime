@@ -17,6 +17,7 @@ package httpc_test
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -63,6 +64,51 @@ func TestSendOptions_PublicValuesAndPolicy(t *testing.T) {
 	assert.Equal(t, "acme", gotTenant)
 	assert.Equal(t, "v", gotQuery)
 	assert.Equal(t, "Basic "+base64.StdEncoding.EncodeToString([]byte("user:pass")), gotAuth)
+}
+
+// TestSendRejectsNonRelativeURL pins the path-only contract: the standard runtime
+// supplies scheme/host per attempt, so a non-relative request URL is rejected with
+// ErrNonRelativeRequestURL rather than silently rewritten, while a plain relative
+// path succeeds.
+func TestSendRejectsNonRelativeURL(t *testing.T) {
+	ctx := context.Background()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	t.Cleanup(server.Close)
+	client, err := httpc.NewBuilder().SetBaseURLs(server.URL).Build(ctx)
+	require.NoError(t, err)
+
+	t.Run("relative path succeeds", func(t *testing.T) {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, "/items/widget?q=1", nil)
+		require.NoError(t, err)
+		resp, err := client.Send(ctx, req, httpc.SendOptions{})
+		require.NoError(t, err)
+		_ = resp.Body.Close()
+	})
+
+	for name, rawURL := range map[string]string{
+		"absolute":        "http://other.example.com/p",
+		"scheme-relative": "//other.example.com/p",
+		"opaque":          "mailto:ops@example.com",
+	} {
+		t.Run(name+" is rejected", func(t *testing.T) {
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+			require.NoError(t, err)
+			_, err = client.Send(ctx, req, httpc.SendOptions{})
+			require.Error(t, err)
+			assert.True(t, errors.As(err, &httpc.ErrNonRelativeRequestURL{}), "want ErrNonRelativeRequestURL, got %v", err)
+		})
+	}
+
+	t.Run("nil URL is rejected", func(t *testing.T) {
+		_, err := client.Send(ctx, &http.Request{}, httpc.SendOptions{})
+		require.Error(t, err)
+	})
+	t.Run("nil request is rejected", func(t *testing.T) {
+		_, err := client.Send(ctx, nil, httpc.SendOptions{})
+		require.Error(t, err)
+	})
 }
 
 type widgetItem struct {
