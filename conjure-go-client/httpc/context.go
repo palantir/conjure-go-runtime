@@ -23,7 +23,7 @@ type (
 	forUserAgentKey  struct{}
 )
 
-// RPCMethodName returns the RPC name set on ctx by Endpoint.Execute, if any.
+// RPCMethodName returns the RPC name set on ctx by [Call.Execute], if any.
 func RPCMethodName(ctx context.Context) (string, bool) {
 	v, ok := ctx.Value(rpcMethodNameKey{}).(string)
 	return v, ok

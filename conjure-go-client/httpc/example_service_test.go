@@ -29,9 +29,9 @@
 package httpc_test
 
 // This file demonstrates what a Conjure-generated service client looks like
-// when built on top of httpc.Endpoint and httpc.Overrides. The pattern is:
+// when built on top of httpc endpoint descriptors and httpc.Overrides. The pattern is:
 //
-//  1. Package-level Endpoint vars define the HTTP shape of each RPC,
+//  1. Package-level endpoint descriptor vars define the HTTP shape of each RPC,
 //     using Conjure-style path templates with {param} placeholders.
 //  2. The service struct holds an httpc.Overrides for per-client customization.
 //  3. Each method fills in path params via WithPathParam, merges client-level

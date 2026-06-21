@@ -24,14 +24,14 @@ import (
 
 // RequestValues is the public, copy-on-write decoration a [SendOptions] carries:
 // the headers, query parameters, and basic auth a runtime applies to each
-// attempt. It is the honest form of what [Endpoint.Execute] passes the runtime,
+// attempt. It is the honest form of what [Call.Execute] passes the runtime,
 // so a caller using [Runtime.Send] directly can express the same decoration:
 //
 //	opts := httpc.SendOptions{
 //	    Values: httpc.RequestValues{}.WithHeader("X-Tenant", "acme").WithBasicAuth(user, pass),
 //	}
 //
-// Resolution semantics match endpoint overrides: a later value for a key replaces
+// Resolution semantics match request overrides: a later value for a key replaces
 // (WithHeader/WithQuery) or accumulates (WithAddedHeader/WithAddedQuery), and the
 // runtime resolves the merged set per attempt so retries do not duplicate added
 // values. The zero value is empty and usable.

@@ -174,7 +174,7 @@ The endpoint descriptors (`BodyEndpoint`/`NoBodyEndpoint`), the per-call `Call`,
 - `WithBufferPool(bytesbuffers.Pool)` -- per-call buffer pool for encoders (nil clears it)
 - `WithDefaultBufferPool()` -- clear an inherited buffer pool
 
-The `WithDefault*` methods clear this layer's scalar (one a descriptor or a lower
+The `WithDefault*` methods clear this layer's scalar (when a descriptor or a lower
 override layer set) so the lower/default behavior applies, rather than only
 replacing it. What "default" means is per-scalar: `WithDefaultTimeout` falls back
 to the client/runtime timeout; `WithDefaultErrorDecoder` falls back to

@@ -184,7 +184,7 @@ See [`Example_binaryStreaming`](examples/example_binary_streaming_test.go) and
 [`Example_replayableStreamingBody`](examples/example_replayable_streaming_body_test.go)
 for streaming request bodies.
 
-### Endpoint definitions are typically package-level vars
+### Endpoint descriptor definitions are typically package-level vars
 
 Unlike the old pattern where request configuration was built inline at every call site,
 endpoints should be defined once as package-level variables. This is not just a style

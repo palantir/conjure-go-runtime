@@ -28,7 +28,7 @@ import (
 //
 // A client is three calls on the builder: a service name (used for metrics and
 // log tags), one or more base URLs, and Build. The endpoint is declared once with
-// its response type; NewJSONGET wires a JSON decoder and Accept: application/json.
+// its response type; WithJSON wires a JSON decoder and Accept: application/json.
 func Example_basicGet() {
 	ctx := context.Background()
 	// Stand-in for the remote service. In production this is a real host.

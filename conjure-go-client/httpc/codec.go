@@ -92,7 +92,7 @@ func contextWithBufferPool(ctx context.Context, pool bytesbuffers.Pool) context.
 
 // JSONEncoder returns a BodyEncoder that serializes the request body as JSON
 // and sets Content-Type to "application/json". When a buffer pool is available
-// via the request context (injected by Endpoint.Execute from the client),
+// via the request context (injected by [Call.Execute] from the call),
 // it is used to avoid per-request allocations.
 func JSONEncoder[Req any]() BodyEncoder[Req] {
 	return NewBodyEncoderFunc[Req](ContentTypeJSON, func(req *http.Request, body Req) error {
@@ -174,7 +174,7 @@ func DiscardDecoder[T any]() BodyDecoder[T] {
 	})
 }
 
-// rawBodyDecoder marks decoders that hand the body to the caller. Endpoint.Execute
+// rawBodyDecoder marks decoders that hand the body to the caller. [Call.Execute]
 // does not drain the body when the decoder satisfies this interface.
 type rawBodyDecoder interface {
 	rawBody()

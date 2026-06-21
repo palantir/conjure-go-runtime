@@ -29,7 +29,7 @@ import (
 // The legacy conjure-go-client/httpclient package configured a client with
 // functional ClientParams and issued each request with RequestParams on a single
 // Do call. httpc splits these: builder setters configure the client once, and a
-// typed Endpoint describes each request. The tables pair each httpc call with the
+// typed endpoint descriptor describes each request. The tables pair each httpc call with the
 // httpclient predecessor it replaces.
 //
 //	httpclient ClientParam                httpc Builder
@@ -41,13 +41,13 @@ import (
 //	WithMaxRetries(n)                     SetMaxAttempts(new(n + 1))
 //	WithConfig(cfg)                       ApplyConfig(ctx, cfg)
 //
-//	httpclient RequestParam               httpc endpoint
+//	httpclient RequestParam               httpc descriptor/call
 //	----------------------------------    ----------------------------------
 //	WithRequestMethod(GET) + WithPath     NewGET[T]("Op", "/path").WithJSON()
 //	WithJSONResponse(&out)                type parameter T (decoded result)
 //	WithJSONRequest(in)                   NewPOST[I, O]().WithJSON().Call(in)
-//	WithPathf("/items/%s", id)            path built by the endpoint
-//	WithRequestTimeout(d)                 endpoint.WithTimeout(d)
+//	WithPathf("/items/%s", id)            call.WithPathParam(...)
+//	WithRequestTimeout(d)                 call.WithTimeout(d)
 func Example_migrationFromHTTPClient() {
 	ctx := context.Background()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

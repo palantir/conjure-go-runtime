@@ -24,10 +24,10 @@ import (
 	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpc"
 )
 
-// Example_customClient drives an Endpoint against a hand-written httpc.Runtime.
+// Example_customClient drives a typed call against a hand-written httpc.Runtime.
 //
-// httpc.Runtime is a one-method interface — Send. Implementing it directly lets an
-// Endpoint run without the builder, which is handy for tests that serve canned
+// httpc.Runtime is a one-method interface — Send. Implementing it directly lets a
+// call run without the builder, which is handy for tests that serve canned
 // responses from memory with no httptest server. A custom runtime owns the whole
 // send: it gets no builder auth, telemetry, or retries unless it adds them.
 func Example_customClient() {

@@ -89,8 +89,9 @@ func unwrapURLError(ctx context.Context, respErr error) error {
 // it tries to unmarshal a Conjure error using the default registry; otherwise it
 // includes the raw body as an unsafe parameter. 3xx responses also carry the
 // Location header. Use [StatusCodeFromError] to read back the status. This is the
-// fallback used by [Endpoint.Execute] when neither the endpoint nor [Overrides]
-// provides one; to opt out, set [NoErrorDecoder] on the endpoint or overrides.
+// fallback used by [Call.Execute] when neither the descriptor, call, nor
+// [Overrides] provides one; to opt out, use WithNoErrorDecoder on the descriptor,
+// call, or overrides.
 //
 // To decode custom Conjure error types, use the conjureerrors sub-package
 // (conjureerrors.DefaultErrorDecoderWithConjure / WithConjureErrorDecoder).
@@ -104,9 +105,10 @@ func DefaultErrorDecoder() ErrorDecoder {
 	})
 }
 
-// NoErrorDecoder returns an [ErrorDecoder] that handles no responses. Set it
-// on an [Endpoint] or [Overrides] to bypass [DefaultErrorDecoder] and have
-// [Endpoint.Execute] return the raw response for every status code.
+// NoErrorDecoder returns an [ErrorDecoder] that handles no responses. Use it via
+// WithNoErrorDecoder or WithErrorDecoder on a descriptor, [Call], or [Overrides]
+// to bypass [DefaultErrorDecoder] and have [Call.Execute] return the raw response
+// for every status code.
 func NoErrorDecoder() ErrorDecoder {
 	return noErrorDecoder{}
 }

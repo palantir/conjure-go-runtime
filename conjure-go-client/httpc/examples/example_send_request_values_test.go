@@ -27,8 +27,8 @@ import (
 // an explicit SendOptions: RequestValues carries per-call header, query, and
 // basic-auth decoration (resolved per attempt, above the client's intrinsic
 // values), and CallPolicyOverrides tweaks the call policy for this send only —
-// here capping it at a single attempt. This is the same decoration Endpoint
-// produces, expressed directly for callers using Send without an Endpoint.
+// here capping it at a single attempt. This is the same decoration Call.Execute
+// produces, expressed directly for callers using Send without an endpoint descriptor.
 func Example_sendRequestValues() {
 	ctx := context.Background()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

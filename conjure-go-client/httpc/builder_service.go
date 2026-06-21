@@ -256,7 +256,7 @@ func (b *BuilderCore[Self]) SetBasicAuthRefreshable(r refreshable.Refreshable[*B
 }
 
 // AddHeader appends one or more values to a header on every request. For
-// per-request headers, use [Overrides.WithAddedHeader] or [Endpoint.WithAddedHeader].
+// per-request headers, use [Overrides.WithAddedHeader] or [Call.WithAddedHeader].
 func (b *BuilderCore[Self]) AddHeader(key, value string, additionalValues ...string) Self {
 	b.headerValues = append(b.headerValues, addValue[http.Header]{
 		name:   http.CanonicalHeaderKey(key),
@@ -267,7 +267,7 @@ func (b *BuilderCore[Self]) AddHeader(key, value string, additionalValues ...str
 
 // SetHeader sets a header on every request to the given value(s), replacing
 // any prior values. For per-request headers, use [Overrides.WithHeader] or
-// [Endpoint.WithHeader]. A per-request header for the same key takes precedence.
+// [Call.WithHeader]. A per-request header for the same key takes precedence.
 func (b *BuilderCore[Self]) SetHeader(key, value string, additionalValues ...string) Self {
 	b.headerValues = append(b.headerValues, setValue[http.Header]{
 		name:   http.CanonicalHeaderKey(key),

@@ -42,8 +42,8 @@ func DefaultErrorDecoderWithConjure(ced errors.ConjureErrorDecoder) httpc.ErrorD
 	})
 }
 
-// WithConjureErrorDecoder sets a per-request Conjure error decoder on any
-// [httpc.RequestOverrides] value (an [httpc.Endpoint] or [httpc.Overrides]):
+// WithConjureErrorDecoder sets a Conjure error decoder on any
+// [httpc.RequestOverrides] value (a descriptor, [httpc.Call], or [httpc.Overrides]):
 //
 //	ep = conjureerrors.WithConjureErrorDecoder(ep, ced)
 //

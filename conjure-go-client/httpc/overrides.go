@@ -31,7 +31,7 @@ type basicAuthOverride struct {
 // overrideValue carries a scalar override plus whether this layer set it. An
 // unset value inherits the layer below at merge time; a set value applies even
 // when it is zero/nil, which is how a per-call Overrides clears an inherited
-// Endpoint default (e.g. WithDefaultTimeout / WithDefaultBasicAuth).
+// descriptor default (e.g. WithDefaultTimeout / WithDefaultBasicAuth).
 type overrideValue[T any] struct {
 	value T
 	set   bool
@@ -39,17 +39,17 @@ type overrideValue[T any] struct {
 
 func setOverride[T any](v T) overrideValue[T] { return overrideValue[T]{value: v, set: true} }
 
-// Overrides is caller-supplied per-request configuration that merges into an
-// [Endpoint] via [Endpoint.WithOverrides]. It is the second of the two
-// [RequestOverrides] layers: where the same-named methods on [Endpoint] set
-// static defaults baked into the package-level descriptor, Overrides captures
-// values that vary per call (e.g. headers derived from the request context),
-// typically stored as a field on a generated service-client struct.
+// Overrides is caller-supplied per-request configuration that merges into a
+// [Call] via [Call.WithOverrides]. It is the second of the two [RequestOverrides]
+// layers: where the same-named methods on a descriptor set static defaults baked
+// into the package-level RPC shape, Overrides captures values that vary per call
+// (e.g. headers derived from the request context), typically stored as a field
+// on a generated service-client struct.
 //
 // At merge time the two layers compose: headers and query parameters
 // accumulate across both; scalar values (timeout, error decoder, basic auth,
 // buffer pool) are last-wins with the Overrides value taking precedence over
-// the Endpoint-level default; middlewares append.
+// the descriptor-level default; middlewares append.
 //
 // All methods are copy-on-write, so Overrides is safe to share across
 // goroutines.
@@ -196,7 +196,7 @@ func (c Overrides) WithMiddleware(m Middleware) Overrides {
 }
 
 // WithBufferPool sets a [bytesbuffers.Pool] that encoders may use to avoid
-// per-request allocations. Overrides the pool set on the [Endpoint], if any.
+// per-request allocations. Overrides the pool set on the descriptor, if any.
 // Passing nil clears the pool, equivalent to [Overrides.WithDefaultBufferPool].
 func (c Overrides) WithBufferPool(p bytesbuffers.Pool) Overrides {
 	c.bufferPool = setOverride(p)

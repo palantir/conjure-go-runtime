@@ -31,9 +31,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// T1: WithBody on an endpoint without an encoder must error rather than
+// T1: Calling a body endpoint without an encoder must error rather than
 // silently dropping the body.
-func TestEndpointExecute_WithBody_NoEncoder_Errors(t *testing.T) {
+func TestCallExecute_BodyNoEncoder_Errors(t *testing.T) {
 	ep := httpc.NewPOST[testPayload, struct{}]("NoEncoder", "/test").
 		WithDecoder(httpc.VoidDecoder())
 
@@ -48,7 +48,7 @@ func TestEndpointExecute_WithBody_NoEncoder_Errors(t *testing.T) {
 
 // T2: Unterminated '{' in the path template must error rather than sending
 // the literal brace.
-func TestEndpointExecute_UnterminatedPathParam_Errors(t *testing.T) {
+func TestCallExecute_UnterminatedPathParam_Errors(t *testing.T) {
 	ep := httpc.NewGET[struct{}]("Bad", "/items/{itemId").
 		WithDecoder(httpc.VoidDecoder())
 

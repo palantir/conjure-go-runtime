@@ -16,8 +16,8 @@
 // httpc HTTP client. Each example lives in its own file as a Go Example
 // function so it renders in godoc, runs under go test, and is easy to link to.
 //
-// Endpoints are values: an httpc.Endpoint describes the HTTP shape of one call
-// and is safe to share across goroutines. In real code they are usually
+// Endpoint descriptors are values: an httpc.BodyEndpoint or httpc.NoBodyEndpoint
+// describes the HTTP shape of one call and is safe to share across goroutines. In real code they are usually
 // package-level vars, declared once and reused. The examples instead declare
 // them in a var block at the top of each function so every example reads
 // top-to-bottom as a single, self-contained unit.

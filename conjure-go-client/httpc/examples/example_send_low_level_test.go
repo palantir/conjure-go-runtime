@@ -25,9 +25,9 @@ import (
 )
 
 // Example_sendLowLevel sends a hand-built request through the full runtime
-// without an Endpoint.
+// without an endpoint descriptor.
 //
-// Send is the loop Endpoint.Execute is built on: it runs the URL selector,
+// Send is the loop Call.Execute is built on: it runs the URL selector,
 // retries, and middleware around a path-only *http.Request and returns the raw
 // response. Unlike Execute it does not decode the body or apply an error decoder,
 // so the caller handles the response directly. SendOptions carries per-request

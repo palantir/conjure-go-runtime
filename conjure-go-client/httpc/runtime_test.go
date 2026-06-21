@@ -129,8 +129,8 @@ func (c *captureRuntime) Send(_ context.Context, req *http.Request, opts httpc.S
 }
 
 // TestExecute_OneMethodRuntimeFake proves a fake implementing only Send works
-// with Endpoint.Execute: Execute builds the path-only request + SendOptions and
-// drives the runtime, then decodes the response.
+// with Call.Execute: Execute builds the path-only request + SendOptions, drives
+// the runtime, then decodes the response.
 func TestExecute_OneMethodRuntimeFake(t *testing.T) {
 	fake := &captureRuntime{
 		resp: &http.Response{
