@@ -27,6 +27,36 @@ resp, _, err := getItem.
     Execute(ctx, client)
 ```
 
+## Runnable examples
+
+The [`examples`](examples) package contains runnable Go examples that are validated
+by `go test` and render in godoc. Useful starting points:
+
+- Basic calls: [`Example_basicGet`](examples/example_basic_get_test.go),
+  [`Example_postJSON`](examples/example_post_json_test.go)
+- Request shape: [`Example_pathAndQueryParams`](examples/example_path_and_query_params_test.go),
+  [`Example_greedyPathParam`](examples/example_greedy_path_param_test.go),
+  [`Example_headers`](examples/example_headers_test.go)
+- Auth: [`Example_bearerToken`](examples/example_auth_bearer_test.go),
+  [`Example_basicAuth`](examples/example_auth_basic_test.go),
+  [`Example_authPrecedence`](examples/example_auth_precedence_test.go)
+- Body codecs: [`Example_binaryStreaming`](examples/example_binary_streaming_test.go),
+  [`Example_replayableStreamingBody`](examples/example_replayable_streaming_body_test.go),
+  [`Example_customCodec`](examples/example_custom_codec_test.go)
+- Runtime and builders: [`Example_sendLowLevel`](examples/example_send_low_level_test.go),
+  [`Example_sendRequestValues`](examples/example_send_request_values_test.go),
+  [`Example_customClient`](examples/example_custom_client_test.go),
+  [`Example_rebuildableClient`](examples/example_rebuildable_client_test.go),
+  [`Example_customBuilder`](examples/example_custom_builder_test.go)
+- Configuration and transport: [`Example_configFromYAML`](examples/example_config_yaml_test.go),
+  [`Example_refreshableConfig`](examples/example_refreshable_config_test.go),
+  [`Example_buildHTTPClient`](examples/example_build_http_client_test.go),
+  [`Example_customTransport`](examples/example_custom_transport_test.go)
+- Middleware, errors, and retries: [`Example_middlewareOrdering`](examples/example_middleware_ordering_test.go),
+  [`Example_errorDecoding`](examples/example_error_decoding_test.go),
+  [`Example_conjureErrors`](examples/example_conjure_errors_test.go),
+  [`Example_retriesAndBackoff`](examples/example_retries_backoff_test.go)
+
 ## Core concepts
 
 ### Runtime
@@ -40,11 +70,9 @@ type Runtime interface {
 ```
 
 `Endpoint.Execute` builds a *path-only* request plus a `SendOptions` and calls
-`Send`; you can also call `Send` directly:
-
-```go
-resp, err := client.Send(ctx, req, httpc.SendOptions{})
-```
+`Send`. You can also call `Send` directly for low-level requests; see
+[`Example_sendLowLevel`](examples/example_send_low_level_test.go) and
+[`Example_sendRequestValues`](examples/example_send_request_values_test.go).
 
 The standard runtime returned by `Builder.Build` owns the request loop: base-URL
 selection (it prepends a selected base URL to the path-only request on each
@@ -55,11 +83,8 @@ builder auth/header decoration. `SendOptions` carries per-request decoration
 
 `RebuildableRuntime[B]` extends `Runtime` with a `Builder()` method that returns
 a new builder seeded with the client's current settings, allowing reconfiguration
-without starting from scratch:
-
-```go
-newClient, err := client.Builder().SetTimeout(5 * time.Second).Build(ctx)
-```
+without starting from scratch. See
+[`Example_rebuildableClient`](examples/example_rebuildable_client_test.go).
 
 ### Endpoint
 
@@ -90,22 +115,10 @@ call `Execute(ctx, client)` directly (no `WithBody`).
 - `WithDecoder(BodyDecoder[Resp])` -- deserialization for response body
 - `WithAccept(string)` -- sets the Accept header
 
-**Path parameters** use named replacement in Conjure-style templates:
-
-```go
-var ep = httpc.NewGET[Resp]("GetItem", "/items/{itemId}/version/{version}")
-
-// Parameters can be provided in any order.
-ep.WithPathParam("version", 3).WithPathParam("itemId", "widget-1")
-```
-
-Greedy parameters (`{param*}`) preserve slashes while escaping each segment:
-
-```go
-var ep = httpc.NewGET[Resp]("GetFile", "/files/{filePath*}")
-ep.WithPathParam("filePath", "dir/sub dir/file.txt")
-// produces: /files/dir/sub%20dir/file.txt
-```
+**Path parameters** use named replacement in Conjure-style templates.
+Greedy parameters (`{param*}`) preserve slashes while escaping each segment.
+See [`Example_pathAndQueryParams`](examples/example_path_and_query_params_test.go)
+and [`Example_greedyPathParam`](examples/example_greedy_path_param_test.go).
 
 **Execution:**
 
@@ -122,22 +135,7 @@ resp, httpResp, err := endpoint.Execute(ctx, client)
 `Overrides` is a standalone copy-on-write value holding per-request configuration:
 headers, query params, timeout, error decoder, basic auth, middleware, and buffer
 pool. Generated service clients typically embed an `Overrides` and merge it into
-every endpoint call via `WithOverrides`:
-
-```go
-type myServiceClient struct {
-    client    httpc.Runtime
-    overrides httpc.Overrides
-}
-
-func (c *myServiceClient) GetItem(ctx context.Context, id string) (Resp, error) {
-    resp, _, err := getItemEndpoint.
-        WithPathParam("itemId", id).
-        WithOverrides(c.overrides).
-        Execute(ctx, c.client)
-    return resp, err
-}
-```
+every endpoint call via `WithOverrides`; see [the service-client example](example_service_test.go).
 
 Both `Endpoint` and `Overrides` implement the `RequestOverrides[D]` interface:
 
@@ -196,7 +194,11 @@ Built-in encoders and decoders cover common content types:
 | `BinaryDecoder()` | `io.ReadCloser` | Caller must close |
 | `OptionalBinaryDecoder()` | `io.ReadCloser` | Returns nil on 204 No Content |
 
-Custom encoders and decoders can be created via `NewBodyEncoderFunc` and `NewBodyDecoderFunc`.
+Custom encoders and decoders can be created via `NewBodyEncoderFunc` and
+`NewBodyDecoderFunc`; see [`Example_customCodec`](examples/example_custom_codec_test.go).
+For binary and replayable streaming bodies, see
+[`Example_binaryStreaming`](examples/example_binary_streaming_test.go) and
+[`Example_replayableStreamingBody`](examples/example_replayable_streaming_body_test.go).
 
 ## Building clients
 
@@ -219,41 +221,26 @@ client, err := httpc.NewBuilder().
 
 ### Refreshable configuration
 
-Most settings support both static and refreshable variants. Refreshable setters link
-the builder to a dynamic source that updates without rebuilding the client:
-
-```go
-builder.SetTimeoutRefreshable(timeoutRefreshable)
-builder.SetBaseURLsRefreshable(urlsRefreshable)
-builder.SetMaxAttemptsRefreshable(attemptsRefreshable)
-```
-
-`Clone()` preserves refreshable links (both copies observe the same source).
-Calling a static setter (e.g. `SetTimeout`) replaces the refreshable with a fixed value.
+Most settings support both static and refreshable variants. Refreshable setters
+link the builder to a dynamic source that updates without rebuilding the client;
+`Clone()` preserves those links, while a static setter replaces the refreshable
+with a fixed value. See [`Example_refreshableConfig`](examples/example_refreshable_config_test.go).
 
 ### TLS client certificates
 
 Client certificate files are watched by default and trigger TLS config rebuilds when
 their contents change. For clients that need to re-read the cert/key files on every TLS
-handshake, enable dynamic reload:
-
-```go
-builder.
-    SetClientCertFiles("client.crt", "client.key"). // cert first, key second
-    SetDynamicCertReload(true)
-```
+handshake, enable dynamic reload. See
+[`Example_tlsCertificates`](examples/example_tls_certificates_test.go) and
+[`Example_tlsEscapeHatch`](examples/example_tls_escape_hatch_test.go).
 
 ### YAML configuration
 
 `ApplyConfig` and `ApplyConfigRefreshable` apply a `ClientConfig` struct (typically
 unmarshaled from YAML/JSON) to the builder. This covers URIs, auth, timeouts, proxy,
-TLS, retry, and metrics:
-
-```go
-builder.ApplyConfig(ctx, config)
-// or for dynamic config:
-builder.ApplyConfigRefreshable(ctx, configRefreshable)
-```
+TLS, retry, and metrics. See
+[`Example_configFromYAML`](examples/example_config_yaml_test.go) and
+[`Example_refreshableConfig`](examples/example_refreshable_config_test.go).
 
 ### Composable Params
 
@@ -303,7 +290,8 @@ To add your own fields while keeping the fluent, leaf-typed chaining, embed
 `httpc.NewBuilderCore`) plus a `Clone` (via `BuilderCore.CloneCoreFor`). Every base
 setter is promoted and returns `*MyBuilder`, so base and custom setters interleave in
 one chain, and the `RebuildableRuntime` from `Build` hands your concrete type back
-from `Builder()` across rebuilds. See `examples/example_custom_builder_test.go`.
+from `Builder()` across rebuilds. See
+[`Example_customBuilder`](examples/example_custom_builder_test.go).
 
 ## Middleware
 
@@ -349,6 +337,11 @@ is no hidden seam to satisfy.)
 
 Error decoding is **not** a middleware layer. It runs in `Endpoint.Execute` after
 `Send` returns the raw HTTP response (see [Error handling](#error-handling)).
+For middleware examples, see
+[`Example_middlewareOrdering`](examples/example_middleware_ordering_test.go),
+[`Example_middlewareLogging`](examples/example_middleware_logging_test.go),
+[`Example_middlewareRequestSigning`](examples/example_middleware_request_signing_test.go),
+and [`Example_middlewareResponseRewrite`](examples/example_middleware_response_rewrite_test.go).
 
 ## Retry and URI selection
 
@@ -373,6 +366,10 @@ Other status codes (including 4xx and non-503 5xx) are **not** retried.
 - **Backoff**: Exponential with jitter (initial: 250ms, max: 2s)
 - **URI selection**: set via `SetURLSelector`. `BalancedURLSelector` (default) routes away from slow/erroring hosts; `RandomURLSelector` selects uniformly at random. Implement the `URLSelector` interface for a custom strategy.
 
+See [`Example_retriesAndBackoff`](examples/example_retries_backoff_test.go),
+[`Example_timeoutPerAttempt`](examples/example_timeout_per_attempt_test.go),
+and [`Example_urlSelection`](examples/example_url_selection_test.go).
+
 ## Metrics
 
 When metrics are enabled (via `SetMetrics`), the client emits detailed request instrumentation:
@@ -396,20 +393,14 @@ When metrics are enabled (via `SetMetrics`), the client emits detailed request i
 
 Common tags: `service-name`, `method` (HTTP verb), `method-name` (RPC name from Endpoint),
 `family` (1xx/2xx/3xx/4xx/5xx/timeout/other).
+See [`Example_metrics`](examples/example_metrics_test.go).
 
 ## Error handling
 
 By default, HTTP responses with status >= 307 are treated as errors. The built-in
 error decoder attempts to unmarshal Conjure error bodies from JSON responses and
 falls back to including the raw body text.
-
-```go
-// Extract status code from error:
-if code, ok := httpc.StatusCodeFromError(err); ok { ... }
-
-// Extract Location header from redirect error:
-if loc, ok := httpc.LocationFromError(err); ok { ... }
-```
+Use `StatusCodeFromError` and `LocationFromError` to inspect decoded errors.
 
 Custom error decoders are set on `Endpoint` (static default for the RPC) or
 `Overrides` (per-call), both via `WithErrorDecoder`. The Overrides decoder
@@ -417,16 +408,9 @@ takes priority; if neither is set, `Endpoint.Execute` falls back to
 `DefaultErrorDecoder()`.
 
 To opt out of error decoding for a specific endpoint or call, pass
-`NoErrorDecoder()`:
-
-```go
-// Per-endpoint static opt-out:
-var rawEndpoint = httpc.NewGET[*http.Response]("Raw", "/api/raw").
-    WithErrorDecoder(httpc.NoErrorDecoder())
-
-// Per-call opt-out via service-client Overrides:
-overrides := httpc.Overrides{}.WithErrorDecoder(httpc.NoErrorDecoder())
-```
+`NoErrorDecoder()`. See [`Example_errorDecoding`](examples/example_error_decoding_test.go),
+[`Example_conjureErrors`](examples/example_conjure_errors_test.go),
+and [`Example_inspectRawErrors`](examples/example_inspect_raw_errors_test.go).
 
 ## Auth precedence
 
@@ -449,6 +433,8 @@ priority on each request:
    layers (1)-(4), so it's the fallback for endpoints/calls that didn't set
    their own.
 
+See [`Example_authPrecedence`](examples/example_auth_precedence_test.go).
+
 ## Tracing
 
 Tracing is enabled by default using `witchcraft-go-tracing`:
@@ -460,66 +446,14 @@ Tracing is enabled by default using `witchcraft-go-tracing`:
 
 Disable independently via `DisableTracing()` (spans) and
 `DisableTraceHeaderPropagation()` (headers).
+See [`Example_tracing`](examples/example_tracing_test.go).
 
 ## Service client pattern
 
-The intended pattern for generated Conjure service clients:
-
-```go
-// Package-level endpoint descriptors (immutable, safe for concurrent use).
-var (
-    createItem = httpc.NewPOST[CreateReq, CreateResp]("CreateItem", "/api/v1/items").
-        WithEncoder(httpc.JSONEncoder[CreateReq]()).
-        WithDecoder(httpc.JSONDecoder[CreateResp]()).
-        WithAccept("application/json")
-
-    getItem = httpc.NewGET[GetItemResp]("GetItem", "/api/v1/items/{itemId}").
-        WithDecoder(httpc.JSONDecoder[GetItemResp]()).
-        WithAccept("application/json")
-
-    deleteItem = httpc.NewDELETE[struct{}]("DeleteItem", "/api/v1/items/{itemId}").
-        WithDecoder(httpc.VoidDecoder())
-)
-
-// Service client holds transport + per-client overrides.
-type itemServiceClient struct {
-    client    httpc.Runtime
-    overrides httpc.Overrides
-}
-
-func NewItemServiceClient(client httpc.Runtime, params ...httpc.Param[*itemServiceClientBuilder]) ItemServiceClient {
-    c := &itemServiceClient{client: client}
-    b := &itemServiceClientBuilder{inner: c}
-    for _, p := range params {
-        p(b)
-    }
-    return c
-}
-
-// Each method fills path params, merges overrides, and executes.
-func (c *itemServiceClient) CreateItem(ctx context.Context, req CreateReq) (CreateResp, error) {
-    resp, _, err := createItem.
-        WithOverrides(c.overrides).
-        WithBody(req).Execute(ctx, c.client)
-    return resp, err
-}
-
-func (c *itemServiceClient) GetItem(ctx context.Context, id string) (GetItemResp, error) {
-    resp, _, err := getItem.
-        WithPathParam("itemId", id).
-        WithOverrides(c.overrides).
-        Execute(ctx, c.client)
-    return resp, err
-}
-
-func (c *itemServiceClient) DeleteItem(ctx context.Context, id string) error {
-    _, _, err := deleteItem.
-        WithPathParam("itemId", id).
-        WithOverrides(c.overrides).
-        Execute(ctx, c.client)
-    return err
-}
-```
+Generated Conjure service clients should define package-level `Endpoint` values,
+store an `httpc.Runtime` plus service-wide `httpc.Overrides`, and implement each
+RPC by filling path/body values, merging overrides, and calling `Execute`. See
+[the service-client example](example_service_test.go).
 
 ## Concurrency
 

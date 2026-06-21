@@ -10,6 +10,9 @@ with an **endpoint-centric** approach where typed `Endpoint[Req, Resp]` descript
 define the HTTP shape of each RPC at the package level, and per-call customization
 happens through copy-on-write method chaining rather than variadic `RequestParam` functions.
 
+For a runnable side-by-side migration, see
+[`Example_migrationFromHTTPClient`](examples/example_migration_from_httpclient_test.go).
+
 **Key architectural shifts:**
 
 1. **Endpoint replaces RequestParam** -- Instead of passing `WithRequestMethod`,
@@ -23,9 +26,8 @@ happens through copy-on-write method chaining rather than variadic `RequestParam
    and Overrides remain copy-on-write (value semantics).
 
 3. **Generics throughout** -- Builders, endpoints, codecs, and params all use Go
-   generics for type safety. The builder hierarchy uses F-bounded polymorphism
-   (`ServiceBuilder[B ServiceBuilder[B]]`) so generic helper functions preserve
-   concrete types.
+   generics for type safety. The builder hierarchy uses self-typed generic
+   interfaces so helper functions preserve concrete builder types.
 
 4. **Overrides replace RequestParam** -- Per-request configuration (headers, query
    params, timeout, auth, middleware, error decoder) uses `Overrides` values that
@@ -65,48 +67,15 @@ Key differences:
 
 ## Making requests
 
-### Old
+The old API built the HTTP method, path, codecs, and RPC name inline at each
+`client.Do(ctx, params...)` call. The new API defines those pieces once in a
+package-level `Endpoint`, then call sites fill path params/body values and call
+`Execute(ctx, client)`.
 
-```go
-resp, err := client.Do(ctx,
-    httpclient.WithRequestMethod(http.MethodGet),
-    httpclient.WithPath("/api/v1/items/"+url.PathEscape(itemId)),
-    httpclient.WithJSONResponse(&result),
-    httpclient.WithRPCMethodName("GetItem"),
-)
-```
-
-Or for a POST:
-
-```go
-resp, err := client.Do(ctx,
-    httpclient.WithRequestMethod(http.MethodPost),
-    httpclient.WithPath("/api/v1/items"),
-    httpclient.WithJSONRequest(body),
-    httpclient.WithJSONResponse(&result),
-    httpclient.WithRPCMethodName("CreateItem"),
-)
-```
-
-### New
-
-```go
-// Package-level endpoint definition (once per RPC).
-var getItem = httpc.NewGET[GetItemResp]("GetItem", "/api/v1/items/{itemId}").
-    WithDecoder(httpc.JSONDecoder[GetItemResp]()).
-    WithAccept("application/json")
-
-var createItem = httpc.NewPOST[CreateReq, CreateResp]("CreateItem", "/api/v1/items").
-    WithEncoder(httpc.JSONEncoder[CreateReq]()).
-    WithDecoder(httpc.JSONDecoder[CreateResp]()).
-    WithAccept("application/json")
-
-// At call site:
-resp, _, err := getItem.WithPathParam("itemId", itemId).
-    Execute(ctx, client)
-
-resp, _, err := createItem.WithBody(body).Execute(ctx, client)
-```
+See [`Example_migrationFromHTTPClient`](examples/example_migration_from_httpclient_test.go)
+for the old-to-new shape, plus [`Example_basicGet`](examples/example_basic_get_test.go)
+and [`Example_postJSON`](examples/example_post_json_test.go) for standalone GET
+and POST examples.
 
 Key differences:
 - The HTTP method, path template, RPC name, encoder, and decoder are defined once
@@ -185,16 +154,8 @@ flips internally for the bridge.
 ### Response body is returned, not written to a pointer
 
 The old API wrote decoded responses into a pointer passed via `WithJSONResponse(&result)`.
-The new API returns the decoded value directly:
-
-```go
-// Old:
-var result MyResp
-_, err := client.Do(ctx, httpclient.WithJSONResponse(&result), ...)
-
-// New:
-result, _, err := endpoint.WithBody(body).Execute(ctx, client)
-```
+The new API returns the decoded value directly from `Execute`; see
+[`Example_migrationFromHTTPClient`](examples/example_migration_from_httpclient_test.go).
 
 ### No more `RequestBody` interface
 
@@ -207,6 +168,10 @@ These are replaced by typed `BodyEncoder[T]` implementations:
 | `RequestBodyInMemory[T]` | Use `JSONEncoder` or a custom `BodyEncoder` |
 | `RequestBodyStreamOnce[T]` | `BinaryEncoderOnce(contentType)` (non-retryable) or `BinaryEncoder(contentType)` (probes for `Stat`/`Seek`/`Name` and is retryable on `*os.File`) |
 | `RequestBodyStreamWithReplay[T]` | `BinaryEncoderWithReplay(contentType)` |
+
+See [`Example_binaryStreaming`](examples/example_binary_streaming_test.go) and
+[`Example_replayableStreamingBody`](examples/example_replayable_streaming_body_test.go)
+for streaming request bodies.
 
 ### Endpoint definitions are typically package-level vars
 
@@ -271,7 +236,8 @@ a nil current value disables auth.
 ### Additional metrics emitted
 
 Metric names are unchanged from the old package, but several new metrics are
-emitted that did not exist before. See README.md for the full catalog; the
+emitted that did not exist before. See [README.md](README.md#metrics) and
+[`Example_metrics`](examples/example_metrics_test.go) for the full catalog; the
 additions are:
 
 | Metric | Description |
@@ -289,33 +255,17 @@ additions are:
 
 The old `WithQueryValues(url.Values{...})` set all query params at once. The new
 API has `WithQuery(key, values...)` (replaces) and `WithAddedQuery(key, values...)`
-(accumulates), plus `WithAddedQueryValues(url.Values)` for bulk:
-
-```go
-// Old:
-httpclient.WithQueryValues(url.Values{"page": {"1"}, "size": {"10"}, "tag": {"a", "b"}})
-
-// New (per-key):
-ep.WithAddedQuery("page", "1").WithAddedQuery("size", "10").WithAddedQuery("tag", "a", "b")
-
-// New (bulk):
-ep.WithAddedQueryValues(url.Values{"page": {"1"}, "size": {"10"}, "tag": {"a", "b"}})
-```
+(accumulates), plus `WithAddedQueryValues(url.Values)` for bulk. See
+[`Example_pathAndQueryParams`](examples/example_path_and_query_params_test.go).
 
 ### Path construction uses named templates
 
-The old API used `WithPath` and `WithPathf` with manual URL escaping:
-
-```go
-// Old:
-httpclient.WithPathf("/api/v1/items/%s", url.PathEscape(itemId))
-
-// New:
-ep.WithPathParam("itemId", itemId)  // automatic escaping
-```
-
-Path templates use `{param}` placeholders (Conjure style). Greedy parameters
-(`{param*}`) preserve slashes while escaping individual segments.
+The old API used `WithPath` and `WithPathf` with manual URL escaping. The new API
+uses `{param}` placeholders (Conjure style) and `WithPathParam`, which escapes
+values automatically. Greedy parameters (`{param*}`) preserve slashes while
+escaping individual segments. See
+[`Example_pathAndQueryParams`](examples/example_path_and_query_params_test.go) and
+[`Example_greedyPathParam`](examples/example_greedy_path_param_test.go).
 
 ## Migration checklist
 

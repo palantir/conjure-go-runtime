@@ -24,11 +24,11 @@ import (
 	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpc"
 )
 
-// Example_customClient drives an Endpoint against a hand-written httpc.Client.
+// Example_customClient drives an Endpoint against a hand-written httpc.Runtime.
 //
-// httpc.Client is a one-method interface — Send. Implementing it directly lets an
+// httpc.Runtime is a one-method interface — Send. Implementing it directly lets an
 // Endpoint run without the builder, which is handy for tests that serve canned
-// responses from memory with no httptest server. A custom Client owns the whole
+// responses from memory with no httptest server. A custom runtime owns the whole
 // send: it gets no builder auth, telemetry, or retries unless it adds them.
 func Example_customClient() {
 	ctx := context.Background()
@@ -51,7 +51,7 @@ type customClientItem struct {
 	Name string `json:"name"`
 }
 
-// customClient implements httpc.Client, serving every request from memory.
+// customClient implements httpc.Runtime, serving every request from memory.
 type customClient struct{}
 
 func (customClient) Send(_ context.Context, req *http.Request, _ httpc.SendOptions) (*http.Response, error) {
