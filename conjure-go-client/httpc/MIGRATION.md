@@ -236,13 +236,27 @@ The old `WithConfig(cfg)` was a `ClientParam` function. The new
 `builder.ApplyConfig(ctx, cfg)` is called on the builder and requires a context
 for validation error reporting.
 
-### `WithBasicAuthOptionalProvider` → `SetBasicAuthOptionalProvider`
+### Auth: one `SetAuth(Authorizer)` slot replaces the per-scheme params
 
-The old `WithBasicAuthOptionalProvider(func(ctx) (*BasicAuth, error))` is now
-`SetBasicAuthOptionalProvider` on the builder. Same semantics: returning nil
-skips setting the Authorization header for that request. There is also a
-refreshable variant, `SetBasicAuthRefreshable(Refreshable[*BasicAuth])`, where
-a nil current value disables auth.
+Auth is now a single builder slot, `SetAuth(Authorizer)`, with a constructor per
+credential source. The old `httpclient` auth params map as:
+
+| Old `httpclient` param | New `httpc` |
+|---|---|
+| `WithAuthToken(tok)` | `SetAuthToken(tok)` (sugar for `SetAuth(httpc.BearerToken(tok))`) |
+| `WithAuthTokenProvider(fn)` | `SetAuth(httpc.BearerTokenProvider(fn))` |
+| `WithBasicAuth(u, p)` | `SetBasicAuth(u, p)` (sugar for `SetAuth(httpc.BasicCredentials(u, p))`) |
+| `WithBasicAuthProvider(fn)` | `SetAuth(httpc.BasicCredentialsProvider(fn))` |
+| `WithBasicAuthOptionalProvider(fn)` | `SetAuth(httpc.OptionalBasicCredentials(fn))` |
+
+`OptionalBasicCredentials` keeps the same semantics: returning nil sends no
+`Authorization` header for that request. Refreshable sources use
+`RefreshableBearerToken(Refreshable[*string])` and
+`RefreshableBasicCredentials(Refreshable[*BasicAuth])`, where a nil current value
+disables auth. Per-request basic auth (an old `WithBasicAuth` on a request) is now
+`WithAuthorization(httpc.BasicCredentials(u, p))`; `WithAuthorization(httpc.NoAuthorization())`
+sends no credentials for that call. See [README.md](README.md#auth) for the full
+precedence rules.
 
 ### Additional metrics emitted
 

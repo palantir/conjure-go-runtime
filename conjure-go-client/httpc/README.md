@@ -172,8 +172,8 @@ The endpoint descriptors (`BodyEndpoint`/`NoBodyEndpoint`), the per-call `Call`,
   sub-package, so this interface stays free of `conjure-go-contract/errors`)
 - `WithNoErrorDecoder()` -- skip error decoding; `Execute` returns the raw response
 - `WithDefaultErrorDecoder()` -- clear an inherited decoder so `DefaultErrorDecoder` applies
-- `WithBasicAuth(user, pw)` -- per-call basic auth (see [Auth precedence](#auth-precedence))
-- `WithDefaultBasicAuth()` -- clear per-call basic auth so lower-priority auth / an explicit header wins
+- `WithAuthorization(Authorizer)` -- per-call auth, e.g. `WithAuthorization(httpc.BasicCredentials(user, pw))` or `WithAuthorization(httpc.NoAuthorization())` to send none (see [Auth precedence](#auth-precedence))
+- `WithDefaultAuthorization()` -- clear per-call auth so lower-priority auth / an explicit header wins
 - `WithMiddleware(Middleware)` -- append a per-request middleware (runs per attempt)
 - `WithBufferPool(bytesbuffers.Pool)` -- per-call buffer pool for encoders (nil clears it)
 - `WithDefaultBufferPool()` -- clear an inherited buffer pool
@@ -182,8 +182,8 @@ The `WithDefault*` methods clear this layer's scalar (when a descriptor or a low
 override layer set) so the lower/default behavior applies, rather than only
 replacing it. What "default" means is per-scalar: `WithDefaultTimeout` falls back
 to the client/runtime timeout; `WithDefaultErrorDecoder` falls back to
-`DefaultErrorDecoder()` (there is no client decoder); `WithDefaultBasicAuth` drops
-the per-call credential so lower-priority auth or an explicit `Authorization`
+`DefaultErrorDecoder()` (there is no client decoder); `WithDefaultAuthorization` drops
+the per-call authorizer so lower-priority auth or an explicit `Authorization`
 header applies; `WithDefaultBufferPool` encodes without a pool.
 `WithUnlimitedTimeout` / `WithNoErrorDecoder` are the two explicit "off" states.
 
@@ -455,26 +455,59 @@ See [`Example_errorDecoding`](examples/example_error_decoding_test.go),
 [`Example_conjureErrors`](examples/example_conjure_errors_test.go),
 and [`Example_inspectRawErrors`](examples/example_inspect_raw_errors_test.go).
 
-## Auth precedence
+## Auth
 
-Multiple layers can set the `Authorization` header. From highest to lowest
-priority on each request:
+Auth is a single abstraction, `Authorizer`, that yields a full `Authorization`
+header value (scheme included, so any token type works). Build one with a
+constructor and install it on the builder with `SetAuth`, or override it per
+request with `WithAuthorization`:
 
-1. **Per-call basic auth** (`Call.WithBasicAuth`, or an `Overrides.WithBasicAuth`
-   merged into the call) -- applied by `Call.Execute` after all `WithHeader` values
-   are written, so it overrides any explicit `Authorization` header.
-2. **Descriptor basic auth** (`BodyEndpoint`/`NoBodyEndpoint` `.WithBasicAuth`) --
-   static basic auth baked into the descriptor. Same mechanism as (1); the per-call
-   layer wins when both are set. `WithDefaultBasicAuth()` clears (1)/(2) so a lower
-   layer applies.
-3. **Per-call `WithHeader("Authorization", ...)`** -- explicit caller header.
-   Wins over a descriptor's `WithHeader` for the same key.
-4. **Descriptor `WithHeader("Authorization", ...)`** -- explicit static header.
-5. **`Builder.SetBasicAuth` / `SetAuthToken` / `SetAuthTokenProvider` /
-   `SetBasicAuthOptionalProvider` / `Set*Refreshable`** -- client-level
-   middleware. Sets `Authorization` only when the header is still empty after
-   layers (1)-(4), so it's the fallback for endpoints/calls that didn't set
-   their own.
+```go
+b.SetAuth(httpc.BearerTokenProvider(provide))     // client-level
+ep.WithAuthorization(httpc.BasicCredentials(u, p)) // descriptor default
+call.WithAuthorization(httpc.NoAuthorization())    // this call: send none
+```
+
+Constructors: `BearerToken`, `BearerTokenProvider`, `RefreshableBearerToken`,
+`BasicCredentials`, `BasicCredentialsProvider`, `OptionalBasicCredentials`,
+`RefreshableBasicCredentials`. `SetAuthToken(t)` and `SetBasicAuth(u, p)` are kept
+as sugar for `SetAuth(BearerToken(t))` / `SetAuth(BasicCredentials(u, p))`.
+`AuthorizerFunc` adapts a plain `func(ctx) (string, error)`.
+
+### Precedence
+
+Auth resolves by **precedence**, not a runtime "set if absent" check: each layer's
+`Authorization` contributors merge into one ordered set and the highest-precedence
+*present* one wins. The winner is chosen before it runs, so a lower-priority
+provider that loses is never invoked — a failing token provider cannot fail a
+request that overrode it. From highest to lowest priority on each request:
+
+1. **Per-call / descriptor authorizer** (`Call.WithAuthorization`, an
+   `Overrides.WithAuthorization` merged into the call, or a descriptor
+   `BodyEndpoint`/`NoBodyEndpoint` `.WithAuthorization`). This is a *scalar* slot
+   emitted as the trailing `Authorization` contributor, so it beats an explicit
+   `WithHeader("Authorization", ...)` in the same layer regardless of call order.
+   The per-call layer wins over the descriptor when both are set.
+2. **Explicit `Authorization` headers** -- `WithHeader("Authorization", ...)`
+   (per-call beats descriptor), and, on the direct `Runtime.Send` path, the ordered
+   `RequestValues.WithAuthorization(...)` contributor (positional later-wins).
+3. **Builder authorizer** (`Builder.SetAuth` and its `SetAuthToken` / `SetBasicAuth`
+   sugar) -- client-level fallback: wins only when no higher layer set `Authorization`.
+
+Three states are distinct:
+
+| Form | Meaning |
+| ---- | ------- |
+| `WithAuthorization(a)` / `SetAuth(a)` | authenticate with `a` |
+| `WithAuthorization(NoAuthorization())` | **suppress** -- send no `Authorization` and do not fall through to lower layers |
+| `WithDefaultAuthorization()`, or a nil `Authorizer` to `SetAuth` / `Overrides.WithAuthorization` | **clear** this layer back to the default so a lower layer applies |
+
+An `Authorizer` that resolves to `("", nil)` — an empty `BearerToken`, or an
+optional/refreshable provider yielding no current credential — behaves like
+suppress when it wins: `Authorization` is left unset and lower layers do not apply.
+One exception to the "nil clears" rule: `RequestValues.WithAuthorization(nil)` (the
+direct `Send` path) is a **no-op**, not a clear, because that contributor list has
+no scalar slot — use `NoAuthorization()` to suppress there.
 
 See [`Example_authPrecedence`](examples/example_auth_precedence_test.go).
 
