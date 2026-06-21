@@ -106,6 +106,14 @@ If your service relied on the old behavior of retrying all 5xx, you may see diff
 failure modes during transient 500 errors. The correct fix is server-side: services
 should return 503 for conditions where client retry is appropriate.
 
+### Disabling error decoding
+
+The old client-level `httpclient.WithDisableRestErrors()` turned off REST error
+decoding for every call. In the new package error decoding is a per-endpoint/per-call
+concern: use `WithNoErrorDecoder()` on the `Endpoint` (or a per-call `Overrides`) so
+`Execute` returns the raw response for every status code. To instead drop a custom
+decoder and fall back to the default, use `WithDefaultErrorDecoder()`.
+
 ### Retry configuration: MaxRetries vs MaxAttempts
 
 The old `WithMaxRetries(n)` set the number of **retries**, so the total number of

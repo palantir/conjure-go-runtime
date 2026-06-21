@@ -159,10 +159,14 @@ Both `Endpoint` and `Overrides` implement the `RequestOverrides[D]` interface:
 - `WithBufferPool(bytesbuffers.Pool)` -- per-call buffer pool for encoders (nil clears it)
 - `WithDefaultBufferPool()` -- clear an inherited buffer pool
 
-The `WithDefault*` methods clear a value an `Endpoint` (or a lower override layer)
-set, so a per-call `Overrides` can fall back to the client/runtime default rather
-than only replace it; `WithUnlimitedTimeout` / `WithNoErrorDecoder` are the two
-explicit "off" states.
+The `WithDefault*` methods clear this layer's scalar (one an `Endpoint` or a lower
+override layer set) so the lower/default behavior applies, rather than only
+replacing it. What "default" means is per-scalar: `WithDefaultTimeout` falls back
+to the client/runtime timeout; `WithDefaultErrorDecoder` falls back to
+`DefaultErrorDecoder()` (there is no client decoder); `WithDefaultBasicAuth` drops
+the per-call credential so lower-priority auth or an explicit `Authorization`
+header applies; `WithDefaultBufferPool` encodes without a pool.
+`WithUnlimitedTimeout` / `WithNoErrorDecoder` are the two explicit "off" states.
 
 The two implementations represent two configuration layers that compose at
 execute time:
@@ -176,8 +180,9 @@ execute time:
 
 When an `Overrides` is merged into an `Endpoint`:
 - Headers and query params are **additive** across both layers
-- Timeout, error decoder, and basic auth use **last-wins** (Overrides wins
-  over the Endpoint default)
+- The scalars (timeout, error decoder, basic auth, buffer pool) use
+  **last-wins**: Overrides wins for any scalar it set, including an explicit
+  clear via `WithDefault*` (a scalar Overrides never set leaves the Endpoint's)
 - Middlewares are **appended** (Endpoint defaults first, then Overrides)
 
 ### Codecs

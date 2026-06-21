@@ -48,7 +48,9 @@ import (
 //     (e.g. headers derived from the call site context).
 //
 // Headers and query parameters accumulate across both layers; scalar values
-// (timeout, error decoder, basic auth) are last-wins.
+// (timeout, error decoder, basic auth, buffer pool) are last-wins — the
+// Overrides layer wins for any scalar it set, including an explicit clear
+// (WithDefault* / WithUnlimitedTimeout / WithNoErrorDecoder).
 type RequestOverrides[D any] interface {
 	// WithHeader sets a request header to the given value(s), replacing any
 	// previously added or set values for the key.
@@ -307,7 +309,9 @@ func (e Endpoint[Req, Resp]) WithDefaultTimeout() Endpoint[Req, Resp] {
 	return e
 }
 
-// WithErrorDecoder sets a per-request error decoder that overrides the client-level decoder.
+// WithErrorDecoder sets a static error decoder for this endpoint, used by
+// Execute instead of [DefaultErrorDecoder]. A decoder set on a per-call
+// [Overrides] (merged via [Endpoint.WithOverrides]) takes priority.
 func (e Endpoint[Req, Resp]) WithErrorDecoder(d ErrorDecoder) Endpoint[Req, Resp] {
 	e.overrides = e.overrides.WithErrorDecoder(d)
 	return e
@@ -370,7 +374,9 @@ func (e Endpoint[Req, Resp]) WithBody(body Req) Endpoint[Req, Resp] {
 
 // WithOverrides merges o into the endpoint's per-request configuration: set
 // headers/query replace and clear matching adds; add headers/query accumulate;
-// timeout, error decoder, and basic auth are last-wins; middlewares append.
+// the scalars (timeout, error decoder, basic auth, buffer pool) are last-wins —
+// o wins for any it set, including an explicit clear (WithDefault* etc.);
+// middlewares append.
 func (e Endpoint[Req, Resp]) WithOverrides(o Overrides) Endpoint[Req, Resp] {
 	e.overrides = e.overrides.merge(o)
 	return e

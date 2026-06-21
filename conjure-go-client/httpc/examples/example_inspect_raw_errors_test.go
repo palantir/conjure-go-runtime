@@ -26,9 +26,9 @@ import (
 
 // Example_inspectRawErrors bypasses error decoding to read a non-2xx body directly.
 //
-// NoErrorDecoder turns off the default status >= 307 handling, so Execute returns the
-// raw response for every status code with a nil error. Pair it with a BinaryDecoder so
-// the body is handed back intact for inspection; VoidDecoder would discard it. The
+// WithNoErrorDecoder turns off the default status >= 307 handling, so Execute returns
+// the raw response for every status code with a nil error. Pair it with a BinaryDecoder
+// so the body is handed back intact for inspection; VoidDecoder would discard it. The
 // caller is responsible for closing the returned reader.
 func Example_inspectRawErrors() {
 	ctx := context.Background()
@@ -43,7 +43,7 @@ func Example_inspectRawErrors() {
 	var (
 		getItem = httpc.NewGET[io.ReadCloser]("GetItem", "/items/widget").
 			WithDecoder(httpc.BinaryDecoder()).
-			WithErrorDecoder(httpc.NoErrorDecoder())
+			WithNoErrorDecoder()
 	)
 
 	client, err := httpc.NewBuilder().
