@@ -115,7 +115,7 @@ type widgetItem struct {
 	Name string `json:"name"`
 }
 
-// captureRuntime is an external one-method httpc.Client: it implements only Send,
+// captureRuntime is an external one-method httpc.Runtime: it implements only Send,
 // capturing what it receives and returning a canned response.
 type captureRuntime struct {
 	gotReq  *http.Request

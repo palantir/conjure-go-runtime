@@ -73,6 +73,10 @@ type Runtime interface {
 `Send`. You can also call `Send` directly for low-level requests; see
 [`Example_sendLowLevel`](examples/example_send_low_level_test.go) and
 [`Example_sendRequestValues`](examples/example_send_request_values_test.go).
+The request URL must be **relative** — only its path and query are used (the
+runtime supplies scheme/host/port from the selected base URL per attempt); a
+non-relative URL is rejected with `ErrNonRelativeRequestURL` rather than silently
+rewritten.
 
 The standard runtime returned by `Builder.Build` owns the request loop: base-URL
 selection (it prepends a selected base URL to the path-only request on each
@@ -210,6 +214,7 @@ Built-in encoders and decoders cover common content types:
 |----------|-------------|-----------|-------|
 | `JSONEncoder[Req]()` | `application/json` | Yes | Uses the [`WithBufferPool`](#overrides) pool if set |
 | `BinaryEncoder(ct)` | caller-specified | If file can be reopened | Probes for `Stat()` and reopens named files for replay |
+| `BinaryEncoderOnce(ct)` | caller-specified | No | Single-use stream; Content-Length -1, no `GetBody` |
 | `BinaryEncoderWithReplay(ct)` | caller-specified | Yes | Takes `func() (io.ReadCloser, error)` |
 | `GZIPEncoder[Req](inner)` | preserved | If inner is | Wraps any encoder with gzip |
 | `SnappyEncoder[Req](inner)` | preserved | If inner is | Wraps any encoder with snappy |
@@ -224,6 +229,11 @@ Built-in encoders and decoders cover common content types:
 | `VoidDecoder()` | `struct{}` | Discards body |
 | `BinaryDecoder()` | `io.ReadCloser` | Caller must close |
 | `OptionalBinaryDecoder()` | `io.ReadCloser` | Returns nil on 204 No Content |
+
+For the common JSON case, prefer the [`WithJSON()`](#endpoints-and-calls) shortcut on
+an endpoint descriptor — it wires the JSON decoder and `Accept` (and, on a
+`BodyEndpoint`, the JSON request encoder) in one call, rather than setting
+`JSONEncoder`/`JSONDecoder` by hand.
 
 Custom encoders and decoders can be created via `NewBodyEncoderFunc` and
 `NewBodyDecoderFunc`; see [`Example_customCodec`](examples/example_custom_codec_test.go).

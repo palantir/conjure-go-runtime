@@ -45,7 +45,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// httpTestClient wraps an httptest.Server as a one-method httpc.Client: Send
+// httpTestClient wraps an httptest.Server as a one-method httpc.Runtime: Send
 // routes through a runtime pointed at the server, with telemetry and retry
 // backoff disabled so requests reach the server unchanged and tests stay fast.
 type httpTestClient struct {
@@ -312,7 +312,7 @@ func (e *testError) Error() string {
 }
 
 // clientFunc adapts a single-attempt RoundTripper func to a one-method
-// httpc.Client: Send routes through a runtime that uses the func as its transport
+// httpc.Runtime: Send routes through a runtime that uses the func as its transport
 // against a dummy base URL (these tests return canned responses without a real
 // server).
 type clientFunc func(*http.Request) (*http.Response, error)
