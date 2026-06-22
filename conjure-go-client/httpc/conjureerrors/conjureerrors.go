@@ -51,3 +51,19 @@ func DefaultErrorDecoderWithConjure(ced errors.ConjureErrorDecoder) httpc.ErrorD
 func WithConjureErrorDecoder[D httpc.RequestOverrides[D]](d D, ced errors.ConjureErrorDecoder) D {
 	return d.WithErrorDecoder(DefaultErrorDecoderWithConjure(ced))
 }
+
+// WithParameterFormat sets the Accept-Conjure-Error-Parameter-Format header on any
+// [httpc.RequestOverrides] value, asking Conjure servers to serialize error parameters
+// in format:
+//
+//	ep = conjureerrors.WithParameterFormat(ep, errors.ConjureErrorParameterFormatJSON)
+//
+// The header is a best-effort hint — servers that do not understand it keep sending the
+// legacy form, and decoding stays tolerant of both. To negotiate the format on every
+// request instead, set [errors.AcceptConjureErrorParameterFormatHeader] on the builder
+// via SetHeader. Living here (not on core httpc) keeps the conjure-go-contract/errors
+// dependency off the [httpc.RequestOverrides] interface, consistent with the rest of this
+// subpackage.
+func WithParameterFormat[D httpc.RequestOverrides[D]](d D, format errors.ConjureErrorParameterFormat) D {
+	return d.WithHeader(errors.AcceptConjureErrorParameterFormatHeader, string(format))
+}
