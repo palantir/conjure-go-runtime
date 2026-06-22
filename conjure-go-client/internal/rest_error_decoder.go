@@ -24,6 +24,13 @@ import (
 
 const contentTypeJSON = "application/json"
 
+// maxErrorBodyBytes caps how much of an error response body this decoder reads and
+// retains as the unsafe 'responseBody' param. A hostile or buggy server can stream
+// unbounded bytes within the per-attempt timeout (which bounds time, not memory), and
+// many in-flight requests amplify it, so the read is capped. 1 MiB is far larger than any
+// legitimate Conjure error body.
+const maxErrorBodyBytes = 1 << 20
+
 // RESTErrorDecoder is the shared error decoder behind httpc.DefaultErrorDecoder
 // and the conjureerrors decoders. It handles responses with status >= 307,
 // tagging errors with the 'statusCode' (and, for 3xx, 'location') params read by
@@ -60,18 +67,29 @@ func (d RESTErrorDecoder) DecodeError(resp *http.Response) error {
 			unsafeParams["location"] = location.String()
 		}
 	}
-	wSafeParams := werror.SafeParams(safeParams)
 	wUnsafeParams := werror.UnsafeParams(unsafeParams)
 
-	body, err := io.ReadAll(resp.Body)
+	// Read one byte past the cap so an over-cap body is detectable, then truncate. The
+	// rest of resp.Body is left unread (Close discards it) rather than draining gigabytes.
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxErrorBodyBytes+1))
 	if err != nil {
-		return werror.Wrap(err, "server returned an error and failed to read body", wSafeParams, wUnsafeParams)
+		return werror.Wrap(err, "server returned an error and failed to read body", werror.SafeParams(safeParams), wUnsafeParams)
 	}
+	truncated := len(body) > maxErrorBodyBytes
+	if truncated {
+		body = body[:maxErrorBodyBytes]
+		safeParams["responseBodyTruncated"] = true
+		safeParams["responseBodyLimitBytes"] = maxErrorBodyBytes
+	}
+	wSafeParams := werror.SafeParams(safeParams)
+
 	if len(body) == 0 {
 		return werror.Error(resp.Status, wSafeParams, wUnsafeParams)
 	}
 
-	isJSON := strings.Contains(resp.Header.Get("Content-Type"), contentTypeJSON)
+	// A truncated body cannot be valid JSON, so skip typed decoding and surface it as the
+	// raw (truncated) responseBody param.
+	isJSON := !truncated && strings.Contains(resp.Header.Get("Content-Type"), contentTypeJSON)
 	if isJSON && d.decodeJSONError != nil {
 		if conjureErr, ok := d.decodeJSONError(body); ok {
 			return werror.Wrap(conjureErr, "", wSafeParams, wUnsafeParams)
