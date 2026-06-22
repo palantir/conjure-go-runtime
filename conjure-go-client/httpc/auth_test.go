@@ -34,7 +34,7 @@ func sendCapturingAuth(t *testing.T, configure func(b *httpc.Builder), perCall f
 	var got string
 	transport := &roundTripFunc{fn: func(req *http.Request) (*http.Response, error) {
 		got = req.Header.Get("Authorization")
-		return &http.Response{StatusCode: http.StatusNoContent, Header: make(http.Header), Body: http.NoBody, Request: req}, nil
+		return emptyResponse(req), nil
 	}}
 	b := httpc.NewBuilder().SetBaseURLs("https://example.com").SetTransport(transport)
 	if configure != nil {
@@ -103,7 +103,7 @@ func TestAuth_RefreshableDisablesOnNil(t *testing.T) {
 			var got string
 			transport := &roundTripFunc{fn: func(req *http.Request) (*http.Response, error) {
 				got = req.Header.Get("Authorization")
-				return &http.Response{StatusCode: http.StatusNoContent, Header: make(http.Header), Body: http.NoBody, Request: req}, nil
+				return emptyResponse(req), nil
 			}}
 			client, err := httpc.NewBuilder().
 				SetBaseURLs("https://example.com").
@@ -190,7 +190,7 @@ func TestAuth_ApplyConfigRefreshableSwitching(t *testing.T) {
 	var got string
 	transport := &roundTripFunc{fn: func(req *http.Request) (*http.Response, error) {
 		got = req.Header.Get("Authorization")
-		return &http.Response{StatusCode: http.StatusNoContent, Header: make(http.Header), Body: http.NoBody, Request: req}, nil
+		return emptyResponse(req), nil
 	}}
 
 	cfg := httpc.ClientConfig{ServiceName: "svc", URIs: []string{"https://example.com"}, APIToken: new("tok1")}

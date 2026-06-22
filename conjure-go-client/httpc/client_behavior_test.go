@@ -68,24 +68,9 @@ func TestMiddlewareStackOrder(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	outerMW := httpc.MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
-		order = append(order, "outer-before")
-		resp, err := next.RoundTrip(req)
-		order = append(order, "outer-after")
-		return resp, err
-	})
-	innerMW := httpc.MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
-		order = append(order, "inner-before")
-		resp, err := next.RoundTrip(req)
-		order = append(order, "inner-after")
-		return resp, err
-	})
-	perRequestMW := httpc.MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
-		order = append(order, "per-request-before")
-		resp, err := next.RoundTrip(req)
-		order = append(order, "per-request-after")
-		return resp, err
-	})
+	outerMW := recordingMiddleware(&order, "outer")
+	innerMW := recordingMiddleware(&order, "inner")
+	perRequestMW := recordingMiddleware(&order, "per-request")
 
 	client, err := httpc.NewBuilder().
 		SetBaseURLs(server.URL).
@@ -125,22 +110,13 @@ func TestMiddlewareStackOrder_MultipleOuterAndInner(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	makeMW := func(name string) httpc.Middleware {
-		return httpc.MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
-			order = append(order, name+"-before")
-			resp, err := next.RoundTrip(req)
-			order = append(order, name+"-after")
-			return resp, err
-		})
-	}
-
 	client, err := httpc.NewBuilder().
 		SetBaseURLs(server.URL).
 		SetServiceName("multi-mw").
-		AddMiddleware(makeMW("outer1")).
-		AddMiddleware(makeMW("outer2")).
-		AddInnerMiddleware(makeMW("inner1")).
-		AddInnerMiddleware(makeMW("inner2")).
+		AddMiddleware(recordingMiddleware(&order, "outer1")).
+		AddMiddleware(recordingMiddleware(&order, "outer2")).
+		AddInnerMiddleware(recordingMiddleware(&order, "inner1")).
+		AddInnerMiddleware(recordingMiddleware(&order, "inner2")).
 		DisableTracing().
 		DisablePanicRecovery().
 		Build(t.Context())
@@ -776,7 +752,7 @@ func TestRetry_ReplayableBodyUsesOriginalBodyOnFirstAttempt(t *testing.T) {
 	var opens atomic.Int32
 	var closes atomic.Int32
 
-	transport := roundTripperFn(func(req *http.Request) (*http.Response, error) {
+	transport := &roundTripFunc{fn: func(req *http.Request) (*http.Response, error) {
 		attempt := attempts.Add(1)
 		body, err := io.ReadAll(req.Body)
 		require.NoError(t, err)
@@ -793,7 +769,7 @@ func TestRetry_ReplayableBodyUsesOriginalBodyOnFirstAttempt(t *testing.T) {
 			StatusCode: http.StatusNoContent,
 			Body:       io.NopCloser(strings.NewReader("")),
 		}, nil
-	})
+	}}
 
 	client, err := httpc.NewBuilder().
 		SetBaseURLs("https://example.com").

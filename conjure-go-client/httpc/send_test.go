@@ -78,7 +78,7 @@ func TestSend_PerRequestMiddlewareInsideTelemetry(t *testing.T) {
 		SetBaseURLs("https://example.com").
 		SetServiceName("recovery").
 		SetTransport(&roundTripFunc{fn: func(req *http.Request) (*http.Response, error) {
-			return &http.Response{StatusCode: http.StatusNoContent, Header: make(http.Header), Body: http.NoBody, Request: req}, nil
+			return emptyResponse(req), nil
 		}}).
 		Build(t.Context())
 	require.NoError(t, err)

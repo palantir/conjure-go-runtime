@@ -37,10 +37,10 @@ func TestCallExecute_BodyNoEncoder_Errors(t *testing.T) {
 	ep := httpc.NewPOST[testPayload, struct{}]("NoEncoder", "/test").
 		WithDecoder(httpc.VoidDecoder())
 
-	client := clientFunc(func(*http.Request) (*http.Response, error) {
+	client := &roundTripFunc{fn: func(*http.Request) (*http.Response, error) {
 		t.Fatal("client should not be called when body has no encoder")
 		return nil, nil
-	})
+	}}
 	_, _, err := ep.Call(testPayload{Name: "x", Value: 1}).Execute(context.Background(), client)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no encoder")
@@ -52,10 +52,10 @@ func TestCallExecute_UnterminatedPathParam_Errors(t *testing.T) {
 	ep := httpc.NewGET[struct{}]("Bad", "/items/{itemId").
 		WithDecoder(httpc.VoidDecoder())
 
-	client := clientFunc(func(*http.Request) (*http.Response, error) {
+	client := &roundTripFunc{fn: func(*http.Request) (*http.Response, error) {
 		t.Fatal("client should not be called for malformed path")
 		return nil, nil
-	})
+	}}
 	_, _, err := ep.Call().Execute(context.Background(), client)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unterminated")
@@ -82,7 +82,7 @@ func TestEndpointExecute_AuthorizerOverridesAuthorizationHeader(t *testing.T) {
 	var seen string
 	transport := &roundTripFunc{fn: func(req *http.Request) (*http.Response, error) {
 		seen = req.Header.Get("Authorization")
-		return &http.Response{StatusCode: http.StatusNoContent, Header: make(http.Header), Body: http.NoBody, Request: req}, nil
+		return emptyResponse(req), nil
 	}}
 	client, err := httpc.NewBuilder().SetBaseURLs("https://example.com").SetTransport(transport).Build(context.Background())
 	require.NoError(t, err)
@@ -154,7 +154,7 @@ func TestBuilder_SetTransport_WinsOverSetDialer(t *testing.T) {
 	var transportCalled bool
 	transport := &roundTripFunc{fn: func(req *http.Request) (*http.Response, error) {
 		transportCalled = true
-		return &http.Response{StatusCode: http.StatusNoContent, Header: make(http.Header), Body: http.NoBody, Request: req}, nil
+		return emptyResponse(req), nil
 	}}
 	customDialer := &net.Dialer{Timeout: 99 * time.Hour}
 	client, err := httpc.NewBuilder().
@@ -191,7 +191,7 @@ func TestBuilder_OptionalBasicCredentials_NilSkipsAuth(t *testing.T) {
 	var seen string
 	transport := &roundTripFunc{fn: func(req *http.Request) (*http.Response, error) {
 		seen = req.Header.Get("Authorization")
-		return &http.Response{StatusCode: http.StatusNoContent, Header: make(http.Header), Body: http.NoBody, Request: req}, nil
+		return emptyResponse(req), nil
 	}}
 	client, err := httpc.NewBuilder().
 		SetBaseURLs("https://example.com").

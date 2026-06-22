@@ -31,46 +31,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// httpTestClient wraps an httptest.Server as a one-method httpc.Runtime: Send
-// routes through a runtime pointed at the server, with telemetry and retry
-// backoff disabled so requests reach the server unchanged and tests stay fast.
-type httpTestClient struct {
-	server *httptest.Server
-}
-
-func (c *httpTestClient) Send(ctx context.Context, req *http.Request, opts httpc.SendOptions) (*http.Response, error) {
-	client, err := newBareClient(ctx, c.server.URL, c.server.Client().Transport)
-	if err != nil {
-		return nil, err
-	}
-	return client.Send(ctx, req, opts)
-}
-
-// newBareClient builds a runtime routing through transport against baseURL with
-// telemetry and retry backoff disabled, mirroring the minimal no-middleware test
-// client these tests relied on before Runtime.Send existed.
-func newBareClient(ctx context.Context, baseURL string, transport http.RoundTripper) (httpc.Runtime, error) {
-	return httpc.NewBuilder().
-		SetBaseURLs(baseURL).
-		SetTransport(transport).
-		SetInitialBackoff(0).
-		SetMaxBackoff(0).
-		DisableTracing().
-		DisableTraceHeaderPropagation().
-		DisableClientTraceMetrics().
-		DisablePanicRecovery().
-		SetDisableMetrics(true).
-		Build(ctx)
-}
-
-// newTestServer creates an httptest.Server and registers cleanup.
-func newTestServer(t *testing.T, handler http.HandlerFunc) *httptest.Server {
-	t.Helper()
-	server := httptest.NewServer(handler)
-	t.Cleanup(server.Close)
-	return server
-}
-
 func TestEndpointExecute_JSONRoundTrip(t *testing.T) {
 	server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, http.MethodPost, r.Method)
@@ -204,15 +164,10 @@ func TestEndpointExecute_Timeout(t *testing.T) {
 }
 
 func TestEndpointExecute_ZeroTimeoutDoesNotCancelContext(t *testing.T) {
-	client := clientFunc(func(req *http.Request) (*http.Response, error) {
+	client := &roundTripFunc{fn: func(req *http.Request) (*http.Response, error) {
 		require.NoError(t, req.Context().Err())
-		return &http.Response{
-			StatusCode: http.StatusNoContent,
-			Header:     make(http.Header),
-			Body:       http.NoBody,
-			Request:    req,
-		}, nil
-	})
+		return emptyResponse(req), nil
+	}}
 
 	ep := httpc.NewNoBodyEndpoint[struct{}](http.MethodGet, "Test", "/test").
 		WithDecoder(httpc.VoidDecoder()).
@@ -295,22 +250,6 @@ type testError struct {
 
 func (e *testError) Error() string {
 	return "test error: " + http.StatusText(e.statusCode)
-}
-
-// clientFunc adapts a single-attempt RoundTripper func to a one-method
-// httpc.Runtime: Send routes through a runtime that uses the func as its transport
-// against a dummy base URL (these tests return canned responses without a real
-// server).
-type clientFunc func(*http.Request) (*http.Response, error)
-
-func (f clientFunc) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
-
-func (f clientFunc) Send(ctx context.Context, req *http.Request, opts httpc.SendOptions) (*http.Response, error) {
-	client, err := newBareClient(ctx, "http://localhost", f)
-	if err != nil {
-		return nil, err
-	}
-	return client.Send(ctx, req, opts)
 }
 
 func TestClientDo_PreservesEscapedPathSegments(t *testing.T) {

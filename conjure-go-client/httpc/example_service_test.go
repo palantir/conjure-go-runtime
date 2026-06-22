@@ -684,12 +684,3 @@ func TestExample_SetTransport_FullClient(t *testing.T) {
 	assert.Equal(t, "1", resp.ID)
 	assert.True(t, customTransportUsed)
 }
-
-// roundTripFunc is an http.RoundTripper backed by a function.
-type roundTripFunc struct {
-	fn func(*http.Request) (*http.Response, error)
-}
-
-func (f *roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
-	return f.fn(req)
-}

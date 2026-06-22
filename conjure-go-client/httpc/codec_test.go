@@ -34,11 +34,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type testPayload struct {
-	Name  string `json:"name"`
-	Value int    `json:"value"`
-}
-
 func TestJSONEncoder(t *testing.T) {
 	enc := httpc.JSONEncoder[testPayload]()
 	req, err := http.NewRequest(http.MethodPost, "http://example.com", nil)

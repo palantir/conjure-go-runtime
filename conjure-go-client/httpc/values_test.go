@@ -58,7 +58,7 @@ func TestSend_AuthorizationHeaderSuppressesErroringProvider(t *testing.T) {
 	var providerCalled atomic.Bool
 	transport := &roundTripFunc{fn: func(req *http.Request) (*http.Response, error) {
 		got = req.Header.Get("Authorization")
-		return &http.Response{StatusCode: http.StatusNoContent, Header: make(http.Header), Body: http.NoBody, Request: req}, nil
+		return emptyResponse(req), nil
 	}}
 
 	client, err := httpc.NewBuilder().

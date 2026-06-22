@@ -595,14 +595,14 @@ func TestBuilder_SetTransport_FullClientPathWithCustomRoundTripper(t *testing.T)
 		_, _ = w.Write([]byte(`{"message":"in-process"}`))
 	})
 
-	// roundTripperFn calls the handler in-process via httptest.NewRecorder.
+	// roundTripFunc calls the handler in-process via httptest.NewRecorder.
 	var calls int
-	rt := roundTripperFn(func(req *http.Request) (*http.Response, error) {
+	rt := &roundTripFunc{fn: func(req *http.Request) (*http.Response, error) {
 		calls++
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)
 		return rec.Result(), nil
-	})
+	}}
 
 	client, err := httpc.NewBuilder().
 		SetServiceName("in-process").
@@ -621,7 +621,3 @@ func TestBuilder_SetTransport_FullClientPathWithCustomRoundTripper(t *testing.T)
 	assert.Equal(t, 1, calls, "custom transport should have been invoked exactly once")
 	assert.Equal(t, "in-process", result.Message)
 }
-
-type roundTripperFn func(*http.Request) (*http.Response, error)
-
-func (f roundTripperFn) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
