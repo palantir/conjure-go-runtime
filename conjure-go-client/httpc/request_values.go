@@ -19,7 +19,6 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
-	"time"
 )
 
 // RequestValues is the public, copy-on-write decoration a [SendOptions] carries:
@@ -136,65 +135,115 @@ func requestValuesFromHeader(h http.Header) RequestValues {
 	return v
 }
 
-// CallPolicyOverrides is a per-send override set merged onto a runtime's default
-// [CallPolicy]. Unlike CallPolicy (a final snapshot), each field tracks whether
-// it was set, because zero/nil values are meaningful: a zero timeout disables the
-// per-attempt timeout, and a nil max-attempts means "use the default formula".
-// An unset field leaves the runtime default unchanged. The zero value overrides
-// nothing.
-type CallPolicyOverrides struct {
-	timeout        *time.Duration
-	initialBackoff *time.Duration
-	maxBackoff     *time.Duration
-	maxAttempts    *int
-	maxAttemptsSet bool
-}
-
-// WithTimeout overrides the per-attempt timeout. A zero duration explicitly
-// disables the per-attempt timeout (distinct from leaving it unset).
-func (p CallPolicyOverrides) WithTimeout(d time.Duration) CallPolicyOverrides {
-	p.timeout = &d
-	return p
-}
-
-// WithMaxAttempts overrides total attempts. nil = default (2 per base URL);
-// pointer to 0 = unlimited; n > 0 = exactly n. Calling this marks max attempts as
-// overridden even when n is nil.
-func (p CallPolicyOverrides) WithMaxAttempts(n *int) CallPolicyOverrides {
-	p.maxAttempts = n
-	p.maxAttemptsSet = true
-	return p
-}
-
-// WithInitialBackoff overrides the initial retry backoff.
-func (p CallPolicyOverrides) WithInitialBackoff(d time.Duration) CallPolicyOverrides {
-	p.initialBackoff = &d
-	return p
-}
-
-// WithMaxBackoff overrides the maximum retry backoff.
-func (p CallPolicyOverrides) WithMaxBackoff(d time.Duration) CallPolicyOverrides {
-	p.maxBackoff = &d
-	return p
-}
-
-// applyTo returns base with each explicitly-set override applied.
-func (p CallPolicyOverrides) applyTo(base CallPolicy) CallPolicy {
-	if p.timeout != nil {
-		base.Timeout = *p.timeout
-	}
-	if p.initialBackoff != nil {
-		base.InitialBackoff = *p.initialBackoff
-	}
-	if p.maxBackoff != nil {
-		base.MaxBackoff = *p.maxBackoff
-	}
-	if p.maxAttemptsSet {
-		base.MaxAttempts = p.maxAttempts
-	}
-	return base
-}
-
 func prepend(first string, rest []string) []string {
 	return append([]string{first}, rest...)
+}
+
+// headerOrQuery is the set of stdlib multimap types a [requestValue] targets.
+// http.Header and url.Values expose the same Add/Set/Get, so header and query
+// contributors share one implementation.
+type headerOrQuery interface {
+	http.Header | url.Values
+
+	Add(string, string)
+	Set(string, string)
+	Get(string) string
+}
+
+// requestValue contributes one key's value into a request's headers or query.
+// Resolution is lazy and fallible: apply runs only if the contributor survives
+// precedence resolution (see [resolveValues]), so a superseded contributor's
+// value is never produced — an overridden auth provider never runs or errors.
+type requestValue[T headerOrQuery] interface {
+	key() string
+	// replaces reports whether this contributor sets (one winner per key) or
+	// adds (accumulates with other contributors for the key).
+	replaces() bool
+	apply(ctx context.Context, dst T) error
+}
+
+// setValue replaces all values for a key (Set, then Add any extras).
+type setValue[T headerOrQuery] struct {
+	name   string
+	values []string
+}
+
+func (v setValue[T]) key() string    { return v.name }
+func (v setValue[T]) replaces() bool { return true }
+
+func (v setValue[T]) apply(_ context.Context, dst T) error {
+	if len(v.values) == 0 {
+		return nil
+	}
+	dst.Set(v.name, v.values[0])
+	for _, s := range v.values[1:] {
+		dst.Add(v.name, s)
+	}
+	return nil
+}
+
+// addValue appends values for a key, accumulating with other contributors.
+type addValue[T headerOrQuery] struct {
+	name   string
+	values []string
+}
+
+func (v addValue[T]) key() string    { return v.name }
+func (v addValue[T]) replaces() bool { return false }
+
+func (v addValue[T]) apply(_ context.Context, dst T) error {
+	for _, s := range v.values {
+		dst.Add(v.name, s)
+	}
+	return nil
+}
+
+// authValue contributes an Authorization header from an [Authorizer]. Like any
+// replacing contributor it resolves by precedence: a higher-precedence
+// Authorization contributor supersedes it, in which case its authorizer never
+// runs (so a lazy, fallible auth provider never runs or errors when overridden).
+// An empty result leaves Authorization unset.
+type authValue struct {
+	provider Authorizer
+}
+
+func (authValue) key() string    { return "Authorization" }
+func (authValue) replaces() bool { return true }
+
+func (v authValue) apply(ctx context.Context, dst http.Header) error {
+	value, err := v.provider.AuthorizationHeader(ctx)
+	if err != nil {
+		return err
+	}
+	if value != "" {
+		dst.Set("Authorization", value)
+	}
+	return nil
+}
+
+// resolveValues applies vals onto dst in order, resolving precedence by key
+// before any contributor runs: for each key only the last replacing contributor
+// and any contributors after it survive, so superseded contributors — including
+// a lazy, fallible auth provider — never apply. Later entries win.
+func resolveValues[T headerOrQuery](ctx context.Context, dst T, vals ...requestValue[T]) error {
+	lastReplace := make(map[string]int)
+	for i, v := range vals {
+		if v != nil && v.replaces() {
+			lastReplace[v.key()] = i
+		}
+	}
+	for i, v := range vals {
+		if v == nil {
+			continue
+		}
+		// Skip a contributor superseded by a later replace for its key: an add
+		// cleared by a following set, or an earlier set replaced by a later one.
+		if ri, ok := lastReplace[v.key()]; ok && i < ri {
+			continue
+		}
+		if err := v.apply(ctx, dst); err != nil {
+			return err
+		}
+	}
+	return nil
 }

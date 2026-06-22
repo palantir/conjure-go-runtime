@@ -77,6 +77,65 @@ type CallPolicy struct {
 	MaxBackoff     time.Duration
 }
 
+// CallPolicyOverrides is a per-send override set merged onto a runtime's default
+// [CallPolicy]. Unlike CallPolicy (a final snapshot), each field tracks whether
+// it was set, because zero/nil values are meaningful: a zero timeout disables the
+// per-attempt timeout, and a nil max-attempts means "use the default formula".
+// An unset field leaves the runtime default unchanged. The zero value overrides
+// nothing.
+type CallPolicyOverrides struct {
+	timeout        *time.Duration
+	initialBackoff *time.Duration
+	maxBackoff     *time.Duration
+	maxAttempts    *int
+	maxAttemptsSet bool
+}
+
+// WithTimeout overrides the per-attempt timeout. A zero duration explicitly
+// disables the per-attempt timeout (distinct from leaving it unset).
+func (p CallPolicyOverrides) WithTimeout(d time.Duration) CallPolicyOverrides {
+	p.timeout = &d
+	return p
+}
+
+// WithMaxAttempts overrides total attempts. nil = default (2 per base URL);
+// pointer to 0 = unlimited; n > 0 = exactly n. Calling this marks max attempts as
+// overridden even when n is nil.
+func (p CallPolicyOverrides) WithMaxAttempts(n *int) CallPolicyOverrides {
+	p.maxAttempts = n
+	p.maxAttemptsSet = true
+	return p
+}
+
+// WithInitialBackoff overrides the initial retry backoff.
+func (p CallPolicyOverrides) WithInitialBackoff(d time.Duration) CallPolicyOverrides {
+	p.initialBackoff = &d
+	return p
+}
+
+// WithMaxBackoff overrides the maximum retry backoff.
+func (p CallPolicyOverrides) WithMaxBackoff(d time.Duration) CallPolicyOverrides {
+	p.maxBackoff = &d
+	return p
+}
+
+// applyTo returns base with each explicitly-set override applied.
+func (p CallPolicyOverrides) applyTo(base CallPolicy) CallPolicy {
+	if p.timeout != nil {
+		base.Timeout = *p.timeout
+	}
+	if p.initialBackoff != nil {
+		base.InitialBackoff = *p.initialBackoff
+	}
+	if p.maxBackoff != nil {
+		base.MaxBackoff = *p.maxBackoff
+	}
+	if p.maxAttemptsSet {
+		base.MaxAttempts = p.maxAttempts
+	}
+	return base
+}
+
 // SendOptions is the per-send configuration for [Runtime.Send]: request
 // decoration (headers/query/authorization), per-request middlewares, and call-policy
 // overrides. The standard runtime resolves Values per attempt above its
@@ -87,6 +146,38 @@ type SendOptions struct {
 	Values      RequestValues
 	Middlewares []Middleware
 	Policy      CallPolicyOverrides
+}
+
+// ErrEmptyURIs is returned by Build and by [Runtime.Send] when the client has no
+// configured base URIs.
+type ErrEmptyURIs struct{}
+
+func (ErrEmptyURIs) Error() string {
+	return "httpc: base URLs must not be empty"
+}
+
+// ErrNonRelativeRequestURL is returned by [Runtime.Send] when the request URL is
+// not service-relative. The standard runtime supplies the scheme, host, and port
+// from the selected base URL on each attempt, so only the request URL's Path,
+// RawPath, and RawQuery are meaningful; a scheme, host, or opaque URL would be
+// silently discarded, so it is rejected instead. (Fragment and userinfo are
+// likewise never sent, but are ignored rather than rejected.)
+type ErrNonRelativeRequestURL struct{}
+
+func (ErrNonRelativeRequestURL) Error() string {
+	return "httpc: request URL must be relative (path only); the runtime supplies scheme and host per attempt"
+}
+
+// ErrInvalidRelocation is returned by [Runtime.Send] when a server's 307/308 QoS
+// relocation (RetryOther / RetryTemporaryRedirect) points to a Location outside the
+// configured service targets — a different scheme, host, port, or base path. The
+// relocation is refused rather than followed, so a compromised or buggy upstream cannot
+// pivot the client (and its replayable request body) onto an arbitrary host. The
+// offending Location is attached as the unsafe 'location' parameter.
+type ErrInvalidRelocation struct{}
+
+func (ErrInvalidRelocation) Error() string {
+	return "httpc: server relocated the request (307/308) to a host outside the configured service targets"
 }
 
 // standardRuntime is the [RebuildableRuntime] returned by [Builder.Build]. It

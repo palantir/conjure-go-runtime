@@ -22,6 +22,9 @@ import (
 	"github.com/palantir/pkg/bytesbuffers"
 )
 
+// Void is the Req or Resp type for endpoints with no request or response body.
+type Void = struct{}
+
 // RequestOverrides is the per-request configuration shared by the endpoint
 // descriptors ([BodyEndpoint], [NoBodyEndpoint]), the per-invocation [Call], and
 // the reusable [Overrides] bag. Every method is copy-on-write: it returns a new

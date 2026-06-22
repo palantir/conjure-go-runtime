@@ -32,38 +32,6 @@ type ErrorDecoder interface {
 	DecodeError(resp *http.Response) error
 }
 
-// ErrEmptyURIs is returned by Build and by [Runtime.Send] when the client has no
-// configured base URIs.
-type ErrEmptyURIs struct{}
-
-func (ErrEmptyURIs) Error() string {
-	return "httpc: base URLs must not be empty"
-}
-
-// ErrNonRelativeRequestURL is returned by [Runtime.Send] when the request URL is
-// not service-relative. The standard runtime supplies the scheme, host, and port
-// from the selected base URL on each attempt, so only the request URL's Path,
-// RawPath, and RawQuery are meaningful; a scheme, host, or opaque URL would be
-// silently discarded, so it is rejected instead. (Fragment and userinfo are
-// likewise never sent, but are ignored rather than rejected.)
-type ErrNonRelativeRequestURL struct{}
-
-func (ErrNonRelativeRequestURL) Error() string {
-	return "httpc: request URL must be relative (path only); the runtime supplies scheme and host per attempt"
-}
-
-// ErrInvalidRelocation is returned by [Runtime.Send] when a server's 307/308 QoS
-// relocation (RetryOther / RetryTemporaryRedirect) points to a Location outside the
-// configured service targets — a different scheme, host, port, or base path. The
-// relocation is refused rather than followed, so a compromised or buggy upstream cannot
-// pivot the client (and its replayable request body) onto an arbitrary host. The
-// offending Location is attached as the unsafe 'location' parameter.
-type ErrInvalidRelocation struct{}
-
-func (ErrInvalidRelocation) Error() string {
-	return "httpc: server relocated the request (307/308) to a host outside the configured service targets"
-}
-
 // StatusCodeFromError returns the 'statusCode' werror parameter, or ok=false
 // if the error has none. [DefaultErrorDecoder] sets this parameter; custom
 // decoders may not.

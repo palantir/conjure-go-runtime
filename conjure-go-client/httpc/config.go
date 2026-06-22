@@ -371,3 +371,67 @@ func newValidatedClientParams(ctx context.Context, config ClientConfig) (validat
 
 	return p, nil
 }
+
+// parseProxyURL validates a proxy URL string against the same rules as
+// ApplyConfig: it must be a request URI with one of the supported schemes.
+func parseProxyURL(s, label string, schemes ...string) (*url.URL, error) {
+	proxyURL, err := url.ParseRequestURI(s)
+	if err != nil {
+		return nil, werror.Wrap(err, "invalid "+label)
+	}
+	if !slices.Contains(schemes, proxyURL.Scheme) {
+		return nil, werror.Error("invalid "+label+": unsupported scheme",
+			werror.SafeParam("scheme", proxyURL.Scheme),
+			werror.SafeParam("supportedSchemes", schemes))
+	}
+	return proxyURL, nil
+}
+
+// supportedBaseURISchemes are the schemes a service base URL may use: plain
+// http/https and their service-mesh variants (the mesh- prefix is stripped before
+// dispatch, see internal.removeMeshSchemeIfPresent).
+var supportedBaseURISchemes = []string{"http", "https", meshSchemePrefix + "http", meshSchemePrefix + "https"}
+
+// validateBaseURI checks that uri is a service origin (optionally with a base path):
+// a supported scheme and a non-empty host, with no userinfo, opaque body, query, or
+// fragment — none of which are service-origin/prefix fields, and userinfo in
+// particular is a footgun (https://trusted@attacker routes to the attacker). A base
+// path is allowed: joinBaseAndRequestURL prepends it and the URL selector matches it.
+// An empty string is invalid; callers that allow empties (ApplyConfig drops them)
+// must filter before calling this.
+func validateBaseURI(uri string) error {
+	parsed, err := url.Parse(uri)
+	if err != nil {
+		return werror.Wrap(err, "invalid base URL", werror.UnsafeParam("url", uri))
+	}
+	switch {
+	case !slices.Contains(supportedBaseURISchemes, parsed.Scheme):
+		return werror.Error("invalid base URL: unsupported scheme",
+			werror.SafeParam("scheme", parsed.Scheme),
+			werror.SafeParam("supportedSchemes", supportedBaseURISchemes),
+			werror.UnsafeParam("url", uri))
+	case parsed.Opaque != "":
+		return werror.Error("invalid base URL: must not be opaque", werror.UnsafeParam("url", uri))
+	case parsed.Host == "":
+		return werror.Error("invalid base URL: missing host", werror.UnsafeParam("url", uri))
+	case parsed.User != nil:
+		return werror.Error("invalid base URL: must not contain userinfo", werror.UnsafeParam("url", uri))
+	case parsed.RawQuery != "" || parsed.ForceQuery:
+		return werror.Error("invalid base URL: must not contain a query", werror.UnsafeParam("url", uri))
+	case parsed.Fragment != "":
+		return werror.Error("invalid base URL: must not contain a fragment", werror.UnsafeParam("url", uri))
+	}
+	return nil
+}
+
+// validateBaseURIs validates every URI exactly as given — the strict
+// direct-setter rule, with no empty-string filtering. Shared with the config
+// path's per-URI check via [validateBaseURI].
+func validateBaseURIs(uris []string) error {
+	for _, uri := range uris {
+		if err := validateBaseURI(uri); err != nil {
+			return err
+		}
+	}
+	return nil
+}
