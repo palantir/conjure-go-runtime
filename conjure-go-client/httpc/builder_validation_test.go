@@ -110,6 +110,39 @@ func TestBuilder_SetBaseURLs_Validation(t *testing.T) {
 	require.NoError(t, err)
 }
 
+// TestBuilder_SetBaseURLs_StrictServiceOrigin verifies a base URL must be a service
+// origin (supported scheme + host, optional base path): non-service forms — path-only,
+// hostless, opaque, unsupported scheme, userinfo, query, fragment — are rejected, while
+// http/https/mesh schemes with an optional base path are accepted.
+func TestBuilder_SetBaseURLs_StrictServiceOrigin(t *testing.T) {
+	ctx := context.Background()
+
+	for _, bad := range []string{
+		"/foo",                               // path-only
+		"http://",                            // hostless
+		"http:foo",                           // opaque
+		"ftp://host.example.com",             // unsupported scheme
+		"https://user:pass@host.example.com", // userinfo footgun
+		"https://host.example.com?x=1",       // query
+		"https://host.example.com#frag",      // fragment
+	} {
+		_, err := httpc.NewBuilder().SetBaseURLs(bad).Build(ctx)
+		require.Error(t, err, "expected %q to be rejected", bad)
+		assert.Contains(t, err.Error(), "invalid base URL", "url %q", bad)
+	}
+
+	for _, ok := range []string{
+		"https://host.example.com",
+		"http://host.example.com:8080",
+		"https://host.example.com/base/path",
+		"mesh-https://host.example.com",
+		"mesh-http://host.example.com/base",
+	} {
+		_, err := httpc.NewBuilder().SetBaseURLs(ok).Build(ctx)
+		require.NoError(t, err, "expected %q to be accepted", ok)
+	}
+}
+
 // TestBuilder_DeferredErrors_JoinIndependentFields verifies that errors on
 // distinct fields are all reported at Build.
 func TestBuilder_DeferredErrors_JoinIndependentFields(t *testing.T) {

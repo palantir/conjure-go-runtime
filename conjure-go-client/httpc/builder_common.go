@@ -188,12 +188,39 @@ func parseProxyURL(s, label string, schemes ...string) (*url.URL, error) {
 	return proxyURL, nil
 }
 
-// validateBaseURI parses a single base URI with the same parser config validation
-// uses (url.ParseRequestURI). An empty string is invalid; callers that allow
-// empties (ApplyConfig drops them) must filter before calling this.
+// supportedBaseURISchemes are the schemes a service base URL may use: plain
+// http/https and their service-mesh variants (the mesh- prefix is stripped before
+// dispatch, see internal.removeMeshSchemeIfPresent).
+var supportedBaseURISchemes = []string{"http", "https", meshSchemePrefix + "http", meshSchemePrefix + "https"}
+
+// validateBaseURI checks that uri is a service origin (optionally with a base path):
+// a supported scheme and a non-empty host, with no userinfo, opaque body, query, or
+// fragment — none of which are service-origin/prefix fields, and userinfo in
+// particular is a footgun (https://trusted@attacker routes to the attacker). A base
+// path is allowed: joinBaseAndRequestURL prepends it and the URL selector matches it.
+// An empty string is invalid; callers that allow empties (ApplyConfig drops them)
+// must filter before calling this.
 func validateBaseURI(uri string) error {
-	if _, err := url.ParseRequestURI(uri); err != nil {
+	parsed, err := url.Parse(uri)
+	if err != nil {
 		return werror.Wrap(err, "invalid base URL", werror.UnsafeParam("url", uri))
+	}
+	switch {
+	case !slices.Contains(supportedBaseURISchemes, parsed.Scheme):
+		return werror.Error("invalid base URL: unsupported scheme",
+			werror.SafeParam("scheme", parsed.Scheme),
+			werror.SafeParam("supportedSchemes", supportedBaseURISchemes),
+			werror.UnsafeParam("url", uri))
+	case parsed.Opaque != "":
+		return werror.Error("invalid base URL: must not be opaque", werror.UnsafeParam("url", uri))
+	case parsed.Host == "":
+		return werror.Error("invalid base URL: missing host", werror.UnsafeParam("url", uri))
+	case parsed.User != nil:
+		return werror.Error("invalid base URL: must not contain userinfo", werror.UnsafeParam("url", uri))
+	case parsed.RawQuery != "" || parsed.ForceQuery:
+		return werror.Error("invalid base URL: must not contain a query", werror.UnsafeParam("url", uri))
+	case parsed.Fragment != "":
+		return werror.Error("invalid base URL: must not contain a fragment", werror.UnsafeParam("url", uri))
 	}
 	return nil
 }

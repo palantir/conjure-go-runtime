@@ -125,10 +125,11 @@ func (b *BuilderCore[Self]) SetServiceNameRefreshable(r refreshable.Refreshable[
 }
 
 // SetBaseURLs sets the base URLs; each request is prefixed with one chosen by
-// the URI scoring strategy. Each URL is validated with the same URI parser as
-// [Builder.ApplyConfig] (url.ParseRequestURI); unlike config, direct setters do
-// not drop empty strings — an empty URL is invalid. An invalid URL defers an
-// error to Build, replacing any prior base-URL error.
+// the URI scoring strategy. Each URL is validated the same way as
+// [Builder.ApplyConfig]: a service origin (supported scheme + host, optional base
+// path) with no userinfo, query, or fragment. Unlike config, direct setters do not
+// drop empty strings — an empty URL is invalid. An invalid URL defers an error to
+// Build, replacing any prior base-URL error.
 func (b *BuilderCore[Self]) SetBaseURLs(urls ...string) Self {
 	b.errs.setField(fieldBaseURLs, validateBaseURIs(urls))
 	b.uris = refreshable.New(urls)
