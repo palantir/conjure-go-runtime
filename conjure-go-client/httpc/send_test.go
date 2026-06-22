@@ -130,10 +130,10 @@ func TestSend_PerRequestMiddlewareOverridesAuth(t *testing.T) {
 // without panicking.
 func TestSend_NilMiddlewareWithPerRequest(t *testing.T) {
 	var called bool
-	server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+	handler := func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "per-req", r.Header.Get("X-Per-Request"))
 		w.WriteHeader(http.StatusNoContent)
-	})
+	}
 
 	mw := httpc.MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
 		called = true
@@ -141,7 +141,7 @@ func TestSend_NilMiddlewareWithPerRequest(t *testing.T) {
 		return next.RoundTrip(req)
 	})
 
-	client := &httpTestClient{server: server} // Middleware() returns nil
+	client := handlerClient(handler) // no intrinsic middleware
 	ep := httpc.NewGET[struct{}]("NilMW", "/test").
 		WithDecoder(httpc.VoidDecoder()).
 		WithMiddleware(mw)

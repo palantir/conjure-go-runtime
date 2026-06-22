@@ -19,7 +19,6 @@ import (
 	"context"
 	"io"
 	"net/http"
-	"net/http/httptest"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -43,7 +42,7 @@ func TestOverrides_Clone_Independence(t *testing.T) {
 	clone = clone.WithAddedQuery("q2", "v2")
 
 	// Verify original is unaffected by verifying through an endpoint execution.
-	server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+	client := handlerClient(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "1", r.Header.Get("X-A"))
 		assert.Empty(t, r.Header.Get("X-B"), "original should not have X-B")
 		assert.Equal(t, "v", r.URL.Query().Get("q"))
@@ -56,7 +55,6 @@ func TestOverrides_Clone_Independence(t *testing.T) {
 		Call().
 		WithOverrides(original)
 
-	client := &httpTestClient{server: server}
 	_, _, err := ep.Execute(context.Background(), client)
 	require.NoError(t, err)
 }
@@ -66,7 +64,7 @@ func TestOverrides_CopyOnWrite(t *testing.T) {
 	derived := base.WithAddedHeader("X-Derived", "derived")
 
 	// Verify base does not have derived header.
-	server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+	client := handlerClient(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "base", r.Header.Get("X-Base"))
 		assert.Empty(t, r.Header.Get("X-Derived"), "base should not have X-Derived")
 		w.WriteHeader(http.StatusNoContent)
@@ -77,12 +75,11 @@ func TestOverrides_CopyOnWrite(t *testing.T) {
 		Call().
 		WithOverrides(base)
 
-	client := &httpTestClient{server: server}
 	_, _, err := ep.Execute(context.Background(), client)
 	require.NoError(t, err)
 
 	// Verify derived has both headers.
-	server2 := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+	client2 := handlerClient(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "base", r.Header.Get("X-Base"))
 		assert.Equal(t, "derived", r.Header.Get("X-Derived"))
 		w.WriteHeader(http.StatusNoContent)
@@ -93,14 +90,13 @@ func TestOverrides_CopyOnWrite(t *testing.T) {
 		Call().
 		WithOverrides(derived)
 
-	client2 := &httpTestClient{server: server2}
 	_, _, err = ep2.Execute(context.Background(), client2)
 	require.NoError(t, err)
 }
 
 func TestOverrides_WithOverrides_Merge(t *testing.T) {
 	t.Run("headers additive", func(t *testing.T) {
-		server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		client := handlerClient(func(w http.ResponseWriter, r *http.Request) {
 			assert.Equal(t, "v1", r.Header.Get("X-A"))
 			assert.Equal(t, "v2", r.Header.Get("X-B"))
 			w.WriteHeader(http.StatusNoContent)
@@ -113,13 +109,12 @@ func TestOverrides_WithOverrides_Merge(t *testing.T) {
 		overrides := httpc.Overrides{}.WithAddedHeader("X-B", "v2")
 		merged := base.Call().WithOverrides(overrides)
 
-		client := &httpTestClient{server: server}
 		_, _, err := merged.Execute(context.Background(), client)
 		require.NoError(t, err)
 	})
 
 	t.Run("query params additive", func(t *testing.T) {
-		server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		client := handlerClient(func(w http.ResponseWriter, r *http.Request) {
 			assert.Equal(t, "a", r.URL.Query().Get("p1"))
 			assert.Equal(t, "b", r.URL.Query().Get("p2"))
 			w.WriteHeader(http.StatusNoContent)
@@ -132,7 +127,6 @@ func TestOverrides_WithOverrides_Merge(t *testing.T) {
 		overrides := httpc.Overrides{}.WithAddedQuery("p2", "b")
 		merged := base.Call().WithOverrides(overrides)
 
-		client := &httpTestClient{server: server}
 		_, _, err := merged.Execute(context.Background(), client)
 		require.NoError(t, err)
 	})
@@ -162,7 +156,7 @@ func TestOverrides_WithOverrides_Merge(t *testing.T) {
 	})
 
 	t.Run("authorization last wins", func(t *testing.T) {
-		server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		client := handlerClient(func(w http.ResponseWriter, r *http.Request) {
 			user, pass, ok := r.BasicAuth()
 			assert.True(t, ok)
 			assert.Equal(t, "override-user", user)
@@ -177,7 +171,6 @@ func TestOverrides_WithOverrides_Merge(t *testing.T) {
 		overrides := httpc.Overrides{}.WithAuthorization(httpc.BasicCredentials("override-user", "override-pass"))
 		merged := base.Call().WithOverrides(overrides)
 
-		client := &httpTestClient{server: server}
 		_, _, err := merged.Execute(context.Background(), client)
 		require.NoError(t, err)
 	})
@@ -214,7 +207,7 @@ func TestOverrides_WithOverrides_Merge(t *testing.T) {
 	})
 
 	t.Run("error decoder last wins", func(t *testing.T) {
-		server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		client := handlerClient(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusForbidden)
 		})
 
@@ -228,7 +221,6 @@ func TestOverrides_WithOverrides_Merge(t *testing.T) {
 		overrides := httpc.Overrides{}.WithErrorDecoder(overrideDecoder)
 		merged := base.Call().WithOverrides(overrides)
 
-		client := &httpTestClient{server: server}
 		_, _, err := merged.Execute(context.Background(), client)
 		require.Error(t, err)
 		assert.Equal(t, 1, overrideDecoder.called, "override decoder should have been called")
@@ -236,7 +228,7 @@ func TestOverrides_WithOverrides_Merge(t *testing.T) {
 }
 
 func TestOverrides_EmptyMergeIsIdentity(t *testing.T) {
-	server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+	client := handlerClient(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "v1", r.Header.Get("X-Custom"))
 		assert.Equal(t, "bar", r.URL.Query().Get("foo"))
 		user, pass, ok := r.BasicAuth()
@@ -255,7 +247,6 @@ func TestOverrides_EmptyMergeIsIdentity(t *testing.T) {
 	// Merge empty overrides — should produce identical behavior.
 	merged := ep.Call().WithOverrides(httpc.Overrides{})
 
-	client := &httpTestClient{server: server}
 	_, _, err := merged.Execute(context.Background(), client)
 	require.NoError(t, err)
 }
@@ -306,10 +297,10 @@ func TestOverrides_TimeoutStates(t *testing.T) {
 // WithDefaultErrorDecoder (clear an inherited decoder so Execute falls back to
 // DefaultErrorDecoder), both layered over an endpoint-level custom decoder.
 func TestOverrides_ErrorDecoderStates(t *testing.T) {
-	forbidden := func(t *testing.T) *httptest.Server {
-		return newTestServer(t, func(w http.ResponseWriter, _ *http.Request) {
+	forbidden := func() http.HandlerFunc {
+		return func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusForbidden)
-		})
+		}
 	}
 
 	t.Run("no error decoder returns the raw response", func(t *testing.T) {
@@ -319,7 +310,7 @@ func TestOverrides_ErrorDecoderStates(t *testing.T) {
 			WithErrorDecoder(decoder)
 		merged := ep.Call().WithOverrides(httpc.Overrides{}.WithNoErrorDecoder())
 
-		client := &httpTestClient{server: forbidden(t)}
+		client := handlerClient(forbidden())
 		_, resp, err := merged.Execute(context.Background(), client)
 		require.NoError(t, err)
 		require.NotNil(t, resp)
@@ -334,7 +325,7 @@ func TestOverrides_ErrorDecoderStates(t *testing.T) {
 			WithErrorDecoder(decoder)
 		merged := ep.Call().WithOverrides(httpc.Overrides{}.WithDefaultErrorDecoder())
 
-		client := &httpTestClient{server: forbidden(t)}
+		client := handlerClient(forbidden())
 		_, _, err := merged.Execute(context.Background(), client)
 		require.Error(t, err)
 		assert.Equal(t, 0, decoder.called, "endpoint decoder cleared")
@@ -364,21 +355,21 @@ func TestOverrides_DefaultAuthorizationClears(t *testing.T) {
 				WithAuthorization(tc.auth)
 
 			t.Run("authorizer wins over the explicit header", func(t *testing.T) {
-				server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+				client := handlerClient(func(w http.ResponseWriter, r *http.Request) {
 					assert.Equal(t, tc.want, r.Header.Get("Authorization"))
 					w.WriteHeader(http.StatusNoContent)
 				})
-				_, _, err := endpoint.Call().Execute(context.Background(), &httpTestClient{server: server})
+				_, _, err := endpoint.Call().Execute(context.Background(), client)
 				require.NoError(t, err)
 			})
 
 			t.Run("WithDefaultAuthorization clears it so the explicit header wins", func(t *testing.T) {
-				server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+				client := handlerClient(func(w http.ResponseWriter, r *http.Request) {
 					assert.Equal(t, "Bearer explicit", r.Header.Get("Authorization"))
 					w.WriteHeader(http.StatusNoContent)
 				})
 				merged := endpoint.Call().WithOverrides(httpc.Overrides{}.WithDefaultAuthorization())
-				_, _, err := merged.Execute(context.Background(), &httpTestClient{server: server})
+				_, _, err := merged.Execute(context.Background(), client)
 				require.NoError(t, err)
 			})
 		})
@@ -389,11 +380,10 @@ func TestOverrides_DefaultAuthorizationClears(t *testing.T) {
 // WithBufferPool(nil) alias) drops an endpoint's buffer pool so the encoder
 // never borrows from it.
 func TestOverrides_DefaultBufferPoolClears(t *testing.T) {
-	server := newTestServer(t, func(w http.ResponseWriter, _ *http.Request) {
+	client := handlerClient(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, `{}`)
 	})
-	client := &httpTestClient{server: server}
 
 	execute := func(t *testing.T, ep httpc.BodyEndpoint[widgetItem, struct{}]) {
 		_, _, err := ep.Call(widgetItem{Name: "x"}).Execute(context.Background(), client)
@@ -455,7 +445,7 @@ func (d *countingErrorDecoder) DecodeError(resp *http.Response) error {
 }
 
 func TestOverrides_WithHeader(t *testing.T) {
-	server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+	client := handlerClient(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, []string{"only-value"}, r.Header.Values("X-Single"))
 		w.WriteHeader(http.StatusNoContent)
 	})
@@ -464,13 +454,12 @@ func TestOverrides_WithHeader(t *testing.T) {
 		WithDecoder(httpc.VoidDecoder()).
 		WithHeader("X-Single", "only-value")
 
-	client := &httpTestClient{server: server}
 	_, _, err := ep.Call().Execute(context.Background(), client)
 	require.NoError(t, err)
 }
 
 func TestOverrides_WithQuery(t *testing.T) {
-	server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+	client := handlerClient(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, []string{"final"}, r.URL.Query()["key"])
 		w.WriteHeader(http.StatusNoContent)
 	})
@@ -479,13 +468,12 @@ func TestOverrides_WithQuery(t *testing.T) {
 		WithDecoder(httpc.VoidDecoder()).
 		WithQuery("key", "final")
 
-	client := &httpTestClient{server: server}
 	_, _, err := ep.Call().Execute(context.Background(), client)
 	require.NoError(t, err)
 }
 
 func TestOverrides_WithHeaderClearsAdded(t *testing.T) {
-	server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+	client := handlerClient(func(w http.ResponseWriter, r *http.Request) {
 		// WithHeader after WithAddedHeader for the same key should only produce the Set value.
 		assert.Equal(t, []string{"2"}, r.Header.Values("X-Key"))
 		w.WriteHeader(http.StatusNoContent)
@@ -496,13 +484,12 @@ func TestOverrides_WithHeaderClearsAdded(t *testing.T) {
 		WithAddedHeader("X-Key", "1").
 		WithHeader("X-Key", "2")
 
-	client := &httpTestClient{server: server}
 	_, _, err := ep.Call().Execute(context.Background(), client)
 	require.NoError(t, err)
 }
 
 func TestOverrides_WithQueryClearsAdded(t *testing.T) {
-	server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+	client := handlerClient(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, []string{"final"}, r.URL.Query()["q"])
 		w.WriteHeader(http.StatusNoContent)
 	})
@@ -512,13 +499,12 @@ func TestOverrides_WithQueryClearsAdded(t *testing.T) {
 		WithAddedQuery("q", "first").
 		WithQuery("q", "final")
 
-	client := &httpTestClient{server: server}
 	_, _, err := ep.Call().Execute(context.Background(), client)
 	require.NoError(t, err)
 }
 
 func TestOverrides_Merge_WithHeaderClearsAdded(t *testing.T) {
-	server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+	client := handlerClient(func(w http.ResponseWriter, r *http.Request) {
 		// Merging WithHeader from overrides should replace receiver's WithAddedHeader.
 		assert.Equal(t, []string{"replaced"}, r.Header.Values("X-Key"))
 		w.WriteHeader(http.StatusNoContent)
@@ -531,7 +517,6 @@ func TestOverrides_Merge_WithHeaderClearsAdded(t *testing.T) {
 	overrides := httpc.Overrides{}.WithHeader("X-Key", "replaced")
 	merged := base.Call().WithOverrides(overrides)
 
-	client := &httpTestClient{server: server}
 	_, _, err := merged.Execute(context.Background(), client)
 	require.NoError(t, err)
 }

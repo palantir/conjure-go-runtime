@@ -180,7 +180,7 @@ func (c *itemServiceClient) DownloadItem(ctx context.Context, itemId string) (io
 // ---------------------------------------------------------------------------
 
 func TestExampleService_CreateItem(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	client := handlerClient(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, http.MethodPost, r.Method)
 		assert.Equal(t, "/api/v1/items", r.URL.Path)
 		assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
@@ -191,10 +191,7 @@ func TestExampleService_CreateItem(t *testing.T) {
 
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(CreateItemResponse{ID: "123", Name: req.Name})
-	}))
-	t.Cleanup(server.Close)
-
-	client := &httpTestClient{server: server}
+	})
 	svc := NewItemServiceClient(client)
 
 	resp, err := svc.CreateItem(context.Background(), CreateItemRequest{Name: "widget"})
@@ -204,16 +201,13 @@ func TestExampleService_CreateItem(t *testing.T) {
 }
 
 func TestExampleService_GetItem(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	client := handlerClient(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, http.MethodGet, r.Method)
 		assert.Equal(t, "/api/v1/items/item-42", r.URL.Path)
 
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(GetItemResponse{ID: "item-42", Name: "gadget"})
-	}))
-	t.Cleanup(server.Close)
-
-	client := &httpTestClient{server: server}
+	})
 	svc := NewItemServiceClient(client)
 
 	resp, err := svc.GetItem(context.Background(), "item-42")
@@ -223,14 +217,11 @@ func TestExampleService_GetItem(t *testing.T) {
 }
 
 func TestExampleService_DeleteItem(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	client := handlerClient(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, http.MethodDelete, r.Method)
 		assert.Equal(t, "/api/v1/items/item-99", r.URL.Path)
 		w.WriteHeader(http.StatusNoContent)
-	}))
-	t.Cleanup(server.Close)
-
-	client := &httpTestClient{server: server}
+	})
 	svc := NewItemServiceClient(client)
 
 	err := svc.DeleteItem(context.Background(), "item-99")
@@ -239,15 +230,12 @@ func TestExampleService_DeleteItem(t *testing.T) {
 
 func TestExampleService_DownloadItem(t *testing.T) {
 	expected := "file-contents-here"
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	client := handlerClient(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, http.MethodGet, r.Method)
 		assert.Equal(t, "/api/v1/items/doc-1/download", r.URL.Path)
 		w.Header().Set("Content-Type", "application/octet-stream")
 		_, _ = w.Write([]byte(expected))
-	}))
-	t.Cleanup(server.Close)
-
-	client := &httpTestClient{server: server}
+	})
 	svc := NewItemServiceClient(client)
 
 	body, err := svc.DownloadItem(context.Background(), "doc-1")
@@ -262,17 +250,14 @@ func TestExampleService_DownloadItem(t *testing.T) {
 // TestExampleService_PathParamEscaping verifies that special characters in path
 // parameters are properly URL-escaped.
 func TestExampleService_PathParamEscaping(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	client := handlerClient(func(w http.ResponseWriter, r *http.Request) {
 		// "hello world" is escaped to "hello%20world" on the wire.
 		assert.Contains(t, r.RequestURI, "/api/v1/items/hello%20world")
 		// The decoded path should have the original value.
 		assert.Equal(t, "/api/v1/items/hello world", r.URL.Path)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(GetItemResponse{ID: "hello world", Name: "x"})
-	}))
-	t.Cleanup(server.Close)
-
-	client := &httpTestClient{server: server}
+	})
 	svc := NewItemServiceClient(client)
 
 	resp, err := svc.GetItem(context.Background(), "hello world")
@@ -288,14 +273,11 @@ func TestExampleService_MultiplePathParams(t *testing.T) {
 		WithDecoder(httpc.JSONDecoder[GetItemResponse]()).
 		WithAccept("application/json")
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	client := handlerClient(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "/orgs/acme/items/widget-1", r.URL.Path)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(GetItemResponse{ID: "widget-1", Name: "Widget"})
-	}))
-	t.Cleanup(server.Close)
-
-	client := &httpTestClient{server: server}
+	})
 
 	// Fill in params in reverse order — should still work because replacement is by name.
 	resp, _, err := ep.Call().WithPathParam("itemId", "widget-1").WithPathParam("orgId", "acme").
@@ -312,13 +294,11 @@ func TestExampleService_GreedyPathParam(t *testing.T) {
 		WithAccept("application/json")
 
 	t.Run("simple nested path", func(t *testing.T) {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		client := handlerClient(func(w http.ResponseWriter, r *http.Request) {
 			assert.Equal(t, "/files/dir/subdir/file.txt", r.URL.Path)
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(GetItemResponse{ID: "file.txt", Name: "x"})
-		}))
-		t.Cleanup(server.Close)
-		client := &httpTestClient{server: server}
+		})
 
 		resp, _, err := ep.Call().WithPathParam("filePath", "dir/subdir/file.txt").
 			Execute(context.Background(), client)
@@ -327,15 +307,13 @@ func TestExampleService_GreedyPathParam(t *testing.T) {
 	})
 
 	t.Run("segments with spaces are escaped", func(t *testing.T) {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		client := handlerClient(func(w http.ResponseWriter, r *http.Request) {
 			// Slashes preserved, but spaces within segments are escaped.
 			assert.Equal(t, "/files/my docs/sub dir/file.txt", r.URL.Path)
 			assert.Contains(t, r.RequestURI, "/files/my%20docs/sub%20dir/file.txt")
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(GetItemResponse{ID: "file.txt", Name: "x"})
-		}))
-		t.Cleanup(server.Close)
-		client := &httpTestClient{server: server}
+		})
 
 		resp, _, err := ep.Call().WithPathParam("filePath", "my docs/sub dir/file.txt").
 			Execute(context.Background(), client)
@@ -348,13 +326,11 @@ func TestExampleService_GreedyPathParam(t *testing.T) {
 			WithDecoder(httpc.JSONDecoder[GetItemResponse]()).
 			WithAccept("application/json")
 
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		client := handlerClient(func(w http.ResponseWriter, r *http.Request) {
 			assert.Equal(t, "/repos/my-repo/files/src/main/app.go", r.URL.Path)
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(GetItemResponse{ID: "app.go", Name: "x"})
-		}))
-		t.Cleanup(server.Close)
-		client := &httpTestClient{server: server}
+		})
 
 		resp, _, err := ep2.Call().WithPathParam("repoId", "my-repo").WithPathParam("filePath", "src/main/app.go").
 			Execute(context.Background(), client)
@@ -363,13 +339,11 @@ func TestExampleService_GreedyPathParam(t *testing.T) {
 	})
 
 	t.Run("no slashes behaves like regular param", func(t *testing.T) {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		client := handlerClient(func(w http.ResponseWriter, r *http.Request) {
 			assert.Equal(t, "/files/simple.txt", r.URL.Path)
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(GetItemResponse{ID: "simple.txt", Name: "x"})
-		}))
-		t.Cleanup(server.Close)
-		client := &httpTestClient{server: server}
+		})
 
 		resp, _, err := ep.Call().WithPathParam("filePath", "simple.txt").
 			Execute(context.Background(), client)
@@ -381,16 +355,13 @@ func TestExampleService_GreedyPathParam(t *testing.T) {
 // TestExampleService_OverridesApplied verifies that Overrides set at client
 // construction time are threaded through to every request.
 func TestExampleService_OverridesApplied(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	client := handlerClient(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "/api/v1/items/1", r.URL.Path)
 		assert.Equal(t, "acme-corp", r.Header.Get("X-Tenant"))
 		assert.Equal(t, "token-abc", r.Header.Get("Authorization"))
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(GetItemResponse{ID: "1", Name: "x"})
-	}))
-	t.Cleanup(server.Close)
-
-	client := &httpTestClient{server: server}
+	})
 	overrides := httpc.Overrides{}.
 		WithAddedHeader("X-Tenant", "acme-corp").
 		WithAddedHeader("Authorization", "token-abc")
@@ -405,16 +376,13 @@ func TestExampleService_OverridesApplied(t *testing.T) {
 // compose with the client-level overrides without affecting other calls.
 func TestExampleService_PerCallOverride(t *testing.T) {
 	callCount := 0
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	client := handlerClient(func(w http.ResponseWriter, r *http.Request) {
 		callCount++
 		// Client-level header should always be present.
 		assert.Equal(t, "acme-corp", r.Header.Get("X-Tenant"))
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(GetItemResponse{ID: "1", Name: "x"})
-	}))
-	t.Cleanup(server.Close)
-
-	client := &httpTestClient{server: server}
+	})
 	overrides := httpc.Overrides{}.WithAddedHeader("X-Tenant", "acme-corp")
 	svc := &itemServiceClient{client: client, overrides: overrides}
 
@@ -429,7 +397,7 @@ func TestExampleService_PerCallOverride(t *testing.T) {
 // TestExampleService_WithOverridesOnEndpoint shows using WithOverrides directly
 // on an endpoint for one-off customization.
 func TestExampleService_WithOverridesOnEndpoint(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	client := handlerClient(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "/api/v1/items/1", r.URL.Path)
 		assert.Equal(t, "custom-value", r.Header.Get("X-Custom"))
 		user, pass, ok := r.BasicAuth()
@@ -438,10 +406,7 @@ func TestExampleService_WithOverridesOnEndpoint(t *testing.T) {
 		assert.Equal(t, "secret", pass)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(GetItemResponse{ID: "1", Name: "x"})
-	}))
-	t.Cleanup(server.Close)
-
-	client := &httpTestClient{server: server}
+	})
 
 	// Build overrides externally and apply to an endpoint.
 	overrides := httpc.Overrides{}.

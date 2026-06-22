@@ -30,11 +30,10 @@ import (
 // does not leak into another, nor mutate the descriptor.
 func TestCall_DescriptorReuseIsIndependent(t *testing.T) {
 	var got string
-	server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+	client := handlerClient(func(w http.ResponseWriter, r *http.Request) {
 		got = r.Header.Get("X-Tenant")
 		w.WriteHeader(http.StatusNoContent)
 	})
-	client := &httpTestClient{server: server}
 
 	// Reusable descriptor, configured once.
 	ep := httpc.NewGET[struct{}]("Get", "/x").WithDecoder(httpc.VoidDecoder())
@@ -52,11 +51,10 @@ func TestCall_DescriptorReuseIsIndependent(t *testing.T) {
 // TestCall_WithPathParam fills the descriptor's path template per call.
 func TestCall_WithPathParam(t *testing.T) {
 	var gotPath string
-	server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+	client := handlerClient(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
 		w.WriteHeader(http.StatusNoContent)
 	})
-	client := &httpTestClient{server: server}
 
 	ep := httpc.NewGET[struct{}]("Get", "/items/{id}").WithDecoder(httpc.VoidDecoder())
 	_, _, err := ep.Call().WithPathParam("id", "widget").Execute(context.Background(), client)
@@ -76,11 +74,10 @@ func TestCall_WithPathParam(t *testing.T) {
 // segments).
 func TestCall_WithPathParam_RejectsTraversal(t *testing.T) {
 	var hits int
-	server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+	client := handlerClient(func(w http.ResponseWriter, r *http.Request) {
 		hits++
 		w.WriteHeader(http.StatusNoContent)
 	})
-	client := &httpTestClient{server: server}
 
 	greedy := httpc.NewGET[struct{}]("GetFile", "/files/{path*}").WithDecoder(httpc.VoidDecoder())
 	plain := httpc.NewGET[struct{}]("Get", "/items/{id}").WithDecoder(httpc.VoidDecoder())
@@ -105,11 +102,10 @@ func TestCall_WithPathParam_RejectsTraversal(t *testing.T) {
 
 	// Values that merely contain dots (not a whole "." / ".." segment) are accepted.
 	var gotPath string
-	okServer := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+	okClient := handlerClient(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
 		w.WriteHeader(http.StatusNoContent)
 	})
-	okClient := &httpTestClient{server: okServer}
 
 	_, _, err := greedy.Call().WithPathParam("path", "a/..b/c.txt").Execute(context.Background(), okClient)
 	require.NoError(t, err)
@@ -126,11 +122,10 @@ func TestCall_WithPathParam_RejectsTraversal(t *testing.T) {
 // wins over the descriptor default.
 func TestCall_PerCallOverridesDescriptorDefault(t *testing.T) {
 	var got string
-	server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+	client := handlerClient(func(w http.ResponseWriter, r *http.Request) {
 		got = r.Header.Get("X-Env")
 		w.WriteHeader(http.StatusNoContent)
 	})
-	client := &httpTestClient{server: server}
 
 	// Descriptor bakes a static default header.
 	ep := httpc.NewGET[struct{}]("Get", "/x").WithDecoder(httpc.VoidDecoder()).WithHeader("X-Env", "default")
@@ -156,22 +151,22 @@ func TestCall_PerCallOverridesDescriptorDefault(t *testing.T) {
 // Call() and a body Call(body) that encodes through the descriptor's encoder.
 func TestCall_NoBodyAndBody(t *testing.T) {
 	t.Run("no body", func(t *testing.T) {
-		server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		client := handlerClient(func(w http.ResponseWriter, r *http.Request) {
 			assert.Equal(t, http.MethodDelete, r.Method)
 			w.WriteHeader(http.StatusNoContent)
 		})
 		ep := httpc.NewDELETE[struct{}]("Del", "/x").WithDecoder(httpc.VoidDecoder())
-		_, _, err := ep.Call().Execute(context.Background(), &httpTestClient{server: server})
+		_, _, err := ep.Call().Execute(context.Background(), client)
 		require.NoError(t, err)
 	})
 	t.Run("body encodes via the descriptor encoder", func(t *testing.T) {
-		server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		client := handlerClient(func(w http.ResponseWriter, r *http.Request) {
 			assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"name":"ok","value":1}`))
 		})
 		ep := httpc.NewPOST[testPayload, testPayload]("Create", "/x").WithJSON()
-		out, _, err := ep.Call(testPayload{Name: "in", Value: 9}).Execute(context.Background(), &httpTestClient{server: server})
+		out, _, err := ep.Call(testPayload{Name: "in", Value: 9}).Execute(context.Background(), client)
 		require.NoError(t, err)
 		assert.Equal(t, testPayload{Name: "ok", Value: 1}, out)
 	})

@@ -55,21 +55,6 @@ func emptyResponse(req *http.Request) *http.Response {
 	return &http.Response{StatusCode: http.StatusNoContent, Header: make(http.Header), Body: http.NoBody, Request: req}
 }
 
-// httpTestClient wraps an httptest.Server as a one-method httpc.Runtime: Send
-// routes through a runtime pointed at the server, with telemetry and retry
-// backoff disabled so requests reach the server unchanged and tests stay fast.
-type httpTestClient struct {
-	server *httptest.Server
-}
-
-func (c *httpTestClient) Send(ctx context.Context, req *http.Request, opts httpc.SendOptions) (*http.Response, error) {
-	client, err := newBareClient(ctx, c.server.URL, c.server.Client().Transport)
-	if err != nil {
-		return nil, err
-	}
-	return client.Send(ctx, req, opts)
-}
-
 // newBareClient builds a runtime routing through transport against baseURL with
 // telemetry and retry backoff disabled, mirroring the minimal no-middleware test
 // client these tests relied on before Runtime.Send existed.
@@ -87,12 +72,34 @@ func newBareClient(ctx context.Context, baseURL string, transport http.RoundTrip
 		Build(ctx)
 }
 
-// newTestServer creates an httptest.Server and registers cleanup.
+// newTestServer creates an httptest.Server and registers cleanup. Prefer
+// [handlerClient] for runtime/endpoint semantics tests (no socket bind); reserve a
+// real server for transport, TLS, redirect, and connection-reuse behavior.
 func newTestServer(t *testing.T, handler http.HandlerFunc) *httptest.Server {
 	t.Helper()
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
 	return server
+}
+
+// handlerClient runs handler in-process (via httptest.NewRecorder) as a
+// one-method httpc.Runtime — the ergonomics of an httptest.Server handler with no
+// socket bind. Use it for runtime/endpoint semantics tests (path/header/query
+// resolution, encode/decode, error decoding); reserve a real httptest.Server for
+// transport, TLS, redirect, and connection-reuse behavior.
+func handlerClient(handler http.HandlerFunc) httpc.Runtime {
+	return &roundTripFunc{fn: func(req *http.Request) (*http.Response, error) {
+		// A real server populates RequestURI from the wire; mimic it so handlers
+		// that read r.RequestURI (e.g. to inspect raw escaping) behave the same.
+		if req.RequestURI == "" {
+			req.RequestURI = req.URL.RequestURI()
+		}
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		resp := rec.Result()
+		resp.Request = req
+		return resp, nil
+	}}
 }
 
 // recordingMiddleware appends name+"-before" before delegating to next and

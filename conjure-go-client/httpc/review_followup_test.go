@@ -100,7 +100,7 @@ func TestEndpointExecute_AuthorizerOverridesAuthorizationHeader(t *testing.T) {
 
 // T5: Overrides.WithErrorDecoder(NoErrorDecoder()) bypasses error decoding.
 func TestOverrides_NoErrorDecoder_BypassesDefault(t *testing.T) {
-	server := newTestServer(t, func(w http.ResponseWriter, _ *http.Request) {
+	client := handlerClient(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
 		_, _ = w.Write([]byte("forbidden"))
 	})
@@ -108,7 +108,6 @@ func TestOverrides_NoErrorDecoder_BypassesDefault(t *testing.T) {
 	ep := httpc.NewNoBodyEndpoint[struct{}](http.MethodGet, "Err", "/err").
 		WithDecoder(httpc.VoidDecoder())
 
-	client := &httpTestClient{server: server}
 	_, httpResp, err := ep.Call().WithOverrides(httpc.Overrides{}.WithErrorDecoder(httpc.NoErrorDecoder())).Execute(context.Background(), client)
 	require.NoError(t, err)
 	require.NotNil(t, httpResp)
@@ -118,12 +117,6 @@ func TestOverrides_NoErrorDecoder_BypassesDefault(t *testing.T) {
 // T6: conjureerrors.WithConjureErrorDecoder is equivalent to wrapping with
 // conjureerrors.DefaultErrorDecoderWithConjure.
 func TestOverrides_WithConjureErrorDecoder(t *testing.T) {
-	server := newTestServer(t, func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write([]byte(`{"errorCode":"INVALID_ARGUMENT","errorName":"Conjure:InvalidArgument","errorInstanceId":"00000000-0000-0000-0000-000000000000","parameters":{}}`))
-	})
-
 	var called bool
 	ced := &probeConjureDecoder{onDecode: func(name string, body []byte) {
 		called = true
@@ -133,7 +126,11 @@ func TestOverrides_WithConjureErrorDecoder(t *testing.T) {
 	ep := httpc.NewNoBodyEndpoint[struct{}](http.MethodGet, "Err", "/err").
 		WithDecoder(httpc.VoidDecoder())
 
-	client := &httpTestClient{server: server}
+	client := handlerClient(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"errorCode":"INVALID_ARGUMENT","errorName":"Conjure:InvalidArgument","errorInstanceId":"00000000-0000-0000-0000-000000000000","parameters":{}}`))
+	})
 	_, _, err := ep.Call().WithOverrides(conjureerrors.WithConjureErrorDecoder(httpc.Overrides{}, ced)).Execute(context.Background(), client)
 	require.Error(t, err)
 	assert.True(t, called, "ConjureErrorDecoder should have been invoked")

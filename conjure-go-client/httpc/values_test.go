@@ -121,12 +121,10 @@ func TestSend_QueryResolvesPerAttempt(t *testing.T) {
 // endpoint's per-request header contributors decorated onto the request.
 func TestSend_NilMiddlewareClientDecoratesHeaders(t *testing.T) {
 	var got string
-	server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+	client := handlerClient(func(w http.ResponseWriter, r *http.Request) {
 		got = r.Header.Get("X-Custom")
 		w.WriteHeader(http.StatusNoContent)
-	})
-
-	client := &httpTestClient{server: server} // no intrinsic values, no extra middleware
+	}) // no intrinsic values, no extra middleware
 	ep := httpc.NewGET[struct{}]("Hdr", "/test").
 		WithDecoder(httpc.VoidDecoder()).
 		WithHeader("X-Custom", "v")

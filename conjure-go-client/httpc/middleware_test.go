@@ -85,17 +85,15 @@ func TestMiddlewareChain_NilSkipped(t *testing.T) {
 // TestMiddlewareChain_EmptyPassthrough verifies that an empty middleware chain
 // delegates directly to the base transport.
 func TestMiddlewareChain_EmptyPassthrough(t *testing.T) {
-	server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"name":"passthrough","value":0}`))
-	})
-
 	// No middleware at all.
 	ep := httpc.NewGET[testPayload]("Empty", "/test").
 		WithDecoder(httpc.JSONDecoder[testPayload]()).
 		WithAccept("application/json")
 
-	client := &httpTestClient{server: server}
+	client := handlerClient(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"name":"passthrough","value":0}`))
+	})
 	result, _, err := ep.Call().Execute(t.Context(), client)
 	require.NoError(t, err)
 	assert.Equal(t, testPayload{Name: "passthrough", Value: 0}, result)
