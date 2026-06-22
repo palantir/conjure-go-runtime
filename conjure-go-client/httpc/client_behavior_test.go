@@ -538,29 +538,31 @@ func TestRetry_ZLIBCompressedBody(t *testing.T) {
 // Error decoder + redirect/retry integration
 // ---------------------------------------------------------------------------
 
-// TestErrorDecoder_307WithLocation_RetriesAgainstLocation verifies that when
-// the server returns 307 with a Location header, the error decoder intercepts
-// the response (preventing http.Client from following the redirect itself),
-// and the retrier follows the Location to a second server which returns 200.
+// TestErrorDecoder_307WithLocation_RetriesAgainstLocation verifies that when the server
+// returns 307 with a Location header, the error decoder intercepts the response
+// (preventing http.Client from following the redirect itself), and the retrier follows the
+// Location. The Location stays within the configured target (a different path on the same
+// origin), so the relocation is honored rather than refused as an off-target pivot;
+// off-target relocations are covered by TestSend_QoSRelocationRefusedOutsideConfiguredTargets.
 func TestErrorDecoder_307WithLocation_RetriesAgainstLocation(t *testing.T) {
-	var targetHits atomic.Int32
-	targetServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		targetHits.Add(1)
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"value":"redirected"}`))
-	}))
-	t.Cleanup(targetServer.Close)
-
-	var originHits atomic.Int32
-	originServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	var originHits, relocatedHits atomic.Int32
+	var serverURL string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/relocated" {
+			relocatedHits.Add(1)
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"value":"redirected"}`))
+			return
+		}
 		originHits.Add(1)
-		w.Header().Set("Location", targetServer.URL+"/test")
+		w.Header().Set("Location", serverURL+"/relocated")
 		w.WriteHeader(http.StatusTemporaryRedirect)
 	}))
-	t.Cleanup(originServer.Close)
+	t.Cleanup(server.Close)
+	serverURL = server.URL
 
 	client, err := httpc.NewBuilder().
-		SetBaseURLs(originServer.URL).
+		SetBaseURLs(server.URL).
 		SetServiceName("redirect-test").
 		SetMaxAttempts(new(3)).
 		Build(t.Context())
@@ -574,7 +576,7 @@ func TestErrorDecoder_307WithLocation_RetriesAgainstLocation(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "redirected", resp.Value)
 	assert.Equal(t, int32(1), originHits.Load(), "origin should be hit once")
-	assert.Equal(t, int32(1), targetHits.Load(), "target should be hit once via redirect")
+	assert.Equal(t, int32(1), relocatedHits.Load(), "relocated path should be hit once via redirect")
 }
 
 // TestErrorDecoder_307NoLocation_Retries verifies that a 307 without

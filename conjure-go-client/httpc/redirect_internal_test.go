@@ -45,27 +45,85 @@ func TestAuthHeaderAllowedOnRedirect(t *testing.T) {
 	}
 }
 
-// hostIsAuthorized matches a host against the configured base-URL hosts (exact or subdomain),
-// the gate a 307/308 relocation target must pass to keep Authorization.
-func TestHostIsAuthorized(t *testing.T) {
-	authorized := []string{"a.example.com", "b.example.com"}
-	for _, tc := range []struct {
-		host  string
-		allow bool
-	}{
-		{host: "a.example.com", allow: true},
-		{host: "b.example.com", allow: true},
-		{host: "node1.a.example.com", allow: true}, // subdomain of a configured host
-		{host: "evil.example.com", allow: false},
-		{host: "example.com", allow: false}, // parent, not subdomain
-		{host: "a.example.com.evil.com", allow: false},
-	} {
-		t.Run(tc.host, func(t *testing.T) {
-			assert.Equal(t, tc.allow, hostIsAuthorized(tc.host, authorized))
-		})
-	}
+// relocationAllowed confines a 307/308 relocation to a configured target on scheme, host,
+// effective port, and base-path prefix. originAuthorized gates the sensitive headers on
+// the target's origin only (scheme+host+port), so a subdomain — a configured target's
+// subdomain is not itself a configured target — is refused by both.
+func TestConfiguredTargetGates(t *testing.T) {
+	targets := configuredTargetsFromURIs([]string{"https://a.example.com/svc", "mesh-https://b.example.com:8443"})
 
-	assert.False(t, hostIsAuthorized("a.example.com", nil), "no authorized hosts authorizes nothing")
+	t.Run("relocation", func(t *testing.T) {
+		for _, tc := range []struct {
+			uri   string
+			allow bool
+		}{
+			{uri: "https://a.example.com/svc", allow: true},
+			{uri: "https://a.example.com/svc/items", allow: true},  // under the base path
+			{uri: "https://a.example.com:443/svc", allow: true},    // explicit default port
+			{uri: "https://a.example.com/other", allow: false},     // same origin, wrong base path
+			{uri: "https://a.example.com/svc-2", allow: false},     // segment boundary, not a prefix
+			{uri: "http://a.example.com/svc", allow: false},        // scheme downgrade
+			{uri: "https://node1.a.example.com/svc", allow: false}, // subdomain is not configured
+			{uri: "https://evil.example.com/svc", allow: false},
+			{uri: "https://b.example.com:8443/x", allow: true}, // mesh target, de-meshed scheme + explicit port
+			{uri: "https://b.example.com/x", allow: false},     // wrong port (443 vs 8443)
+		} {
+			t.Run(tc.uri, func(t *testing.T) {
+				assert.Equal(t, tc.allow, relocationAllowed(tc.uri, targets))
+			})
+		}
+		assert.False(t, relocationAllowed("https://a.example.com/svc", nil), "no targets allows no relocation")
+	})
+
+	t.Run("origin", func(t *testing.T) {
+		mustParse := func(s string) *url.URL {
+			u, err := url.Parse(s)
+			require.NoError(t, err)
+			return u
+		}
+		for _, tc := range []struct {
+			uri   string
+			allow bool
+		}{
+			{uri: "https://a.example.com/anything", allow: true}, // origin match, base path ignored for auth
+			{uri: "https://a.example.com:443/x", allow: true},
+			{uri: "https://node1.a.example.com/svc", allow: false}, // subdomain is a different origin
+			{uri: "http://a.example.com/svc", allow: false},
+			{uri: "https://b.example.com:8443/x", allow: true},
+		} {
+			t.Run(tc.uri, func(t *testing.T) {
+				assert.Equal(t, tc.allow, originAuthorized(mustParse(tc.uri), targets))
+			})
+		}
+		assert.False(t, originAuthorized(mustParse("https://a.example.com/svc"), nil), "no targets authorizes nothing")
+	})
+}
+
+// The cross-host sensitive-header strip matches the full net/http set and is
+// case-insensitive, so a raw non-canonical map-write is dropped as a contributor and
+// physically deleted alongside a canonical one.
+func TestRedirectSensitiveHeaderStrip(t *testing.T) {
+	assert.True(t, isRedirectSensitiveHeader("authorization"))
+	assert.True(t, isRedirectSensitiveHeader("Cookie"))
+	assert.True(t, isRedirectSensitiveHeader("cookie2"))
+	assert.True(t, isRedirectSensitiveHeader("proxy-authorization"))
+	assert.True(t, isRedirectSensitiveHeader("Www-Authenticate"))
+	assert.False(t, isRedirectSensitiveHeader("X-Tenant"))
+
+	vals := []requestValue[http.Header]{
+		setValue[http.Header]{name: "authorization", values: []string{"Bearer x"}}, // non-canonical
+		setValue[http.Header]{name: "Cookie", values: []string{"s=1"}},
+		setValue[http.Header]{name: "X-Tenant", values: []string{"acme"}},
+	}
+	kept := withoutRedirectSensitiveHeaders(vals)
+	require.Len(t, kept, 1)
+	assert.Equal(t, "X-Tenant", kept[0].key())
+
+	h := http.Header{"authorization": {"Bearer x"}, "Cookie": {"s=1"}, "X-Tenant": {"acme"}}
+	deleteRedirectSensitiveHeaders(h)
+	assert.NotContains(t, h, "authorization")
+	assert.NotContains(t, h, "Cookie")
+	assert.Equal(t, "acme", h.Get("X-Tenant"))
 }
 
 // redirectChain builds a request whose Response chain models following each URL in order.

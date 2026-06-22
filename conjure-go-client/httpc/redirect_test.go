@@ -16,6 +16,7 @@ package httpc_test
 
 import (
 	"encoding/base64"
+	"errors"
 	"net/http"
 	"testing"
 
@@ -136,62 +137,91 @@ func TestSend_AuthPreservedOnSameHostRedirect(t *testing.T) {
 	assert.Equal(t, "Bearer tok", transport.authByHost[originHost], "auth is preserved on a same-host redirect")
 }
 
-// A 307/308 QoS relocation (handled by the retrier, not the http.Client) carries Authorization
-// only when its Location host is a configured base-URL host or a subdomain of one. The retrier
-// builds a fresh request to the Location, so this is gated by the configured-host allowlist
-// rather than the redirect chain walk (which #80 uses for 301/302/303). These two cases use a
-// single configured base URL so the origin is deterministic.
-func TestSend_AuthOnQoSRelocation(t *testing.T) {
-	const originHost = "a.example.com"
+// A 307/308 QoS relocation (handled by the retrier, not the http.Client) is refused unless
+// its Location matches a configured target on scheme, host, effective port, and base path.
+// A foreign host, a subdomain of a configured host, a scheme downgrade, and a same-origin
+// wrong base path are all refused with ErrInvalidRelocation, and the off-target host is
+// never dispatched — so the full request and its replayable body cannot pivot to it.
+func TestSend_QoSRelocationRefusedOutsideConfiguredTargets(t *testing.T) {
 	for _, tc := range []struct {
-		name        string
-		relocateTo  string
-		targetHost  string
-		expectAuth  bool
-		description string
+		name       string
+		baseURL    string
+		relocateTo string
 	}{
-		{
-			name:        "foreign host drops auth",
-			relocateTo:  "https://evil.example.com/",
-			targetHost:  "evil.example.com",
-			expectAuth:  false,
-			description: "a relocation to an unconfigured host must not carry the credential",
-		},
-		{
-			name:        "subdomain of configured node keeps auth",
-			relocateTo:  "https://node1.a.example.com/",
-			targetHost:  "node1.a.example.com",
-			expectAuth:  true,
-			description: "relocation to a subdomain of a configured node keeps the credential",
-		},
+		{name: "foreign host", baseURL: "https://a.example.com", relocateTo: "https://evil.example.com/"},
+		{name: "subdomain of configured host", baseURL: "https://a.example.com", relocateTo: "https://node1.a.example.com/"},
+		{name: "scheme downgrade", baseURL: "https://a.example.com", relocateTo: "http://a.example.com/"},
+		{name: "same origin wrong base path", baseURL: "https://a.example.com/my-service", relocateTo: "https://a.example.com/other-service"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			transport := &redirectingTransport{
-				originHost: originHost,
-				redirectTo: tc.relocateTo,
-				status:     http.StatusTemporaryRedirect, // 307: handled by the retrier, not http.Client
-				authByHost: map[string]string{},
-			}
+			var dispatched []string
+			var redirected bool
+			transport := &roundTripFunc{fn: func(req *http.Request) (*http.Response, error) {
+				dispatched = append(dispatched, req.URL.Host)
+				if !redirected {
+					redirected = true
+					return &http.Response{
+						StatusCode: http.StatusTemporaryRedirect, // 307: handled by the retrier, not http.Client
+						Header:     http.Header{"Location": []string{tc.relocateTo}},
+						Body:       http.NoBody,
+						Request:    req,
+					}, nil
+				}
+				return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: http.NoBody, Request: req}, nil
+			}}
 
 			client, err := httpc.NewBuilder().
-				SetServiceName("qos-relocation-auth").
-				SetBaseURLs("https://" + originHost).
+				SetServiceName("qos-relocation-refuse").
+				SetBaseURLs(tc.baseURL).
 				SetAuth(httpc.BearerToken("tok")).
 				SetTransport(transport).
 				Build(t.Context())
 			require.NoError(t, err)
 
 			_, _, err = httpc.NewGET[struct{}]("Relocate", "/").WithDecoder(httpc.VoidDecoder()).Call().Execute(t.Context(), client)
-			require.NoError(t, err)
-
-			assert.Equal(t, "Bearer tok", transport.authByHost[originHost], "origin must receive the credential")
-			if tc.expectAuth {
-				assert.Equal(t, "Bearer tok", transport.authByHost[tc.targetHost], tc.description)
-			} else {
-				assert.Empty(t, transport.authByHost[tc.targetHost], tc.description)
-			}
+			require.Error(t, err)
+			assert.True(t, errors.As(err, new(httpc.ErrInvalidRelocation)), "expected ErrInvalidRelocation, got %v", err)
+			assert.Len(t, dispatched, 1, "the relocation must be refused before any second dispatch")
 		})
 	}
+}
+
+// A cross-host redirect must not re-attach a non-Authorization sensitive header either:
+// net/http strips a Cookie from the origin request on the cross-host hop, and decoration
+// must not add a builder/per-call Cookie back. This guards the strip beyond Authorization.
+func TestSend_CookieNotLeakedOnCrossHostRedirect(t *testing.T) {
+	const originHost = "origin.example.com"
+	const targetHost = "evil.example.com"
+	cookieByHost := map[string]string{}
+	transport := &roundTripFunc{fn: func(req *http.Request) (*http.Response, error) {
+		cookieByHost[req.URL.Host] = req.Header.Get("Cookie")
+		if req.URL.Host == originHost {
+			return &http.Response{
+				StatusCode: http.StatusFound, // 302: followed by the http.Client
+				Header:     http.Header{"Location": []string{"https://" + targetHost + "/"}},
+				Body:       http.NoBody,
+				Request:    req,
+			}, nil
+		}
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: http.NoBody, Request: req}, nil
+	}}
+
+	client, err := httpc.NewBuilder().
+		SetServiceName("redirect-cookie").
+		SetBaseURLs("https://" + originHost).
+		SetTransport(transport).
+		Build(t.Context())
+	require.NoError(t, err)
+
+	_, _, err = httpc.NewGET[struct{}]("Redirect", "/").
+		WithDecoder(httpc.VoidDecoder()).
+		Call().
+		WithHeader("Cookie", "session=secret").
+		Execute(t.Context(), client)
+	require.NoError(t, err)
+
+	assert.Equal(t, "session=secret", cookieByHost[originHost], "origin must receive the cookie")
+	assert.Empty(t, cookieByHost[targetHost], "cookie must not leak across the cross-host redirect")
 }
 
 // A 307 relocation from one configured node to another keeps Authorization — the chosen policy

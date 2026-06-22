@@ -133,40 +133,44 @@ func resolveValues[T headerOrQuery](ctx context.Context, dst T, vals ...requestV
 // each attempt before it reaches the transport. Running per attempt on the
 // freshly cloned request means contributors apply to a clean slate, so retries
 // never duplicate added values. Because it runs on every RoundTrip, it also gates
-// Authorization against the request's target host (see authAllowed) so neither a
-// 301/302/303 redirect the http.Client follows nor a 307/308 QoS relocation leaks
-// the credential to a host the client did not configure.
+// the cross-host sensitive headers (Authorization, Cookie, …) against the request's
+// target (see authAllowed) so neither a 301/302/303 redirect the http.Client follows
+// nor a 307/308 QoS relocation leaks a credential to a host the client did not configure.
 type decorationMiddleware struct {
 	headerValues []requestValue[http.Header]
 	queryValues  []requestValue[url.Values]
-	// authorizedHosts are the configured base-URL hosts (IDNA-ASCII) a request may
-	// carry Authorization to; empty imposes no restriction.
-	authorizedHosts []string
+	// authorizedTargets are the configured base-URL targets a request may carry the
+	// sensitive headers to, matched on origin (scheme+host+port); empty imposes no
+	// restriction.
+	authorizedTargets []configuredTarget
 }
 
-// authAllowed reports whether this request may carry Authorization. A redirect hop the
-// http.Client produced (req.Response set) must keep every hop on the origin host or a
-// subdomain; any other request — the first attempt, a failover, or a 307/308 relocation —
-// must target a configured host (or a subdomain) so a relocation cannot leak the credential
-// to a foreign host.
+// authAllowed reports whether this request may carry the cross-host sensitive headers. A
+// redirect hop the http.Client produced (req.Response set) must keep every hop on the
+// origin host or a subdomain, mirroring net/http's own strip; any other request — the
+// first attempt, a failover, or a 307/308 relocation — must share a configured target's
+// origin (scheme+host+port), so a relocation cannot leak a credential to a foreign origin.
 func (d decorationMiddleware) authAllowed(req *http.Request) bool {
 	if req.Response != nil {
 		return authHeaderAllowedOnRedirect(req)
 	}
-	if len(d.authorizedHosts) == 0 {
+	if len(d.authorizedTargets) == 0 {
 		return true
 	}
-	return hostIsAuthorized(idnaASCIIFromURL(req.URL), d.authorizedHosts)
+	return originAuthorized(req.URL, d.authorizedTargets)
 }
 
 func (d decorationMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (*http.Response, error) {
 	headerValues := d.headerValues
-	if len(headerValues) > 0 && !d.authAllowed(req) {
-		// The request's target host is not one the client authorized (a cross-host redirect
-		// the stdlib already stripped, or a relocation to a foreign host). Decoration
-		// re-resolves contributors per RoundTrip, so drop the Authorization contributors
-		// here rather than re-attach the credential and leak it.
-		headerValues = withoutAuthorization(headerValues)
+	if !d.authAllowed(req) {
+		// The request's target is not one the client authorized (a cross-host redirect, or
+		// a hop that re-attached a credential the stdlib stripped). Decoration re-resolves
+		// contributors per RoundTrip, so drop the sensitive contributors rather than
+		// re-attach them, and physically delete any sensitive header already on the cloned
+		// request — a raw Runtime.Send header, or one net/http re-copied from the original
+		// request onto a same-domain sub-hop after an earlier cross-host hop.
+		headerValues = withoutRedirectSensitiveHeaders(headerValues)
+		deleteRedirectSensitiveHeaders(req.Header)
 	}
 	if len(headerValues) > 0 {
 		if err := resolveValues(req.Context(), req.Header, headerValues...); err != nil {

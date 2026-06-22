@@ -158,33 +158,33 @@ func TestBackoffSingleURL(t *testing.T) {
 	assert.Equal(t, 3, n)
 }
 
-func TestFailoverOtherURL(t *testing.T) {
-	didHitS1, didHitS2 := false, false
+// A 307/308 QoS relocation whose Location is not a configured base URL is refused
+// rather than followed, so a server cannot pivot the request onto an arbitrary host.
+// s1 is deliberately left out of the configured set; the relocation to it must fail
+// and s1 must never be dispatched.
+func TestRelocationToUnconfiguredURLRefused(t *testing.T) {
+	didHitS1, didHitOrigin := false, false
 
 	s1 := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
 		didHitS1 = true
 		rw.WriteHeader(http.StatusOK)
 	}))
 
-	s2 := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
-		didHitS2 = true
+	relocate := http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		didHitOrigin = true
 		rw.Header()["Location"] = []string{s1.URL}
 		rw.WriteHeader(http.StatusPermanentRedirect)
-	}))
-
-	s3 := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
-		didHitS2 = true
-		rw.Header()["Location"] = []string{s1.URL}
-		rw.WriteHeader(http.StatusPermanentRedirect)
-	}))
+	})
+	s2 := httptest.NewServer(relocate)
+	s3 := httptest.NewServer(relocate)
 
 	cli, err := NewClient(WithBaseURLs([]string{s2.URL, s3.URL}))
 	require.NoError(t, err)
 
 	_, err = cli.Do(context.Background(), WithRequestMethod("GET"))
-	assert.NoError(t, err)
-	assert.True(t, didHitS2)
-	assert.True(t, didHitS1)
+	assert.Error(t, err, "relocation to an unconfigured host must be refused")
+	assert.True(t, didHitOrigin, "a configured node should have been hit")
+	assert.False(t, didHitS1, "the unconfigured relocation target must never be dispatched")
 }
 
 func TestFailoverDistribution(t *testing.T) {

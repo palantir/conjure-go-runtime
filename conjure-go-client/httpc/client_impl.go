@@ -155,6 +155,9 @@ func (c *standardRuntime[B]) Send(ctx context.Context, req *http.Request, opts S
 	if len(uris) == 0 {
 		return nil, werror.WrapWithContextParams(ctx, ErrEmptyURIs{}, "")
 	}
+	// Normalized configured targets, shared by the relocation routing gate (below) and
+	// the auth gate (decoration). Built once: the base URL set is fixed for this send.
+	targets := configuredTargetsFromURIs(uris)
 
 	policy := opts.Policy.applyTo(c.callPolicy())
 	attempts := 2 * len(uris)
@@ -180,9 +183,9 @@ func (c *standardRuntime[B]) Send(ctx context.Context, req *http.Request, opts S
 	var decoration Middleware
 	if !values.isEmpty() {
 		decoration = decorationMiddleware{
-			headerValues:    values.headerValues,
-			queryValues:     values.queryValues,
-			authorizedHosts: authorizedHostsFromURIs(uris),
+			headerValues:      values.headerValues,
+			queryValues:       values.queryValues,
+			authorizedTargets: targets,
 		}
 	}
 
@@ -219,6 +222,14 @@ func (c *standardRuntime[B]) Send(ctx context.Context, req *http.Request, opts S
 		uri, isRelocated = retrier.GetNextURI(resp, err)
 		if uri == "" {
 			return resp, err
+		}
+		// Confine a 307/308 QoS relocation to a configured target. The retrier follows the
+		// server-supplied Location blindly; refusing an off-target relocation here (rather
+		// than dispatching the full request and replayable body to it) closes the SSRF
+		// pivot. A failover to the next configured node (no Location) is not a relocation.
+		if isRelocated && !relocationAllowed(uri, targets) {
+			internal.DrainBody(ctx, resp)
+			return nil, werror.WrapWithContextParams(ctx, ErrInvalidRelocation{}, "", werror.UnsafeParam("location", uri))
 		}
 		internal.DrainBody(ctx, resp)
 		if err != nil {

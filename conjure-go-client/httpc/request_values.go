@@ -125,11 +125,13 @@ func (v RequestValues) isEmpty() bool {
 // requestValuesFromHeader lifts headers already written onto a request into
 // replacing contributors, so they resolve through the same per-attempt precedence
 // path (above builder-intrinsic values) instead of being overwritten by intrinsic
-// decoration. Keys are taken as-is (http.Header stores them canonicalized).
+// decoration. Keys are canonicalized so a non-canonical raw map-write (e.g.
+// req.Header["authorization"]) resolves — and is recognized by the cross-host
+// sensitive-header strip — the same as a canonical Header.Set would.
 func requestValuesFromHeader(h http.Header) RequestValues {
 	var v RequestValues
 	for name, values := range h {
-		v = v.withHeader(setValue[http.Header]{name: name, values: values})
+		v = v.withHeader(setValue[http.Header]{name: http.CanonicalHeaderKey(name), values: values})
 	}
 	return v
 }

@@ -70,13 +70,16 @@ func TestErrorDecoderMiddlewares(t *testing.T) {
 			},
 		},
 		{
-			name: "307 with location",
+			name: "307 with location to unconfigured host",
 			handler: func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Location", "https://google.com")
 				w.WriteHeader(307)
 			},
 			verify: func(t *testing.T, u *url.URL, err error) {
-				assert.NoError(t, err)
+				// The Location is not a configured base URL, so the QoS relocation is
+				// refused rather than followed onto an arbitrary host.
+				require.Error(t, err)
+				assert.ErrorContains(t, err, "outside the configured service targets")
 			},
 		},
 		{

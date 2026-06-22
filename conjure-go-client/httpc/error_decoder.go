@@ -52,6 +52,18 @@ func (ErrNonRelativeRequestURL) Error() string {
 	return "httpc: request URL must be relative (path only); the runtime supplies scheme and host per attempt"
 }
 
+// ErrInvalidRelocation is returned by [Runtime.Send] when a server's 307/308 QoS
+// relocation (RetryOther / RetryTemporaryRedirect) points to a Location outside the
+// configured service targets — a different scheme, host, port, or base path. The
+// relocation is refused rather than followed, so a compromised or buggy upstream cannot
+// pivot the client (and its replayable request body) onto an arbitrary host. The
+// offending Location is attached as the unsafe 'location' parameter.
+type ErrInvalidRelocation struct{}
+
+func (ErrInvalidRelocation) Error() string {
+	return "httpc: server relocated the request (307/308) to a host outside the configured service targets"
+}
+
 // StatusCodeFromError returns the 'statusCode' werror parameter, or ok=false
 // if the error has none. [DefaultErrorDecoder] sets this parameter; custom
 // decoders may not.

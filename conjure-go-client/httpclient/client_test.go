@@ -69,23 +69,22 @@ func TestCanReadBodyWithBufferPool(t *testing.T) {
 func TestCanUseRelocationURI(t *testing.T) {
 	respBody := map[string]string{"key-1": "value-1"}
 
-	relocationServer := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+	// The 307 Location stays within the configured target (a different path on the same
+	// origin), so the relocation is honored. A relocation to an unconfigured host is
+	// refused instead — see TestRelocationToUnconfiguredURLRefused.
+	var serverURL string
+	server := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
 		switch req.URL.Path {
 		case "/newPath":
 			rw.WriteHeader(200)
 			assert.NoError(t, codecs.JSON.Encode(rw, respBody))
-		}
-	}))
-	defer relocationServer.Close()
-
-	server := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
-		switch req.URL.Path {
 		case "/oldPath":
-			rw.Header().Add("Location", relocationServer.URL+"/newPath")
+			rw.Header().Add("Location", serverURL+"/newPath")
 			rw.WriteHeader(307)
 		}
 	}))
 	defer server.Close()
+	serverURL = server.URL
 
 	client, err := httpclient.NewClient(
 		httpclient.WithBytesBufferPool(bytesbuffers.NewSizedPool(1, 10)),
@@ -141,7 +140,7 @@ func TestCanUseSimpleRelocationURI(t *testing.T) {
 // TestStandardRedirectFollowed pins that 301/302/303 are followed by the
 // underlying *http.Client, unlike 307/308 which the retrier handles as QoS
 // relocations (see TestCanUseRelocationURI and failover_test.go's
-// TestFailoverOtherURL).
+// TestRelocationToUnconfiguredURLRefused).
 func TestStandardRedirectFollowed(t *testing.T) {
 	for _, code := range []int{http.StatusMovedPermanently, http.StatusFound, http.StatusSeeOther} {
 		t.Run(http.StatusText(code), func(t *testing.T) {

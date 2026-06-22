@@ -399,7 +399,11 @@ Requests are retried when the request body is replayable (`GetBody` is set on th
 - **503 Service Unavailable** -- retried against a different host
 - **307 / 308 Redirects** -- retried against the `Location` header target (these are
   QoS signals, not standard HTTP redirects; `Send` blocks the call-scoped `http.Client`
-  from following them). Standard redirects (301/302/303) are still followed as usual.
+  from following them). The relocation is honored only if its `Location` matches a
+  configured base URL on scheme, host, port, and base path; an off-target `Location` is
+  refused with `ErrInvalidRelocation` rather than followed, so a server cannot pivot the
+  request onto an arbitrary host. Standard redirects (301/302/303) are still followed as
+  usual, with the cross-host sensitive headers (`Authorization`, `Cookie`, …) stripped.
 
 Other status codes (including 4xx and non-503 5xx) are **not** retried.
 
