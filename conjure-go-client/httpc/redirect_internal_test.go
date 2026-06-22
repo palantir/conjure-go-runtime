@@ -45,6 +45,29 @@ func TestAuthHeaderAllowedOnRedirect(t *testing.T) {
 	}
 }
 
+// hostIsAuthorized matches a host against the configured base-URL hosts (exact or subdomain),
+// the gate a 307/308 relocation target must pass to keep Authorization.
+func TestHostIsAuthorized(t *testing.T) {
+	authorized := []string{"a.example.com", "b.example.com"}
+	for _, tc := range []struct {
+		host  string
+		allow bool
+	}{
+		{host: "a.example.com", allow: true},
+		{host: "b.example.com", allow: true},
+		{host: "node1.a.example.com", allow: true}, // subdomain of a configured host
+		{host: "evil.example.com", allow: false},
+		{host: "example.com", allow: false}, // parent, not subdomain
+		{host: "a.example.com.evil.com", allow: false},
+	} {
+		t.Run(tc.host, func(t *testing.T) {
+			assert.Equal(t, tc.allow, hostIsAuthorized(tc.host, authorized))
+		})
+	}
+
+	assert.False(t, hostIsAuthorized("a.example.com", nil), "no authorized hosts authorizes nothing")
+}
+
 // redirectChain builds a request whose Response chain models following each URL in order.
 func redirectChain(t *testing.T, urls []string) *http.Request {
 	var prev *http.Request

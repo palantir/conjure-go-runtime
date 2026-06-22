@@ -180,8 +180,9 @@ func (c *standardRuntime[B]) Send(ctx context.Context, req *http.Request, opts S
 	var decoration Middleware
 	if !values.isEmpty() {
 		decoration = decorationMiddleware{
-			headerValues: values.headerValues,
-			queryValues:  values.queryValues,
+			headerValues:    values.headerValues,
+			queryValues:     values.queryValues,
+			authorizedHosts: authorizedHostsFromURIs(uris),
 		}
 	}
 

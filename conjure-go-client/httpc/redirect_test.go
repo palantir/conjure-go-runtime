@@ -24,21 +24,26 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// redirectingTransport answers the initial "/" request to the origin host with a 302 to
-// redirectTo, and every other request with 200, recording the Authorization header seen at
-// each host. Gating the redirect on the initial path avoids a loop when redirectTo is itself
-// on the origin host (the same-host case).
+// redirectingTransport answers the initial "/" request to the origin host with a redirect
+// (status, default 302) to redirectTo, and every other request with 200, recording the
+// Authorization header seen at each host. Gating the redirect on the initial path avoids a loop
+// when redirectTo is itself on the origin host (the same-host case).
 type redirectingTransport struct {
 	originHost string
 	redirectTo string
+	status     int
 	authByHost map[string]string
 }
 
 func (t *redirectingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	t.authByHost[req.URL.Host] = req.Header.Get("Authorization")
 	if req.URL.Host == t.originHost && req.URL.Path == "/" {
+		status := t.status
+		if status == 0 {
+			status = http.StatusFound
+		}
 		return &http.Response{
-			StatusCode: http.StatusFound,
+			StatusCode: status,
 			Header:     http.Header{"Location": []string{t.redirectTo}},
 			Body:       http.NoBody,
 			Request:    req,
@@ -129,4 +134,102 @@ func TestSend_AuthPreservedOnSameHostRedirect(t *testing.T) {
 	_, _, err = httpc.NewGET[struct{}]("Redirect", "/").WithDecoder(httpc.VoidDecoder()).Call().Execute(t.Context(), client)
 	require.NoError(t, err)
 	assert.Equal(t, "Bearer tok", transport.authByHost[originHost], "auth is preserved on a same-host redirect")
+}
+
+// A 307/308 QoS relocation (handled by the retrier, not the http.Client) carries Authorization
+// only when its Location host is a configured base-URL host or a subdomain of one. The retrier
+// builds a fresh request to the Location, so this is gated by the configured-host allowlist
+// rather than the redirect chain walk (which #80 uses for 301/302/303). These two cases use a
+// single configured base URL so the origin is deterministic.
+func TestSend_AuthOnQoSRelocation(t *testing.T) {
+	const originHost = "a.example.com"
+	for _, tc := range []struct {
+		name        string
+		relocateTo  string
+		targetHost  string
+		expectAuth  bool
+		description string
+	}{
+		{
+			name:        "foreign host drops auth",
+			relocateTo:  "https://evil.example.com/",
+			targetHost:  "evil.example.com",
+			expectAuth:  false,
+			description: "a relocation to an unconfigured host must not carry the credential",
+		},
+		{
+			name:        "subdomain of configured node keeps auth",
+			relocateTo:  "https://node1.a.example.com/",
+			targetHost:  "node1.a.example.com",
+			expectAuth:  true,
+			description: "relocation to a subdomain of a configured node keeps the credential",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			transport := &redirectingTransport{
+				originHost: originHost,
+				redirectTo: tc.relocateTo,
+				status:     http.StatusTemporaryRedirect, // 307: handled by the retrier, not http.Client
+				authByHost: map[string]string{},
+			}
+
+			client, err := httpc.NewBuilder().
+				SetServiceName("qos-relocation-auth").
+				SetBaseURLs("https://" + originHost).
+				SetAuth(httpc.BearerToken("tok")).
+				SetTransport(transport).
+				Build(t.Context())
+			require.NoError(t, err)
+
+			_, _, err = httpc.NewGET[struct{}]("Relocate", "/").WithDecoder(httpc.VoidDecoder()).Call().Execute(t.Context(), client)
+			require.NoError(t, err)
+
+			assert.Equal(t, "Bearer tok", transport.authByHost[originHost], "origin must receive the credential")
+			if tc.expectAuth {
+				assert.Equal(t, "Bearer tok", transport.authByHost[tc.targetHost], tc.description)
+			} else {
+				assert.Empty(t, transport.authByHost[tc.targetHost], tc.description)
+			}
+		})
+	}
+}
+
+// A 307 relocation from one configured node to another keeps Authorization — the chosen policy
+// trusts the whole configured node set. The transport relocates the first attempt to whichever
+// configured node it did not land on (the URL selector shuffles equal-scored URLs), so both
+// nodes end up authorized regardless of selection order.
+func TestSend_AuthOnQoSRelocation_BetweenConfiguredNodes(t *testing.T) {
+	const hostA, hostB = "a.example.com", "b.example.com"
+	authByHost := map[string]string{}
+	var redirected bool
+	transport := &roundTripFunc{fn: func(req *http.Request) (*http.Response, error) {
+		authByHost[req.URL.Host] = req.Header.Get("Authorization")
+		if !redirected {
+			redirected = true
+			other := hostB
+			if req.URL.Host == hostB {
+				other = hostA
+			}
+			return &http.Response{
+				StatusCode: http.StatusTemporaryRedirect,
+				Header:     http.Header{"Location": []string{"https://" + other + "/"}},
+				Body:       http.NoBody,
+				Request:    req,
+			}, nil
+		}
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: http.NoBody, Request: req}, nil
+	}}
+
+	client, err := httpc.NewBuilder().
+		SetServiceName("qos-relocation-nodes").
+		SetBaseURLs("https://"+hostA, "https://"+hostB).
+		SetAuth(httpc.BearerToken("tok")).
+		SetTransport(transport).
+		Build(t.Context())
+	require.NoError(t, err)
+
+	_, _, err = httpc.NewGET[struct{}]("Relocate", "/").WithDecoder(httpc.VoidDecoder()).Call().Execute(t.Context(), client)
+	require.NoError(t, err)
+	assert.Equal(t, "Bearer tok", authByHost[hostA], "configured node keeps the credential")
+	assert.Equal(t, "Bearer tok", authByHost[hostB], "configured node keeps the credential")
 }

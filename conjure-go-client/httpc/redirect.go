@@ -97,6 +97,36 @@ func isDomainOrSubdomain(sub, parent string) bool {
 	return sub[len(sub)-len(parent)-1] == '.'
 }
 
+// authorizedHostsFromURIs returns the IDNA-ASCII hosts of the configured base URIs. They are the
+// hosts a request may carry Authorization to: the first attempt and any failover target by
+// construction, and a 307/308 QoS relocation only if its Location host is one of them (or a
+// subdomain) — so a relocation cannot leak the credential to a foreign host. The mesh- scheme
+// prefix does not affect the parsed host.
+func authorizedHostsFromURIs(uris []string) []string {
+	hosts := make([]string, 0, len(uris))
+	for _, u := range uris {
+		parsed, err := url.Parse(u)
+		if err != nil {
+			continue
+		}
+		if h := idnaASCIIFromURL(parsed); h != "" {
+			hosts = append(hosts, h)
+		}
+	}
+	return hosts
+}
+
+// hostIsAuthorized reports whether host (IDNA-ASCII) equals or is a subdomain of any authorized
+// host, using net/http's verbatim isDomainOrSubdomain comparison.
+func hostIsAuthorized(host string, authorized []string) bool {
+	for _, a := range authorized {
+		if isDomainOrSubdomain(host, a) {
+			return true
+		}
+	}
+	return false
+}
+
 // withoutAuthorization returns vals with any Authorization-keyed contributor removed. Decoration
 // re-resolves every contributor on every RoundTrip, so this is how it drops auth (builder, raw
 // header, or per-call alike) when following a cross-host redirect — see authHeaderAllowedOnRedirect.

@@ -132,21 +132,40 @@ func resolveValues[T headerOrQuery](ctx context.Context, dst T, vals ...requestV
 // decorationMiddleware resolves a request's header and query contributors onto
 // each attempt before it reaches the transport. Running per attempt on the
 // freshly cloned request means contributors apply to a clean slate, so retries
-// never duplicate added values. Because it runs on every RoundTrip, it also runs
-// on each hop the http.Client follows for a 301/302/303 redirect; on a cross-host
-// hop it drops Authorization (see authHeaderAllowedOnRedirect) so re-resolution
-// never re-attaches a credential the stdlib stripped.
+// never duplicate added values. Because it runs on every RoundTrip, it also gates
+// Authorization against the request's target host (see authAllowed) so neither a
+// 301/302/303 redirect the http.Client follows nor a 307/308 QoS relocation leaks
+// the credential to a host the client did not configure.
 type decorationMiddleware struct {
 	headerValues []requestValue[http.Header]
 	queryValues  []requestValue[url.Values]
+	// authorizedHosts are the configured base-URL hosts (IDNA-ASCII) a request may
+	// carry Authorization to; empty imposes no restriction.
+	authorizedHosts []string
+}
+
+// authAllowed reports whether this request may carry Authorization. A redirect hop the
+// http.Client produced (req.Response set) must keep every hop on the origin host or a
+// subdomain; any other request — the first attempt, a failover, or a 307/308 relocation —
+// must target a configured host (or a subdomain) so a relocation cannot leak the credential
+// to a foreign host.
+func (d decorationMiddleware) authAllowed(req *http.Request) bool {
+	if req.Response != nil {
+		return authHeaderAllowedOnRedirect(req)
+	}
+	if len(d.authorizedHosts) == 0 {
+		return true
+	}
+	return hostIsAuthorized(idnaASCIIFromURL(req.URL), d.authorizedHosts)
 }
 
 func (d decorationMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (*http.Response, error) {
 	headerValues := d.headerValues
-	if len(headerValues) > 0 && !authHeaderAllowedOnRedirect(req) {
-		// The standard http.Client followed a redirect to a different host and stripped
-		// Authorization. Decoration re-resolves contributors per RoundTrip, so drop the
-		// Authorization contributors here too rather than leak the credential cross-host.
+	if len(headerValues) > 0 && !d.authAllowed(req) {
+		// The request's target host is not one the client authorized (a cross-host redirect
+		// the stdlib already stripped, or a relocation to a foreign host). Decoration
+		// re-resolves contributors per RoundTrip, so drop the Authorization contributors
+		// here rather than re-attach the credential and leak it.
 		headerValues = withoutAuthorization(headerValues)
 	}
 	if len(headerValues) > 0 {
