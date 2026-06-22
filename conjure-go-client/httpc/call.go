@@ -37,13 +37,14 @@ import (
 // [RequestOverrides] methods and [Call.WithOverrides] layer on top, winning over
 // the descriptor defaults. Invoke [Call.Execute] to send the request.
 type Call[Resp any] struct {
-	method    string
-	path      string // populated from the descriptor's path template; fill with WithPathParam
-	name      string
-	accept    string
-	decoder   BodyDecoder[Resp]
-	overrides Overrides
-	encode    func(*http.Request) error // nil for a no-body call
+	method       string
+	path         string // populated from the descriptor's path template; fill with WithPathParam
+	name         string
+	accept       string
+	decoder      BodyDecoder[Resp]
+	overrides    Overrides
+	encode       func(*http.Request) error // nil for a no-body call
+	pathParamErr error                     // deferred from WithPathParam (e.g. traversal); surfaced by Execute
 }
 
 // newCall builds a Call from a descriptor core, seeding per-call configuration
@@ -74,16 +75,47 @@ func errNoEncoder(name string) error {
 //
 //	getFile.Call().WithPathParam("filePath", "dir/sub dir/file.txt")
 //	// → /files/dir/sub%20dir/file.txt
+//
+// A "." or ".." path segment is rejected (deferring an error to Execute) so an
+// untrusted value cannot climb the path: for a greedy value any such segment is
+// rejected; a non-greedy value is rejected only when the whole value is "." or ".."
+// (it cannot span segments, since "/" is escaped to %2F).
 func (c Call[Resp]) WithPathParam(key string, value any) Call[Resp] {
 	s := fmt.Sprint(value)
 	if glob := "{" + key + "*}"; strings.Contains(c.path, glob) {
 		segments := strings.Split(s, "/")
+		if seg, ok := traversalSegment(segments); ok {
+			return c.withPathParamErr(key, seg)
+		}
 		for i, seg := range segments {
 			segments[i] = url.PathEscape(seg)
 		}
 		c.path = strings.ReplaceAll(c.path, glob, strings.Join(segments, "/"))
 	} else {
+		if seg, ok := traversalSegment([]string{s}); ok {
+			return c.withPathParamErr(key, seg)
+		}
 		c.path = strings.ReplaceAll(c.path, "{"+key+"}", url.PathEscape(s))
+	}
+	return c
+}
+
+// traversalSegment returns the first "." or ".." directory-traversal segment, if any.
+func traversalSegment(segments []string) (string, bool) {
+	for _, seg := range segments {
+		if seg == "." || seg == ".." {
+			return seg, true
+		}
+	}
+	return "", false
+}
+
+// withPathParamErr records the first path-parameter error. WithPathParam is chainable
+// and cannot return an error, so it is deferred and surfaced by Execute — like the
+// unterminated/unpopulated placeholder checks.
+func (c Call[Resp]) withPathParamErr(key, segment string) Call[Resp] {
+	if c.pathParamErr == nil {
+		c.pathParamErr = fmt.Errorf("httpc: path parameter %q must not contain a %q segment (possible path traversal)", key, segment)
 	}
 	return c
 }
@@ -185,6 +217,10 @@ func (c Call[Resp]) WithDefaultBufferPool() Call[Resp] {
 // response represents a failure.
 func (c Call[Resp]) Execute(ctx context.Context, client Runtime) (Resp, *http.Response, error) {
 	var zero Resp
+
+	if c.pathParamErr != nil {
+		return zero, nil, c.pathParamErr
+	}
 
 	if i := strings.IndexByte(c.path, '{'); i != -1 {
 		j := strings.IndexByte(c.path[i:], '}')

@@ -69,6 +69,58 @@ func TestCall_WithPathParam(t *testing.T) {
 	assert.Equal(t, "/items/gadget", gotPath)
 }
 
+// TestCall_WithPathParam_RejectsTraversal verifies a "." or ".." path segment is
+// rejected (error deferred to Execute) and the request is never sent, while values that
+// merely contain dots are accepted. A greedy {p*} checks every segment; a non-greedy {p}
+// rejects only a whole value of "." or ".." (its "/" is escaped, so it cannot span
+// segments).
+func TestCall_WithPathParam_RejectsTraversal(t *testing.T) {
+	var hits int
+	server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		w.WriteHeader(http.StatusNoContent)
+	})
+	client := &httpTestClient{server: server}
+
+	greedy := httpc.NewGET[struct{}]("GetFile", "/files/{path*}").WithDecoder(httpc.VoidDecoder())
+	plain := httpc.NewGET[struct{}]("Get", "/items/{id}").WithDecoder(httpc.VoidDecoder())
+
+	for _, tc := range []struct {
+		name string
+		call httpc.Call[struct{}]
+	}{
+		{"greedy dotdot segment", greedy.Call().WithPathParam("path", "a/../b")},
+		{"greedy dot segment", greedy.Call().WithPathParam("path", "a/./b")},
+		{"greedy leading dotdot", greedy.Call().WithPathParam("path", "../etc/passwd")},
+		{"non-greedy dotdot", plain.Call().WithPathParam("id", "..")},
+		{"non-greedy dot", plain.Call().WithPathParam("id", ".")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, _, err := tc.call.Execute(context.Background(), client)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "path traversal")
+		})
+	}
+	assert.Zero(t, hits, "a rejected call must not reach the server")
+
+	// Values that merely contain dots (not a whole "." / ".." segment) are accepted.
+	var gotPath string
+	okServer := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.WriteHeader(http.StatusNoContent)
+	})
+	okClient := &httpTestClient{server: okServer}
+
+	_, _, err := greedy.Call().WithPathParam("path", "a/..b/c.txt").Execute(context.Background(), okClient)
+	require.NoError(t, err)
+	assert.Equal(t, "/files/a/..b/c.txt", gotPath)
+
+	// A non-greedy value with an embedded "/" is escaped, so its "/.." is data, not a
+	// traversal segment, and is accepted.
+	_, _, err = plain.Call().WithPathParam("id", "a/..").Execute(context.Background(), okClient)
+	require.NoError(t, err)
+}
+
 // TestCall_PerCallOverridesDescriptorDefault verifies a Call seeds from the
 // descriptor's static defaults, and a per-call value (direct or via WithOverrides)
 // wins over the descriptor default.

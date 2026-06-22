@@ -134,7 +134,8 @@ A POST/PUT/PATCH/DELETE that intentionally sends *no* body uses `NewNoBodyEndpoi
 
 **Path parameters** are filled per call on the `Call` via `WithPathParam`, using named
 replacement in Conjure-style templates. Greedy parameters (`{param*}`) preserve slashes
-while escaping each segment. See
+while escaping each segment; a `.` or `..` path segment is rejected (error deferred to
+`Execute`) so an untrusted value cannot climb the path. See
 [`Example_pathAndQueryParams`](examples/example_path_and_query_params_test.go) and
 [`Example_greedyPathParam`](examples/example_greedy_path_param_test.go).
 
@@ -406,6 +407,14 @@ Requests are retried when the request body is replayable (`GetBody` is set on th
   usual, with the cross-host sensitive headers (`Authorization`, `Cookie`, …) stripped.
 
 Other status codes (including 4xx and non-503 5xx) are **not** retried.
+
+> **Retry replays the request as-is, gated on body replayability — not idempotency.** A
+> *mutating* request (POST/PUT) with a replayable body can therefore execute more than
+> once when an attempt fails (matching Conjure's RetryOther contract: "all request
+> parameters and headers are maintained"). Where duplicate execution would be unsafe,
+> make the operation idempotent (e.g. an idempotency-key header), cap attempts with
+> `SetMaxAttempts(new(1))` / per-call `WithMaxAttempts(new(1))`, or use a single-use body
+> encoder (e.g. `BinaryEncoderOnce`) so the body is not replayable.
 
 - **Default attempts**: 2 per base URL (e.g. 2 URLs = 4 attempts)
 - **`SetMaxAttempts(*int)`**: `nil` = default, `n > 0` = exactly n total attempts, `0` = unlimited

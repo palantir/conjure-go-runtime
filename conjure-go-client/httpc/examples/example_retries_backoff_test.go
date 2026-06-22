@@ -28,10 +28,12 @@ import (
 
 // Example_retriesAndBackoff retries a flaky server until it succeeds.
 //
-// The client retries idempotent requests that fail with a connection error or a QoS
-// status (429/503) and backs off between attempts. SetMaxAttempts caps the total: nil
-// keeps the default (2 per base URL), new(0) means unlimited, new(n) means exactly n.
-// The backoff bounds are set small here so the example runs fast.
+// The client retries requests with a replayable body that fail with a connection error
+// or a QoS status (429/503) and backs off between attempts. Retry is gated on body
+// replayability, not idempotency, so a mutating request can execute more than once;
+// SetMaxAttempts caps the total: nil keeps the default (2 per base URL), new(0) means
+// unlimited, new(n) means exactly n. The backoff bounds are set small here so the
+// example runs fast.
 func Example_retriesAndBackoff() {
 	ctx := context.Background()
 	var attempts atomic.Int32
