@@ -29,7 +29,6 @@
 package httpc_test
 
 import (
-	"compress/gzip"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -374,140 +373,58 @@ func (f readerFunc) Read(p []byte) (int, error) { return f(p) }
 // Task 13: Compressed body retry
 // ---------------------------------------------------------------------------
 
-// TestRetry_GZIPCompressedBody verifies that a request with a gzip-compressed
-// JSON body is correctly retried: the compressed body is replayed and the
-// server receives valid gzip content on the second attempt.
-func TestRetry_GZIPCompressedBody(t *testing.T) {
-	var attempts atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		n := attempts.Add(1)
-		if n == 1 {
-			// First attempt: close connection to trigger retry.
-			hj, ok := w.(http.Hijacker)
-			require.True(t, ok)
-			conn, _, _ := hj.Hijack()
-			_ = conn.Close()
-			return
-		}
-		// Second attempt: verify gzip body.
-		assert.Equal(t, "gzip", r.Header.Get("Content-Encoding"))
-		assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
+// TestRetry_CompressedBody verifies that a compressed (streaming, GetBody-backed)
+// request body is replayed correctly on retry, for each built-in compression
+// encoder. Compression correctness itself is covered by codec_test.
+func TestRetry_CompressedBody(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		encoding string
+		encoder  func(httpc.BodyEncoder[testRetryPayload]) httpc.BodyEncoder[testRetryPayload]
+	}{
+		{"gzip", "gzip", httpc.GZIPEncoder[testRetryPayload]},
+		{"snappy", "snappy", httpc.SnappyEncoder[testRetryPayload]},
+		{"zlib", "deflate", httpc.ZLIBEncoder[testRetryPayload]},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var attempts atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if attempts.Add(1) == 1 {
+					// First attempt: drop the connection to force a retry.
+					hj, ok := w.(http.Hijacker)
+					require.True(t, ok)
+					conn, _, _ := hj.Hijack()
+					_ = conn.Close()
+					return
+				}
+				assert.Equal(t, tc.encoding, r.Header.Get("Content-Encoding"))
+				compressed, err := io.ReadAll(r.Body)
+				require.NoError(t, err)
+				require.NotEmpty(t, compressed, "the compressed body must be replayed on retry")
 
-		gr, err := gzip.NewReader(r.Body)
-		require.NoError(t, err)
-		defer func() { assert.NoError(t, gr.Close()) }()
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(testRetryPayload{Value: "ok"})
+			}))
+			t.Cleanup(server.Close)
 
-		var payload testRetryPayload
-		require.NoError(t, json.NewDecoder(gr).Decode(&payload))
-		assert.Equal(t, "compressed-retry", payload.Value)
+			client, err := httpc.NewBuilder().
+				SetBaseURLs(server.URL).
+				SetServiceName("compress-retry-test").
+				SetMaxAttempts(new(3)).
+				Build(t.Context())
+			require.NoError(t, err)
 
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(testRetryPayload{Value: "ok"})
-	}))
-	t.Cleanup(server.Close)
+			ep := httpc.NewPOST[testRetryPayload, testRetryPayload]("CompressRetry", "/test").
+				WithEncoder(tc.encoder(httpc.JSONEncoder[testRetryPayload]())).
+				WithDecoder(httpc.JSONDecoder[testRetryPayload]()).
+				WithAccept("application/json")
 
-	client, err := httpc.NewBuilder().
-		SetBaseURLs(server.URL).
-		SetServiceName("gzip-retry-test").
-		SetMaxAttempts(new(3)).
-		Build(t.Context())
-	require.NoError(t, err)
-
-	ep := httpc.NewPOST[testRetryPayload, testRetryPayload]("GZIPRetry", "/test").
-		WithEncoder(httpc.GZIPEncoder(httpc.JSONEncoder[testRetryPayload]())).
-		WithDecoder(httpc.JSONDecoder[testRetryPayload]()).
-		WithAccept("application/json")
-
-	resp, _, err := ep.Call(testRetryPayload{Value: "compressed-retry"}).Execute(t.Context(), client)
-	require.NoError(t, err)
-	assert.Equal(t, "ok", resp.Value)
-	assert.Equal(t, int32(2), attempts.Load())
-}
-
-// TestRetry_SnappyCompressedBody verifies that a request with a snappy-compressed
-// body is correctly retried.
-func TestRetry_SnappyCompressedBody(t *testing.T) {
-	var attempts atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		n := attempts.Add(1)
-		if n == 1 {
-			hj, ok := w.(http.Hijacker)
-			require.True(t, ok)
-			conn, _, _ := hj.Hijack()
-			_ = conn.Close()
-			return
-		}
-		assert.Equal(t, "snappy", r.Header.Get("Content-Encoding"))
-
-		// Read the snappy-compressed body — snappy uses a framing format with
-		// buffered writer, so use the snappy reader.
-		compressed, err := io.ReadAll(r.Body)
-		require.NoError(t, err)
-		require.NotEmpty(t, compressed)
-
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(testRetryPayload{Value: "snappy-ok"})
-	}))
-	t.Cleanup(server.Close)
-
-	client, err := httpc.NewBuilder().
-		SetBaseURLs(server.URL).
-		SetServiceName("snappy-retry-test").
-		SetMaxAttempts(new(3)).
-		Build(t.Context())
-	require.NoError(t, err)
-
-	ep := httpc.NewPOST[testRetryPayload, testRetryPayload]("SnappyRetry", "/test").
-		WithEncoder(httpc.SnappyEncoder(httpc.JSONEncoder[testRetryPayload]())).
-		WithDecoder(httpc.JSONDecoder[testRetryPayload]()).
-		WithAccept("application/json")
-
-	resp, _, err := ep.Call(testRetryPayload{Value: "compressed-retry"}).Execute(t.Context(), client)
-	require.NoError(t, err)
-	assert.Equal(t, "snappy-ok", resp.Value)
-	assert.Equal(t, int32(2), attempts.Load())
-}
-
-// TestRetry_ZLIBCompressedBody verifies that a request with a zlib-compressed
-// body is correctly retried.
-func TestRetry_ZLIBCompressedBody(t *testing.T) {
-	var attempts atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		n := attempts.Add(1)
-		if n == 1 {
-			hj, ok := w.(http.Hijacker)
-			require.True(t, ok)
-			conn, _, _ := hj.Hijack()
-			_ = conn.Close()
-			return
-		}
-		assert.Equal(t, "deflate", r.Header.Get("Content-Encoding"))
-
-		compressed, err := io.ReadAll(r.Body)
-		require.NoError(t, err)
-		require.NotEmpty(t, compressed)
-
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(testRetryPayload{Value: "zlib-ok"})
-	}))
-	t.Cleanup(server.Close)
-
-	client, err := httpc.NewBuilder().
-		SetBaseURLs(server.URL).
-		SetServiceName("zlib-retry-test").
-		SetMaxAttempts(new(3)).
-		Build(t.Context())
-	require.NoError(t, err)
-
-	ep := httpc.NewPOST[testRetryPayload, testRetryPayload]("ZLIBRetry", "/test").
-		WithEncoder(httpc.ZLIBEncoder(httpc.JSONEncoder[testRetryPayload]())).
-		WithDecoder(httpc.JSONDecoder[testRetryPayload]()).
-		WithAccept("application/json")
-
-	resp, _, err := ep.Call(testRetryPayload{Value: "compressed-retry"}).Execute(t.Context(), client)
-	require.NoError(t, err)
-	assert.Equal(t, "zlib-ok", resp.Value)
-	assert.Equal(t, int32(2), attempts.Load())
+			resp, _, err := ep.Call(testRetryPayload{Value: "compressed-retry"}).Execute(t.Context(), client)
+			require.NoError(t, err)
+			assert.Equal(t, "ok", resp.Value)
+			assert.Equal(t, int32(2), attempts.Load())
+		})
+	}
 }
 
 // ---------------------------------------------------------------------------

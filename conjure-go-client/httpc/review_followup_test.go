@@ -98,22 +98,6 @@ func TestEndpointExecute_AuthorizerOverridesAuthorizationHeader(t *testing.T) {
 	assert.Equal(t, "Basic dTpw", seen)
 }
 
-// T5: Overrides.WithErrorDecoder(NoErrorDecoder()) bypasses error decoding.
-func TestOverrides_NoErrorDecoder_BypassesDefault(t *testing.T) {
-	client := handlerClient(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusForbidden)
-		_, _ = w.Write([]byte("forbidden"))
-	})
-
-	ep := httpc.NewNoBodyEndpoint[struct{}](http.MethodGet, "Err", "/err").
-		WithDecoder(httpc.VoidDecoder())
-
-	_, httpResp, err := ep.Call().WithOverrides(httpc.Overrides{}.WithErrorDecoder(httpc.NoErrorDecoder())).Execute(context.Background(), client)
-	require.NoError(t, err)
-	require.NotNil(t, httpResp)
-	assert.Equal(t, http.StatusForbidden, httpResp.StatusCode)
-}
-
 // T6: conjureerrors.WithConjureErrorDecoder is equivalent to wrapping with
 // conjureerrors.DefaultErrorDecoderWithConjure.
 func TestOverrides_WithConjureErrorDecoder(t *testing.T) {

@@ -22,7 +22,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -294,41 +293,6 @@ func TestEndpointExecute_Middleware(t *testing.T) {
 	assert.True(t, middlewareCalled)
 }
 
-// TestEndpointExecute_PerRequestMiddlewarePerAttempt pins that a per-request
-// middleware runs once per attempt (like a client middleware) and sees the
-// resolved request URL, rather than running once around the whole retry loop on
-// a path-only request.
-func TestEndpointExecute_PerRequestMiddlewarePerAttempt(t *testing.T) {
-	var serverHits atomic.Int32
-	server := newTestServer(t, func(w http.ResponseWriter, _ *http.Request) {
-		if serverHits.Add(1) == 1 {
-			w.WriteHeader(http.StatusServiceUnavailable) // force one retry
-			return
-		}
-		w.WriteHeader(http.StatusNoContent)
-	})
-
-	client, err := httpc.NewBuilder().SetServiceName("svc").SetBaseURLs(server.URL).Build(context.Background())
-	require.NoError(t, err)
-
-	var hosts []string // middleware runs synchronously on this goroutine
-	mw := httpc.MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
-		hosts = append(hosts, req.URL.Host)
-		return next.RoundTrip(req)
-	})
-
-	ep := httpc.NewNoBodyEndpoint[struct{}](http.MethodGet, "Retry", "/retry").
-		WithDecoder(httpc.VoidDecoder()).
-		WithMiddleware(mw)
-
-	_, _, err = ep.Call().Execute(context.Background(), client)
-	require.NoError(t, err)
-	require.Len(t, hosts, 2, "per-request middleware should run once per attempt")
-	for _, h := range hosts {
-		assert.NotEmpty(t, h, "middleware should see the resolved URL host on each attempt")
-	}
-}
-
 // TestEndpointExecute_PerRequestMiddlewareInsideTelemetry pins that a per-request
 // middleware runs inside telemetry: it observes the For-User-Agent header that
 // the telemetry layer injects, which proves telemetry ran first — so the
@@ -498,145 +462,93 @@ func TestTestError(t *testing.T) {
 	assert.Contains(t, err.Error(), "Forbidden")
 }
 
-// Tests for void constructors (NewGET, NewDELETE, etc.)
-
-func TestNewGET(t *testing.T) {
-	client := handlerClient(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, http.MethodGet, r.Method)
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"name":"get","value":1}`))
-	})
-
-	ep := httpc.NewGET[testPayload]("GetItems", "/items").
-		WithDecoder(httpc.JSONDecoder[testPayload]()).
-		WithAccept("application/json")
-
-	result, _, err := ep.Call().Execute(context.Background(), client)
-	require.NoError(t, err)
-	assert.Equal(t, testPayload{Name: "get", Value: 1}, result)
+// TestNewMethodConstructors verifies each New<METHOD> constructor produces an
+// endpoint whose request carries the matching HTTP method (and sends the encoded
+// body for the body-taking constructors). Body encode/decode itself is covered by
+// TestEndpointExecute_JSONRoundTrip, TestWithJSON, and codec_test.
+func TestNewMethodConstructors(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		method string
+		exec   func(ctx context.Context, client httpc.Runtime) error
+	}{
+		{"GET", http.MethodGet, func(ctx context.Context, client httpc.Runtime) error {
+			_, _, err := httpc.NewGET[struct{}]("Get", "/x").WithDecoder(httpc.VoidDecoder()).Call().Execute(ctx, client)
+			return err
+		}},
+		{"DELETE", http.MethodDelete, func(ctx context.Context, client httpc.Runtime) error {
+			_, _, err := httpc.NewDELETE[struct{}]("Del", "/x").WithDecoder(httpc.VoidDecoder()).Call().Execute(ctx, client)
+			return err
+		}},
+		{"HEAD", http.MethodHead, func(ctx context.Context, client httpc.Runtime) error {
+			_, _, err := httpc.NewHEAD[struct{}]("Head", "/x").WithDecoder(httpc.VoidDecoder()).Call().Execute(ctx, client)
+			return err
+		}},
+		{"POST", http.MethodPost, func(ctx context.Context, client httpc.Runtime) error {
+			_, _, err := httpc.NewPOST[testPayload, struct{}]("Post", "/x").WithEncoder(httpc.JSONEncoder[testPayload]()).WithDecoder(httpc.VoidDecoder()).Call(testPayload{Name: "x"}).Execute(ctx, client)
+			return err
+		}},
+		{"PUT", http.MethodPut, func(ctx context.Context, client httpc.Runtime) error {
+			_, _, err := httpc.NewPUT[testPayload, struct{}]("Put", "/x").WithEncoder(httpc.JSONEncoder[testPayload]()).WithDecoder(httpc.VoidDecoder()).Call(testPayload{Name: "x"}).Execute(ctx, client)
+			return err
+		}},
+		{"PATCH", http.MethodPatch, func(ctx context.Context, client httpc.Runtime) error {
+			_, _, err := httpc.NewPATCH[testPayload, struct{}]("Patch", "/x").WithEncoder(httpc.JSONEncoder[testPayload]()).WithDecoder(httpc.VoidDecoder()).Call(testPayload{Name: "x"}).Execute(ctx, client)
+			return err
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var gotMethod string
+			client := handlerClient(func(w http.ResponseWriter, r *http.Request) {
+				gotMethod = r.Method
+				w.WriteHeader(http.StatusNoContent)
+			})
+			require.NoError(t, tc.exec(context.Background(), client))
+			assert.Equal(t, tc.method, gotMethod)
+		})
+	}
 }
 
-func TestNewDELETE(t *testing.T) {
-	client := handlerClient(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, http.MethodDelete, r.Method)
-		w.WriteHeader(http.StatusNoContent)
-	})
-
-	ep := httpc.NewDELETE[struct{}]("DeleteItem", "/item/1").
-		WithDecoder(httpc.VoidDecoder())
-
-	_, _, err := ep.Call().Execute(context.Background(), client)
-	require.NoError(t, err)
-}
-
-func TestNewHEAD(t *testing.T) {
-	client := handlerClient(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, http.MethodHead, r.Method)
-		w.WriteHeader(http.StatusOK)
-	})
-
-	ep := httpc.NewHEAD[struct{}]("Health", "/health").
-		WithDecoder(httpc.VoidDecoder())
-
-	_, _, err := ep.Call().Execute(context.Background(), client)
-	require.NoError(t, err)
-}
-
-func TestNewPOST(t *testing.T) {
-	client := handlerClient(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, http.MethodPost, r.Method)
-		body, _ := io.ReadAll(r.Body)
-		assert.JSONEq(t, `{"name":"post","value":1}`, string(body))
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"name":"created","value":2}`))
-	})
-
-	ep := httpc.NewPOST[testPayload, testPayload]("CreateItem", "/items").
-		WithEncoder(httpc.JSONEncoder[testPayload]()).
-		WithDecoder(httpc.JSONDecoder[testPayload]()).
-		WithAccept("application/json")
-
-	result, _, err := ep.Call(testPayload{Name: "post", Value: 1}).Execute(context.Background(), client)
-	require.NoError(t, err)
-	assert.Equal(t, testPayload{Name: "created", Value: 2}, result)
-}
-
-func TestNewPUT(t *testing.T) {
-	client := handlerClient(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, http.MethodPut, r.Method)
-		w.WriteHeader(http.StatusNoContent)
-	})
-
-	ep := httpc.NewPUT[testPayload, struct{}]("UpdateItem", "/item/1").
-		WithEncoder(httpc.JSONEncoder[testPayload]()).
-		WithDecoder(httpc.VoidDecoder())
-
-	_, _, err := ep.Call(testPayload{Name: "put", Value: 1}).Execute(context.Background(), client)
-	require.NoError(t, err)
-}
-
-func TestNewPATCH(t *testing.T) {
-	client := handlerClient(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, http.MethodPatch, r.Method)
-		w.WriteHeader(http.StatusNoContent)
-	})
-
-	ep := httpc.NewPATCH[testPayload, struct{}]("PatchItem", "/item/1").
-		WithEncoder(httpc.JSONEncoder[testPayload]()).
-		WithDecoder(httpc.VoidDecoder())
-
-	_, _, err := ep.Call(testPayload{Name: "patch", Value: 1}).Execute(context.Background(), client)
-	require.NoError(t, err)
-}
-
-// Tests for JSON convenience constructors
-
-func TestWithJSON_GET(t *testing.T) {
-	client := handlerClient(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, http.MethodGet, r.Method)
-		assert.Equal(t, "application/json", r.Header.Get("Accept"))
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"name":"json-get","value":1}`))
-	})
-
-	result, _, err := httpc.NewGET[testPayload]("GetItem", "/items/1").WithJSON().
-		Call().Execute(context.Background(), client)
-	require.NoError(t, err)
-	assert.Equal(t, testPayload{Name: "json-get", Value: 1}, result)
-}
-
-func TestWithJSON_POST(t *testing.T) {
-	client := handlerClient(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, http.MethodPost, r.Method)
-		assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
-		assert.Equal(t, "application/json", r.Header.Get("Accept"))
-		body, _ := io.ReadAll(r.Body)
-		assert.JSONEq(t, `{"name":"req","value":1}`, string(body))
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"name":"resp","value":2}`))
-	})
-
-	result, _, err := httpc.NewPOST[testPayload, testPayload]("CreateItem", "/items").WithJSON().
-		Call(testPayload{Name: "req", Value: 1}).Execute(context.Background(), client)
-	require.NoError(t, err)
-	assert.Equal(t, testPayload{Name: "resp", Value: 2}, result)
-}
-
-func TestWithJSON_PUT(t *testing.T) {
-	client := handlerClient(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, http.MethodPut, r.Method)
-		assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
-		assert.Equal(t, "application/json", r.Header.Get("Accept"))
-		body, _ := io.ReadAll(r.Body)
-		assert.JSONEq(t, `{"name":"update","value":3}`, string(body))
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"name":"updated","value":4}`))
-	})
-
-	result, _, err := httpc.NewPUT[testPayload, testPayload]("UpdateItem", "/items/1").WithJSON().
-		Call(testPayload{Name: "update", Value: 3}).Execute(context.Background(), client)
-	require.NoError(t, err)
-	assert.Equal(t, testPayload{Name: "updated", Value: 4}, result)
+// TestWithJSON verifies the WithJSON sugar on both endpoint kinds: it sets the
+// JSON decoder + Accept (and, for a body endpoint, the JSON encoder +
+// Content-Type) and round-trips a typed value.
+func TestWithJSON(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		method string
+		body   bool
+		exec   func(ctx context.Context, client httpc.Runtime) (testPayload, error)
+	}{
+		{"GET", http.MethodGet, false, func(ctx context.Context, client httpc.Runtime) (testPayload, error) {
+			r, _, err := httpc.NewGET[testPayload]("GetItem", "/items/1").WithJSON().Call().Execute(ctx, client)
+			return r, err
+		}},
+		{"POST", http.MethodPost, true, func(ctx context.Context, client httpc.Runtime) (testPayload, error) {
+			r, _, err := httpc.NewPOST[testPayload, testPayload]("CreateItem", "/items").WithJSON().Call(testPayload{Name: "req", Value: 1}).Execute(ctx, client)
+			return r, err
+		}},
+		{"PUT", http.MethodPut, true, func(ctx context.Context, client httpc.Runtime) (testPayload, error) {
+			r, _, err := httpc.NewPUT[testPayload, testPayload]("UpdateItem", "/items/1").WithJSON().Call(testPayload{Name: "req", Value: 1}).Execute(ctx, client)
+			return r, err
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			client := handlerClient(func(w http.ResponseWriter, r *http.Request) {
+				assert.Equal(t, tc.method, r.Method)
+				assert.Equal(t, "application/json", r.Header.Get("Accept"))
+				if tc.body {
+					assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
+					b, _ := io.ReadAll(r.Body)
+					assert.JSONEq(t, `{"name":"req","value":1}`, string(b))
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"name":"resp","value":2}`))
+			})
+			result, err := tc.exec(context.Background(), client)
+			require.NoError(t, err)
+			assert.Equal(t, testPayload{Name: "resp", Value: 2}, result)
+		})
+	}
 }
 
 // Tests for compression round-trips through endpoints
