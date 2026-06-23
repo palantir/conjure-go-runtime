@@ -105,11 +105,12 @@ func (b *BuilderCore[Self]) SetSocksProxyURL(s string) Self {
 	return b.self
 }
 
-// ContextDialer is the dialer interface returned by [Builder.BuildDialer];
-// implemented by net.Dialer and golang.org/x/net/proxy.Dialer.
+// ContextDialer is the dialer interface returned by [Builder.BuildDialer] and
+// accepted by [Builder.SetDialer]. It is the single method the transport path
+// uses; *net.Dialer satisfies it directly, so a caller can pass one (or any type
+// with DialContext) without implementing a legacy Dial.
 type ContextDialer interface {
 	DialContext(ctx context.Context, network, address string) (net.Conn, error)
-	Dial(network, address string) (net.Conn, error)
 }
 
 type dialerParams struct {
@@ -124,10 +125,6 @@ type refreshableDialer struct {
 
 func (r *refreshableDialer) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
 	return r.Current().DialContext(ctx, network, address)
-}
-
-func (r *refreshableDialer) Dial(network, address string) (net.Conn, error) {
-	return r.Current().DialContext(context.TODO(), network, address)
 }
 
 // BuildDialer returns the configured dialer. If [Builder.SetDialer] was
