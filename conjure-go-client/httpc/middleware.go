@@ -137,7 +137,7 @@ func (t *telemetryMiddleware) RoundTrip(req *http.Request, next http.RoundTrippe
 	}
 
 	if t.disableMetrics == nil || !t.disableMetrics.Current() {
-		metricsReq, callback := NewMetricsResponseCallback(req, t.serviceName.Current(), t.disableTraceMetrics, t.tags...)
+		metricsReq, callback := newMetricsResponseCallback(req, t.serviceName.Current(), t.disableTraceMetrics, t.tags...)
 		defer func() {
 			callback(resp, err)
 		}()

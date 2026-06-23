@@ -92,7 +92,7 @@ func MetricsMiddleware(serviceName string, tagProviders ...TagsProvider) Middlew
 
 func (m *metricsMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (resp *http.Response, err error) {
 	if m.disabled == nil || !m.disabled.Current() {
-		newReq, callback := NewMetricsResponseCallback(req, m.serviceName.Current(), false, m.tags...)
+		newReq, callback := newMetricsResponseCallback(req, m.serviceName.Current(), false, m.tags...)
 		defer func() {
 			callback(resp, err)
 		}()
@@ -103,7 +103,7 @@ func (m *metricsMiddleware) RoundTrip(req *http.Request, next http.RoundTripper)
 
 type metricsEmittedKey struct{}
 
-func NewMetricsResponseCallback(req *http.Request, serviceName string, disableClientTrace bool, tagsProviders ...TagsProvider) (*http.Request, func(resp *http.Response, err error)) {
+func newMetricsResponseCallback(req *http.Request, serviceName string, disableClientTrace bool, tagsProviders ...TagsProvider) (*http.Request, func(resp *http.Response, err error)) {
 	// Guard against stacking with httpc's auto-installed telemetry: if metrics
 	// have already been started for this request, return a no-op callback.
 	if req.Context().Value(metricsEmittedKey{}) != nil {
@@ -116,7 +116,7 @@ func NewMetricsResponseCallback(req *http.Request, serviceName string, disableCl
 	ctx := context.WithValue(req.Context(), metricsEmittedKey{}, struct{}{})
 	registry := metrics.FromContext(metrics.AddTags(ctx, metrics.NewTagWithFallbackValue(metricTagServiceName, serviceName, "unknown")))
 	if !disableClientTrace {
-		ctx = httptrace.WithClientTrace(ctx, NewMetricsClientTrace(registry, svc1log.FromContext(ctx)))
+		ctx = httptrace.WithClientTrace(ctx, newMetricsClientTrace(registry, svc1log.FromContext(ctx)))
 	}
 	req = req.WithContext(ctx)
 
@@ -128,7 +128,7 @@ func NewMetricsResponseCallback(req *http.Request, serviceName string, disableCl
 	}
 }
 
-func NewMetricsClientTrace(registry metrics.Registry, logger svc1log.Logger) *httptrace.ClientTrace {
+func newMetricsClientTrace(registry metrics.Registry, logger svc1log.Logger) *httptrace.ClientTrace {
 	const (
 		metricConnCreate          = "client.connection.create"            // Counter; +reused (true/false)
 		metricConnAcquire         = "client.connection.acquire"           // Timer; GetConn → GotConn; +reused
