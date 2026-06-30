@@ -368,18 +368,12 @@ func (b *BuilderCore[Self]) Build(ctx context.Context) (RebuildableRuntime[Self]
 		return nil, err
 	}
 
-	selectorFactory := b.urlSelectorFactory
-	if selectorFactory == nil {
-		selectorFactory = BalancedURLSelector
-	}
-	uriScorer := newRefreshableSelector(b.uris, selectorFactory)
-
 	return &standardRuntime[Self]{
 		serviceName:    b.serviceName,
 		transport:      transport,
 		middleware:     b.bakeMiddleware(),
 		intrinsic:      RequestValues{headerValues: b.intrinsicHeaderValues()},
-		uriScorer:      uriScorer,
+		uriScorer:      newRefreshableSelector(b.uris, b.urlSelectorFactory),
 		timeout:        b.timeout,
 		maxAttempts:    b.maxAttempts,
 		initialBackoff: b.initialBackoff,

@@ -24,6 +24,16 @@ import (
 	"github.com/palantir/pkg/refreshable/v2"
 )
 
+// Cloneable is the minimal contract a builder must satisfy to be rebuildable: it
+// clones itself, returning its own concrete type. Builders are mutable, so Clone
+// first to derive an independent variant; the rebuild path
+// ([RebuildableRuntime.Builder]) clones the retained seed builder. Clone is the
+// only generic operation on a builder, so the bound needs nothing more — Apply
+// stays a concrete builder method rather than part of this contract.
+type Cloneable[Self any] interface {
+	Clone() Self
+}
+
 // BuilderAPI is the top-level builder interface. It composes
 // [DialerBuilder], [TLSConfigBuilder], [TransportBuilder], and [ServiceBuilder]
 // so a value satisfying BuilderAPI can be used wherever any of the four
@@ -162,11 +172,12 @@ func NewBuilderCore[Self Cloneable[Self]](self Self) *BuilderCore[Self] {
 			HTTP2ReadIdleTimeout:  defaultHTTP2ReadIdleTimeout,
 			HTTP2PingTimeout:      defaultHTTP2PingTimeout,
 		}),
-		tlsFileParams:    refreshable.New(tlsFileParams{}),
-		disableMetrics:   refreshable.New(false),
-		initialBackoff:   refreshable.New(defaultInitialBackoff),
-		maxBackoff:       refreshable.New(defaultMaxBackoff),
-		includeSystemCAs: true,
+		tlsFileParams:      refreshable.New(tlsFileParams{}),
+		disableMetrics:     refreshable.New(false),
+		initialBackoff:     refreshable.New(defaultInitialBackoff),
+		maxBackoff:         refreshable.New(defaultMaxBackoff),
+		includeSystemCAs:   true,
+		urlSelectorFactory: BalancedURLSelector,
 	}
 }
 
