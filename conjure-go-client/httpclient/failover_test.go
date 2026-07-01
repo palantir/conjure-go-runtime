@@ -22,7 +22,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/internal"
 	"github.com/palantir/pkg/httpserver"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -226,7 +225,7 @@ func TestSleep(t *testing.T) {
 		switch n {
 		case 1:
 			rw.Header()["Retry-After"] = []string{"30"}
-			rw.WriteHeader(internal.StatusCodeThrottle)
+			rw.WriteHeader(http.StatusTooManyRequests)
 			return
 		case 2:
 			rw.WriteHeader(http.StatusOK)

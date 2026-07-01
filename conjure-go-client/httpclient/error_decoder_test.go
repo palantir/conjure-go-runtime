@@ -21,8 +21,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpc"
 	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpclient"
-	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/internal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -50,7 +50,7 @@ func TestErrorDecoder(t *testing.T) {
 		resp, err := client.Get(context.Background())
 		assert.EqualError(t, err, defaultStatusMsg)
 		assert.Nil(t, resp)
-		gotStatusCode, ok := internal.StatusCodeFromError(err)
+		gotStatusCode, ok := httpc.StatusCodeFromError(err)
 		assert.True(t, ok)
 		assert.Equal(t, statusCode, gotStatusCode)
 	})

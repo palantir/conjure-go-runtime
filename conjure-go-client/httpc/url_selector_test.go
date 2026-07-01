@@ -44,7 +44,7 @@ func observeSelectorStatus(t *testing.T, sel URLSelector, rawURL string, statusC
 }
 
 func TestBalancedSelector_RandomizesWithNoneInflight(t *testing.T) {
-	uris := []string{"uri1", "uri2", "uri3", "uri4", "uri5"}
+	uris := []string{"uri1", "uri2", "uri3", "uri4", "uri5", "uri6", "uri7", "uri8", "uri9"}
 	sel := newBalancedSelector(uris, func() int64 { return 0 })
 	ordered := sel.BaseURLs()
 	assert.ElementsMatch(t, ordered, uris)

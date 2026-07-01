@@ -16,13 +16,14 @@ package httpclient
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/url"
 
 	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpc"
-	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/internal"
 	"github.com/palantir/pkg/bytesbuffers"
 	werror "github.com/palantir/witchcraft-go-error"
+	"github.com/palantir/witchcraft-go-logging/wlog/svclog/svc1log"
 )
 
 // A Client executes requests to a configured service.
@@ -145,7 +146,7 @@ func (c *clientImpl) Do(ctx context.Context, params ...RequestParam) (*http.Resp
 		}
 		if ed != nil {
 			respErr = ed.DecodeError(resp)
-			internal.DrainBody(ctx, resp)
+			drainBody(ctx, resp)
 		}
 	}
 
@@ -153,7 +154,7 @@ func (c *clientImpl) Do(ctx context.Context, params ...RequestParam) (*http.Resp
 	readErr := b.bodyMiddleware.readResponse(resp, respErr)
 
 	if !(respErr == nil && b.bodyMiddleware.rawOutput) {
-		internal.DrainBody(ctx, resp)
+		drainBody(ctx, resp)
 	}
 
 	if readErr != nil {
@@ -163,4 +164,18 @@ func (c *clientImpl) Do(ctx context.Context, params ...RequestParam) (*http.Resp
 		return nil, respErr
 	}
 	return resp, nil
+}
+
+func drainBody(ctx context.Context, resp *http.Response) {
+	// drain and close treated as best-effort
+	if resp != nil && resp.Body != nil {
+		if bytes, err := io.Copy(io.Discard, resp.Body); err != nil {
+			svc1log.FromContext(ctx).Warn("Failed to drain entire response body", svc1log.SafeParam("bytes", bytes), svc1log.Stacktrace(err))
+		} else if bytes > 0 {
+			svc1log.FromContext(ctx).Debug("Drained remaining response body", svc1log.SafeParam("bytes", bytes))
+		}
+		if err := resp.Body.Close(); err != nil {
+			svc1log.FromContext(ctx).Warn("Failed to close response body", svc1log.Stacktrace(err))
+		}
+	}
 }

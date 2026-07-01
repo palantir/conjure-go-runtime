@@ -38,7 +38,7 @@ func Example_endpointMiddleware() {
 	ctx := context.Background()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintf(w, `{"tag":%q}`, r.Header.Get("X-Endpoint-Tag"))
+		_, _ = fmt.Fprintf(w, `{"tag":%q}`, r.Header.Get("X-Endpoint-Tag"))
 	}))
 	defer server.Close()
 
