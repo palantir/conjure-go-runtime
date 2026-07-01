@@ -59,6 +59,35 @@ by `go test` and render in godoc. Useful starting points:
 
 ## Core concepts
 
+The package has three kinds of value: a **client** (a `Runtime`, built once), reusable
+**endpoint descriptors** (one per RPC, stored as package-level vars), and a
+per-invocation **`Call`** — plus an `Overrides` bag for per-request configuration. The
+diagram shows how they are produced and consumed; each row mirrors a step of the quick
+start above.
+
+```
+── build a client ───────────────────────────────────────────────────────────
+NewBuilder() ─▶ *Builder ─── Build(ctx) ──▶ RebuildableRuntime
+                mutable;                    · is a Runtime: Send(ctx, req, opts)
+                Clone() to fork             · Builder() re-forks the builder
+
+── describe an RPC (store as a package-level var) ─────────────────────────────
+NewGET / NewDELETE / NewHEAD  ─▶ NoBodyEndpoint ─┐  descriptor holds the codec
+NewPOST / NewPUT / NewPATCH   ─▶ BodyEndpoint   ─┤  (BodyEncoder/BodyDecoder, via
+                                                 │  WithJSON/WithEncoder/WithDecoder)
+                                                 └  + static request defaults
+
+── make a call ────────────────────────────────────────────────────────────────
+descriptor.Call(body)   (BodyEndpoint)   ─┐
+descriptor.Call()       (NoBodyEndpoint)  ─┼─▶ Call ── Execute(ctx, client) ──▶ Send
+     Overrides ── WithOverrides(o) ───────┘              │
+     (reusable per-request bag)          returns (Resp, *http.Response, error)
+
+RequestOverrides[D] — WithHeader/WithQuery/WithTimeout/WithAuthorization/… — is
+implemented by BodyEndpoint & NoBodyEndpoint (static defaults) and by Call &
+Overrides (per-invocation values).
+```
+
 ### Runtime
 
 `Runtime` is a one-method interface — the behavior callers need, not the pieces:
@@ -83,7 +112,8 @@ selection (it prepends a selected base URL to the path-only request on each
 attempt), retries, per-attempt timeout, QoS redirect handling, telemetry, and
 builder auth/header decoration. `SendOptions` carries per-request decoration
 (`Values`), middlewares, and call-policy overrides (`Policy`). A custom runtime
-— a test fake or a wrapper — implements the single `Send` method.
+— a test fake or a wrapper — implements the single `Send` method; see
+[`Example_runtimeWrapper`](examples/example_runtime_wrapper_test.go).
 
 `RebuildableRuntime[B]` extends `Runtime` with a `Builder()` method that returns
 a new builder seeded with the client's current settings, allowing reconfiguration
@@ -102,10 +132,9 @@ enforced by the type system:
 - `NoBodyEndpoint[Resp]` — methods that send no body (GET/DELETE/HEAD). Its `Call()`
   takes no argument.
 
-Both are copy-on-write — every method returns a new value — so descriptors are safe to
-store as package-level vars and reuse concurrently. Both produce a per-invocation
-`Call[Resp]`, which owns the body, filled path params, and per-call overrides, and which
-carries `Execute`.
+Both are copy-on-write (every method returns a new value) and produce a per-invocation
+`Call[Resp]` that owns the body, filled path params, and per-call overrides, and carries
+`Execute`.
 
 **Constructors:**
 
@@ -189,22 +218,16 @@ header applies; `WithDefaultBufferPool` encodes without a pool.
 `WithUnlimitedTimeout`, `WithNoErrorDecoder`, and
 `WithAuthorization(NoAuthorization())` are the explicit "off" states.
 
-These methods serve two configuration layers that compose at execute time:
+These methods apply to the two layers introduced in [Core concepts](#core-concepts): on
+a **descriptor** they bake **static defaults** into the package-level RPC; on a **`Call`**
+(or an `Overrides` merged in via `Call.WithOverrides`) they capture **per-invocation
+values**. A `Call` seeds from the descriptor's defaults, then the layers compose:
 
-- On a **descriptor** (`BodyEndpoint`/`NoBodyEndpoint`), they set **static defaults**
-  baked into the package-level descriptor — useful for headers or middlewares that are
-  part of the RPC's definition.
-- On a **`Call`** (or an `Overrides` merged into one via `Call.WithOverrides`), they
-  capture **per-invocation values** — useful for headers derived from the call site
-  context. A `Call` seeds from the descriptor's defaults, then per-call values win.
-
-When per-invocation values combine with the descriptor defaults (and when an `Overrides`
-is merged in):
-- Headers and query params are **additive** across both layers
-- The scalars (timeout, error decoder, authorization, buffer pool) use **last-wins**: the
+- Headers and query params are **additive** across both layers.
+- Scalars (timeout, error decoder, authorization, buffer pool) are **last-wins**: the
   per-call layer wins for any scalar it set, including an explicit clear via
-  `WithDefault*` (a scalar the per-call layer never set leaves the descriptor default)
-- Middlewares are **appended** (descriptor defaults first, then per-call)
+  `WithDefault*`; a scalar it never set keeps the descriptor default.
+- Middlewares are **appended** (descriptor defaults first, then per-call).
 
 ### Codecs
 
@@ -241,7 +264,8 @@ Custom encoders and decoders can be created via `NewBodyEncoderFunc` and
 `NewBodyDecoderFunc`; see [`Example_customCodec`](examples/example_custom_codec_test.go).
 For binary and replayable streaming bodies, see
 [`Example_binaryStreaming`](examples/example_binary_streaming_test.go) and
-[`Example_replayableStreamingBody`](examples/example_replayable_streaming_body_test.go).
+[`Example_replayableStreamingBody`](examples/example_replayable_streaming_body_test.go);
+for the compression wrappers, [`Example_compressedBody`](examples/example_compressed_body_test.go).
 
 ## Building clients
 
@@ -366,10 +390,11 @@ Runtime.Send: retry loop, per-attempt timeout, redirect handling
   -> http.Transport
 ```
 
-The standard runtime applies the URI selector and builds a call-scoped
-`*http.Client` per attempt. Every user middleware layer — builder and per-request
-— runs inside telemetry with the resolved URL, so it is traced, metered, and
-panic-recovered. Auth and header values are resolved per attempt as the
+The standard runtime builds one call-scoped `*http.Client` for the send (wrapping the
+transport in the stack above) and reuses it across attempts; each attempt clones the
+request and re-runs the decoration and middleware chain, so retries never duplicate
+added values. Every user middleware layer — builder and per-request — runs inside
+telemetry with the resolved URL, so it is traced, metered, and panic-recovered. Auth and header values are resolved per attempt as the
 request-value decoration (see [Auth](#auth)) just outside the
 per-request middleware, so an imperative per-request middleware runs last and can
 still override the resolved request on the wire.
@@ -446,8 +471,12 @@ When metrics are enabled (via `SetMetrics`), the client emits detailed request i
 | `client.connection.idle-return-error` | Meter | Pool saturation events |
 | `client.request.write-error` | Meter | Request write failures |
 
-Common tags: `service-name`, `method` (HTTP verb), `method-name` (RPC name from the endpoint),
-`family` (1xx/2xx/3xx/4xx/5xx/timeout/other).
+Common tags: `service-name`, `method` (HTTP verb), `method-name` (RPC name from the
+endpoint), and `family` — the outcome class: an HTTP status family (`1xx`/`2xx`/`3xx`/
+`4xx`/`5xx`) or, taking precedence over the status, a transport-error class
+(`dns_error`, `timeout`, `tls_verify_error`, `connection_error`), else `other`. Some
+metrics carry extra tags: `reused` (connection acquisition), `network` (TCP connect),
+and `cipher`/`next_protocol`/`tls_version` (TLS handshake).
 See [`Example_metrics`](examples/example_metrics_test.go).
 
 ## Error handling
@@ -547,17 +576,12 @@ deriving a `Call` (with the body), filling path params, merging overrides, and c
 
 ## Concurrency
 
-The endpoint descriptors (`BodyEndpoint`/`NoBodyEndpoint`), `Call`, and `Overrides` use
-**copy-on-write** semantics: every method returns a new value without modifying the
-original. Descriptors are safe to share across goroutines and store as package-level
-variables; each invocation derives its own `Call`.
-
-The runtime returned by `Build` (a `RebuildableRuntime`) is safe for concurrent use;
-multiple goroutines may execute requests through it simultaneously.
-
-`Builder` is **not** safe for concurrent use. All setter methods mutate the receiver.
-To share a configuration across goroutines, call `Clone()` to create an independent
-copy for each goroutine before mutating.
+- Endpoint descriptors (`BodyEndpoint`/`NoBodyEndpoint`), `Call`, and `Overrides` are
+  **copy-on-write** — every method returns a new value — so they are safe to share
+  across goroutines and store as package-level vars; each invocation derives its own `Call`.
+- The runtime from `Build` (a `RebuildableRuntime`) is safe for concurrent use.
+- `Builder` is **not**: its setters mutate the receiver, so call `Clone()` before sharing
+  a configuration across goroutines.
 
 ## Defaults
 
@@ -576,17 +600,3 @@ copy for each goroutine before mutating.
 | Retry initial backoff | 250ms |
 | Retry max backoff | 2s |
 | Max attempts | 2 per base URL |
-
----
-# TODOs
-
-- Advertise deadline like dialogue
-- Built-in multipart and form-urlencoded encoders
-- Sticky Sessions
-- `Node-Selection-Strategy` response header for Server-Driven Node-Selection Switching
-- Unify limiter and scorer?
-- Add metrics to limiter? (scores, queue lengths)
-- **Lock retry/QoS semantics explicitly.** Dialogue is very specific: retryable QoS, 500 only for idempotent-ish methods, RetryHint.DO_NOT_RETRY, proxy attempt accounting, timeout
-policy, and 308 only when Location exists. httpc currently documents transport/429/503/307/308 only, parses Retry-After but does not use it, and treats 307/308 without
-Location as retry-next-host. I’d decide these before v1: validate RetryOther Location hosts, decide whether 307 is intentional Go legacy behavior, decide safe-method 500
-retries, wire or remove Retry-After, and add retry-hint/proxy-attempt handling if Go services depend on it.
