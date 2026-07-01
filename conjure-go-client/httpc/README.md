@@ -238,6 +238,8 @@ Built-in encoders and decoders cover common content types:
 | Function | Content-Type | Retryable | Notes |
 |----------|-------------|-----------|-------|
 | `JSONEncoder[Req]()` | `application/json` | Yes | Uses the [`WithBufferPool`](#overrides) pool if set |
+| `FormURLEncoder()` | `application/x-www-form-urlencoded` | Yes | Encodes `url.Values` |
+| `MultipartEncoder()` | `multipart/form-data` (+boundary) | If parts reproduce | Streamed; takes `func(*multipart.Writer) error`, re-run per attempt |
 | `BinaryEncoder(ct)` | caller-specified | If file can be reopened | Probes for `Stat()` and reopens named files for replay |
 | `BinaryEncoderOnce(ct)` | caller-specified | No | Single-use stream; Content-Length -1, no `GetBody` |
 | `BinaryEncoderWithReplay(ct)` | caller-specified | Yes | Takes `func() (io.ReadCloser, error)` |
@@ -265,7 +267,9 @@ Custom encoders and decoders can be created via `NewBodyEncoderFunc` and
 For binary and replayable streaming bodies, see
 [`Example_binaryStreaming`](examples/example_binary_streaming_test.go) and
 [`Example_replayableStreamingBody`](examples/example_replayable_streaming_body_test.go);
-for the compression wrappers, [`Example_compressedBody`](examples/example_compressed_body_test.go).
+for the compression wrappers, [`Example_compressedBody`](examples/example_compressed_body_test.go);
+for form and multipart bodies, [`Example_formURLEncoded`](examples/example_form_encoding_test.go) and
+[`Example_multipartUpload`](examples/example_form_encoding_test.go).
 
 ## Building clients
 

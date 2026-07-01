@@ -22,7 +22,9 @@ import (
 	"encoding/json"
 	"io"
 	"io/fs"
+	"mime/multipart"
 	"net/http"
+	"net/url"
 	"os"
 
 	"github.com/golang/snappy"
@@ -130,6 +132,59 @@ func JSONEncoder[Req any]() BodyEncoder[Req] {
 		req.GetBody = func() (io.ReadCloser, error) {
 			return io.NopCloser(bytes.NewReader(data)), nil
 		}
+		return nil
+	})
+}
+
+// FormURLEncoder returns a BodyEncoder that serializes url.Values as an
+// application/x-www-form-urlencoded request body.
+func FormURLEncoder() BodyEncoder[url.Values] {
+	return NewBodyEncoderFunc[url.Values]("application/x-www-form-urlencoded", func(req *http.Request, values url.Values) error {
+		data := []byte(values.Encode())
+		req.Body = io.NopCloser(bytes.NewReader(data))
+		req.ContentLength = int64(len(data))
+		req.GetBody = func() (io.ReadCloser, error) {
+			return io.NopCloser(bytes.NewReader(data)), nil
+		}
+		return nil
+	})
+}
+
+// MultipartEncoder returns a BodyEncoder for multipart/form-data. The request
+// body is a function that writes the parts (via [multipart.Writer.WriteField],
+// [multipart.Writer.CreateFormFile], [multipart.Writer.CreatePart], …); the
+// encoder supplies the writer and sets Content-Type with a fixed boundary.
+//
+// The body is streamed, not buffered, so Content-Length is -1 (chunked) — a large
+// upload never lands wholly in memory. Because the stream is regenerated for each
+// attempt against the same boundary, the writer function is invoked once per attempt
+// (the initial send and every retry); for the request to be safely retried it must
+// reproduce the same parts each call — reopen files rather than consume a one-shot
+// io.Reader — matching [BinaryEncoderWithReplay]. Cap attempts if the parts cannot be
+// reproduced.
+func MultipartEncoder() BodyEncoder[func(mw *multipart.Writer) error] {
+	return NewBodyEncoderFunc[func(mw *multipart.Writer) error]("", func(req *http.Request, writeParts func(mw *multipart.Writer) error) error {
+		// Fix the boundary once so it matches across the Content-Type header and every
+		// body (re)streamed for retries.
+		boundary := multipart.NewWriter(io.Discard).Boundary()
+		req.Header.Set("Content-Type", "multipart/form-data; boundary="+boundary)
+		req.ContentLength = -1
+
+		newBody := func() io.ReadCloser {
+			pr, pw := io.Pipe()
+			go func() {
+				mw := multipart.NewWriter(pw)
+				_ = mw.SetBoundary(boundary)
+				if err := writeParts(mw); err != nil {
+					_ = pw.CloseWithError(err)
+					return
+				}
+				_ = pw.CloseWithError(mw.Close())
+			}()
+			return pr
+		}
+		req.Body = newBody()
+		req.GetBody = func() (io.ReadCloser, error) { return newBody(), nil }
 		return nil
 	})
 }

@@ -21,7 +21,10 @@ import (
 	"context"
 	"io"
 	"io/fs"
+	"mime"
+	"mime/multipart"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -54,6 +57,58 @@ func TestJSONEncoder(t *testing.T) {
 	replayBody, err := io.ReadAll(replay)
 	require.NoError(t, err)
 	assert.Equal(t, body, replayBody)
+}
+
+func TestFormURLEncoder(t *testing.T) {
+	enc := httpc.FormURLEncoder()
+	req, err := http.NewRequest(http.MethodPost, "http://example.com", nil)
+	require.NoError(t, err)
+	err = enc.Encode(req, url.Values{"name": {"widget"}, "tag": {"red", "round"}})
+	require.NoError(t, err)
+
+	assert.Equal(t, "application/x-www-form-urlencoded", req.Header.Get("Content-Type"))
+	body, err := io.ReadAll(req.Body)
+	require.NoError(t, err)
+	assert.Equal(t, "name=widget&tag=red&tag=round", string(body))
+	assert.Greater(t, req.ContentLength, int64(0))
+
+	// Verify GetBody works for replay.
+	require.NotNil(t, req.GetBody)
+	replay, err := req.GetBody()
+	require.NoError(t, err)
+	replayBody, err := io.ReadAll(replay)
+	require.NoError(t, err)
+	assert.Equal(t, body, replayBody)
+}
+
+func TestMultipartEncoder(t *testing.T) {
+	enc := httpc.MultipartEncoder()
+	req, err := http.NewRequest(http.MethodPost, "http://example.com", nil)
+	require.NoError(t, err)
+	err = enc.Encode(req, func(mw *multipart.Writer) error {
+		return mw.WriteField("name", "widget")
+	})
+	require.NoError(t, err)
+
+	assert.True(t, strings.HasPrefix(req.Header.Get("Content-Type"), "multipart/form-data; boundary="))
+	assert.Equal(t, int64(-1), req.ContentLength) // streamed (chunked)
+	body, err := io.ReadAll(req.Body)
+	require.NoError(t, err)
+
+	// GetBody re-streams; with a reproducible callback and the fixed boundary the bytes match.
+	require.NotNil(t, req.GetBody)
+	replay, err := req.GetBody()
+	require.NoError(t, err)
+	replayBody, err := io.ReadAll(replay)
+	require.NoError(t, err)
+	assert.Equal(t, body, replayBody)
+
+	// The buffered body parses back as the field we wrote.
+	_, params, err := mime.ParseMediaType(req.Header.Get("Content-Type"))
+	require.NoError(t, err)
+	form, err := multipart.NewReader(bytes.NewReader(body), params["boundary"]).ReadForm(1 << 20)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"widget"}, form.Value["name"])
 }
 
 func TestJSONDecoder(t *testing.T) {
