@@ -62,10 +62,10 @@ type RebuildableRuntime[B Cloneable[B]] interface {
 	Builder() B
 }
 
-// CallPolicy is the per-call orchestration snapshot the standard runtime resolves
+// callPolicy is the per-call orchestration snapshot the standard runtime resolves
 // for a send: its refreshable defaults with any [CallPolicyOverrides] from
 // [SendOptions] applied on top.
-type CallPolicy struct {
+type callPolicy struct {
 	// Timeout bounds each attempt. Zero disables the per-attempt timeout; a
 	// total-call deadline is the caller's responsibility via context.
 	Timeout time.Duration
@@ -78,7 +78,7 @@ type CallPolicy struct {
 }
 
 // CallPolicyOverrides is a per-send override set merged onto a runtime's default
-// [CallPolicy]. Unlike CallPolicy (a final snapshot), each field tracks whether
+// callPolicy. Unlike callPolicy (a final snapshot), each field tracks whether
 // it was set, because zero/nil values are meaningful: a zero timeout disables the
 // per-attempt timeout, and a nil max-attempts means "use the default formula".
 // An unset field leaves the runtime default unchanged. The zero value overrides
@@ -120,7 +120,7 @@ func (p CallPolicyOverrides) WithMaxBackoff(d time.Duration) CallPolicyOverrides
 }
 
 // applyTo returns base with each explicitly-set override applied.
-func (p CallPolicyOverrides) applyTo(base CallPolicy) CallPolicy {
+func (p CallPolicyOverrides) applyTo(base callPolicy) callPolicy {
 	if p.timeout != nil {
 		base.Timeout = *p.timeout
 	}
@@ -183,7 +183,7 @@ func (ErrInvalidRelocation) Error() string {
 // standardRuntime is the [RebuildableRuntime] returned by [Builder.Build]. It
 // holds the raw transport and the intrinsic middleware stack separately;
 // refreshable behavior lives inside the middlewares (read per request) and in
-// CallPolicy.
+// the call-policy fields.
 type standardRuntime[B Cloneable[B]] struct {
 	serviceName    refreshable.Refreshable[string]
 	transport      http.RoundTripper
@@ -199,14 +199,14 @@ type standardRuntime[B Cloneable[B]] struct {
 
 func (c *standardRuntime[B]) Builder() B { return c.builder.Clone() }
 
-// callPolicy snapshots the runtime's current default policy from its refreshable
-// settings; [SendOptions.Policy] overrides are applied on top per send.
-func (c *standardRuntime[B]) callPolicy() CallPolicy {
+// defaultCallPolicy snapshots the runtime's current default policy from its
+// refreshable settings; [SendOptions.Policy] overrides are applied on top per send.
+func (c *standardRuntime[B]) defaultCallPolicy() callPolicy {
 	var maxAttempts *int
 	if c.maxAttempts != nil {
 		maxAttempts = c.maxAttempts.Current()
 	}
-	return CallPolicy{
+	return callPolicy{
 		Timeout:        c.timeout.Current(),
 		MaxAttempts:    maxAttempts,
 		InitialBackoff: c.initialBackoff.Current(),
@@ -216,7 +216,7 @@ func (c *standardRuntime[B]) callPolicy() CallPolicy {
 
 // Send runs a path-only request to completion: it orders the base URLs via the
 // runtime's URL selector, prepends the selected base to the path per attempt,
-// retries replayable requests across the URLs under the resolved [CallPolicy],
+// retries replayable requests across the URLs under the resolved call policy,
 // and applies the per-attempt timeout. Standard redirects (301/302/303) are
 // followed by the call-scoped http.Client; 307/308 are handed back to the
 // retrier as Conjure QoS relocations.
@@ -250,7 +250,7 @@ func (c *standardRuntime[B]) Send(ctx context.Context, req *http.Request, opts S
 	// the auth gate (decoration). Built once: the base URL set is fixed for this send.
 	targets := configuredTargetsFromURIs(uris)
 
-	policy := opts.Policy.applyTo(c.callPolicy())
+	policy := opts.Policy.applyTo(c.defaultCallPolicy())
 	attempts := 2 * len(uris)
 	if policy.MaxAttempts != nil {
 		attempts = *policy.MaxAttempts

@@ -27,7 +27,7 @@ import (
 // TestCallPolicyOverrides_ApplyTo covers the set-bit semantics: an unset field
 // leaves the base unchanged, while zero/nil are meaningful when explicitly set.
 func TestCallPolicyOverrides_ApplyTo(t *testing.T) {
-	base := CallPolicy{
+	base := callPolicy{
 		Timeout:        60 * time.Second,
 		MaxAttempts:    new(3),
 		InitialBackoff: 250 * time.Millisecond,

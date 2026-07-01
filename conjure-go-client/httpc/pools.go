@@ -18,6 +18,11 @@ import (
 	"github.com/palantir/pkg/bytesbuffers"
 )
 
+// Predefined general-purpose buffer pools for request-body encoding, sized for
+// small, medium, and large bodies. Pass one to WithBufferPool (on a descriptor,
+// [Call], or [Overrides]) to reuse scratch buffers across requests instead of
+// allocating one per call. Conjure code generation assigns one per endpoint from
+// the body-size hints in the API definition; callers can also select one directly.
 var (
 	BufferPoolSmall  = bytesbuffers.NewSyncPool(1024)
 	BufferPoolMedium = bytesbuffers.NewSyncPool(1024 * 32)

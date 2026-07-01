@@ -29,7 +29,7 @@ import (
 // policy timeout. Unset and "default" both inherit the base; unlimited and the
 // WithTimeout(0) alias disable it; a custom value applies.
 func TestOverrides_CallPolicyTimeoutStates(t *testing.T) {
-	base := CallPolicy{Timeout: 30 * time.Second}
+	base := callPolicy{Timeout: 30 * time.Second}
 	timeoutOf := func(o Overrides) time.Duration {
 		return o.callPolicyOverrides().applyTo(base).Timeout
 	}
@@ -45,7 +45,7 @@ func TestOverrides_CallPolicyTimeoutStates(t *testing.T) {
 // later merge whose o leaves the field unset — i.e. "cleared" does not silently
 // re-inherit the receiver's earlier value.
 func TestOverrides_MergeClearIsSticky(t *testing.T) {
-	base := CallPolicy{Timeout: 30 * time.Second}
+	base := callPolicy{Timeout: 30 * time.Second}
 
 	withTimeout := Overrides{}.WithTimeout(5 * time.Second)
 	cleared := withTimeout.merge(Overrides{}.WithDefaultTimeout())

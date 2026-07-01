@@ -30,9 +30,10 @@ import (
 // Example_bufferPool reuses encoding buffers across requests.
 //
 // WithBufferPool gives the JSON encoder a pool to draw scratch buffers from instead of
-// allocating one per request — worth it on hot paths. Conjure-generated clients set
-// this from endpoint tags. Here a counting pool shows the encoder borrowing a buffer
-// for each of three calls.
+// allocating one per request — worth it on hot paths. The package ships ready-made pools
+// (BufferPoolSmall/Medium/Large); Conjure-generated clients pick one per endpoint from
+// its body-size tags. Here a counting wrapper around BufferPoolMedium shows the encoder
+// borrowing a buffer for each of three calls.
 func Example_bufferPool() {
 	ctx := context.Background()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -42,7 +43,7 @@ func Example_bufferPool() {
 	defer server.Close()
 
 	var gets atomic.Int32
-	pool := &countingPool{inner: bytesbuffers.NewSizedPool(4, 1024), gets: &gets}
+	pool := &countingPool{inner: httpc.BufferPoolMedium, gets: &gets}
 
 	// Endpoints are values; declare them once and reuse across calls.
 	var (
