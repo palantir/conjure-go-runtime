@@ -288,3 +288,11 @@ func TestBuilder_BuildTransport_SetTransport_IgnoresProxyError(t *testing.T) {
 	require.NoError(t, err, "SetTransport should bypass the deferred HTTP proxy error")
 	assert.Equal(t, http.DefaultTransport, rt)
 }
+
+// SetMaxAttempts with a negative value defers a validation error to Build.
+func TestBuilder_SetMaxAttempts_NegativeErrors(t *testing.T) {
+	neg := -1
+	_, err := httpc.NewBuilder().SetBaseURLs("https://example.com").SetMaxAttempts(&neg).Build(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "SetMaxAttempts")
+}

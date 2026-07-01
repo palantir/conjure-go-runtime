@@ -235,3 +235,34 @@ func TestLocationFromError(t *testing.T) {
 		})
 	}
 }
+
+// httpc.WithConjureErrorDecoder is equivalent to wrapping with
+// httpc.DefaultErrorDecoderWithConjure.
+func TestOverrides_WithConjureErrorDecoder(t *testing.T) {
+	var called bool
+	ced := &probeConjureDecoder{onDecode: func(name string, body []byte) {
+		called = true
+		assert.NotEmpty(t, body)
+	}}
+
+	ep := httpc.NewNoBodyEndpoint[struct{}](http.MethodGet, "Err", "/err").
+		WithDecoder(httpc.VoidDecoder())
+
+	client := handlerClient(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"errorCode":"INVALID_ARGUMENT","errorName":"Conjure:InvalidArgument","errorInstanceId":"00000000-0000-0000-0000-000000000000","parameters":{}}`))
+	})
+	_, _, err := ep.Call().WithOverrides(httpc.WithConjureErrorDecoder(httpc.Overrides{}, ced)).Execute(context.Background(), client)
+	require.Error(t, err)
+	assert.True(t, called, "ConjureErrorDecoder should have been invoked")
+}
+
+type probeConjureDecoder struct {
+	onDecode func(name string, body []byte)
+}
+
+func (p *probeConjureDecoder) DecodeConjureError(name string, body []byte) (errors.Error, error) {
+	p.onDecode(name, body)
+	return errors.NewInvalidArgument(), nil
+}

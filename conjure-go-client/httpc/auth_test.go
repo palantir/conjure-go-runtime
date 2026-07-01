@@ -219,3 +219,44 @@ func TestAuth_ApplyConfigRefreshableSwitching(t *testing.T) {
 	cfgR.Update(cfg)
 	assert.Equal(t, "Bearer fallback", exec(), "neither set → falls back to the prior SetAuth")
 }
+
+// Overrides.WithAuthorization wins over an Overrides.WithHeader("Authorization", ...).
+func TestEndpointExecute_AuthorizerOverridesAuthorizationHeader(t *testing.T) {
+	var seen string
+	transport := &roundTripFunc{fn: func(req *http.Request) (*http.Response, error) {
+		seen = req.Header.Get("Authorization")
+		return emptyResponse(req), nil
+	}}
+	client, err := httpc.NewBuilder().SetBaseURLs("https://example.com").SetTransport(transport).Build(context.Background())
+	require.NoError(t, err)
+
+	ep := httpc.NewNoBodyEndpoint[struct{}](http.MethodGet, "Auth", "/auth").
+		WithDecoder(httpc.VoidDecoder()).
+		WithHeader("Authorization", "Bearer ignored").
+		WithAuthorization(httpc.BasicCredentials("u", "p"))
+
+	_, _, err = ep.Call().Execute(context.Background(), client)
+	require.NoError(t, err)
+	// The authorizer is the trailing Authorization contributor, so it wins.
+	assert.Equal(t, "Basic dTpw", seen)
+}
+
+// OptionalBasicCredentials returning nil leaves the Authorization header unset.
+func TestBuilder_OptionalBasicCredentials_NilSkipsAuth(t *testing.T) {
+	var seen string
+	transport := &roundTripFunc{fn: func(req *http.Request) (*http.Response, error) {
+		seen = req.Header.Get("Authorization")
+		return emptyResponse(req), nil
+	}}
+	client, err := httpc.NewBuilder().
+		SetBaseURLs("https://example.com").
+		SetTransport(transport).
+		SetAuth(httpc.OptionalBasicCredentials(func(context.Context) (*httpc.BasicAuth, error) { return nil, nil })).
+		Build(context.Background())
+	require.NoError(t, err)
+
+	ep := httpc.NewNoBodyEndpoint[struct{}](http.MethodGet, "T", "/t").WithDecoder(httpc.VoidDecoder())
+	_, _, err = ep.Call().Execute(context.Background(), client)
+	require.NoError(t, err)
+	assert.Empty(t, seen, "nil from OptionalBasicCredentials should leave Authorization unset")
+}

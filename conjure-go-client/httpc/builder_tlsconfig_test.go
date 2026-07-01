@@ -485,3 +485,19 @@ func subjectsEqual(a, b [][]byte) bool {
 	}
 	return true
 }
+
+// SetTLSConfig escape hatch is not mutated by SetInsecureSkipVerify.
+func TestSetInsecureSkipVerify_DoesNotMutateEscapeHatch(t *testing.T) {
+	user := &tls.Config{InsecureSkipVerify: false, MinVersion: tls.VersionTLS13}
+	b := httpc.NewBuilder().SetTLSConfig(user).SetInsecureSkipVerify(true)
+
+	result, err := b.BuildTLSConfig(context.Background())
+	require.NoError(t, err)
+	cfg, validErr := result.Validation()
+	require.NoError(t, validErr)
+	// The escape-hatch config takes priority — InsecureSkipVerify stays false.
+	assert.False(t, cfg.InsecureSkipVerify, "escape-hatch config should not be flipped by SetInsecureSkipVerify")
+	assert.Equal(t, uint16(tls.VersionTLS13), cfg.MinVersion)
+	// The caller's original config is also untouched (defensive — SetTLSConfig clones).
+	assert.False(t, user.InsecureSkipVerify, "caller's config must not be mutated")
+}

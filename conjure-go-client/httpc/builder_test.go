@@ -621,3 +621,41 @@ func TestBuilder_SetTransport_FullClientPathWithCustomRoundTripper(t *testing.T)
 	assert.Equal(t, 1, calls, "custom transport should have been invoked exactly once")
 	assert.Equal(t, "in-process", result.Message)
 }
+
+// SetTransport short-circuits the dialer/TLS construction path even when
+// SetDialer is also set.
+func TestBuilder_SetTransport_WinsOverSetDialer(t *testing.T) {
+	var transportCalled bool
+	transport := &roundTripFunc{fn: func(req *http.Request) (*http.Response, error) {
+		transportCalled = true
+		return emptyResponse(req), nil
+	}}
+	customDialer := &net.Dialer{Timeout: 99 * time.Hour}
+	client, err := httpc.NewBuilder().
+		SetBaseURLs("https://example.com").
+		SetDialer(customDialer).
+		SetTransport(transport).
+		Build(context.Background())
+	require.NoError(t, err)
+
+	ep := httpc.NewNoBodyEndpoint[struct{}](http.MethodGet, "T", "/test").WithDecoder(httpc.VoidDecoder())
+	_, _, err = ep.Call().Execute(context.Background(), client)
+	require.NoError(t, err)
+	assert.True(t, transportCalled, "the SetTransport-provided transport should be used")
+}
+
+// Param0/Param1/Param2/ParamVarArgs each forward to the wrapped builder method.
+func TestParam_Helpers(t *testing.T) {
+	b := httpc.NewBuilder()
+
+	b.Apply(
+		httpc.Param0((*httpc.Builder).DisableHTTP2),
+		httpc.Param1((*httpc.Builder).SetServiceName, "svc"),
+		httpc.Param2((*httpc.Builder).SetBasicAuth, "u", "p"),
+		httpc.ParamVarArgs((*httpc.Builder).SetBaseURLs, []string{"https://a", "https://b"}),
+	)
+
+	client, err := b.Build(context.Background())
+	require.NoError(t, err)
+	require.NotNil(t, client)
+}

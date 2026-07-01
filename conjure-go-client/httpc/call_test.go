@@ -188,3 +188,33 @@ func TestCall_BodyPresenceIsTypeEnforced(t *testing.T) {
 	_, callHasExecute := reflect.TypeOf(httpc.Call[testPayload]{}).MethodByName("Execute")
 	assert.True(t, callHasExecute, "Call must expose Execute")
 }
+
+// Calling a body endpoint without an encoder must error rather than
+// silently dropping the body.
+func TestCallExecute_BodyNoEncoder_Errors(t *testing.T) {
+	ep := httpc.NewPOST[testPayload, struct{}]("NoEncoder", "/test").
+		WithDecoder(httpc.VoidDecoder())
+
+	client := &roundTripFunc{fn: func(*http.Request) (*http.Response, error) {
+		t.Fatal("client should not be called when body has no encoder")
+		return nil, nil
+	}}
+	_, _, err := ep.Call(testPayload{Name: "x", Value: 1}).Execute(context.Background(), client)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no encoder")
+}
+
+// Unterminated '{' in the path template must error rather than sending
+// the literal brace.
+func TestCallExecute_UnterminatedPathParam_Errors(t *testing.T) {
+	ep := httpc.NewGET[struct{}]("Bad", "/items/{itemId").
+		WithDecoder(httpc.VoidDecoder())
+
+	client := &roundTripFunc{fn: func(*http.Request) (*http.Response, error) {
+		t.Fatal("client should not be called for malformed path")
+		return nil, nil
+	}}
+	_, _, err := ep.Call().Execute(context.Background(), client)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unterminated")
+}
