@@ -319,10 +319,10 @@ func (c *standardRuntime[B]) Send(ctx context.Context, req *http.Request, opts S
 		// than dispatching the full request and replayable body to it) closes the SSRF
 		// pivot. A failover to the next configured node (no Location) is not a relocation.
 		if isRelocated && !relocationAllowed(uri, targets) {
-			internal.DrainBody(ctx, resp)
+			drainBody(ctx, resp)
 			return nil, werror.WrapWithContextParams(ctx, ErrInvalidRelocation{}, "", werror.UnsafeParam("location", uri))
 		}
-		internal.DrainBody(ctx, resp)
+		drainBody(ctx, resp)
 		if err != nil {
 			svc1log.FromContext(ctx).Debug("Retrying request", svc1log.Stacktrace(err))
 		} else if resp != nil {

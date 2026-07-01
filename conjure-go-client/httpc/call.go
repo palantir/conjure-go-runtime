@@ -17,13 +17,14 @@ package httpc
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
 
-	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/internal"
 	"github.com/palantir/pkg/bytesbuffers"
+	"github.com/palantir/witchcraft-go-logging/wlog/svclog/svc1log"
 )
 
 // Call is a single request invocation derived from an endpoint descriptor via
@@ -84,38 +85,31 @@ func (c Call[Resp]) WithPathParam(key string, value any) Call[Resp] {
 	s := fmt.Sprint(value)
 	if glob := "{" + key + "*}"; strings.Contains(c.path, glob) {
 		segments := strings.Split(s, "/")
-		if seg, ok := traversalSegment(segments); ok {
-			return c.withPathParamErr(key, seg)
+		c = c.withPathParamErr(key, segments)
+		if c.pathParamErr != nil {
+			return c
 		}
 		for i, seg := range segments {
 			segments[i] = url.PathEscape(seg)
 		}
 		c.path = strings.ReplaceAll(c.path, glob, strings.Join(segments, "/"))
 	} else {
-		if seg, ok := traversalSegment([]string{s}); ok {
-			return c.withPathParamErr(key, seg)
+		c = c.withPathParamErr(key, []string{s})
+		if c.pathParamErr != nil {
+			return c
 		}
 		c.path = strings.ReplaceAll(c.path, "{"+key+"}", url.PathEscape(s))
 	}
 	return c
 }
 
-// traversalSegment returns the first "." or ".." directory-traversal segment, if any.
-func traversalSegment(segments []string) (string, bool) {
+func (c Call[Resp]) withPathParamErr(key string, segments []string) Call[Resp] {
 	for _, seg := range segments {
 		if seg == "." || seg == ".." {
-			return seg, true
+			if c.pathParamErr == nil {
+				c.pathParamErr = fmt.Errorf("httpc: path parameter %q must not contain a %q segment (possible path traversal)", key, seg)
+			}
 		}
-	}
-	return "", false
-}
-
-// withPathParamErr records the first path-parameter error. WithPathParam is chainable
-// and cannot return an error, so it is deferred and surfaced by Execute — like the
-// unterminated/unpopulated placeholder checks.
-func (c Call[Resp]) withPathParamErr(key, segment string) Call[Resp] {
-	if c.pathParamErr == nil {
-		c.pathParamErr = fmt.Errorf("httpc: path parameter %q must not contain a %q segment (possible path traversal)", key, segment)
 	}
 	return c
 }
@@ -279,22 +273,36 @@ func (c Call[Resp]) Execute(ctx context.Context, client Runtime) (Resp, *http.Re
 	}
 	if decoder.Handles(resp) {
 		decodeErr := decoder.DecodeError(resp)
-		internal.DrainBody(ctx, resp)
+		drainBody(ctx, resp)
 		return zero, resp, decodeErr
 	}
 
 	if c.decoder != nil {
 		result, err := c.decoder.Decode(ctx, resp)
 		if err != nil {
-			internal.DrainBody(ctx, resp)
+			drainBody(ctx, resp)
 			return zero, resp, err
 		}
 		// rawBodyDecoder hands the body to the caller; don't drain.
 		if _, raw := c.decoder.(rawBodyDecoder); !raw {
-			internal.DrainBody(ctx, resp)
+			drainBody(ctx, resp)
 		}
 		return result, resp, nil
 	}
-	internal.DrainBody(ctx, resp)
+	drainBody(ctx, resp)
 	return zero, resp, nil
+}
+
+func drainBody(ctx context.Context, resp *http.Response) {
+	// drain and close treated as best-effort
+	if resp != nil && resp.Body != nil {
+		if bytes, err := io.Copy(io.Discard, resp.Body); err != nil {
+			svc1log.FromContext(ctx).Warn("Failed to drain entire response body", svc1log.SafeParam("bytes", bytes), svc1log.Stacktrace(err))
+		} else if bytes > 0 {
+			svc1log.FromContext(ctx).Debug("Drained remaining response body", svc1log.SafeParam("bytes", bytes))
+		}
+		if err := resp.Body.Close(); err != nil {
+			svc1log.FromContext(ctx).Warn("Failed to close response body", svc1log.Stacktrace(err))
+		}
+	}
 }
