@@ -40,6 +40,7 @@ import (
 	"time"
 
 	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpc"
+	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpc/snappybody"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -383,7 +384,7 @@ func TestRetry_CompressedBody(t *testing.T) {
 		encoder  func(httpc.BodyEncoder[testRetryPayload]) httpc.BodyEncoder[testRetryPayload]
 	}{
 		{"gzip", "gzip", httpc.GZIPEncoder[testRetryPayload]},
-		{"snappy", "snappy", httpc.SnappyEncoder[testRetryPayload]},
+		{"snappy", "snappy", snappybody.SnappyEncoder[testRetryPayload]},
 		{"zlib", "deflate", httpc.ZLIBEncoder[testRetryPayload]},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

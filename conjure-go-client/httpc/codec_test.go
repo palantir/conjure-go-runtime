@@ -33,6 +33,7 @@ import (
 
 	"github.com/golang/snappy"
 	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpc"
+	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpc/snappybody"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -287,7 +288,7 @@ func TestZLIBEncoder(t *testing.T) {
 }
 
 func TestSnappyEncoder(t *testing.T) {
-	enc := httpc.SnappyEncoder(httpc.JSONEncoder[testPayload]())
+	enc := snappybody.SnappyEncoder(httpc.JSONEncoder[testPayload]())
 	req, err := http.NewRequest(http.MethodPost, "http://example.com", nil)
 	require.NoError(t, err)
 	err = enc.Encode(req, testPayload{Name: "snappy", Value: 2})

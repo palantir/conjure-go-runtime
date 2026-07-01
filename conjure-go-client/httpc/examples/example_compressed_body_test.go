@@ -28,8 +28,8 @@ import (
 // Example_compressedBody gzip-compresses the request body.
 //
 // GZIPEncoder wraps any inner encoder, compressing its output and setting
-// Content-Encoding: gzip (SnappyEncoder and ZLIBEncoder are the other variants). The
-// server is responsible for decompressing based on the Content-Encoding header.
+// Content-Encoding: gzip (ZLIBEncoder and snappybody.SnappyEncoder are the other
+// variants). The server is responsible for decompressing based on the Content-Encoding header.
 func Example_compressedBody() {
 	ctx := context.Background()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

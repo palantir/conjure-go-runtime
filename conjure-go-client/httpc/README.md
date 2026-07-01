@@ -244,8 +244,9 @@ Built-in encoders and decoders cover common content types:
 | `BinaryEncoderOnce(ct)` | caller-specified | No | Single-use stream; Content-Length -1, no `GetBody` |
 | `BinaryEncoderWithReplay(ct)` | caller-specified | Yes | Takes `func() (io.ReadCloser, error)` |
 | `GZIPEncoder[Req](inner)` | preserved | If inner is | Wraps any encoder with gzip |
-| `SnappyEncoder[Req](inner)` | preserved | If inner is | Wraps any encoder with snappy |
 | `ZLIBEncoder[Req](inner)` | preserved | If inner is | Wraps any encoder with deflate |
+| `CompressedEncoder[Req, W](inner, enc, newWriter)` | preserved | If inner is | Generic base for the above; wraps any `io.WriteCloser` compressor |
+| `snappybody.SnappyEncoder[Req](inner)` | preserved | If inner is | Snappy; in the `httpc/snappybody` sub-package so `github.com/golang/snappy` stays out of core |
 
 **Decoders** (`BodyDecoder[Resp]`):
 

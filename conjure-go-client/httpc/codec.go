@@ -27,7 +27,6 @@ import (
 	"net/url"
 	"os"
 
-	"github.com/golang/snappy"
 	"github.com/palantir/pkg/bytesbuffers"
 )
 
@@ -346,72 +345,51 @@ func BinaryEncoderWithReplay(contentType string) BodyEncoder[func() (io.ReadClos
 
 // ZLIBEncoder wraps inner with zlib (deflate) compression and sets Content-Encoding: deflate.
 func ZLIBEncoder[Req any](inner BodyEncoder[Req]) BodyEncoder[Req] {
-	return NewBodyEncoderFunc[Req]("", func(req *http.Request, body Req) error {
-		if err := inner.Encode(req, body); err != nil {
-			return err
-		}
-		return compressRequestBody(req, "deflate", func(w io.Writer) io.WriteCloser {
-			return zlib.NewWriter(w)
-		})
-	})
-}
-
-// SnappyEncoder wraps inner with Snappy compression and sets Content-Encoding: snappy.
-func SnappyEncoder[Req any](inner BodyEncoder[Req]) BodyEncoder[Req] {
-	return NewBodyEncoderFunc[Req]("", func(req *http.Request, body Req) error {
-		if err := inner.Encode(req, body); err != nil {
-			return err
-		}
-		return compressRequestBody(req, "snappy", func(w io.Writer) io.WriteCloser {
-			return snappy.NewBufferedWriter(w)
-		})
-	})
+	return CompressedEncoder(inner, "deflate", zlib.NewWriter)
 }
 
 // GZIPEncoder wraps inner with gzip compression and sets Content-Encoding: gzip.
 func GZIPEncoder[Req any](inner BodyEncoder[Req]) BodyEncoder[Req] {
+	return CompressedEncoder(inner, "gzip", gzip.NewWriter)
+}
+
+// CompressedEncoder wraps req.Body in a streaming compressor and sets
+// Content-Encoding. Compressed size is unknown so ContentLength becomes -1
+// (chunked). Retryability is preserved: if the original GetBody is set, the
+// new one wraps a fresh inner body in a fresh compressor.
+func CompressedEncoder[Req any, W io.WriteCloser](inner BodyEncoder[Req], encoding string, newWriter func(io.Writer) W) BodyEncoder[Req] {
 	return NewBodyEncoderFunc[Req]("", func(req *http.Request, body Req) error {
 		if err := inner.Encode(req, body); err != nil {
 			return err
 		}
-		return compressRequestBody(req, "gzip", func(w io.Writer) io.WriteCloser {
-			return gzip.NewWriter(w)
-		})
-	})
-}
-
-// compressRequestBody wraps req.Body in a streaming compressor and sets
-// Content-Encoding. Compressed size is unknown so ContentLength becomes -1
-// (chunked). Retryability is preserved: if the original GetBody is set, the
-// new one wraps a fresh inner body in a fresh compressor.
-func compressRequestBody(req *http.Request, encoding string, newWriter func(io.Writer) io.WriteCloser) error {
-	if req.Body == nil {
-		return nil
-	}
-	req.Header.Set("Content-Encoding", encoding)
-	req.ContentLength = -1
-
-	origBody := req.Body
-	req.Body = newCompressedReader(origBody, newWriter)
-
-	if origGetBody := req.GetBody; origGetBody != nil {
-		req.GetBody = func() (io.ReadCloser, error) {
-			body, err := origGetBody()
-			if err != nil {
-				return nil, err
-			}
-			return newCompressedReader(body, newWriter), nil
+		if req.Body == nil {
+			return nil
 		}
-	} else {
-		req.GetBody = nil
-	}
-	return nil
+		req.Header.Set("Content-Encoding", encoding)
+		req.ContentLength = -1
+
+		origBody := req.Body
+		req.Body = newCompressedReader(origBody, newWriter)
+
+		if origGetBody := req.GetBody; origGetBody != nil {
+			req.GetBody = func() (io.ReadCloser, error) {
+				body, err := origGetBody()
+				if err != nil {
+					return nil, err
+				}
+				return newCompressedReader(body, newWriter), nil
+			}
+		} else {
+			req.GetBody = nil
+		}
+		return nil
+	})
 }
 
 // newCompressedReader streams src through the compressor produced by newWriter.
 // A background goroutine drives compression; closing the returned reader
 // cancels it and releases src.
-func newCompressedReader(src io.ReadCloser, newWriter func(io.Writer) io.WriteCloser) io.ReadCloser {
+func newCompressedReader[W io.WriteCloser](src io.ReadCloser, newWriter func(io.Writer) W) io.ReadCloser {
 	pr, pw := io.Pipe()
 	go func() {
 		defer func() { _ = src.Close() }()
