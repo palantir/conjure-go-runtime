@@ -22,6 +22,87 @@ import (
 	"github.com/palantir/pkg/bytesbuffers"
 )
 
+// RequestOverrides is the per-request configuration shared by the endpoint
+// descriptors ([BodyEndpoint], [NoBodyEndpoint]), the per-invocation [Call], and
+// the reusable [Overrides] bag. Every method is copy-on-write: it returns a new
+// value with the override applied, so deriving variants from a shared base is safe:
+//
+//	base := ep.WithAddedHeader("X-Tenant", "acme")
+//	v1 := base.WithAddedHeader("Api-Version", "1")
+//	v2 := base.WithAddedHeader("Api-Version", "2") // base and v1 are unaffected
+//
+// The type parameter D is the concrete implementing type, so methods on a
+// BodyEndpoint return a BodyEndpoint, methods on a Call return a Call, etc.
+//
+// The implementations represent two configuration layers composed at execute time:
+//
+//   - On a descriptor ([BodyEndpoint]/[NoBodyEndpoint]), these methods set static
+//     defaults baked into the package-level descriptor (e.g. a constant
+//     Accept-Language header for every call to a given RPC).
+//   - On a [Call] (or an [Overrides] merged into one via [Call.WithOverrides]),
+//     they capture per-invocation values (e.g. headers derived from the call site
+//     context).
+//
+// Headers and query parameters accumulate across both layers; scalar values
+// (timeout, error decoder, authorizer, buffer pool) are last-wins — the
+// per-invocation layer wins for any scalar it set, including an explicit clear
+// (WithDefault* / WithUnlimitedTimeout / WithNoErrorDecoder).
+type RequestOverrides[D any] interface {
+	// WithHeader sets a request header to the given value(s), replacing any
+	// previously added or set values for the key.
+	WithHeader(key, value string, additionalValues ...string) D
+	// WithAddedHeader appends one or more values to a request header.
+	// Multiple calls with the same key accumulate values.
+	WithAddedHeader(key, value string, additionalValues ...string) D
+	// WithQuery sets a query parameter to the given value(s), replacing any
+	// previously added or set values for the key.
+	WithQuery(key, value string, additionalValues ...string) D
+	// WithAddedQuery appends one or more values to a query parameter.
+	WithAddedQuery(key, value string, additionalValues ...string) D
+	// WithAddedQueryValues appends every key/value pair in q to the request query.
+	WithAddedQueryValues(q url.Values) D
+	// WithTimeout sets a per-attempt timeout that overrides the client-level
+	// timeout. The runtime applies it to each attempt via the call-scoped
+	// *http.Client. A zero duration disables the per-attempt timeout
+	// (WithUnlimitedTimeout is the explicit spelling). Use a context deadline for
+	// a whole-call deadline that spans all retries.
+	WithTimeout(time.Duration) D
+	// WithUnlimitedTimeout disables the per-attempt timeout, overriding any
+	// client-level or inherited timeout.
+	WithUnlimitedTimeout() D
+	// WithDefaultTimeout clears any timeout set here so the client-level timeout applies.
+	WithDefaultTimeout() D
+	// WithErrorDecoder sets a per-request error decoder; overrides the
+	// endpoint-level decoder and [DefaultErrorDecoder]. For typed Conjure errors,
+	// use conjureerrors.WithConjureErrorDecoder, which keeps the
+	// conjure-go-contract/errors dependency off this interface.
+	WithErrorDecoder(ErrorDecoder) D
+	// WithNoErrorDecoder skips error decoding entirely; [Call.Execute] returns
+	// the raw response for every status code.
+	WithNoErrorDecoder() D
+	// WithDefaultErrorDecoder clears any decoder set here so [Call.Execute]
+	// falls back to [DefaultErrorDecoder].
+	WithDefaultErrorDecoder() D
+	// WithAuthorization sets the per-request [Authorizer], overriding any
+	// client-level auth. Pass [NoAuthorization] to deliberately send no
+	// credentials for this request; a nil Authorizer clears the override
+	// (identical to WithDefaultAuthorization).
+	WithAuthorization(Authorizer) D
+	// WithDefaultAuthorization clears any authorizer set here so lower-priority
+	// client-level auth (or an explicit Authorization header) applies.
+	WithDefaultAuthorization() D
+	// WithMiddleware appends a per-request middleware that runs once per attempt
+	// around the resolved request, inside telemetry like the builder middleware.
+	WithMiddleware(Middleware) D
+	// WithBufferPool sets a buffer pool that encoders may use to avoid
+	// per-request allocations. Passing nil clears it (see WithDefaultBufferPool).
+	// The [bytesbuffers.Pool] dependency is intentional — mocks of this interface
+	// need to import it.
+	WithBufferPool(bytesbuffers.Pool) D
+	// WithDefaultBufferPool clears any buffer pool set here so encoders run without one.
+	WithDefaultBufferPool() D
+}
+
 // overrideValue carries a scalar override plus whether this layer set it. An
 // unset value inherits the layer below at merge time; a set value applies even
 // when it is zero/nil, which is how a per-call Overrides clears an inherited
