@@ -39,7 +39,8 @@ by `go test` and render in godoc. Useful starting points:
   [`Example_headers`](examples/example_headers_test.go)
 - Auth: [`Example_bearerToken`](examples/example_auth_bearer_test.go),
   [`Example_basicAuth`](examples/example_auth_basic_test.go),
-  [`Example_authPrecedence`](examples/example_auth_precedence_test.go)
+  [`Example_authPrecedence`](examples/example_auth_precedence_test.go),
+  [`Example_oauth2TokenSource`](examples/example_auth_oauth2_test.go)
 - Body codecs: [`Example_binaryStreaming`](examples/example_binary_streaming_test.go),
   [`Example_replayableStreamingBody`](examples/example_replayable_streaming_body_test.go),
   [`Example_customCodec`](examples/example_custom_codec_test.go)
@@ -520,7 +521,10 @@ Constructors: `BearerToken`, `BearerTokenProvider`, `RefreshableBearerToken`,
 `BasicCredentials`, `BasicCredentialsProvider`, `OptionalBasicCredentials`,
 `RefreshableBasicCredentials`. `SetAuthToken(t)` and `SetBasicAuth(u, p)` are kept
 as sugar for `SetAuth(BearerToken(t))` / `SetAuth(BasicCredentials(u, p))`.
-`AuthorizerFunc` adapts a plain `func(ctx) (string, error)`.
+`AuthorizerFunc` adapts a plain `func(ctx) (string, error)`. For a
+`golang.org/x/oauth2.TokenSource`, `oauth2auth.TokenSource(src)` returns an
+`Authorizer` (in the `httpc/oauth2auth` sub-package, so `golang.org/x/oauth2` stays
+out of core).
 
 ### Precedence
 
