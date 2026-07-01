@@ -21,7 +21,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpc/internal"
 	"github.com/palantir/pkg/retry"
 )
 
@@ -70,7 +69,7 @@ func (r *RequestRetrier) attemptsRemaining() bool {
 
 // GetNextURI returns the next URI a client should use, or empty string if no suitable URI remaining to retry.
 // isRelocated is true when the URI comes from a redirect's Location header. In this case, it already includes the request path.
-func (r *RequestRetrier) GetNextURI(resp *http.Response, respErr error) (uri string, isRelocated bool) {
+func (r *RequestRetrier) GetNextURI(resp *http.Response, _ error) (uri string, isRelocated bool) {
 	defer func() {
 		r.attemptCount++
 	}()
@@ -89,7 +88,7 @@ func (r *RequestRetrier) GetNextURI(resp *http.Response, respErr error) (uri str
 		// Mesh uris don't get retried
 		return "", false
 	}
-	retryFn := r.getRetryFn(resp, respErr)
+	retryFn := r.getRetryFn(resp)
 	if retryFn == nil {
 		// The previous response was not retryable
 		return "", false
@@ -101,18 +100,16 @@ func (r *RequestRetrier) GetNextURI(resp *http.Response, respErr error) (uri str
 	return r.currentURI, r.isRelocatedURI(r.currentURI)
 }
 
-func (r *RequestRetrier) getRetryFn(resp *http.Response, respErr error) func() bool {
-	errCode, _ := internal.StatusCodeFromError(respErr)
-	if retryOther, _ := isThrottleResponse(resp, errCode); retryOther {
-		// 429: throttle
-		// Immediately backoff and select the next URI.
+func (r *RequestRetrier) getRetryFn(resp *http.Response) func() bool {
+	if retryOther, _ := isThrottleResponse(resp); retryOther {
+		// 429: throttle. Immediately backoff and select the next URI.
 		// TODO(whickman): use the retry-after header once #81 is resolved
 		return r.nextURIAndBackoff
-	} else if isUnavailableResponse(resp, errCode) {
+	} else if isUnavailableResponse(resp) {
 		// 503: go to next node
 		return r.nextURIOrBackoff
-	} else if shouldTryOther, otherURI := isRetryOtherResponse(resp, respErr, errCode); shouldTryOther {
-		// 307 or 308: go to next node, or particular node if provided.
+	} else if shouldTryOther, otherURI := isRetryOtherResponse(resp); shouldTryOther {
+		// 307 or 308: go to next node, or a particular node if the Location names one.
 		if otherURI != nil {
 			return func() bool {
 				r.setURIAndResetBackoff(otherURI)
@@ -120,10 +117,8 @@ func (r *RequestRetrier) getRetryFn(resp *http.Response, respErr error) func() b
 			}
 		}
 		return r.nextURIOrBackoff
-	} else if errCode >= http.StatusBadRequest && errCode < http.StatusInternalServerError {
-		return nil
 	} else if resp == nil {
-		// if we get a nil response, we can assume there is a problem with host and can move on to the next.
+		// A nil response means a transport error; move on to the next host.
 		return r.nextURIOrBackoff
 	}
 	return nil
@@ -216,15 +211,7 @@ const (
 	StatusCodeUnavailable            = http.StatusServiceUnavailable
 )
 
-func isRetryOtherResponse(resp *http.Response, err error, errCode int) (bool, *url.URL) {
-	if errCode == StatusCodeRetryOther || errCode == StatusCodeRetryTemporaryRedirect {
-		locationStr, ok := internal.LocationFromError(err)
-		if !ok {
-			return true, nil
-		}
-		return true, parseLocationURL(locationStr)
-	}
-
+func isRetryOtherResponse(resp *http.Response) (bool, *url.URL) {
 	if resp == nil {
 		return false, nil
 	}
@@ -239,24 +226,9 @@ func isRetryOtherResponse(resp *http.Response, err error, errCode int) (bool, *u
 	return true, location
 }
 
-func parseLocationURL(locationStr string) *url.URL {
-	if locationStr == "" {
-		return nil
-	}
-	locationURL, err := url.Parse(locationStr)
-	if err != nil {
-		// Unable to parse location as something we recognize
-		return nil
-	}
-	return locationURL
-}
-
 // isThrottleResponse returns true if the response a throttle response type. It
 // also returns a duration after which the failed URI can be retried
-func isThrottleResponse(resp *http.Response, errCode int) (bool, time.Duration) {
-	if errCode == StatusCodeThrottle {
-		return true, 0
-	}
+func isThrottleResponse(resp *http.Response) (bool, time.Duration) {
 	if resp == nil || resp.StatusCode != StatusCodeThrottle {
 		return false, 0
 	}
@@ -276,12 +248,6 @@ func isThrottleResponse(resp *http.Response, errCode int) (bool, time.Duration) 
 	return true, time.Until(retryAfterDate)
 }
 
-func isUnavailableResponse(resp *http.Response, errCode int) bool {
-	if errCode == StatusCodeUnavailable {
-		return true
-	}
-	if resp == nil || resp.StatusCode != StatusCodeUnavailable {
-		return false
-	}
-	return true
+func isUnavailableResponse(resp *http.Response) bool {
+	return resp != nil && resp.StatusCode == StatusCodeUnavailable
 }

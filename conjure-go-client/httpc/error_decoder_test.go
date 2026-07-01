@@ -196,3 +196,42 @@ func TestExecute_TypedErrorMalformedParams_FallsBackToGenericError(t *testing.T)
 	assert.Equal(t, "ada42104-7688-4720-8e4e-72deae1cec87", cerr.InstanceID().String())
 	assert.Equal(t, "[basic]", cerr.UnsafeParams()["tables"])
 }
+
+func TestStatusCodeFromError(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		err         error
+		expectExist bool
+		expectCode  int
+	}{
+		{name: "no status code", err: werror.Error("200"), expectExist: false, expectCode: 0},
+		{name: "status code 200", err: werror.Error("200", werror.SafeParam("statusCode", 200)), expectExist: true, expectCode: 200},
+		{name: "status code non int", err: werror.Error("200", werror.SafeParam("statusCode", "200")), expectExist: false, expectCode: 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			code, exist := httpc.StatusCodeFromError(tc.err)
+			assert.Equal(t, tc.expectExist, exist)
+			assert.Equal(t, tc.expectCode, code)
+		})
+	}
+}
+
+func TestLocationFromError(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		err            error
+		expectExist    bool
+		expectLocation string
+	}{
+		{name: "200 no location", err: werror.Error("200", werror.SafeParam("statusCode", 200)), expectExist: false, expectLocation: ""},
+		{name: "307 with location", err: werror.Error("307", werror.SafeParam("statusCode", 307), werror.UnsafeParam("location", "https://google.com")), expectExist: true, expectLocation: "https://google.com"},
+		{name: "307 without location", err: werror.Error("307", werror.SafeParam("statusCode", 307), werror.UnsafeParam("location", "")), expectExist: true, expectLocation: ""},
+		{name: "307 with non string location", err: werror.Error("307", werror.SafeParam("statusCode", 307), werror.UnsafeParam("location", 12345)), expectExist: false, expectLocation: ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			location, exist := httpc.LocationFromError(tc.err)
+			assert.Equal(t, tc.expectExist, exist)
+			assert.Equal(t, tc.expectLocation, location)
+		})
+	}
+}

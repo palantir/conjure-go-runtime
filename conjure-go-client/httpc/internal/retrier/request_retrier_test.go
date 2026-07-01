@@ -20,9 +20,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpc/internal"
 	"github.com/palantir/pkg/retry"
-	werror "github.com/palantir/witchcraft-go-error"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -34,8 +32,8 @@ func TestRequestRetrier_HandleMeshURI(t *testing.T) {
 	uri, _ := r.GetNextURI(nil, nil)
 	require.Equal(t, uri, "http://example.com")
 
-	respErr := werror.ErrorWithContextParams(context.Background(), "error", werror.SafeParam("statusCode", 429))
-	uri, _ = r.GetNextURI(nil, respErr)
+	// A retryable (429) response still does not retry a mesh URI.
+	uri, _ = r.GetNextURI(&http.Response{StatusCode: http.StatusTooManyRequests}, nil)
 	require.Empty(t, uri)
 }
 
@@ -114,26 +112,10 @@ func TestRequestRetrier_UsesLocationHeader(t *testing.T) {
 	require.True(t, isRelocated)
 }
 
-func TestRequestRetrier_UsesLocationFromErr(t *testing.T) {
-	r := NewRequestRetrier([]string{"http://example-1.com"}, retry.Start(context.Background()), 2)
-	respErr := werror.ErrorWithContextParams(context.Background(), "307",
-		werror.SafeParam("statusCode", 307),
-		werror.SafeParam("location", "http://example-2.com"))
-
-	uri, isRelocated := r.GetNextURI(nil, nil)
-	require.Equal(t, uri, "http://example-1.com")
-	require.False(t, isRelocated)
-
-	uri, isRelocated = r.GetNextURI(nil, respErr)
-	require.Equal(t, uri, "http://example-2.com")
-	require.True(t, isRelocated)
-}
-
 func TestRequestRetrier_GetNextURI(t *testing.T) {
 	for _, tc := range []struct {
 		name               string
 		resp               *http.Response
-		respErr            error
 		uris               []string
 		shouldRetry        bool
 		shouldRetrySameURI bool
@@ -141,182 +123,93 @@ func TestRequestRetrier_GetNextURI(t *testing.T) {
 		shouldRetryReset   bool
 	}{
 		{
-			name:               "returns error if response exists and doesn't appear retryable",
-			resp:               &http.Response{},
-			respErr:            nil,
-			uris:               []string{"a", "b"},
-			shouldRetry:        false,
-			shouldRetrySameURI: false,
-			shouldRetryBackoff: false,
-			shouldRetryReset:   false,
+			name:        "returns error if response exists and doesn't appear retryable",
+			resp:        &http.Response{},
+			uris:        []string{"a", "b"},
+			shouldRetry: false,
 		},
 		{
-			name:               "returns error if error code not retryable",
-			resp:               &http.Response{},
-			respErr:            nil,
-			uris:               []string{"a", "b"},
-			shouldRetry:        false,
-			shouldRetrySameURI: false,
-			shouldRetryBackoff: false,
-			shouldRetryReset:   false,
+			name:        "returns a URI if response is nil",
+			resp:        nil,
+			uris:        []string{"a", "b"},
+			shouldRetry: true,
 		},
 		{
-			name:               "returns a URI if response and error are nil",
+			name:               "retries and backs off the single URI if response is nil",
 			resp:               nil,
-			respErr:            nil,
-			uris:               []string{"a", "b"},
-			shouldRetry:        true,
-			shouldRetrySameURI: false,
-			shouldRetryBackoff: false,
-			shouldRetryReset:   false,
-		},
-		{
-			name:               "returns a URI if response and error are nil",
-			resp:               nil,
-			respErr:            nil,
-			uris:               []string{"a", "b"},
-			shouldRetry:        true,
-			shouldRetrySameURI: false,
-			shouldRetryBackoff: false,
-			shouldRetryReset:   false,
-		},
-		{
-			name:               "retries and backs off the single URI if response and error are nil",
-			resp:               nil,
-			respErr:            nil,
 			uris:               []string{"a"},
 			shouldRetry:        true,
 			shouldRetrySameURI: true,
 			shouldRetryBackoff: true,
-			shouldRetryReset:   false,
 		},
 		{
-			name:               "returns a new URI if unavailable",
-			resp:               nil,
-			respErr:            werror.ErrorWithContextParams(context.Background(), "503", werror.SafeParam("statusCode", 503)),
-			uris:               []string{"a", "b"},
-			shouldRetry:        true,
-			shouldRetrySameURI: false,
-			shouldRetryBackoff: false,
-			shouldRetryReset:   false,
+			name:        "returns a new URI if unavailable",
+			resp:        &http.Response{StatusCode: http.StatusServiceUnavailable},
+			uris:        []string{"a", "b"},
+			shouldRetry: true,
 		},
 		{
 			name:               "retries and backs off the single URI if unavailable",
-			resp:               nil,
-			respErr:            werror.ErrorWithContextParams(context.Background(), "503", werror.SafeParam("statusCode", 503)),
+			resp:               &http.Response{StatusCode: http.StatusServiceUnavailable},
 			uris:               []string{"a"},
 			shouldRetry:        true,
 			shouldRetrySameURI: true,
 			shouldRetryBackoff: true,
-			shouldRetryReset:   false,
 		},
 		{
 			name:               "returns a new URI and backs off if throttled",
-			resp:               nil,
-			respErr:            werror.ErrorWithContextParams(context.Background(), "429", werror.SafeParam("statusCode", 429)),
+			resp:               &http.Response{StatusCode: http.StatusTooManyRequests},
 			uris:               []string{"a", "b"},
 			shouldRetry:        true,
-			shouldRetrySameURI: false,
 			shouldRetryBackoff: true,
-			shouldRetryReset:   false,
 		},
 		{
 			name:               "retries single URI and backs off if throttled",
-			resp:               nil,
-			respErr:            werror.ErrorWithContextParams(context.Background(), "429", werror.SafeParam("statusCode", 429)),
+			resp:               &http.Response{StatusCode: http.StatusTooManyRequests},
 			uris:               []string{"a"},
 			shouldRetry:        true,
 			shouldRetrySameURI: true,
 			shouldRetryBackoff: true,
-			shouldRetryReset:   false,
 		},
 		{
-			name: "retries another URI if gets retry other response without location",
-			resp: &http.Response{
-				StatusCode: StatusCodeRetryOther,
-			},
-			respErr:            nil,
-			uris:               []string{"a", "b"},
-			shouldRetry:        true,
-			shouldRetrySameURI: false,
-			shouldRetryBackoff: false,
-			shouldRetryReset:   false,
+			name:        "retries another URI if gets retry other response without location",
+			resp:        &http.Response{StatusCode: StatusCodeRetryOther},
+			uris:        []string{"a", "b"},
+			shouldRetry: true,
 		},
 		{
-			name: "retries single URI and backs off if gets retry other response without location",
-			resp: &http.Response{
-				StatusCode: StatusCodeRetryOther,
-			},
-			respErr:            nil,
+			name:               "retries single URI and backs off if gets retry other response without location",
+			resp:               &http.Response{StatusCode: StatusCodeRetryOther},
 			uris:               []string{"a"},
 			shouldRetry:        true,
 			shouldRetrySameURI: true,
 			shouldRetryBackoff: true,
-			shouldRetryReset:   false,
 		},
 		{
-			name: "retries another URI if gets retry temporary redirect response without location",
-			resp: &http.Response{
-				StatusCode: StatusCodeRetryTemporaryRedirect,
-			},
-			respErr:            nil,
-			uris:               []string{"a", "b"},
-			shouldRetry:        true,
-			shouldRetrySameURI: false,
-			shouldRetryBackoff: false,
-			shouldRetryReset:   false,
+			name:        "retries another URI if gets retry temporary redirect response without location",
+			resp:        &http.Response{StatusCode: StatusCodeRetryTemporaryRedirect},
+			uris:        []string{"a", "b"},
+			shouldRetry: true,
 		},
 		{
-			name: "retries single URI and backs off if gets retry temporary redirect response without location",
-			resp: &http.Response{
-				StatusCode: StatusCodeRetryTemporaryRedirect,
-			},
-			respErr:            nil,
+			name:               "retries single URI and backs off if gets retry temporary redirect response without location",
+			resp:               &http.Response{StatusCode: StatusCodeRetryTemporaryRedirect},
 			uris:               []string{"a"},
 			shouldRetry:        true,
 			shouldRetrySameURI: true,
 			shouldRetryBackoff: true,
-			shouldRetryReset:   false,
 		},
 		{
-			name: "does not retry 400 responses",
-			resp: &http.Response{
-				StatusCode: 400,
-			},
-			uris:               []string{"a", "b"},
-			shouldRetry:        false,
-			shouldRetrySameURI: false,
-			shouldRetryBackoff: false,
-			shouldRetryReset:   false,
+			name:        "does not retry 400 responses",
+			resp:        &http.Response{StatusCode: 400},
+			uris:        []string{"a", "b"},
+			shouldRetry: false,
 		},
 		{
-			name: "does not retry 404 responses",
-			resp: &http.Response{
-				StatusCode: 404,
-			},
-			uris:               []string{"a", "b"},
-			shouldRetry:        false,
-			shouldRetrySameURI: false,
-			shouldRetryBackoff: false,
-			shouldRetryReset:   false,
-		},
-		{
-			name:               "does not retry 400 errors",
-			respErr:            werror.ErrorWithContextParams(context.Background(), "400", werror.SafeParam("statusCode", 400)),
-			uris:               []string{"a", "b"},
-			shouldRetry:        false,
-			shouldRetrySameURI: false,
-			shouldRetryBackoff: false,
-			shouldRetryReset:   false,
-		},
-		{
-			name:               "does not retry 404s",
-			respErr:            werror.ErrorWithContextParams(context.Background(), "404", werror.SafeParam("statusCode", 404)),
-			uris:               []string{"a", "b"},
-			shouldRetry:        false,
-			shouldRetrySameURI: false,
-			shouldRetryBackoff: false,
-			shouldRetryReset:   false,
+			name:        "does not retry 404 responses",
+			resp:        &http.Response{StatusCode: 404},
+			uris:        []string{"a", "b"},
+			shouldRetry: false,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -326,7 +219,7 @@ func TestRequestRetrier_GetNextURI(t *testing.T) {
 			firstURI, _ := r.GetNextURI(nil, nil)
 			require.NotEmpty(t, firstURI)
 
-			retryURI, _ := r.GetNextURI(tc.resp, tc.respErr)
+			retryURI, _ := r.GetNextURI(tc.resp, nil)
 			if tc.shouldRetry {
 				require.Contains(t, tc.uris, retryURI)
 				if tc.shouldRetrySameURI {
@@ -376,7 +269,6 @@ func TestRetryResponseParsers(t *testing.T) {
 	for _, test := range []struct {
 		Name             string
 		Response         *http.Response
-		RespErr          error
 		IsRetryOther     bool
 		RetryOtherURL    string
 		IsThrottle       bool
@@ -384,114 +276,68 @@ func TestRetryResponseParsers(t *testing.T) {
 		IsUnavailable    bool
 	}{
 		{
-			Name: "200 OK",
-			Response: &http.Response{
-				Header:     http.Header{},
-				StatusCode: 200,
-			},
+			Name:     "200 OK",
+			Response: &http.Response{Header: http.Header{}, StatusCode: 200},
 		},
 		{
-			Name: "307 RetryTemporaryRedirect without Location",
-			Response: &http.Response{
-				Header:     http.Header{},
-				StatusCode: 307,
-			},
+			Name:         "307 RetryTemporaryRedirect without Location",
+			Response:     &http.Response{Header: http.Header{}, StatusCode: 307},
 			IsRetryOther: true,
 		},
 		{
-			Name: "307 RetryTemporaryRedirect with Location",
-			Response: &http.Response{
-				Header:     http.Header{"Location": []string{"https://host-2:8443/app"}},
-				StatusCode: 307,
-			},
+			Name:          "307 RetryTemporaryRedirect with Location",
+			Response:      &http.Response{Header: http.Header{"Location": []string{"https://host-2:8443/app"}}, StatusCode: 307},
 			IsRetryOther:  true,
 			RetryOtherURL: "https://host-2:8443/app",
 		},
 		{
-			Name: "308 RetryOther without Location",
-			Response: &http.Response{
-				Header:     http.Header{},
-				StatusCode: 308,
-			},
+			Name:         "308 RetryOther without Location",
+			Response:     &http.Response{Header: http.Header{}, StatusCode: 308},
 			IsRetryOther: true,
 		},
 		{
-			Name: "308 RetryOther with Location",
-			Response: &http.Response{
-				Header:     http.Header{"Location": []string{"https://host-2:8443/app"}},
-				StatusCode: 308,
-			},
+			Name:          "308 RetryOther with Location",
+			Response:      &http.Response{Header: http.Header{"Location": []string{"https://host-2:8443/app"}}, StatusCode: 308},
 			IsRetryOther:  true,
 			RetryOtherURL: "https://host-2:8443/app",
 		},
 		{
-			Name: "307 RetryTemporaryRedirect without Location in error",
-			RespErr: werror.Error("error",
-				werror.SafeParam("statusCode", 307),
-				werror.SafeParam("location", "")),
-			IsRetryOther: true,
-		},
-		{
-			Name: "307 RetryTemporaryRedirect with Location in error",
-			RespErr: werror.Error("error",
-				werror.SafeParam("statusCode", 307),
-				werror.SafeParam("location", "https://host-2:8443/app")),
-			IsRetryOther: true,
-		},
-		{
-			Name: "429 throttle without Retry-After",
-			Response: &http.Response{
-				Header:     http.Header{},
-				StatusCode: 429,
-			},
+			Name:       "429 throttle without Retry-After",
+			Response:   &http.Response{Header: http.Header{}, StatusCode: 429},
 			IsThrottle: true,
 		},
 		{
-			Name:       "429 throttle in error",
-			Response:   nil,
-			RespErr:    werror.Error("error", werror.SafeParam("statusCode", 429)),
-			IsThrottle: true,
-		},
-		{
-			Name:          "503 unavailable in error",
-			Response:      nil,
-			RespErr:       werror.Error("error", werror.SafeParam("statusCode", 503)),
+			Name:          "503 unavailable",
+			Response:      &http.Response{Header: http.Header{}, StatusCode: 503},
 			IsUnavailable: true,
 		},
 		{
-			Name: "429 throttle with Retry-After seconds",
-			Response: &http.Response{
-				Header:     http.Header{"Retry-After": []string{"60"}},
-				StatusCode: 429,
-			},
+			Name:             "429 throttle with Retry-After seconds",
+			Response:         &http.Response{Header: http.Header{"Retry-After": []string{"60"}}, StatusCode: 429},
 			IsThrottle:       true,
 			ThrottleDuration: time.Minute,
 		},
 		{
-			Name: "429 throttle with Retry-After Date",
-			Response: &http.Response{
-				Header:     http.Header{"Retry-After": []string{time.Now().UTC().Add(time.Minute).Format(http.TimeFormat)}},
-				StatusCode: 429,
-			},
+			Name:             "429 throttle with Retry-After Date",
+			Response:         &http.Response{Header: http.Header{"Retry-After": []string{time.Now().UTC().Add(time.Minute).Format(http.TimeFormat)}}, StatusCode: 429},
 			IsThrottle:       true,
 			ThrottleDuration: time.Minute,
 		},
 	} {
 		t.Run(test.Name, func(t *testing.T) {
-			errCode, _ := internal.StatusCodeFromError(test.RespErr)
-			isRetryOther, retryOtherURL := isRetryOtherResponse(test.Response, test.RespErr, errCode)
+			isRetryOther, retryOtherURL := isRetryOtherResponse(test.Response)
 			if assert.Equal(t, test.IsRetryOther, isRetryOther) && test.RetryOtherURL != "" {
 				if assert.NotNil(t, retryOtherURL) {
 					assert.Equal(t, test.RetryOtherURL, retryOtherURL.String())
 				}
 			}
 
-			isThrottle, throttleDur := isThrottleResponse(test.Response, errCode)
+			isThrottle, throttleDur := isThrottleResponse(test.Response)
 			if assert.Equal(t, test.IsThrottle, isThrottle) {
 				assert.WithinDuration(t, time.Now().Add(test.ThrottleDuration), time.Now().Add(throttleDur), time.Second)
 			}
 
-			isUnavailable := isUnavailableResponse(test.Response, errCode)
+			isUnavailable := isUnavailableResponse(test.Response)
 			assert.Equal(t, test.IsUnavailable, isUnavailable)
 		})
 	}

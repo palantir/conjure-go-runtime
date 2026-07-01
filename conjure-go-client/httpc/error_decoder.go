@@ -21,7 +21,6 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpc/internal"
 	"github.com/palantir/conjure-go-runtime/v3/conjure-go-contract/errors"
 	werror "github.com/palantir/witchcraft-go-error"
 )
@@ -35,17 +34,21 @@ type ErrorDecoder interface {
 }
 
 // StatusCodeFromError returns the 'statusCode' werror parameter, or ok=false
-// if the error has none. [DefaultErrorDecoder] sets this parameter; custom
-// decoders may not.
+// if the error has none. [DefaultErrorDecoder] sets this parameter (via the
+// [StatusError] it returns); custom decoders may not.
 func StatusCodeFromError(err error) (statusCode int, ok bool) {
-	return internal.StatusCodeFromError(err)
+	statusCodeParam, _ := werror.ParamFromError(err, "statusCode")
+	statusCode, ok = statusCodeParam.(int)
+	return statusCode, ok
 }
 
 // LocationFromError returns the 'location' werror parameter, or ok=false if
 // the error has none. [DefaultErrorDecoder] sets this on 3xx responses that
 // carry a Location header.
 func LocationFromError(err error) (location string, ok bool) {
-	return internal.LocationFromError(err)
+	locationParam, _ := werror.ParamFromError(err, "location")
+	location, ok = locationParam.(string)
+	return location, ok
 }
 
 // unwrapURLError converts a *url.Error to a werror, preserving any werror
