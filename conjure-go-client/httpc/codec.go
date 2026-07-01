@@ -160,19 +160,14 @@ func OptionalJSONDecoder[Resp any]() BodyDecoder[*Resp] {
 	})
 }
 
-// VoidDecoder discards the response body.
+// VoidDecoder discards the response body and returns the zero struct{}.
 func VoidDecoder() BodyDecoder[struct{}] {
-	return DiscardDecoder[struct{}]()
-}
-
-// DiscardDecoder discards the response body and returns the zero value of T.
-func DiscardDecoder[T any]() BodyDecoder[T] {
-	return NewBodyDecoderFunc[T](func(_ context.Context, resp *http.Response) (T, error) {
+	return NewBodyDecoderFunc[struct{}](func(_ context.Context, resp *http.Response) (struct{}, error) {
 		if resp.Body != nil {
 			_, _ = io.Copy(io.Discard, resp.Body)
 			_ = resp.Body.Close()
 		}
-		return *new(T), nil
+		return struct{}{}, nil
 	})
 }
 
