@@ -25,11 +25,11 @@ var _ RequestOverrides[Overrides] = Overrides{}
 // MiddlewareFunc satisfies Middleware.
 var _ Middleware = MiddlewareFunc(nil)
 
-// BodyEncoderFunc satisfies BodyEncoder.
-var _ BodyEncoder[string] = BodyEncoderFunc[string]{}
+// bodyEncoderFunc satisfies BodyEncoder.
+var _ BodyEncoder[string] = bodyEncoderFunc[string]{}
 
-// BodyDecoderFunc satisfies BodyDecoder.
-var _ BodyDecoder[string] = BodyDecoderFunc[string]{}
+// bodyDecoderFunc satisfies BodyDecoder.
+var _ BodyDecoder[string] = bodyDecoderFunc[string]{}
 
 // standardRuntime satisfies RebuildableRuntime (and therefore Runtime).
 var _ RebuildableRuntime[*Builder] = (*standardRuntime[*Builder])(nil)

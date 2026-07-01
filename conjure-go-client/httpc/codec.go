@@ -45,37 +45,39 @@ type BodyDecoder[Resp any] interface {
 	Decode(ctx context.Context, resp *http.Response) (Resp, error)
 }
 
-// BodyEncoderFunc adapts a function to [BodyEncoder]. If contentType is
-// non-empty it is set as the Content-Type header before calling the function;
-// pass "" for encoders that set Content-Type themselves (e.g. multipart).
-type BodyEncoderFunc[Req any] struct {
+// bodyEncoderFunc adapts a function to [BodyEncoder]; construct one via
+// [NewBodyEncoderFunc].
+type bodyEncoderFunc[Req any] struct {
 	contentType string
 	encodeFn    func(req *http.Request, body Req) error
 }
 
-// NewBodyEncoderFunc creates a [BodyEncoderFunc].
-func NewBodyEncoderFunc[Req any](contentType string, encode func(req *http.Request, body Req) error) BodyEncoderFunc[Req] {
-	return BodyEncoderFunc[Req]{contentType: contentType, encodeFn: encode}
+// NewBodyEncoderFunc adapts a plain function to a [BodyEncoder]. If contentType
+// is non-empty it is set as the Content-Type header before encode runs; pass ""
+// for encoders that set Content-Type themselves (e.g. multipart).
+func NewBodyEncoderFunc[Req any](contentType string, encode func(req *http.Request, body Req) error) BodyEncoder[Req] {
+	return bodyEncoderFunc[Req]{contentType: contentType, encodeFn: encode}
 }
 
-func (f BodyEncoderFunc[Req]) Encode(req *http.Request, body Req) error {
+func (f bodyEncoderFunc[Req]) Encode(req *http.Request, body Req) error {
 	if f.contentType != "" {
 		req.Header.Set("Content-Type", f.contentType)
 	}
 	return f.encodeFn(req, body)
 }
 
-// BodyDecoderFunc adapts a function to [BodyDecoder].
-type BodyDecoderFunc[Resp any] struct {
+// bodyDecoderFunc adapts a function to [BodyDecoder]; construct one via
+// [NewBodyDecoderFunc].
+type bodyDecoderFunc[Resp any] struct {
 	decodeFn func(ctx context.Context, resp *http.Response) (Resp, error)
 }
 
-// NewBodyDecoderFunc creates a [BodyDecoderFunc].
-func NewBodyDecoderFunc[Resp any](decode func(ctx context.Context, resp *http.Response) (Resp, error)) BodyDecoderFunc[Resp] {
-	return BodyDecoderFunc[Resp]{decodeFn: decode}
+// NewBodyDecoderFunc adapts a plain function to a [BodyDecoder].
+func NewBodyDecoderFunc[Resp any](decode func(ctx context.Context, resp *http.Response) (Resp, error)) BodyDecoder[Resp] {
+	return bodyDecoderFunc[Resp]{decodeFn: decode}
 }
 
-func (f BodyDecoderFunc[Resp]) Decode(ctx context.Context, resp *http.Response) (Resp, error) {
+func (f bodyDecoderFunc[Resp]) Decode(ctx context.Context, resp *http.Response) (Resp, error) {
 	return f.decodeFn(ctx, resp)
 }
 
@@ -181,7 +183,7 @@ type rawBodyDecoder interface {
 }
 
 type binaryDecoderFunc struct {
-	BodyDecoderFunc[io.ReadCloser]
+	bodyDecoderFunc[io.ReadCloser]
 }
 
 func (binaryDecoderFunc) rawBody() {}
@@ -190,9 +192,9 @@ func (binaryDecoderFunc) rawBody() {}
 // responsible for closing it.
 func BinaryDecoder() BodyDecoder[io.ReadCloser] {
 	return binaryDecoderFunc{
-		BodyDecoderFunc: NewBodyDecoderFunc[io.ReadCloser](func(_ context.Context, resp *http.Response) (io.ReadCloser, error) {
+		bodyDecoderFunc: bodyDecoderFunc[io.ReadCloser]{decodeFn: func(_ context.Context, resp *http.Response) (io.ReadCloser, error) {
 			return resp.Body, nil
-		}),
+		}},
 	}
 }
 
@@ -200,12 +202,12 @@ func BinaryDecoder() BodyDecoder[io.ReadCloser] {
 // on 204 No Content. The caller is responsible for closing the reader.
 func OptionalBinaryDecoder() BodyDecoder[io.ReadCloser] {
 	return binaryDecoderFunc{
-		BodyDecoderFunc: NewBodyDecoderFunc[io.ReadCloser](func(_ context.Context, resp *http.Response) (io.ReadCloser, error) {
+		bodyDecoderFunc: bodyDecoderFunc[io.ReadCloser]{decodeFn: func(_ context.Context, resp *http.Response) (io.ReadCloser, error) {
 			if resp.StatusCode == http.StatusNoContent {
 				return nil, resp.Body.Close()
 			}
 			return resp.Body, nil
-		}),
+		}},
 	}
 }
 
@@ -217,7 +219,7 @@ func OptionalBinaryDecoder() BodyDecoder[io.ReadCloser] {
 //     seeks back to the starting offset on retry.
 //
 // An *os.File satisfies both, so passing one yields Content-Length and a
-// retryable request. Otherwise Content-Length is -1 (chunked) and GetBody is
+// retryable request. Otherwise, Content-Length is -1 (chunked) and GetBody is
 // nil (not retryable).
 func BinaryEncoder(contentType string) BodyEncoder[io.ReadCloser] {
 	return NewBodyEncoderFunc[io.ReadCloser](contentType, func(req *http.Request, body io.ReadCloser) error {
@@ -235,19 +237,16 @@ func BinaryEncoder(contentType string) BodyEncoder[io.ReadCloser] {
 			}
 		}
 
-		type statter interface {
-			Stat() (fs.FileInfo, error)
-		}
-		if s, ok := body.(statter); ok {
+		if s, ok := body.(fs.File); ok {
 			if info, err := s.Stat(); err == nil && !info.IsDir() {
 				req.ContentLength = info.Size() - startOffset
 			}
 		}
 
-		type namedFile interface {
-			Name() string
-		}
 		if seekable {
+			type namedFile interface {
+				Name() string
+			}
 			if named, ok := body.(namedFile); ok && named.Name() != "" {
 				name := named.Name()
 				req.GetBody = func() (io.ReadCloser, error) {
