@@ -21,7 +21,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/internal"
+	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpc/internal/retrier"
 	"github.com/palantir/pkg/refreshable/v2"
 	"github.com/palantir/pkg/retry"
 	werror "github.com/palantir/witchcraft-go-error"
@@ -257,7 +257,7 @@ func (c *standardRuntime[B]) Send(ctx context.Context, req *http.Request, opts S
 	}
 
 	backoff := retry.Start(ctx, retry.WithInitialBackoff(policy.InitialBackoff), retry.WithMaxBackoff(policy.MaxBackoff))
-	retrier := internal.NewRequestRetrier(uris, backoff, attempts)
+	retrier := retrier.NewRequestRetrier(uris, backoff, attempts)
 
 	// Resolve decoration per attempt, lowest precedence first: the runtime's
 	// intrinsic values (builder auth/headers), then any headers the caller set

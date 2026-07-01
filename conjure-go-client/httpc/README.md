@@ -197,9 +197,9 @@ The endpoint descriptors (`BodyEndpoint`/`NoBodyEndpoint`), the per-call `Call`,
 - `WithUnlimitedTimeout()` -- disable the per-attempt timeout (also `WithTimeout(0)`)
 - `WithDefaultTimeout()` -- clear an inherited timeout so the client timeout applies
 - `WithErrorDecoder(ErrorDecoder)` -- per-call error decoder. For a Conjure
-  typed-error registry, use the free function
-  `conjureerrors.WithConjureErrorDecoder(d, ced)` (in the `httpc/conjureerrors`
-  sub-package, so this interface stays free of `conjure-go-contract/errors`)
+  typed-error registry, use the free function `httpc.WithConjureErrorDecoder(d, ced)`
+  (a free function rather than an interface method, so this interface stays free of
+  `conjure-go-contract/errors`)
 - `WithNoErrorDecoder()` -- skip error decoding; `Execute` returns the raw response
 - `WithDefaultErrorDecoder()` -- clear an inherited decoder so `DefaultErrorDecoder` applies
 - `WithAuthorization(Authorizer)` -- per-call auth, e.g. `WithAuthorization(httpc.BasicCredentials(user, pw))` or `WithAuthorization(httpc.NoAuthorization())` to send none (see [Auth](#auth))

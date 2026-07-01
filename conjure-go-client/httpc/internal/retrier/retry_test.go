@@ -12,13 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package internal
+package retrier
 
 import (
 	"net/http"
 	"testing"
 	"time"
 
+	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpc/internal"
 	werror "github.com/palantir/witchcraft-go-error"
 	"github.com/stretchr/testify/assert"
 )
@@ -129,7 +130,7 @@ func TestRetryResponseParsers(t *testing.T) {
 		},
 	} {
 		t.Run(test.Name, func(t *testing.T) {
-			errCode, _ := StatusCodeFromError(test.RespErr)
+			errCode, _ := internal.StatusCodeFromError(test.RespErr)
 			isRetryOther, retryOtherURL := isRetryOtherResponse(test.Response, test.RespErr, errCode)
 			if assert.Equal(t, test.IsRetryOther, isRetryOther) && test.RetryOtherURL != "" {
 				if assert.NotNil(t, retryOtherURL) {

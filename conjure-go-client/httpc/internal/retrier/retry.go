@@ -12,13 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package internal
+package retrier
 
 import (
 	"net/http"
 	"net/url"
 	"strconv"
 	"time"
+
+	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpc/internal"
 )
 
 /* https://github.com/palantir/http-remoting#quality-of-service-retry-failover-throttling
@@ -61,7 +63,7 @@ const (
 
 func isRetryOtherResponse(resp *http.Response, err error, errCode int) (bool, *url.URL) {
 	if errCode == StatusCodeRetryOther || errCode == StatusCodeRetryTemporaryRedirect {
-		locationStr, ok := LocationFromError(err)
+		locationStr, ok := internal.LocationFromError(err)
 		if !ok {
 			return true, nil
 		}

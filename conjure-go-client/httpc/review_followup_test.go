@@ -25,7 +25,6 @@ import (
 	"time"
 
 	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpc"
-	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpc/conjureerrors"
 	"github.com/palantir/conjure-go-runtime/v3/conjure-go-contract/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -98,8 +97,8 @@ func TestEndpointExecute_AuthorizerOverridesAuthorizationHeader(t *testing.T) {
 	assert.Equal(t, "Basic dTpw", seen)
 }
 
-// T6: conjureerrors.WithConjureErrorDecoder is equivalent to wrapping with
-// conjureerrors.DefaultErrorDecoderWithConjure.
+// T6: httpc.WithConjureErrorDecoder is equivalent to wrapping with
+// httpc.DefaultErrorDecoderWithConjure.
 func TestOverrides_WithConjureErrorDecoder(t *testing.T) {
 	var called bool
 	ced := &probeConjureDecoder{onDecode: func(name string, body []byte) {
@@ -115,7 +114,7 @@ func TestOverrides_WithConjureErrorDecoder(t *testing.T) {
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = w.Write([]byte(`{"errorCode":"INVALID_ARGUMENT","errorName":"Conjure:InvalidArgument","errorInstanceId":"00000000-0000-0000-0000-000000000000","parameters":{}}`))
 	})
-	_, _, err := ep.Call().WithOverrides(conjureerrors.WithConjureErrorDecoder(httpc.Overrides{}, ced)).Execute(context.Background(), client)
+	_, _, err := ep.Call().WithOverrides(httpc.WithConjureErrorDecoder(httpc.Overrides{}, ced)).Execute(context.Background(), client)
 	require.Error(t, err)
 	assert.True(t, called, "ConjureErrorDecoder should have been invoked")
 }

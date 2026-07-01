@@ -74,7 +74,7 @@ type RequestOverrides[D any] interface {
 	WithDefaultTimeout() D
 	// WithErrorDecoder sets a per-request error decoder; overrides the
 	// endpoint-level decoder and [DefaultErrorDecoder]. For typed Conjure errors,
-	// use conjureerrors.WithConjureErrorDecoder, which keeps the
+	// use the free function [WithConjureErrorDecoder], which keeps the
 	// conjure-go-contract/errors dependency off this interface.
 	WithErrorDecoder(ErrorDecoder) D
 	// WithNoErrorDecoder skips error decoding entirely; [Call.Execute] returns
@@ -224,7 +224,7 @@ func (c Overrides) WithDefaultTimeout() Overrides {
 
 // WithErrorDecoder sets a per-request error decoder that overrides the
 // endpoint-level decoder and [DefaultErrorDecoder]. For typed Conjure errors,
-// use conjureerrors.WithConjureErrorDecoder. To skip error decoding entirely
+// use the free function [WithConjureErrorDecoder]. To skip error decoding entirely
 // use [Overrides.WithNoErrorDecoder]; to drop an inherited decoder and fall
 // back to [DefaultErrorDecoder] use [Overrides.WithDefaultErrorDecoder].
 func (c Overrides) WithErrorDecoder(d ErrorDecoder) Overrides {

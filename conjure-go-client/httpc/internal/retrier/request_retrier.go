@@ -12,13 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package internal
+package retrier
 
 import (
 	"net/http"
 	"net/url"
 	"strings"
 
+	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpc/internal"
 	"github.com/palantir/pkg/retry"
 )
 
@@ -99,7 +100,7 @@ func (r *RequestRetrier) GetNextURI(resp *http.Response, respErr error) (uri str
 }
 
 func (r *RequestRetrier) getRetryFn(resp *http.Response, respErr error) func() bool {
-	errCode, _ := StatusCodeFromError(respErr)
+	errCode, _ := internal.StatusCodeFromError(respErr)
 	if retryOther, _ := isThrottleResponse(resp, errCode); retryOther {
 		// 429: throttle
 		// Immediately backoff and select the next URI.
