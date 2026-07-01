@@ -62,10 +62,6 @@ func newCall[Resp any](core endpointCore[Resp], encode func(*http.Request) error
 	}
 }
 
-func errNoEncoder(name string) error {
-	return fmt.Errorf("httpc: endpoint %s has a body but no encoder; call WithEncoder (or WithJSON) before Call", name)
-}
-
 // WithPathParam fills a named {key} placeholder in the path with
 // url.PathEscape(fmt.Sprint(value)). Parameters can be filled in any order:
 //

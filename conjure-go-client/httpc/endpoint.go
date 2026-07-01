@@ -15,6 +15,7 @@
 package httpc
 
 import (
+	"fmt"
 	"net/http"
 	"net/url"
 	"time"
@@ -230,7 +231,7 @@ func (e BodyEndpoint[Req, Resp]) Call(body Req) Call[Resp] {
 	name := e.core.name
 	return newCall(e.core, func(req *http.Request) error {
 		if encoder == nil {
-			return errNoEncoder(name)
+			return fmt.Errorf("httpc: endpoint %s has a body but no encoder; call WithEncoder (or WithJSON) before Call", name)
 		}
 		return encoder.Encode(req, body)
 	})
