@@ -44,7 +44,7 @@ github.com/palantir/pkg/tlsconfig
 ## explicit; go 1.25.0
 github.com/palantir/pkg/uuid
 github.com/palantir/pkg/uuid/internal/uuid
-# github.com/palantir/witchcraft-go-error v1.46.0
+# github.com/palantir/witchcraft-go-error v1.47.0
 ## explicit; go 1.26.0
 github.com/palantir/witchcraft-go-error
 github.com/palantir/witchcraft-go-error/internal/errors
