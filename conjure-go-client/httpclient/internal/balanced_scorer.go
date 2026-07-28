@@ -35,7 +35,7 @@ type URIScoringMiddleware interface {
 }
 
 type balancedScorer struct {
-	uriInfos map[string]uriInfo
+	uriInfos map[string]*uriInfo
 }
 
 type uriInfo struct {
@@ -51,9 +51,9 @@ type uriInfo struct {
 // This implementation is based on Dialogue's BalancedScoreTracker:
 // https://github.com/palantir/dialogue/blob/develop/dialogue-core/src/main/java/com/palantir/dialogue/core/BalancedScoreTracker.java
 func NewBalancedURIScoringMiddleware(uris []string, nanoClock func() int64) URIScoringMiddleware {
-	uriInfos := make(map[string]uriInfo, len(uris))
+	uriInfos := make(map[string]*uriInfo, len(uris))
 	for _, uri := range uris {
-		uriInfos[uri] = uriInfo{
+		uriInfos[uri] = &uriInfo{
 			recentFailures: NewCourseExponentialDecayReservoir(nanoClock, failureMemory),
 		}
 	}
