@@ -102,7 +102,9 @@ func TestBalancedScoring_InflightRequestsAffectsScore(t *testing.T) {
 	done := make(chan struct{})
 	var once sync.Once
 	slowTransport := roundTripperFunc(func(_ *http.Request) (*http.Response, error) {
-		once.Do(func() { close(started) })
+		once.Do(func() {
+			close(started)
+		})
 		<-release
 		return &http.Response{
 			StatusCode: http.StatusOK,
