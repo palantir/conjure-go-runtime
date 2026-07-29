@@ -17,9 +17,11 @@ package internal
 import (
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestBalancedScorerRandomizesWithNoneInflight(t *testing.T) {
@@ -55,4 +57,76 @@ func TestBalancedScoring(t *testing.T) {
 	}
 	scoredUris := scorer.GetURIsInOrderOfIncreasingScore()
 	assert.Equal(t, []string{server200.URL, server429.URL, server503.URL}, scoredUris)
+}
+
+func TestBalancedScoringTracksInflightRequests(t *testing.T) {
+	const uri = "https://example.com"
+	scorer := NewBalancedURIScoringMiddleware([]string{uri}, func() int64 { return 0 }).(*balancedScorer)
+
+	started := make(chan struct{})
+	release := make(chan struct{})
+	done := make(chan struct{})
+	var once sync.Once
+	transport := roundTripperFunc(func(_ *http.Request) (*http.Response, error) {
+		once.Do(func() {
+			close(started)
+		})
+		<-release
+		return &http.Response{
+			StatusCode: http.StatusOK,
+		}, nil
+	})
+	req, err := http.NewRequest(http.MethodGet, uri, nil)
+	require.NoError(t, err)
+	go func() {
+		defer close(done)
+		_, _ = scorer.RoundTrip(req, transport)
+	}()
+	<-started
+
+	assert.Equal(t, int32(1), scorer.uriInfos[uri].computeScore())
+	close(release)
+	<-done
+	assert.Equal(t, int32(0), scorer.uriInfos[uri].computeScore())
+}
+
+// TestBalancedScoring_InflightRequestsAffectsScore asserts that an in-flight request against uriA
+// causes uriA to rank worse than an idle uriB. It should never rank equal to or ahead of an idle host.
+func TestBalancedScoring_InflightRequestsAffectsScore(t *testing.T) {
+	uriA := "https://a.example.com"
+	uriB := "https://b.example.com"
+	scorer := NewBalancedURIScoringMiddleware([]string{uriA, uriB}, func() int64 { return 0 })
+
+	started := make(chan struct{})
+	release := make(chan struct{})
+	done := make(chan struct{})
+	var once sync.Once
+	slowTransport := roundTripperFunc(func(_ *http.Request) (*http.Response, error) {
+		once.Do(func() {
+			close(started)
+		})
+		<-release
+		return &http.Response{
+			StatusCode: http.StatusOK,
+		}, nil
+	})
+
+	reqA, _ := http.NewRequest(http.MethodGet, uriA, nil)
+	go func() {
+		defer close(done)
+		_, _ = scorer.RoundTrip(reqA, slowTransport)
+	}()
+	<-started // wait until the request to uriA is actually in flight
+
+	order := scorer.GetURIsInOrderOfIncreasingScore()
+	assert.Equal(t, uriB, order[0], "expected idle uriB should rank ahead of the in-flight uriA")
+
+	close(release)
+	<-done
+}
+
+type roundTripperFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
 }
