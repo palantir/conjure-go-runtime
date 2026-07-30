@@ -23,10 +23,15 @@ import (
 )
 
 // SpanExtractor returns a SpanExtractor that returns a wtracing.SpanContext based on the header content of the provided
-// *http.Request. If the values in the provided header do not constitute a valid SpanContext (for example, if it is
-// missing a TraceID or SpanID, has an unsupported "Sampled" value, etc.), the "Err" field of the returned SpanContext
-// will be non-nil and will contain an error that describes why the values were invalid. However, even if the "Err"
-// field is set, all of the values that could be extracted from the header and set on the returned context.
+// *http.Request. If the values in the provided header do not constitute a valid SpanContext, for example if it has a
+// SpanID but no TraceID, or an unsupported Sampled value, the Err field of the returned SpanContext will be non-nil
+// and will contain an error that describes why the values were invalid. However, even if the Err field is set, all
+// of the values that could be extracted from the header are still set on the returned context.
+//
+// A request is allowed to leave out TraceID and SpanID entirely and carry only a sampling decision, for example a
+// lone X-B3-Sampled header. The B3 propagation spec treats that as valid, see
+// https://github.com/openzipkin/b3-propagation#sampling-state, so it is not treated as an error here either, unless
+// a ParentSpanId is also present, since a parent span cannot exist without a trace to belong to.
 func SpanExtractor(req *http.Request) wtracing.SpanExtractor {
 	return func() wtracing.SpanContext {
 		var sc wtracing.SpanContext
@@ -34,31 +39,30 @@ func SpanExtractor(req *http.Request) wtracing.SpanExtractor {
 		errSafeParams := make(map[string]any)
 
 		traceID := strings.ToLower(req.Header.Get(b3TraceID))
-		if traceID == "" {
-			errMsgs = append(errMsgs, "TraceID missing")
-		}
 		sc.TraceID = wtracing.TraceID(traceID)
 
 		spanID := strings.ToLower(req.Header.Get(b3SpanID))
-		if spanID == "" {
-			errMsgs = append(errMsgs, "SpanID missing")
-		}
 		sc.ID = wtracing.SpanID(spanID)
 
-		var parentIDVal *wtracing.SpanID
-		if parentID := strings.ToLower(req.Header.Get(b3ParentSpanID)); parentID != "" {
-			if traceID == "" || spanID == "" {
-				if traceID == "" && spanID == "" {
-					errMsgs = append(errMsgs, "ParentID present but TraceID and SpanID missing")
-				} else if traceID == "" {
-					errMsgs = append(errMsgs, "ParentID present but TraceID missing")
-				} else {
-					errMsgs = append(errMsgs, "ParentID present but SpanID missing")
-				}
-			}
-			parentIDVal = (*wtracing.SpanID)(&parentID)
+		parentID := strings.ToLower(req.Header.Get(b3ParentSpanID))
+		if parentID != "" {
+			sc.ParentID = (*wtracing.SpanID)(&parentID)
 		}
-		sc.ParentID = parentIDVal
+
+		errMsgPrefix := ""
+		if parentID != "" {
+			errMsgPrefix = "ParentID present but "
+		}
+		switch {
+		case traceID == "" && spanID == "":
+			if parentID != "" {
+				errMsgs = append(errMsgs, errMsgPrefix+"TraceID and SpanID missing")
+			}
+		case traceID == "":
+			errMsgs = append(errMsgs, errMsgPrefix+"TraceID missing")
+		case spanID == "":
+			errMsgs = append(errMsgs, errMsgPrefix+"SpanID missing")
+		}
 
 		var sampledVal *bool
 		switch sampledHeader := strings.ToLower(req.Header.Get(b3Sampled)); sampledHeader {
