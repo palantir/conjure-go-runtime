@@ -119,7 +119,7 @@ func TestNewHTTPClientFromRefreshableConfigSubscriberCleanup(t *testing.T) {
 func updatableSubscriberCount(t *testing.T, updatable any) int {
 	t.Helper()
 	v := reflect.ValueOf(updatable)
-	if v.Kind() == reflect.Ptr {
+	if v.Kind() == reflect.Pointer {
 		v = v.Elem()
 	}
 	subs := v.FieldByName("subscribers")
