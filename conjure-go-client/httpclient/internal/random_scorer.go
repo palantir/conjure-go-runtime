@@ -33,7 +33,7 @@ func (n *randomScorer) GetURIsInOrderOfIncreasingScore() []string {
 	return uris
 }
 
-func (n *randomScorer) RoundTrip(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+func (n *randomScorer) RoundTripForURI(baseURI string, req *http.Request, next http.RoundTripper) (*http.Response, error) {
 	return next.RoundTrip(req)
 }
 

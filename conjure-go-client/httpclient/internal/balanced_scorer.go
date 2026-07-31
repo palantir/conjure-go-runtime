@@ -18,7 +18,6 @@ import (
 	"math"
 	"math/rand"
 	"net/http"
-	"net/url"
 	"sort"
 	"sync/atomic"
 	"time"
@@ -31,7 +30,8 @@ const (
 
 type URIScoringMiddleware interface {
 	GetURIsInOrderOfIncreasingScore() []string
-	RoundTrip(req *http.Request, next http.RoundTripper) (*http.Response, error)
+	// RoundTripForURI scores the request against baseURI, the configured URI selected for an attempt.
+	RoundTripForURI(baseURI string, req *http.Request, next http.RoundTripper) (*http.Response, error)
 }
 
 type balancedScorer struct {
@@ -77,8 +77,7 @@ func (u *balancedScorer) GetURIsInOrderOfIncreasingScore() []string {
 	return uris
 }
 
-func (u *balancedScorer) RoundTrip(req *http.Request, next http.RoundTripper) (*http.Response, error) {
-	baseURI := getBaseURI(req.URL)
+func (u *balancedScorer) RoundTripForURI(baseURI string, req *http.Request, next http.RoundTripper) (*http.Response, error) {
 	info, foundInfo := u.uriInfos[baseURI]
 	if foundInfo {
 		atomic.AddInt32(&info.inflight, 1)
@@ -104,16 +103,6 @@ func (u *balancedScorer) RoundTrip(req *http.Request, next http.RoundTripper) (*
 
 func (i *uriInfo) computeScore() int32 {
 	return atomic.LoadInt32(&i.inflight) + int32(math.Round(i.recentFailures.Get()))
-}
-
-func getBaseURI(u *url.URL) string {
-	uCopy := url.URL{
-		Scheme: u.Scheme,
-		Opaque: u.Opaque,
-		User:   u.User,
-		Host:   u.Host,
-	}
-	return uCopy.String()
 }
 
 func isGlobalQosStatus(statusCode int) bool {
