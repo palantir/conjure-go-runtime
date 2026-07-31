@@ -360,9 +360,9 @@ func newTLSCapturingMiddleware(capturedSubjects *map[string]struct{}) httpclient
 // unwrapTransport traverses the RoundTripper chain to find the underlying *http.Transport.
 func unwrapTransport(rt http.RoundTripper) *http.Transport {
 	for rt != nil {
-		switch rt.(type) {
+		switch rt := rt.(type) {
 		case *http.Transport:
-			return rt.(*http.Transport)
+			return rt
 		default:
 			if transport := unwrapRefreshableValidatedTransport(rt); transport != nil {
 				return transport
