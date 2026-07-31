@@ -81,8 +81,9 @@ func TestTracing(t *testing.T) {
 				spanCtx := b3.SpanExtractor(req)()
 				if testCase.shouldPropagateTrace {
 					assert.NoError(t, spanCtx.Err)
+					assert.NotEmpty(t, spanCtx.TraceID)
 				} else {
-					assert.Error(t, spanCtx.Err)
+					assert.Empty(t, spanCtx.TraceID)
 				}
 				rw.WriteHeader(http.StatusOK)
 			}))
