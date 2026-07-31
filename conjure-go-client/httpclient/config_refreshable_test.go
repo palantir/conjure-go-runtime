@@ -161,7 +161,7 @@ func TestRefreshableClientConfig(t *testing.T) {
 
 		t.Run("service config", func(t *testing.T) {
 			serviceCfg := initialConfig.Services[serviceName]
-			serviceCfg.WriteTimeout = newDurationPtr(time.Second)
+			serviceCfg.WriteTimeout = new(time.Second)
 			initialConfig.Services[serviceName] = serviceCfg
 			updateRefreshableBytes(initialConfig)
 
@@ -173,7 +173,7 @@ func TestRefreshableClientConfig(t *testing.T) {
 			assert.Equal(t, oldMiddlewares, newMiddlewares, "expected middlewares to remain unchanged")
 		})
 		t.Run("default config", func(t *testing.T) {
-			initialConfig.Default.ReadTimeout = newDurationPtr(time.Hour)
+			initialConfig.Default.ReadTimeout = new(time.Hour)
 			updateRefreshableBytes(initialConfig)
 
 			newClient := currentHTTPClient()
@@ -283,9 +283,4 @@ func TestRefreshableClientConfig(t *testing.T) {
 		initialConfig.Default.Security.InsecureSkipVerify = nil
 		updateRefreshableBytes(initialConfig)
 	})
-}
-
-//go:fix inline
-func newDurationPtr(dur time.Duration) *time.Duration {
-	return new(dur)
 }
