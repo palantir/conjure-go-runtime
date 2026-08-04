@@ -82,31 +82,45 @@ func (c *clientImpl) Delete(ctx context.Context, params ...RequestParam) (*http.
 }
 
 func (c *clientImpl) Do(ctx context.Context, params ...RequestParam) (*http.Response, error) {
-	uris := c.uriScorer.CurrentURIScoringMiddleware().GetURIsInOrderOfIncreasingScore()
+	uris, attempts := c.currentURIsAndMaxAttempts()
 	if len(uris) == 0 {
 		return nil, werror.WrapWithContextParams(ctx, ErrEmptyURIs, "", werror.SafeParam("serviceName", c.serviceName.Current()))
 	}
+	resp, _, err := c.doWithURIs(ctx, uris, attempts, params...)
+	return resp, err
+}
 
+func (c *clientImpl) currentURIsAndMaxAttempts() ([]string, int) {
+	uris := c.uriScorer.CurrentURIScoringMiddleware().GetURIsInOrderOfIncreasingScore()
 	attempts := 2 * len(uris)
 	if c.maxAttempts != nil {
 		if confMaxAttempts := c.maxAttempts.Current(); confMaxAttempts != nil {
 			attempts = *confMaxAttempts
 		}
 	}
+	return uris, attempts
+}
 
-	retrier := internal.NewRequestRetrier(uris, c.backoffOptions.Current().Start(ctx), attempts)
+// doWithURIs executes a request against the given URIs, retrying according to retrier policy up to maxAttempts times.
+// In addition to the response and error, it returns the URI that served a successful (2xx) response, or "" if the request did not succeed.
+func (c *clientImpl) doWithURIs(ctx context.Context, uris []string, maxAttempts int, params ...RequestParam) (*http.Response, string, error) {
+	retrier := internal.NewRequestRetrier(uris, c.backoffOptions.Current().Start(ctx), maxAttempts)
 	uri, isRelocated := retrier.GetNextURI(nil, nil)
 	for {
-		resp, retryable, err := c.doOnce(ctx, uri, isRelocated, params...)
+		attemptResp, retryable, attemptErr := c.doOnce(ctx, uri, isRelocated, params...)
 		if !retryable {
-			return resp, err
+			var succeededURI string
+			if attemptErr == nil && attemptResp != nil && attemptResp.StatusCode >= http.StatusOK && attemptResp.StatusCode < http.StatusMultipleChoices {
+				succeededURI = uri
+			}
+			return attemptResp, succeededURI, attemptErr
 		}
-		uri, isRelocated = retrier.GetNextURI(resp, err)
+		uri, isRelocated = retrier.GetNextURI(attemptResp, attemptErr)
 		if uri == "" {
-			return resp, err
+			return attemptResp, "", attemptErr
 		}
-		if err != nil {
-			svc1log.FromContext(ctx).Debug("Retrying request", svc1log.Stacktrace(err))
+		if attemptErr != nil {
+			svc1log.FromContext(ctx).Debug("Retrying request", svc1log.Stacktrace(attemptErr))
 		}
 	}
 }
