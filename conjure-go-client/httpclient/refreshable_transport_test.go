@@ -16,10 +16,12 @@ package httpclient_test
 
 import (
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpclient"
 	"github.com/palantir/pkg/refreshable/v2"
@@ -41,6 +43,7 @@ func TestHTTPClientConcurrentTransportRefresh(t *testing.T) {
 	clients, err := httpclient.NewHTTPClientFromRefreshableConfig(t.Context(), configRefreshable, httpclient.WithNoProxy())
 	require.NoError(t, err)
 	client := clients.Current()
+	t.Cleanup(client.CloseIdleConnections)
 
 	stop := make(chan struct{})
 	var wg sync.WaitGroup
@@ -77,4 +80,49 @@ func TestHTTPClientConcurrentTransportRefresh(t *testing.T) {
 	_, err = io.Copy(io.Discard, resp.Body)
 	require.NoError(t, err)
 	require.NoError(t, resp.Body.Close())
+}
+
+func TestHTTPClientRefreshClosesRetiredIdleConnections(t *testing.T) {
+	connections := &connectionStates{states: make(map[net.Conn]http.ConnState)}
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	server.Config.ConnState = connections.update
+	server.Start()
+	t.Cleanup(server.Close)
+
+	config := httpclient.ClientConfig{
+		ServiceName:  "test",
+		URIs:         []string{server.URL},
+		MaxIdleConns: new(50),
+	}
+	configRefreshable := refreshable.New(config)
+	clients, err := httpclient.NewHTTPClientFromRefreshableConfig(t.Context(), configRefreshable, httpclient.WithNoProxy())
+	require.NoError(t, err)
+	client := clients.Current()
+	t.Cleanup(client.CloseIdleConnections)
+
+	request := func() {
+		resp, err := client.Get(server.URL)
+		require.NoError(t, err)
+		_, err = io.Copy(io.Discard, resp.Body)
+		require.NoError(t, err)
+		require.NoError(t, resp.Body.Close())
+	}
+	request()
+	require.Eventually(t, func() bool {
+		return connections.count(http.StateIdle) == 1
+	}, 2*time.Second, 10*time.Millisecond)
+
+	next := config
+	next.MaxIdleConns = new(51)
+	configRefreshable.Update(next)
+	require.Eventually(t, func() bool {
+		return connections.open() == 0
+	}, 2*time.Second, 10*time.Millisecond)
+
+	request()
+	require.Eventually(t, func() bool {
+		return connections.count(http.StateIdle) == 1
+	}, 2*time.Second, 10*time.Millisecond)
 }

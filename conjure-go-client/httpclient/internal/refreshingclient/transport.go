@@ -52,8 +52,13 @@ type TLSConfigurationParams struct {
 }
 
 func NewRefreshableTransport(ctx context.Context, p refreshable.Refreshable[TransportParams], refreshableConfig refreshable.Validated[*tls.Config], dialer ContextDialer) http.RoundTripper {
+	var previous *http.Transport
 	mapped, _ := refreshable.MergeValidatedAndRefreshable(ctx, refreshableConfig, p, func(t *tls.Config, p TransportParams) func() *http.Transport {
 		transport := newTransport(ctx, p, t, dialer)
+		if previous != nil {
+			previous.CloseIdleConnections()
+		}
+		previous = transport
 		return func() *http.Transport { return transport }
 	})
 	return &RefreshableTransport{Refreshable: mapped}
