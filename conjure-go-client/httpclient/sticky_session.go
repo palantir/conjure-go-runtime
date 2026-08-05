@@ -38,10 +38,10 @@ type stickySessionProvider interface {
 }
 
 // NewStickySession returns a Client that pins every request it sends to a single URI for its entire
-// lifetime.
+// lifetime. Returns an ErrStickySessionUnsupported error if the provided Client does not support sticky sessions.
 //
 // The pin is established from the outcome of the session's first request. The first request is sent
-// through the Clients normal load-balanced, multi-attempt path, exactly like a non-sticky call, so it
+// through the Client's normal load-balanced, multi-attempt path, exactly like a non-sticky call, so it
 // benefits from the usual cross-host failover. If it succeeds (a 2xx response), the URI that served
 // it becomes the pin. Every call after that makes exactly one attempt against the pinned URI and it is
 // never retried and never fails over to a different URI.
