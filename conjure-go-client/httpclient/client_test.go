@@ -137,6 +137,31 @@ func TestCanUseSimpleRelocationURI(t *testing.T) {
 	assert.Equal(t, respBody, actualRespBody)
 }
 
+func TestStandardRedirectsAreFollowed(t *testing.T) {
+	for _, statusCode := range []int{http.StatusMovedPermanently, http.StatusFound, http.StatusSeeOther} {
+		t.Run(http.StatusText(statusCode), func(t *testing.T) {
+			redirected := false
+			server := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+				if req.URL.Path == "/redirected" {
+					redirected = true
+					rw.WriteHeader(http.StatusOK)
+					return
+				}
+				http.Redirect(rw, req, "/redirected", statusCode)
+			}))
+			defer server.Close()
+
+			client, err := httpclient.NewClient(httpclient.WithBaseURLs([]string{server.URL}))
+			require.NoError(t, err)
+			resp, err := client.Get(t.Context())
+			require.NoError(t, err)
+			require.NoError(t, resp.Body.Close())
+			assert.Equal(t, http.StatusOK, resp.StatusCode)
+			assert.True(t, redirected)
+		})
+	}
+}
+
 func TestMiddlewareCanReadBody(t *testing.T) {
 	unencodedBody := "body"
 	encodedBody, err := codecs.Plain.Marshal(unencodedBody)

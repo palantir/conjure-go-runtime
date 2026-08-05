@@ -72,6 +72,22 @@ func TestAuthHeaderAllowedOnRedirect(t *testing.T) {
 	}
 }
 
+func TestRedirectSensitiveHeaders(t *testing.T) {
+	for _, key := range []string{
+		"Authorization",
+		"Www-Authenticate",
+		"Cookie",
+		"Cookie2",
+		"Proxy-Authorization",
+		"Proxy-Authenticate",
+	} {
+		_, ok := redirectSensitiveHeaders[http.CanonicalHeaderKey(key)]
+		assert.True(t, ok, key)
+	}
+	_, ok := redirectSensitiveHeaders[http.CanonicalHeaderKey("X-Test")]
+	assert.False(t, ok)
+}
+
 func redirectChain(t *testing.T, urls []string) *http.Request {
 	var prev *http.Request
 

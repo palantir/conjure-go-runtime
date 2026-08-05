@@ -18,7 +18,9 @@ import (
 	"context"
 	"encoding/base64"
 	"net/http"
+	"net/http/cookiejar"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -390,4 +392,135 @@ func TestAuthHeaderPreservedOnSameHostRedirect(t *testing.T) {
 
 	assert.True(t, redirectCalled)
 	assert.Equal(t, "Bearer "+token, authValue)
+}
+
+func TestSensitiveHeadersNotReattachedOnCrossHostRedirect(t *testing.T) {
+	testRedirectSensitiveHeaders(t, true)
+}
+
+func TestSensitiveHeadersPreservedOnSameHostRedirect(t *testing.T) {
+	testRedirectSensitiveHeaders(t, false)
+}
+
+func TestRedirectTargetCookiesPreserved(t *testing.T) {
+	var targetCookies []*http.Cookie
+	target := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		targetCookies = req.Cookies()
+		rw.WriteHeader(http.StatusOK)
+	}))
+	defer target.Close()
+	targetURL, err := url.Parse(strings.Replace(target.URL, "127.0.0.1", "localhost", 1))
+	require.NoError(t, err)
+
+	origin := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		http.Redirect(rw, req, targetURL.String(), http.StatusFound)
+	}))
+	defer origin.Close()
+
+	jar, err := cookiejar.New(nil)
+	require.NoError(t, err)
+	jar.SetCookies(targetURL, []*http.Cookie{{Name: "target", Value: "cookie"}})
+	client, err := httpclient.NewHTTPClient(httpclient.WithAddHeader("Cookie", "origin=secret"))
+	require.NoError(t, err)
+	client.Jar = jar
+
+	resp, err := client.Get(origin.URL)
+	require.NoError(t, err)
+	require.NoError(t, resp.Body.Close())
+	if assert.Len(t, targetCookies, 1) {
+		assert.Equal(t, "target", targetCookies[0].Name)
+		assert.Equal(t, "cookie", targetCookies[0].Value)
+	}
+}
+
+func testRedirectSensitiveHeaders(t *testing.T, crossHost bool) {
+	const secret = "secret"
+	for _, tc := range []struct {
+		name  string
+		key   string
+		param httpclient.ClientOrHTTPClientParam
+	}{
+		{
+			name:  "set authorization header",
+			key:   "Authorization",
+			param: httpclient.WithSetHeader("Authorization", secret),
+		},
+		{
+			name:  "add cookie header",
+			key:   "Cookie",
+			param: httpclient.WithAddHeader("Cookie", secret),
+		},
+		{
+			name: "custom middleware sets proxy authorization",
+			key:  "Proxy-Authorization",
+			param: httpclient.WithMiddleware(httpclient.MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+				req.Header["proxy-authorization"] = []string{secret}
+				return next.RoundTrip(req)
+			})),
+		},
+	} {
+		for _, useHTTPClient := range []bool{false, true} {
+			clientName := "Client"
+			if useHTTPClient {
+				clientName = "HTTPClient"
+			}
+			t.Run(tc.name+"/"+clientName, func(t *testing.T) {
+				var originValues, redirectValues []string
+				redirectServer := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+					redirectValues = req.Header.Values(tc.key)
+					rw.WriteHeader(http.StatusOK)
+				}))
+				defer redirectServer.Close()
+
+				redirectURL := redirectServer.URL + "/redirect"
+				if crossHost {
+					redirectURL = strings.Replace(redirectURL, "127.0.0.1", "localhost", 1)
+					require.NotEqual(t, redirectServer.URL+"/redirect", redirectURL)
+				}
+
+				origin := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+					originValues = req.Header.Values(tc.key)
+					if crossHost {
+						http.Redirect(rw, req, redirectURL, http.StatusFound)
+						return
+					}
+					if req.URL.Path == "/redirect" {
+						redirectValues = req.Header.Values(tc.key)
+						rw.WriteHeader(http.StatusOK)
+						return
+					}
+					http.Redirect(rw, req, "/redirect", http.StatusFound)
+				}))
+				defer origin.Close()
+
+				if useHTTPClient {
+					client, err := httpclient.NewHTTPClient(
+						httpclient.WithHTTPTimeout(time.Minute),
+						tc.param,
+					)
+					require.NoError(t, err)
+					resp, err := client.Get(origin.URL)
+					require.NoError(t, err)
+					require.NoError(t, resp.Body.Close())
+				} else {
+					client, err := httpclient.NewClient(
+						httpclient.WithBaseURLs([]string{origin.URL}),
+						httpclient.WithHTTPTimeout(time.Minute),
+						tc.param,
+					)
+					require.NoError(t, err)
+					resp, err := client.Get(context.Background())
+					require.NoError(t, err)
+					require.NoError(t, resp.Body.Close())
+				}
+
+				assert.Contains(t, originValues, secret)
+				if crossHost {
+					assert.Empty(t, redirectValues)
+				} else {
+					assert.Contains(t, redirectValues, secret)
+				}
+			})
+		}
+	}
 }

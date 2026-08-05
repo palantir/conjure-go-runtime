@@ -106,6 +106,62 @@ func setAuthorizationHeader(req *http.Request, value string) {
 	req.Header.Set("Authorization", value)
 }
 
+var redirectSensitiveHeaders = map[string]struct{}{
+	"Authorization":       {},
+	"Www-Authenticate":    {},
+	"Cookie":              {},
+	"Cookie2":             {},
+	"Proxy-Authorization": {},
+	"Proxy-Authenticate":  {},
+}
+
+type redirectSensitiveHeadersMiddleware struct{}
+
+func (redirectSensitiveHeadersMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+	if !authHeaderAllowedOnRedirect(req) {
+		for key := range req.Header {
+			if _, ok := redirectSensitiveHeaders[http.CanonicalHeaderKey(key)]; ok {
+				delete(req.Header, key)
+			}
+		}
+		if snapshot, ok := req.Context().Value(redirectSensitiveHeadersSnapshotKey{}).(http.Header); ok {
+			for key, values := range snapshot {
+				req.Header[key] = append([]string(nil), values...)
+			}
+		}
+	}
+	return next.RoundTrip(req)
+}
+
+type redirectSensitiveHeadersSnapshotKey struct{}
+
+type redirectSensitiveHeadersSnapshotMiddleware struct{}
+
+func (redirectSensitiveHeadersSnapshotMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+	if authHeaderAllowedOnRedirect(req) {
+		return next.RoundTrip(req)
+	}
+	snapshot := make(http.Header)
+	for key, values := range req.Header {
+		if _, ok := redirectSensitiveHeaders[http.CanonicalHeaderKey(key)]; ok {
+			snapshot[key] = append([]string(nil), values...)
+		}
+	}
+	ctx := context.WithValue(req.Context(), redirectSensitiveHeadersSnapshotKey{}, snapshot)
+	return next.RoundTrip(req.WithContext(ctx))
+}
+
+// Preserve redirect-target headers supplied by http.Client itself, such as CookieJar cookies,
+// while discarding sensitive values reattached by caller middleware.
+func wrapTransportWithRedirectSensitiveHeaderProtection(base http.RoundTripper, middlewares ...Middleware) http.RoundTripper {
+	if len(middlewares) == 0 {
+		return base
+	}
+	base = wrapTransport(base, redirectSensitiveHeadersMiddleware{})
+	base = wrapTransport(base, middlewares...)
+	return wrapTransport(base, redirectSensitiveHeadersSnapshotMiddleware{})
+}
+
 // authHeaderAllowedOnRedirect reports whether Authorization credentials may be attached to req.
 //
 // Source: https://github.com/golang/go/blob/go1.26.4/src/net/http/client.go#L688-L692

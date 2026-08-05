@@ -111,7 +111,7 @@ func (b *httpClientBuilder) Build(ctx context.Context, params ...HTTPClientParam
 	if !b.DisableRecovery {
 		transport = wrapTransport(transport, recoveryMiddleware{})
 	}
-	transport = wrapTransport(transport, b.Middlewares...)
+	transport = wrapTransportWithRedirectSensitiveHeaderProtection(transport, b.Middlewares...)
 
 	return refreshingclient.NewRefreshableHTTPClient(transport, b.Timeout), nil
 }
