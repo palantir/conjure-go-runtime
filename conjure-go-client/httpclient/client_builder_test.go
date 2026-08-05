@@ -393,11 +393,11 @@ func unwrapRefreshableValidatedTransport(rt http.RoundTripper) *http.Transport {
 	if len(result) == 0 {
 		return nil
 	}
-	transport, ok := result[0].Interface().(*http.Transport)
+	transportFn, ok := result[0].Interface().(func() *http.Transport)
 	if !ok {
 		return nil
 	}
-	return transport
+	return transportFn()
 }
 
 // getUnexportedBaseTransport uses unsafe reflection to access the unexported baseTransport
