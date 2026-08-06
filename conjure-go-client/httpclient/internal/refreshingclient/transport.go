@@ -19,6 +19,8 @@ import (
 	"crypto/tls"
 	"net/http"
 	"net/url"
+	"runtime"
+	"sync"
 	"time"
 
 	"github.com/palantir/pkg/refreshable/v2"
@@ -52,16 +54,26 @@ type TLSConfigurationParams struct {
 }
 
 func NewRefreshableTransport(ctx context.Context, p refreshable.Refreshable[TransportParams], refreshableConfig refreshable.Validated[*tls.Config], dialer ContextDialer) http.RoundTripper {
-	var previous *http.Transport
-	mapped, _ := refreshable.MergeValidatedAndRefreshable(ctx, refreshableConfig, p, func(t *tls.Config, p TransportParams) func() *http.Transport {
-		transport := newTransport(ctx, p, t, dialer)
-		if previous != nil {
-			previous.CloseIdleConnections()
-		}
-		previous = transport
-		return func() *http.Transport { return transport }
+	validTLSConfig := refreshable.MapFromValidatedAuto(refreshableConfig, func(t *tls.Config) *tls.Config { return t })
+	states := refreshable.MergeAuto(validTLSConfig, p, func(t *tls.Config, p TransportParams) *managedTransport {
+		return newManagedTransport(newTransport(ctx, p, t, dialer))
 	})
-	return &RefreshableTransport{Refreshable: mapped}
+	var previous *managedTransport
+	unsubscribe := states.Subscribe(func(current *managedTransport) {
+		if previous != nil && previous != current {
+			previous.retire()
+		}
+		previous = current
+	})
+	result := &RefreshableTransport{
+		Refreshable: refreshable.View(states, func(state *managedTransport) func() *http.Transport {
+			return func() *http.Transport { return state.transport }
+		}),
+		states: states,
+	}
+	cleanup := &refreshableTransportCleanup{unsubscribe: unsubscribe}
+	runtime.AddCleanup(result, (*refreshableTransportCleanup).run, cleanup)
+	return result
 }
 
 // RefreshableTransport implements http.RoundTripper backed by a refreshable *http.Transport.
@@ -69,11 +81,83 @@ func NewRefreshableTransport(ctx context.Context, p refreshable.Refreshable[Tran
 // The refreshable stores a function because its equality checks use reflect.DeepEqual.
 // Storing the transport directly would inspect connection-pool state while net/http concurrently mutates it.
 type RefreshableTransport struct {
-	Refreshable refreshable.Validated[func() *http.Transport]
+	Refreshable refreshable.Refreshable[func() *http.Transport]
+	states      refreshable.Refreshable[*managedTransport]
+}
+
+type refreshableTransportCleanup struct {
+	unsubscribe refreshable.UnsubscribeFunc
+}
+
+func (c *refreshableTransportCleanup) run() {
+	c.unsubscribe()
 }
 
 func (r *RefreshableTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	return r.Refreshable.Unvalidated()().RoundTrip(req)
+	for {
+		state := r.states.Current()
+		if !state.acquire() {
+			continue
+		}
+		defer state.release()
+		return state.transport.RoundTrip(req)
+	}
+}
+
+type managedTransport struct {
+	transport *http.Transport
+
+	mu                     sync.Mutex
+	active                 int
+	retired                bool
+	retiredIdleConnsClosed bool
+	closeIdleConnections   func()
+}
+
+func newManagedTransport(transport *http.Transport) *managedTransport {
+	return &managedTransport{
+		transport:            transport,
+		closeIdleConnections: transport.CloseIdleConnections,
+	}
+}
+
+func (t *managedTransport) acquire() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.retired {
+		return false
+	}
+	t.active++
+	return true
+}
+
+func (t *managedTransport) release() {
+	t.mu.Lock()
+	t.active--
+	closeIdleConnections := t.markRetiredIdleConnectionsClosed()
+	t.mu.Unlock()
+	if closeIdleConnections {
+		t.closeIdleConnections()
+	}
+}
+
+func (t *managedTransport) retire() {
+	t.mu.Lock()
+	t.retired = true
+	closeIdleConnections := t.markRetiredIdleConnectionsClosed()
+	t.mu.Unlock()
+	if closeIdleConnections {
+		t.closeIdleConnections()
+	}
+}
+
+// markRetiredIdleConnectionsClosed must be called with t.mu held.
+func (t *managedTransport) markRetiredIdleConnectionsClosed() bool {
+	if !t.retired || t.active != 0 || t.retiredIdleConnsClosed {
+		return false
+	}
+	t.retiredIdleConnsClosed = true
+	return true
 }
 
 func newTransport(ctx context.Context, p TransportParams, tlsConfig *tls.Config, dialer ContextDialer) *http.Transport {

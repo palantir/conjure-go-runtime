@@ -387,7 +387,10 @@ func unwrapRefreshableValidatedTransport(rt http.RoundTripper) *http.Transport {
 	}
 	method := field.MethodByName("Unvalidated")
 	if !method.IsValid() {
-		return nil
+		method = field.MethodByName("Current")
+		if !method.IsValid() {
+			return nil
+		}
 	}
 	result := method.Call(nil)
 	if len(result) == 0 {
