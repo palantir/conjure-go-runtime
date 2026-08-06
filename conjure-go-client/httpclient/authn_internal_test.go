@@ -43,7 +43,22 @@ func TestAuthHeaderAllowedOnRedirect(t *testing.T) {
 		{
 			name:  "subdomain redirect",
 			chain: []string{"https://a.com/", "https://sub.a.com/"},
+			allow: false,
+		},
+		{
+			name:  "default port redirect",
+			chain: []string{"https://a.com/", "https://a.com:443/"},
 			allow: true,
+		},
+		{
+			name:  "cross port redirect",
+			chain: []string{"https://a.com:8443/", "https://a.com:9443/"},
+			allow: false,
+		},
+		{
+			name:  "scheme downgrade redirect",
+			chain: []string{"https://a.com/", "http://a.com/"},
+			allow: false,
 		},
 		{
 			name:  "cross host redirect",
@@ -58,7 +73,7 @@ func TestAuthHeaderAllowedOnRedirect(t *testing.T) {
 		{
 			name:  "subdomain then original",
 			chain: []string{"https://a.com/", "https://sub.a.com/", "https://a.com/"},
-			allow: true,
+			allow: false,
 		},
 		{
 			name:  "cross host then return to original",

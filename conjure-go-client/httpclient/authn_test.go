@@ -362,6 +362,32 @@ func TestAuthHeaderNotLeakedOnCrossHostRedirect(t *testing.T) {
 	}
 }
 
+func TestAuthHeaderNotLeakedOnCrossPortRedirect(t *testing.T) {
+	const token = "token"
+	var redirectAuthValue string
+	target := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		redirectAuthValue = req.Header.Get("Authorization")
+		rw.WriteHeader(http.StatusOK)
+	}))
+	defer target.Close()
+
+	origin := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		http.Redirect(rw, req, target.URL, http.StatusFound)
+	}))
+	defer origin.Close()
+
+	client, err := httpclient.NewClient(
+		httpclient.WithBaseURLs([]string{origin.URL}),
+		httpclient.WithAuthToken(token),
+	)
+	require.NoError(t, err)
+
+	resp, err := client.Get(t.Context())
+	require.NoError(t, err)
+	require.NoError(t, resp.Body.Close())
+	assert.Empty(t, redirectAuthValue)
+}
+
 // Verifies that following a same-host redirect still attaches the Authorization header.
 func TestAuthHeaderPreservedOnSameHostRedirect(t *testing.T) {
 	const token = "token"

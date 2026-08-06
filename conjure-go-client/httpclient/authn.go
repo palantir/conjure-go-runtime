@@ -97,8 +97,7 @@ func basicAuthValue(username, password string) string {
 }
 
 // setAuthorizationHeader sets the Authorization header on req to value, unless following
-// redirects has taken req to a host that is not the same as (or a subdomain of) the
-// original request host.
+// redirects has taken req outside the original request origin.
 func setAuthorizationHeader(req *http.Request, value string) {
 	if !authHeaderAllowedOnRedirect(req) {
 		return
@@ -162,9 +161,9 @@ func wrapTransportWithRedirectSensitiveHeaderProtection(base http.RoundTripper, 
 	return wrapTransport(base, redirectSensitiveHeadersSnapshotMiddleware{})
 }
 
-// authHeaderAllowedOnRedirect reports whether Authorization credentials may be attached to req.
-//
-// Source: https://github.com/golang/go/blob/go1.26.4/src/net/http/client.go#L688-L692
+// authHeaderAllowedOnRedirect reports whether service credentials may be attached to req.
+// Unlike net/http's domain-only copy rule, service credentials are confined to the
+// original scheme, host, and effective port.
 func authHeaderAllowedOnRedirect(req *http.Request) bool {
 	if req.Response == nil {
 		// Initial request, not a redirect, credentials are always allowed.
@@ -174,10 +173,10 @@ func authHeaderAllowedOnRedirect(req *http.Request) bool {
 	if origin.URL == nil {
 		return true
 	}
-	originHost := idnaASCIIFromURL(origin.URL)
-	// Require every redirect to remain on the same host, or a subdomain of, the original host.
+	// Require every redirect to remain within the original origin. Checking every hop
+	// prevents a cross-origin redirect from laundering credentials by returning later.
 	for r := req; r != origin; {
-		if r.URL == nil || !isDomainOrSubdomain(idnaASCIIFromURL(r.URL), originHost) {
+		if !sameRedirectOrigin(r.URL, origin.URL) {
 			return false
 		}
 		if r.Response == nil || r.Response.Request == nil {
@@ -186,6 +185,13 @@ func authHeaderAllowedOnRedirect(req *http.Request) bool {
 		r = r.Response.Request
 	}
 	return true
+}
+
+func sameRedirectOrigin(a, b *url.URL) bool {
+	return a != nil && b != nil &&
+		strings.EqualFold(a.Scheme, b.Scheme) &&
+		idnaASCIIFromURL(a) == idnaASCIIFromURL(b) &&
+		effectivePort(a) == effectivePort(b)
 }
 
 // originRequest walks the redirect chain back to the original request (i.e. the first request that
@@ -207,28 +213,4 @@ func idnaASCIIFromURL(u *url.URL) string {
 		addr = v
 	}
 	return addr
-}
-
-// isDomainOrSubdomain reports whether sub is a subdomain (or exact match) of the parent domain.
-// It is copied verbatim from net/http's unexported isDomainOrSubdomain to match the standard library's
-// redirect header-stripping semantics exactly.
-//
-// Source: https://github.com/golang/go/blob/go1.26.4/src/net/http/client.go#L1028-L1045
-func isDomainOrSubdomain(sub, parent string) bool {
-	if sub == parent {
-		return true
-	}
-	// If sub contains a :, it's probably an IPv6 address (and is definitely not a hostname).
-	// Don't check the suffix in this case, to avoid matching the contents of a IPv6 zone.
-	// For example, "::1%.www.example.com" is not a subdomain of "www.example.com".
-	if strings.ContainsAny(sub, ":%") {
-		return false
-	}
-	// If sub is "foo.example.com" and parent is "example.com",
-	// that means sub must end in "."+parent.
-	// Do it without allocating.
-	if !strings.HasSuffix(sub, parent) {
-		return false
-	}
-	return sub[len(sub)-len(parent)-1] == '.'
 }
