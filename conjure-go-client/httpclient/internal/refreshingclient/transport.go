@@ -55,47 +55,44 @@ type TLSConfigurationParams struct {
 
 func NewRefreshableTransport(ctx context.Context, p refreshable.Refreshable[TransportParams], refreshableConfig refreshable.Validated[*tls.Config], dialer ContextDialer) http.RoundTripper {
 	validTLSConfig := refreshable.MapFromValidatedAuto(refreshableConfig, func(t *tls.Config) *tls.Config { return t })
-	states := refreshable.MergeAuto(validTLSConfig, p, func(t *tls.Config, p TransportParams) *managedTransport {
-		return newManagedTransport(newTransport(ctx, p, t, dialer))
+	states := refreshable.MergeAuto(validTLSConfig, p, func(t *tls.Config, p TransportParams) transportState {
+		state := newManagedTransport(newTransport(ctx, p, t, dialer))
+		return func() *managedTransport { return state }
 	})
 	var previous *managedTransport
-	unsubscribe := states.Subscribe(func(current *managedTransport) {
+	unsubscribe := states.Subscribe(func(currentState transportState) {
+		current := currentState()
 		if previous != nil && previous != current {
 			previous.retire()
 		}
 		previous = current
 	})
-	result := &RefreshableTransport{
-		Refreshable: refreshable.View(states, func(state *managedTransport) func() *http.Transport {
-			return func() *http.Transport { return state.transport }
-		}),
-		states: states,
-	}
-	cleanup := &refreshableTransportCleanup{unsubscribe: unsubscribe}
-	runtime.AddCleanup(result, (*refreshableTransportCleanup).run, cleanup)
+	result := &RefreshableTransport{states: states}
+	runtime.AddCleanup(result, unsubscribeRefreshable, unsubscribe)
 	return result
 }
+
+type transportState func() *managedTransport
 
 // RefreshableTransport implements http.RoundTripper backed by a refreshable *http.Transport.
 // The transport and internal dialer are each rebuilt when any of their respective parameters are updated.
 // The refreshable stores a function because its equality checks use reflect.DeepEqual.
 // Storing the transport directly would inspect connection-pool state while net/http concurrently mutates it.
 type RefreshableTransport struct {
-	Refreshable refreshable.Refreshable[func() *http.Transport]
-	states      refreshable.Refreshable[*managedTransport]
+	states refreshable.Refreshable[transportState]
 }
 
-type refreshableTransportCleanup struct {
-	unsubscribe refreshable.UnsubscribeFunc
+func unsubscribeRefreshable(unsubscribe refreshable.UnsubscribeFunc) {
+	unsubscribe()
 }
 
-func (c *refreshableTransportCleanup) run() {
-	c.unsubscribe()
+func (r *RefreshableTransport) CurrentTransport() *http.Transport {
+	return r.states.Current()().transport
 }
 
 func (r *RefreshableTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	for {
-		state := r.states.Current()
+		state := r.states.Current()()
 		if !state.acquire() {
 			continue
 		}

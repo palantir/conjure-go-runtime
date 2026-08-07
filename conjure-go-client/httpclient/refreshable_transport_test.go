@@ -43,7 +43,6 @@ func TestHTTPClientConcurrentTransportRefresh(t *testing.T) {
 	clients, err := httpclient.NewHTTPClientFromRefreshableConfig(t.Context(), configRefreshable, httpclient.WithNoProxy())
 	require.NoError(t, err)
 	client := clients.Current()
-	t.Cleanup(client.CloseIdleConnections)
 
 	stop := make(chan struct{})
 	var wg sync.WaitGroup
@@ -83,7 +82,7 @@ func TestHTTPClientConcurrentTransportRefresh(t *testing.T) {
 }
 
 func TestHTTPClientRefreshClosesRetiredIdleConnections(t *testing.T) {
-	connections := &connectionStates{states: make(map[net.Conn]http.ConnState)}
+	connections := &refreshConnectionStates{states: make(map[net.Conn]http.ConnState)}
 	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
@@ -100,7 +99,6 @@ func TestHTTPClientRefreshClosesRetiredIdleConnections(t *testing.T) {
 	clients, err := httpclient.NewHTTPClientFromRefreshableConfig(t.Context(), configRefreshable, httpclient.WithNoProxy())
 	require.NoError(t, err)
 	client := clients.Current()
-	t.Cleanup(client.CloseIdleConnections)
 
 	request := func() {
 		resp, err := client.Get(server.URL)
@@ -125,4 +123,37 @@ func TestHTTPClientRefreshClosesRetiredIdleConnections(t *testing.T) {
 	require.Eventually(t, func() bool {
 		return connections.count(http.StateIdle) == 1
 	}, 2*time.Second, 10*time.Millisecond)
+}
+
+type refreshConnectionStates struct {
+	mu     sync.Mutex
+	states map[net.Conn]http.ConnState
+}
+
+func (c *refreshConnectionStates) update(conn net.Conn, state http.ConnState) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if state == http.StateClosed || state == http.StateHijacked {
+		delete(c.states, conn)
+		return
+	}
+	c.states[conn] = state
+}
+
+func (c *refreshConnectionStates) count(state http.ConnState) int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	count := 0
+	for _, current := range c.states {
+		if current == state {
+			count++
+		}
+	}
+	return count
+}
+
+func (c *refreshConnectionStates) open() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return len(c.states)
 }

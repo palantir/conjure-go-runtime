@@ -363,44 +363,13 @@ func unwrapTransport(rt http.RoundTripper) *http.Transport {
 		switch t := rt.(type) {
 		case *http.Transport:
 			return t
+		case interface{ CurrentTransport() *http.Transport }:
+			return t.CurrentTransport()
 		default:
-			if transport := unwrapRefreshableValidatedTransport(rt); transport != nil {
-				return transport
-			}
 			rt = getUnexportedBaseTransport(rt)
 		}
 	}
 	return nil
-}
-
-func unwrapRefreshableValidatedTransport(rt http.RoundTripper) *http.Transport {
-	val := reflect.ValueOf(rt)
-	if val.Kind() == reflect.Pointer {
-		val = val.Elem()
-	}
-	if val.Kind() != reflect.Struct {
-		return nil
-	}
-	field := val.FieldByName("Refreshable")
-	if !field.IsValid() {
-		return nil
-	}
-	method := field.MethodByName("Unvalidated")
-	if !method.IsValid() {
-		method = field.MethodByName("Current")
-		if !method.IsValid() {
-			return nil
-		}
-	}
-	result := method.Call(nil)
-	if len(result) == 0 {
-		return nil
-	}
-	transportFn, ok := result[0].Interface().(func() *http.Transport)
-	if !ok {
-		return nil
-	}
-	return transportFn()
 }
 
 // getUnexportedBaseTransport uses unsafe reflection to access the unexported baseTransport

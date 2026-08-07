@@ -37,13 +37,13 @@ func TestRefreshableTransportIgnoresInvalidTLSUpdates(t *testing.T) {
 	require.NoError(t, err)
 
 	transport := NewRefreshableTransport(t.Context(), refreshable.New(TransportParams{}), validatedTLSConfig, &net.Dialer{}).(*RefreshableTransport)
-	initial := transport.Refreshable.Current()()
+	initial := transport.CurrentTransport()
 
 	tlsConfig.Update(&tls.Config{ServerName: "invalid"})
-	require.Same(t, initial, transport.Refreshable.Current()())
+	require.Same(t, initial, transport.CurrentTransport())
 
 	tlsConfig.Update(&tls.Config{ServerName: "refreshed"})
-	require.NotSame(t, initial, transport.Refreshable.Current()())
+	require.NotSame(t, initial, transport.CurrentTransport())
 }
 
 func TestManagedTransportDefersRetiredCleanupUntilRequestsComplete(t *testing.T) {
