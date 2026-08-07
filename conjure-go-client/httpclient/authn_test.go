@@ -388,6 +388,132 @@ func TestAuthHeaderNotLeakedOnCrossPortRedirect(t *testing.T) {
 	assert.Empty(t, redirectAuthValue)
 }
 
+func TestRequestBasicAuthNotLeakedOnCrossPortRedirect(t *testing.T) {
+	var redirectAuthValue string
+	target := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		redirectAuthValue = req.Header.Get("Authorization")
+		rw.WriteHeader(http.StatusOK)
+	}))
+	defer target.Close()
+
+	origin := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		http.Redirect(rw, req, target.URL, http.StatusFound)
+	}))
+	defer origin.Close()
+
+	client, err := httpclient.NewClient(httpclient.WithBaseURLs([]string{origin.URL}))
+	require.NoError(t, err)
+
+	resp, err := client.Get(t.Context(), httpclient.WithRequestBasicAuth("user", "password"))
+	require.NoError(t, err)
+	require.NoError(t, resp.Body.Close())
+	assert.Empty(t, redirectAuthValue)
+}
+
+func TestRequestCookieNotLeakedOnCrossPortRedirect(t *testing.T) {
+	for _, useHTTPClient := range []bool{false, true} {
+		clientName := "Client"
+		if useHTTPClient {
+			clientName = "HTTPClient"
+		}
+		t.Run(clientName, func(t *testing.T) {
+			var redirectCookieValue string
+			target := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+				redirectCookieValue = req.Header.Get("Cookie")
+				rw.WriteHeader(http.StatusOK)
+			}))
+			defer target.Close()
+
+			origin := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+				http.Redirect(rw, req, target.URL, http.StatusFound)
+			}))
+			defer origin.Close()
+
+			if useHTTPClient {
+				client, err := httpclient.NewHTTPClient()
+				require.NoError(t, err)
+				req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, origin.URL, nil)
+				require.NoError(t, err)
+				req.Header.Set("Cookie", "origin=secret")
+				resp, err := client.Do(req)
+				require.NoError(t, err)
+				require.NoError(t, resp.Body.Close())
+			} else {
+				client, err := httpclient.NewClient(httpclient.WithBaseURLs([]string{origin.URL}))
+				require.NoError(t, err)
+				resp, err := client.Get(t.Context(), httpclient.WithHeader("Cookie", "origin=secret"))
+				require.NoError(t, err)
+				require.NoError(t, resp.Body.Close())
+			}
+			assert.Empty(t, redirectCookieValue)
+		})
+	}
+}
+
+func TestRequestCookieNotReintroducedAfterCrossHostRedirect(t *testing.T) {
+	var middleURL string
+	var targetCookies []*http.Cookie
+	jar, err := cookiejar.New(nil)
+	require.NoError(t, err)
+	origin := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		if req.URL.Path == "/target" {
+			targetCookies = req.Cookies()
+			rw.WriteHeader(http.StatusOK)
+			return
+		}
+		http.Redirect(rw, req, middleURL, http.StatusFound)
+	}))
+	defer origin.Close()
+	originURL, err := url.Parse(origin.URL)
+	require.NoError(t, err)
+	middle := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		jar.SetCookies(originURL, []*http.Cookie{{Name: "target", Value: "cookie"}})
+		http.Redirect(rw, req, origin.URL+"/target", http.StatusFound)
+	}))
+	defer middle.Close()
+	middleURL = strings.Replace(middle.URL, "127.0.0.1", "localhost", 1)
+
+	client, err := httpclient.NewHTTPClient()
+	require.NoError(t, err)
+	client.Jar = jar
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, origin.URL, nil)
+	require.NoError(t, err)
+	req.Header.Set("Cookie", "origin=secret")
+
+	resp, err := client.Do(req)
+	require.NoError(t, err)
+	require.NoError(t, resp.Body.Close())
+	if assert.Len(t, targetCookies, 1) {
+		assert.Equal(t, "target", targetCookies[0].Name)
+		assert.Equal(t, "cookie", targetCookies[0].Value)
+	}
+}
+
+func TestHTTPClientRequestAuthorizationNotLeakedOnCrossPortRedirect(t *testing.T) {
+	var redirectAuthValue string
+	target := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		redirectAuthValue = req.Header.Get("Authorization")
+		rw.WriteHeader(http.StatusOK)
+	}))
+	defer target.Close()
+
+	origin := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		http.Redirect(rw, req, target.URL, http.StatusFound)
+	}))
+	defer origin.Close()
+
+	client, err := httpclient.NewHTTPClient()
+	require.NoError(t, err)
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, origin.URL, nil)
+	require.NoError(t, err)
+	req.SetBasicAuth("user", "password")
+
+	resp, err := client.Do(req)
+	require.NoError(t, err)
+	require.NoError(t, resp.Body.Close())
+	assert.Empty(t, redirectAuthValue)
+}
+
 // Verifies that following a same-host redirect still attaches the Authorization header.
 func TestAuthHeaderPreservedOnSameHostRedirect(t *testing.T) {
 	const token = "token"

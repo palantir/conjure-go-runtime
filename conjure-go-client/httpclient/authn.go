@@ -140,22 +140,50 @@ func (redirectSensitiveHeadersSnapshotMiddleware) RoundTrip(req *http.Request, n
 	if authHeaderAllowedOnRedirect(req) {
 		return next.RoundTrip(req)
 	}
-	snapshot := make(http.Header)
-	for key, values := range req.Header {
-		if _, ok := redirectSensitiveHeaders[http.CanonicalHeaderKey(key)]; ok {
-			snapshot[key] = append([]string(nil), values...)
-		}
-	}
+	snapshot := redirectCookieSnapshot(req)
 	ctx := context.WithValue(req.Context(), redirectSensitiveHeadersSnapshotKey{}, snapshot)
 	return next.RoundTrip(req.WithContext(ctx))
 }
 
-// Preserve redirect-target headers supplied by http.Client itself, such as CookieJar cookies,
-// while discarding sensitive values reattached by caller middleware.
-func wrapTransportWithRedirectSensitiveHeaderProtection(base http.RoundTripper, middlewares ...Middleware) http.RoundTripper {
-	if len(middlewares) == 0 {
-		return base
+func redirectCookieSnapshot(req *http.Request) http.Header {
+	// If net/http may have copied origin cookies, none of the values can be proven to
+	// come from the redirect target's CookieJar.
+	if redirectMayContainCopiedCookies(req) {
+		return nil
 	}
+	snapshot := make(http.Header)
+	for key, values := range req.Header {
+		if http.CanonicalHeaderKey(key) == "Cookie" {
+			snapshot[key] = append([]string(nil), values...)
+		}
+	}
+	return snapshot
+}
+
+func redirectMayContainCopiedCookies(req *http.Request) bool {
+	origin := originRequest(req)
+	if origin.URL == nil {
+		return true
+	}
+	originHost := idnaASCIIFromURL(origin.URL)
+	for r := req; r != origin; {
+		if r.URL == nil {
+			return true
+		}
+		if !isDomainOrSubdomain(idnaASCIIFromURL(r.URL), originHost) {
+			return false
+		}
+		if r.Response == nil || r.Response.Request == nil {
+			return true
+		}
+		r = r.Response.Request
+	}
+	return true
+}
+
+// Preserve the Cookie header visible before caller middleware so redirect-target CookieJar
+// values survive; other sensitive headers are not restored after stripping.
+func wrapTransportWithRedirectSensitiveHeaderProtection(base http.RoundTripper, middlewares ...Middleware) http.RoundTripper {
 	base = wrapTransport(base, redirectSensitiveHeadersMiddleware{})
 	base = wrapTransport(base, middlewares...)
 	return wrapTransport(base, redirectSensitiveHeadersSnapshotMiddleware{})
@@ -191,7 +219,21 @@ func sameRedirectOrigin(a, b *url.URL) bool {
 	return a != nil && b != nil &&
 		strings.EqualFold(a.Scheme, b.Scheme) &&
 		idnaASCIIFromURL(a) == idnaASCIIFromURL(b) &&
-		effectivePort(a) == effectivePort(b)
+		redirectEffectivePort(a) == redirectEffectivePort(b)
+}
+
+func redirectEffectivePort(uri *url.URL) string {
+	if port := uri.Port(); port != "" {
+		return port
+	}
+	switch {
+	case strings.EqualFold(uri.Scheme, "http"), strings.EqualFold(uri.Scheme, "mesh-http"):
+		return "80"
+	case strings.EqualFold(uri.Scheme, "https"), strings.EqualFold(uri.Scheme, "mesh-https"):
+		return "443"
+	default:
+		return ""
+	}
 }
 
 // originRequest walks the redirect chain back to the original request (i.e. the first request that
@@ -213,4 +255,15 @@ func idnaASCIIFromURL(u *url.URL) string {
 		addr = v
 	}
 	return addr
+}
+
+// isDomainOrSubdomain matches net/http's redirect rule for copying sensitive headers.
+func isDomainOrSubdomain(sub, parent string) bool {
+	if sub == parent {
+		return true
+	}
+	if strings.ContainsAny(sub, ":%") || !strings.HasSuffix(sub, parent) {
+		return false
+	}
+	return sub[len(sub)-len(parent)-1] == '.'
 }

@@ -51,6 +51,11 @@ func TestAuthHeaderAllowedOnRedirect(t *testing.T) {
 			allow: true,
 		},
 		{
+			name:  "mesh default port redirect",
+			chain: []string{"mesh-http://a.com/", "mesh-http://a.com:80/"},
+			allow: true,
+		},
+		{
 			name:  "cross port redirect",
 			chain: []string{"https://a.com:8443/", "https://a.com:9443/"},
 			allow: false,
@@ -101,6 +106,21 @@ func TestRedirectSensitiveHeaders(t *testing.T) {
 	}
 	_, ok := redirectSensitiveHeaders[http.CanonicalHeaderKey("X-Test")]
 	assert.False(t, ok)
+}
+
+func TestRedirectCookieSnapshot(t *testing.T) {
+	t.Run("drops cookies when net/http may have copied origin headers", func(t *testing.T) {
+		req := redirectChain(t, []string{"https://a.com/", "https://a.com:8443/"})
+		req.Header = http.Header{"Cookie": []string{"origin=secret; target=cookie"}}
+
+		assert.Nil(t, redirectCookieSnapshot(req))
+	})
+	t.Run("preserves target cookies after net/http stripped origin headers", func(t *testing.T) {
+		req := redirectChain(t, []string{"https://a.com/", "https://b.com/"})
+		req.Header = http.Header{"Cookie": []string{"target=cookie"}}
+
+		assert.Equal(t, http.Header{"Cookie": []string{"target=cookie"}}, redirectCookieSnapshot(req))
+	})
 }
 
 func redirectChain(t *testing.T, urls []string) *http.Request {
