@@ -19,13 +19,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
-	"github.com/palantir/conjure-go-runtime/v2/conjure-go-contract/codecs"
-	"github.com/palantir/conjure-go-runtime/v2/conjure-go-contract/errors"
+	"github.com/palantir/conjure-go-runtime/v3/conjure-go-contract/codecs"
+	"github.com/palantir/conjure-go-runtime/v3/conjure-go-contract/errors"
 	werror "github.com/palantir/witchcraft-go-error"
 	"github.com/palantir/witchcraft-go-logging/wlog"
 	"github.com/palantir/witchcraft-go-logging/wlog/svclog/svc1log"
@@ -35,8 +35,8 @@ import (
 )
 
 func TestHandler_ServeHTTP(t *testing.T) {
-	conjure404Err := errors.NewNotFound(wparams.NewSafeParamStorer(map[string]interface{}{"param": "value"}))
-	conjure500Err := errors.NewInternal(wparams.NewSafeParamStorer(map[string]interface{}{"param": "value"}))
+	conjure404Err := errors.NewNotFound(wparams.NewSafeParamStorer(map[string]any{"param": "value"}))
+	conjure500Err := errors.NewInternal(wparams.NewSafeParamStorer(map[string]any{"param": "value"}))
 	for _, tc := range []struct {
 		name       string
 		handler    func(http.ResponseWriter, *http.Request) error
@@ -53,7 +53,7 @@ func TestHandler_ServeHTTP(t *testing.T) {
 			},
 			verifyResp: func(t *testing.T, resp *http.Response) {
 				assert.Equal(t, http.StatusOK, resp.StatusCode)
-				body, err := ioutil.ReadAll(resp.Body)
+				body, err := io.ReadAll(resp.Body)
 				assert.NoError(t, err)
 				assert.Equal(t, "plaintext", string(body))
 			},
@@ -69,17 +69,17 @@ func TestHandler_ServeHTTP(t *testing.T) {
 			verifyResp: func(t *testing.T, resp *http.Response) {
 				assert.Equal(t, http.StatusInternalServerError, resp.StatusCode)
 				assert.Equal(t, "text/plain; charset=utf-8", resp.Header.Get("Content-Type"))
-				body, err := ioutil.ReadAll(resp.Body)
+				body, err := io.ReadAll(resp.Body)
 				assert.NoError(t, err)
 				assert.Equal(t, "a bad thing\n", string(body))
 			},
 			verifyLog: func(t *testing.T, i []byte) {
-				logLine := map[string]interface{}{}
+				logLine := map[string]any{}
 				err := codecs.JSON.Unmarshal(i, &logLine)
 				require.NoError(t, err)
 				assert.Equal(t, "ERROR", logLine["level"])
 				assert.Equal(t, "Error handling request", logLine["message"])
-				assert.Equal(t, map[string]interface{}{"param": "value"}, logLine["params"])
+				assert.Equal(t, map[string]any{"param": "value"}, logLine["params"])
 			},
 		},
 		{
@@ -90,17 +90,17 @@ func TestHandler_ServeHTTP(t *testing.T) {
 			verifyResp: func(t *testing.T, resp *http.Response) {
 				assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 				assert.Equal(t, "text/plain; charset=utf-8", resp.Header.Get("Content-Type"))
-				body, err := ioutil.ReadAll(resp.Body)
+				body, err := io.ReadAll(resp.Body)
 				assert.NoError(t, err)
 				assert.Equal(t, "a bad thing\n", string(body))
 			},
 			verifyLog: func(t *testing.T, i []byte) {
-				logLine := map[string]interface{}{}
+				logLine := map[string]any{}
 				err := codecs.JSON.Unmarshal(i, &logLine)
 				require.NoError(t, err)
 				assert.Equal(t, "INFO", logLine["level"])
 				assert.Equal(t, "Error handling request", logLine["message"])
-				assert.Equal(t, map[string]interface{}{"param": "value", "httpStatusCode": json.Number("404")}, logLine["params"])
+				assert.Equal(t, map[string]any{"param": "value", "httpStatusCode": json.Number("404")}, logLine["params"])
 			},
 		},
 		{
@@ -111,17 +111,17 @@ func TestHandler_ServeHTTP(t *testing.T) {
 			verifyResp: func(t *testing.T, resp *http.Response) {
 				assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 				assert.Equal(t, "application/json", resp.Header.Get("Content-Type"))
-				body, err := ioutil.ReadAll(resp.Body)
+				body, err := io.ReadAll(resp.Body)
 				assert.NoError(t, err)
 				assert.Equal(t, "{\"message\":\"a bad thing\"}\n", string(body))
 			},
 			verifyLog: func(t *testing.T, i []byte) {
-				logLine := map[string]interface{}{}
+				logLine := map[string]any{}
 				err := codecs.JSON.Unmarshal(i, &logLine)
 				require.NoError(t, err)
 				assert.Equal(t, "INFO", logLine["level"])
 				assert.Equal(t, "Error handling request", logLine["message"])
-				assert.Equal(t, map[string]interface{}{"httpStatusCode": json.Number("404")}, logLine["params"])
+				assert.Equal(t, map[string]any{"httpStatusCode": json.Number("404")}, logLine["params"])
 			},
 		},
 		{
@@ -135,17 +135,17 @@ func TestHandler_ServeHTTP(t *testing.T) {
 				// the body, the headers are already sent. A solution would be encoding to a buffer, but this would come
 				// with a memory cost.
 				assert.Equal(t, "application/json", resp.Header.Get("Content-Type"))
-				body, err := ioutil.ReadAll(resp.Body)
+				body, err := io.ReadAll(resp.Body)
 				assert.NoError(t, err)
 				assert.Equal(t, "json: error calling MarshalJSON for type httpserver.testJSONErrorMarshalFails: failed to marshal json\n", string(body))
 			},
 			verifyLog: func(t *testing.T, i []byte) {
-				logLine := map[string]interface{}{}
+				logLine := map[string]any{}
 				err := codecs.JSON.Unmarshal(i, &logLine)
 				require.NoError(t, err)
 				assert.Equal(t, "INFO", logLine["level"])
 				assert.Equal(t, "Error handling request", logLine["message"])
-				assert.Equal(t, map[string]interface{}{"httpStatusCode": json.Number("404")}, logLine["params"])
+				assert.Equal(t, map[string]any{"httpStatusCode": json.Number("404")}, logLine["params"])
 			},
 		},
 		{
@@ -156,19 +156,19 @@ func TestHandler_ServeHTTP(t *testing.T) {
 			verifyResp: func(t *testing.T, resp *http.Response) {
 				assert.Equal(t, http.StatusInternalServerError, resp.StatusCode)
 				assert.Equal(t, "application/json; charset=utf-8", resp.Header.Get("Content-Type"))
-				body, err := ioutil.ReadAll(resp.Body)
+				body, err := io.ReadAll(resp.Body)
 				assert.NoError(t, err)
 				expected, err := conjure500Err.(json.Marshaler).MarshalJSON()
 				assert.NoError(t, err)
 				assert.JSONEq(t, string(expected), string(body))
 			},
 			verifyLog: func(t *testing.T, i []byte) {
-				logLine := map[string]interface{}{}
+				logLine := map[string]any{}
 				err := codecs.JSON.Unmarshal(i, &logLine)
 				require.NoError(t, err)
 				assert.Equal(t, "ERROR", logLine["level"])
 				assert.Equal(t, "Error handling request", logLine["message"])
-				assert.Equal(t, map[string]interface{}{"param": "value", "errorInstanceId": conjure500Err.InstanceID().String(), "errorName": conjure500Err.Name()}, logLine["params"])
+				assert.Equal(t, map[string]any{"param": "value", "errorInstanceId": conjure500Err.InstanceID().String(), "errorName": conjure500Err.Name()}, logLine["params"])
 			},
 		},
 		{
@@ -179,19 +179,19 @@ func TestHandler_ServeHTTP(t *testing.T) {
 			verifyResp: func(t *testing.T, resp *http.Response) {
 				assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 				assert.Equal(t, "application/json; charset=utf-8", resp.Header.Get("Content-Type"))
-				body, err := ioutil.ReadAll(resp.Body)
+				body, err := io.ReadAll(resp.Body)
 				assert.NoError(t, err)
 				expected, err := conjure404Err.(json.Marshaler).MarshalJSON()
 				assert.NoError(t, err)
 				assert.JSONEq(t, string(expected), string(body))
 			},
 			verifyLog: func(t *testing.T, i []byte) {
-				logLine := map[string]interface{}{}
+				logLine := map[string]any{}
 				err := codecs.JSON.Unmarshal(i, &logLine)
 				require.NoError(t, err)
 				assert.Equal(t, "INFO", logLine["level"])
 				assert.Equal(t, "Error handling request", logLine["message"])
-				assert.Equal(t, map[string]interface{}{"param": "value", "errorInstanceId": conjure404Err.InstanceID().String(), "errorName": conjure404Err.Name()}, logLine["params"])
+				assert.Equal(t, map[string]any{"param": "value", "errorInstanceId": conjure404Err.InstanceID().String(), "errorName": conjure404Err.Name()}, logLine["params"])
 			},
 		},
 		{
@@ -202,20 +202,20 @@ func TestHandler_ServeHTTP(t *testing.T) {
 			verifyResp: func(t *testing.T, resp *http.Response) {
 				assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 				assert.Equal(t, "application/json; charset=utf-8", resp.Header.Get("Content-Type"))
-				body, err := ioutil.ReadAll(resp.Body)
+				body, err := io.ReadAll(resp.Body)
 				assert.NoError(t, err)
 				expected, err := conjure404Err.(json.Marshaler).MarshalJSON()
 				assert.NoError(t, err)
 				assert.JSONEq(t, string(expected), string(body))
 			},
 			verifyLog: func(t *testing.T, i []byte) {
-				logLine := map[string]interface{}{}
+				logLine := map[string]any{}
 				err := codecs.JSON.Unmarshal(i, &logLine)
 				require.NoError(t, err)
 				assert.Equal(t, "INFO", logLine["level"])
 				assert.Equal(t, "Error handling request", logLine["message"])
-				assert.Equal(t, map[string]interface{}{"param": "value", "errorInstanceId": conjure404Err.InstanceID().String(), "errorName": conjure404Err.Name()}, logLine["params"])
-				assert.Equal(t, map[string]interface{}{"unsafeParam": "unsafeValue"}, logLine["unsafeParams"])
+				assert.Equal(t, map[string]any{"param": "value", "errorInstanceId": conjure404Err.InstanceID().String(), "errorName": conjure404Err.Name()}, logLine["params"])
+				assert.Equal(t, map[string]any{"unsafeParam": "unsafeValue"}, logLine["unsafeParams"])
 			},
 		},
 		{
@@ -232,19 +232,19 @@ func TestHandler_ServeHTTP(t *testing.T) {
 			},
 			verifyResp: func(t *testing.T, resp *http.Response) {
 				assert.Equal(t, http.StatusOK, resp.StatusCode)
-				body, err := ioutil.ReadAll(resp.Body)
+				body, err := io.ReadAll(resp.Body)
 				assert.NoError(t, err)
 				assert.Equal(t, "ok", string(body))
 			},
 			verifyLog: func(t *testing.T, i []byte) {
 				logs := bytes.Split(bytes.TrimSpace(i), []byte("\n"))
 				require.Len(t, logs, 2)
-				logLine1 := map[string]interface{}{}
+				logLine1 := map[string]any{}
 				err := codecs.JSON.Unmarshal(logs[0], &logLine1)
 				require.NoError(t, err)
 				assert.Equal(t, "Error handling request", logLine1["message"])
 
-				logLine2 := map[string]interface{}{}
+				logLine2 := map[string]any{}
 				err = codecs.JSON.Unmarshal(logs[1], &logLine2)
 				require.NoError(t, err)
 				assert.Equal(t, "Error encountered after HTTP response was written. Can not encode error to response.", logLine2["message"])
@@ -325,7 +325,7 @@ func (e testJSONError) Error() string {
 }
 
 func (e testJSONError) MarshalJSON() ([]byte, error) {
-	return []byte(fmt.Sprintf(`{"message": %q}`, e.Msg)), nil
+	return fmt.Appendf(nil, `{"message": %q}`, e.Msg), nil
 }
 
 type testJSONErrorMarshalFails struct {

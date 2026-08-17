@@ -19,10 +19,10 @@ import (
 	"net/http"
 	"net/url"
 
-	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient/internal"
-	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient/internal/refreshingclient"
+	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpclient/internal"
+	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpclient/internal/refreshingclient"
 	"github.com/palantir/pkg/bytesbuffers"
-	"github.com/palantir/pkg/refreshable"
+	"github.com/palantir/pkg/refreshable/v2"
 	werror "github.com/palantir/witchcraft-go-error"
 	"github.com/palantir/witchcraft-go-logging/wlog/svclog/svc1log"
 )
@@ -49,15 +49,15 @@ type Client interface {
 }
 
 type clientImpl struct {
-	serviceName            refreshable.String
-	client                 RefreshableHTTPClient
+	serviceName            refreshable.Refreshable[string]
+	client                 refreshable.Refreshable[*http.Client]
 	middlewares            []Middleware
 	errorDecoderMiddleware Middleware
 	recoveryMiddleware     Middleware
 
 	uriScorer      internal.RefreshableURIScoringMiddleware
-	maxAttempts    refreshable.IntPtr // 0 means no limit. If nil, uses 2*len(uris).
-	backoffOptions refreshingclient.RefreshableRetryParams
+	maxAttempts    refreshable.Refreshable[*int] // 0 means no limit. If nil, uses 2*len(uris).
+	backoffOptions refreshable.Refreshable[refreshingclient.RetryParams]
 	bufferPool     bytesbuffers.Pool
 }
 
@@ -86,31 +86,45 @@ func (c *clientImpl) Do(ctx context.Context, params ...RequestParam) (*http.Resp
 	if err != nil {
 		return nil, err
 	}
-	uris := c.uriScorer.CurrentURIScoringMiddleware().GetURIsInOrderOfIncreasingScore(headers)
+	uris, attempts := c.currentURIsAndMaxAttempts(headers)
 	if len(uris) == 0 {
-		return nil, werror.WrapWithContextParams(ctx, ErrEmptyURIs, "", werror.SafeParam("serviceName", c.serviceName.CurrentString()))
+		return nil, werror.WrapWithContextParams(ctx, ErrEmptyURIs, "", werror.SafeParam("serviceName", c.serviceName.Current()))
 	}
+	resp, _, err := c.doWithURIs(ctx, uris, attempts, params...)
+	return resp, err
+}
 
+func (c *clientImpl) currentURIsAndMaxAttempts(headers http.Header) ([]string, int) {
+	uris := c.uriScorer.CurrentURIScoringMiddleware().GetURIsInOrderOfIncreasingScore(headers)
 	attempts := 2 * len(uris)
 	if c.maxAttempts != nil {
-		if confMaxAttempts := c.maxAttempts.CurrentIntPtr(); confMaxAttempts != nil {
+		if confMaxAttempts := c.maxAttempts.Current(); confMaxAttempts != nil {
 			attempts = *confMaxAttempts
 		}
 	}
+	return uris, attempts
+}
 
-	retrier := internal.NewRequestRetrier(uris, c.backoffOptions.CurrentRetryParams().Start(ctx), attempts)
+// doWithURIs executes a request against the given URIs, retrying according to retrier policy up to maxAttempts times.
+// In addition to the response and error, it returns the URI that served a successful (2xx) response, or "" if the request did not succeed.
+func (c *clientImpl) doWithURIs(ctx context.Context, uris []string, maxAttempts int, params ...RequestParam) (*http.Response, string, error) {
+	retrier := internal.NewRequestRetrier(uris, c.backoffOptions.Current().Start(ctx), maxAttempts)
 	uri, isRelocated := retrier.GetNextURI(nil, nil)
 	for {
-		resp, retryable, err := c.doOnce(ctx, uri, isRelocated, params...)
+		attemptResp, retryable, attemptErr := c.doOnce(ctx, uri, isRelocated, params...)
 		if !retryable {
-			return resp, err
+			var succeededURI string
+			if attemptErr == nil && attemptResp != nil && attemptResp.StatusCode >= http.StatusOK && attemptResp.StatusCode < http.StatusMultipleChoices {
+				succeededURI = uri
+			}
+			return attemptResp, succeededURI, attemptErr
 		}
-		uri, isRelocated = retrier.GetNextURI(resp, err)
+		uri, isRelocated = retrier.GetNextURI(attemptResp, attemptErr)
 		if uri == "" {
-			return resp, err
+			return attemptResp, "", attemptErr
 		}
-		if err != nil {
-			svc1log.FromContext(ctx).Debug("Retrying request", svc1log.Stacktrace(err))
+		if attemptErr != nil {
+			svc1log.FromContext(ctx).Debug("Retrying request", svc1log.Stacktrace(attemptErr))
 		}
 	}
 }
@@ -176,13 +190,14 @@ func (c *clientImpl) doOnce(
 		return nil, false, werror.WrapWithContextParams(ctx, err, "failed to build new HTTP request")
 	}
 
+	req.Header = b.headers
 	if q := b.query.Encode(); q != "" {
 		req.URL.RawQuery = q
 	}
 
 	// 2. create the transport and client
 	// shallow copy so we can overwrite the Transport with a wrapped one.
-	clientCopy := *c.client.CurrentHTTPClient()
+	clientCopy := *c.client.Current()
 
 	// use request-specific timeout if set
 	if b.requestTimeout != nil {
@@ -192,12 +207,13 @@ func (c *clientImpl) doOnce(
 	transport := clientCopy.Transport // start with the client's transport configured with default middleware
 
 	// must precede the error decoders to read the status code of the raw response.
-	transport = wrapTransport(transport, c.uriScorer.CurrentURIScoringMiddleware())
+	uriScorer := c.uriScorer.CurrentURIScoringMiddleware()
+	transport = wrapTransport(transport, MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+		return uriScorer.RoundTripForURI(baseURI, req, next)
+	}))
 	// request decoder must precede the client decoder
 	// must precede the body middleware to read the response body
 	transport = wrapTransport(transport, b.errorDecoderMiddleware, c.errorDecoderMiddleware)
-	// must precede client's user-configured middlewares to set request-specific headers
-	transport = wrapTransport(transport, requestHeadersMiddlewareFunc(b.headers))
 	// must precede the body middleware to read the request body
 	transport = wrapTransport(transport, c.middlewares...)
 	// must wrap inner middlewares to mutate the return values
@@ -254,13 +270,4 @@ func unwrapURLError(ctx context.Context, respErr error) error {
 	}
 
 	return werror.WrapWithContextParams(ctx, urlErr.Err, "httpclient request failed", params...)
-}
-
-func requestHeadersMiddlewareFunc(headers http.Header) MiddlewareFunc {
-	return func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
-		for k, v := range headers {
-			req.Header[k] = v
-		}
-		return next.RoundTrip(req)
-	}
 }

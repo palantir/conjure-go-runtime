@@ -19,15 +19,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
-	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient"
-	"github.com/palantir/conjure-go-runtime/v2/conjure-go-contract/codecs"
+	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpclient"
+	"github.com/palantir/conjure-go-runtime/v3/conjure-go-contract/codecs"
 	"github.com/palantir/pkg/bytesbuffers"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -44,7 +43,7 @@ func TestCanReadBodyWithBufferPool(t *testing.T) {
 	encodedBody, err := codecs.Plain.Marshal(unencodedBody)
 	require.NoError(t, err)
 	bodyIsCorrect := func(body io.ReadCloser) {
-		content, err := ioutil.ReadAll(body)
+		content, err := io.ReadAll(body)
 		require.NoError(t, err)
 		require.Equal(t, encodedBody, content)
 	}
@@ -143,7 +142,7 @@ func TestMiddlewareCanReadBody(t *testing.T) {
 	encodedBody, err := codecs.Plain.Marshal(unencodedBody)
 	require.NoError(t, err)
 	bodyIsCorrect := func(body io.ReadCloser) {
-		content, err := ioutil.ReadAll(body)
+		content, err := io.ReadAll(body)
 		require.NoError(t, err)
 		require.Equal(t, encodedBody, content)
 	}
@@ -306,7 +305,7 @@ func BenchmarkAllocWithBytesBufferPool(b *testing.B) {
 			b.Run(fmt.Sprintf("count=%d", count), func(b *testing.B) {
 				b.ReportAllocs()
 				for i := 0; i < b.N; i++ {
-					for j := 0; j < count; j++ {
+					for range count {
 						resp, err := client.Do(ctx, reqBody, reqMethod)
 						require.NoError(b, err)
 						require.NotNil(b, resp)
@@ -365,7 +364,7 @@ func BenchmarkUnavailableURIs(b *testing.B) {
 			b.Run(fmt.Sprintf("count=%d", count), func(b *testing.B) {
 				b.ReportAllocs()
 				for i := 0; i < b.N; i++ {
-					for j := 0; j < count; j++ {
+					for range count {
 						resp, err := client.Do(ctx, reqBody, reqMethod)
 						require.NoError(b, err)
 						require.NotNil(b, resp)

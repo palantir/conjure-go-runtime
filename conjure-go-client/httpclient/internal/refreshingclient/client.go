@@ -18,29 +18,15 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/palantir/pkg/refreshable"
+	"github.com/palantir/pkg/refreshable/v2"
 )
 
-type RefreshableHTTPClient interface {
-	refreshable.Refreshable
-	CurrentHTTPClient() *http.Client
-}
-
-type refreshableHTTPClient struct {
-	refreshable.Refreshable
-}
-
-func (r refreshableHTTPClient) CurrentHTTPClient() *http.Client {
-	return r.Current().(*http.Client)
-}
-
-func NewRefreshableHTTPClient(rt http.RoundTripper, timeout refreshable.Duration) RefreshableHTTPClient {
-	return refreshableHTTPClient{
-		Refreshable: timeout.MapDuration(func(timeout time.Duration) interface{} {
-			return &http.Client{
-				Timeout:   timeout,
-				Transport: rt,
-			}
-		}),
-	}
+func NewRefreshableHTTPClient(rt http.RoundTripper, timeout refreshable.Refreshable[time.Duration]) refreshable.Refreshable[*http.Client] {
+	mapped, _ := refreshable.Map(timeout, func(timeout time.Duration) *http.Client {
+		return &http.Client{
+			Timeout:   timeout,
+			Transport: rt,
+		}
+	})
+	return mapped
 }

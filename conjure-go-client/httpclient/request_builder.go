@@ -19,25 +19,24 @@ import (
 	"net/http"
 	"net/url"
 	"time"
-
-	"github.com/palantir/pkg/bytesbuffers"
 )
 
 type requestBuilder struct {
 	method         string
 	path           string
-	address        string
 	headers        http.Header
 	query          url.Values
 	bodyMiddleware *bodyMiddleware
-	bufferPool     bytesbuffers.Pool
 
 	errorDecoderMiddleware Middleware
 	configureCtx           []func(context.Context) context.Context
 	requestTimeout         *time.Duration
 }
 
-const traceIDHeaderKey = "X-B3-TraceId"
+const (
+	traceIDHeaderKey      = "X-B3-TraceId"
+	forUserAgentHeaderKey = "For-User-Agent"
+)
 
 type RequestParam interface {
 	apply(*requestBuilder) error

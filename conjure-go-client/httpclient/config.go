@@ -17,12 +17,12 @@ package httpclient
 import (
 	"bytes"
 	"context"
-	"io/ioutil"
 	"net/url"
+	"os"
 	"slices"
 	"time"
 
-	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient/internal/refreshingclient"
+	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpclient/internal/refreshingclient"
 	"github.com/palantir/pkg/metrics"
 	werror "github.com/palantir/witchcraft-go-error"
 )
@@ -108,10 +108,10 @@ type ClientConfig struct {
 	MaxIdleConnsPerHost *int `json:"max-idle-conns-per-host,omitempty" yaml:"max-idle-conns-per-host,omitempty"`
 
 	// Metrics allows disabling metric emission or adding additional static tags to the client metrics.
-	Metrics MetricsConfig `json:"metrics,omitempty" yaml:"metrics,omitempty"`
+	Metrics MetricsConfig `json:"metrics" yaml:"metrics,omitempty"`
 	// Security configures the TLS configuration for the client. It accepts file paths which should be
 	// absolute paths or relative to the process's current working directory.
-	Security SecurityConfig `json:"security,omitempty" yaml:"security,omitempty"`
+	Security SecurityConfig `json:"security" yaml:"security,omitempty"`
 }
 
 // BasicAuth represents the configuration for HTTP Basic Authorization
@@ -137,6 +137,10 @@ type SecurityConfig struct {
 	// InsecureSkipVerify sets the InsecureSkipVerify field for the HTTP client's tls config.
 	// This option should only be used in clients that have other ways to establish trust with servers.
 	InsecureSkipVerify *bool `json:"insecure-skip-verify,omitempty" yaml:"insecure-skip-verify,omitempty"`
+
+	// DynamicCertReload enables re-reading client TLS cert/key files on each TLS handshake.
+	// When enabled, rotated certificates are picked up without restarting the process.
+	DynamicCertReload *bool `json:"dynamic-cert-reload,omitempty" yaml:"dynamic-cert-reload,omitempty"`
 }
 
 // MustClientConfig returns an error if the service name is not configured.
@@ -254,6 +258,9 @@ func MergeClientConfig(conf, defaults ClientConfig) ClientConfig {
 	if conf.Security.InsecureSkipVerify == nil {
 		conf.Security.InsecureSkipVerify = defaults.Security.InsecureSkipVerify
 	}
+	if conf.Security.DynamicCertReload == nil {
+		conf.Security.DynamicCertReload = defaults.Security.DynamicCertReload
+	}
 	return conf
 }
 
@@ -273,7 +280,7 @@ func configToParams(c ClientConfig) ([]ClientParam, error) {
 	if c.APIToken != nil && *c.APIToken != "" {
 		params = append(params, WithAuthToken(*c.APIToken))
 	} else if c.APITokenFile != nil && *c.APITokenFile != "" {
-		token, err := ioutil.ReadFile(*c.APITokenFile)
+		token, err := os.ReadFile(*c.APITokenFile)
 		if err != nil {
 			return nil, werror.Wrap(err, "failed to read api-token-file", werror.SafeParam("file", *c.APITokenFile))
 		}
@@ -363,26 +370,22 @@ func configToParams(c ClientConfig) ([]ClientParam, error) {
 	if timeout != 0 {
 		params = append(params, WithHTTPTimeout(timeout))
 	}
-
-	// Security (TLS) Config
-	if tlsConfig, err := refreshingclient.NewTLSConfig(context.TODO(), refreshingclient.TLSParams{
-		CAFiles:            c.Security.CAFiles,
-		CertFile:           c.Security.CertFile,
-		KeyFile:            c.Security.KeyFile,
-		InsecureSkipVerify: derefPtr(c.Security.InsecureSkipVerify, false),
-	}); err != nil {
-		return nil, err
-	} else if tlsConfig != nil {
-		params = append(params, WithTLSConfig(tlsConfig))
-	}
-
+	params = append(params, getClientTLSParams(c)...)
 	return params, nil
 }
 
-func RefreshableClientConfigFromServiceConfig(servicesConfig RefreshableServicesConfig, serviceName string) RefreshableClientConfig {
-	return NewRefreshingClientConfig(servicesConfig.MapServicesConfig(func(servicesConfig ServicesConfig) interface{} {
-		return servicesConfig.ClientConfig(serviceName)
-	}))
+func getClientTLSParams(c ClientConfig) []ClientParam {
+	params := []ClientParam{
+		WithCAFiles(c.Security.CAFiles),
+		WithKeyAndCertFile(c.Security.KeyFile, c.Security.CertFile),
+	}
+	if derefPtr(c.Security.InsecureSkipVerify, false) {
+		params = append(params, WithTLSInsecureSkipVerify())
+	}
+	if derefPtr(c.Security.DynamicCertReload, false) {
+		params = append(params, WithDynamicCertReload())
+	}
+	return params
 }
 
 func newValidatedClientParamsFromConfig(ctx context.Context, config ClientConfig) (refreshingclient.ValidatedClientParams, error) {
@@ -402,11 +405,12 @@ func newValidatedClientParamsFromConfig(ctx context.Context, config ClientConfig
 		HTTP2ReadIdleTimeout:  derefPtr(config.HTTP2ReadIdleTimeout, defaultHTTP2ReadIdleTimeout),
 		ProxyFromEnvironment:  derefPtr(config.ProxyFromEnvironment, true),
 		TLSHandshakeTimeout:   derefPtr(config.TLSHandshakeTimeout, defaultTLSHandshakeTimeout),
-		TLS: refreshingclient.TLSParams{
+		TLSConfigurationParams: refreshingclient.TLSConfigurationParams{
 			CAFiles:            config.Security.CAFiles,
 			CertFile:           config.Security.CertFile,
 			KeyFile:            config.Security.KeyFile,
 			InsecureSkipVerify: derefPtr(config.Security.InsecureSkipVerify, false),
+			DynamicCertReload:  derefPtr(config.Security.DynamicCertReload, false),
 		},
 	}
 
@@ -431,7 +435,7 @@ func newValidatedClientParamsFromConfig(ctx context.Context, config ClientConfig
 		apiToken = config.APIToken
 	} else if config.APITokenFile != nil {
 		file := *config.APITokenFile
-		token, err := ioutil.ReadFile(file)
+		token, err := os.ReadFile(file)
 		if err != nil {
 			return refreshingclient.ValidatedClientParams{}, werror.WrapWithContextParams(ctx, err, "failed to read api-token-file", werror.SafeParam("file", file))
 		}
@@ -466,11 +470,7 @@ func newValidatedClientParamsFromConfig(ctx context.Context, config ClientConfig
 		rt := derefPtr(config.ReadTimeout, 0)
 		wt := derefPtr(config.WriteTimeout, 0)
 		// return max of read and write
-		if rt > wt {
-			timeout = rt
-		} else {
-			timeout = wt
-		}
+		timeout = max(rt, wt)
 	}
 
 	uris := make([]string, 0, len(config.URIs))

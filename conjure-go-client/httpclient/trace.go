@@ -17,7 +17,7 @@ package httpclient
 import (
 	"net/http"
 
-	"github.com/palantir/pkg/refreshable"
+	"github.com/palantir/pkg/refreshable/v2"
 	"github.com/palantir/witchcraft-go-tracing/wtracing"
 	"github.com/palantir/witchcraft-go-tracing/wtracing/propagation/b3"
 )
@@ -27,12 +27,12 @@ import (
 // Only if the RPC method name is set does the middleware create a new span (with that name) for the
 // duration of the request.
 type traceMiddleware struct {
-	ServiceName         refreshable.String
+	ServiceName         refreshable.Refreshable[string]
 	DisableRequestSpan  bool
 	DisableTraceHeaders bool
 }
 
-func newTraceMiddleware(serviceName refreshable.String, disableRequestSpan, disableTraceHeaders bool) traceMiddleware {
+func newTraceMiddleware(serviceName refreshable.Refreshable[string], disableRequestSpan, disableTraceHeaders bool) traceMiddleware {
 	return traceMiddleware{
 		ServiceName:         serviceName,
 		DisableRequestSpan:  disableRequestSpan,
@@ -49,7 +49,7 @@ func (t traceMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (*
 		if method := getRPCMethodName(req.Context()); method != "" {
 			span, ctx = wtracing.StartSpanFromContext(ctx, wtracing.TracerFromContext(ctx), method,
 				wtracing.WithKind(wtracing.Client),
-				wtracing.WithRemoteEndpoint(&wtracing.Endpoint{ServiceName: t.ServiceName.CurrentString()}))
+				wtracing.WithRemoteEndpoint(&wtracing.Endpoint{ServiceName: t.ServiceName.Current()}))
 			if span != nil {
 				defer span.Finish()
 			}
@@ -64,6 +64,11 @@ func (t traceMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (*
 			if traceID := wtracing.TraceIDFromContext(ctx); traceID != "" {
 				req.Header.Set(traceIDHeaderKey, string(traceID))
 			}
+		}
+
+		// if the forUserAgent header value is not set on the request and is set in the context, use the context value
+		if forUserAgent := getForUserAgent(ctx); forUserAgent != "" && req.Header.Get(forUserAgentHeaderKey) == "" {
+			req.Header.Set(forUserAgentHeaderKey, forUserAgent)
 		}
 	}
 

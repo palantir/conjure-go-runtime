@@ -21,10 +21,11 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient/internal"
-	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient/internal/refreshingclient"
+	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpclient/internal"
+	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpclient/internal/refreshingclient"
+	"github.com/palantir/conjure-go-runtime/v3/conjure-go-contract/errors"
 	"github.com/palantir/pkg/bytesbuffers"
-	"github.com/palantir/pkg/refreshable"
+	"github.com/palantir/pkg/refreshable/v2"
 	werror "github.com/palantir/witchcraft-go-error"
 )
 
@@ -107,7 +108,7 @@ func WithConfigForHTTPClient(c ClientConfig) HTTPClientParam {
 
 func WithServiceName(serviceName string) ClientOrHTTPClientParam {
 	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
-		b.ServiceName = refreshable.NewString(refreshable.NewDefaultRefreshable(serviceName))
+		b.ServiceName = refreshable.New(serviceName)
 		return nil
 	})
 }
@@ -118,6 +119,16 @@ func WithServiceName(serviceName string) ClientOrHTTPClientParam {
 func WithMiddleware(h Middleware) ClientOrHTTPClientParam {
 	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
 		b.Middlewares = append(b.Middlewares, h)
+		return nil
+	})
+}
+
+// WithTLSCABytes sets the root CA certificates for the HTTP client's TLS config using a refreshable
+// source of PEM-encoded bytes. The TLS configuration will be rebuilt whenever the refreshable updates.
+// This is useful when the CA certificates are available in memory rather than on disk and may change over time.
+func WithTLSCABytes(caBytes refreshable.Refreshable[[][]byte]) ClientOrHTTPClientParam {
+	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
+		b.TLSCABytes = caBytes
 		return nil
 	})
 }
@@ -165,6 +176,12 @@ func WithUserAgent(userAgent string) ClientOrHTTPClientParam {
 	return WithSetHeader("User-Agent", userAgent)
 }
 
+// WithConjureErrorParameterFormat sets the "Accept-Conjure-Error-Parameter-Format" header on
+// every request so that conjure servers serialize error parameters in the requested format.
+func WithConjureErrorParameterFormat(format errors.ConjureErrorParameterFormat) ClientOrHTTPClientParam {
+	return WithSetHeader(errors.AcceptConjureErrorParameterFormatHeader, string(format))
+}
+
 // WithOverrideRequestHost overrides the request Host from the default URL.Host
 func WithOverrideRequestHost(host string) ClientOrHTTPClientParam {
 	return WithInnerMiddleware(MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
@@ -177,8 +194,18 @@ func WithOverrideRequestHost(host string) ClientOrHTTPClientParam {
 // The serviceName will appear as the "service-name" tag.
 func WithMetrics(tagProviders ...TagsProvider) ClientOrHTTPClientParam {
 	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
-		b.DisableMetrics = refreshable.NewBool(refreshable.NewDefaultRefreshable(false))
+		b.DisableMetrics = refreshable.New(false)
 		b.MetricsTagProviders = append(b.MetricsTagProviders, tagProviders...)
+		return nil
+	})
+}
+
+// WithoutMetrics disables the "client.response" metric.
+// Also clears any b.MetricsTagProviders that were set
+func WithoutMetrics() ClientOrHTTPClientParam {
+	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
+		b.DisableMetrics = refreshable.New(true)
+		b.MetricsTagProviders = nil
 		return nil
 	})
 }
@@ -231,7 +258,7 @@ func WithDisableTraceHeaderPropagation() ClientOrHTTPClientParam {
 // If unset, the client defaults to 1 minute.
 func WithHTTPTimeout(timeout time.Duration) ClientOrHTTPClientParam {
 	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
-		b.Timeout = refreshable.NewDuration(refreshable.NewDefaultRefreshable(timeout))
+		b.Timeout = refreshable.New(timeout)
 		return nil
 	})
 }
@@ -240,7 +267,7 @@ func WithHTTPTimeout(timeout time.Duration) ClientOrHTTPClientParam {
 // the transport with http2.ConfigureTransport.
 func WithDisableHTTP2() ClientOrHTTPClientParam {
 	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
-		b.TransportParams = refreshingclient.ConfigureTransport(b.TransportParams, func(p refreshingclient.TransportParams) refreshingclient.TransportParams {
+		b.TransportParams = refreshable.View(b.TransportParams, func(p refreshingclient.TransportParams) refreshingclient.TransportParams {
 			p.DisableHTTP2 = true
 			return p
 		})
@@ -258,7 +285,7 @@ func WithDisableHTTP2() ClientOrHTTPClientParam {
 // If unset, the client defaults to 30 seconds, if HTTP2 is enabled.
 func WithHTTP2ReadIdleTimeout(timeout time.Duration) ClientOrHTTPClientParam {
 	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
-		b.TransportParams = refreshingclient.ConfigureTransport(b.TransportParams, func(p refreshingclient.TransportParams) refreshingclient.TransportParams {
+		b.TransportParams = refreshable.View(b.TransportParams, func(p refreshingclient.TransportParams) refreshingclient.TransportParams {
 			p.HTTP2ReadIdleTimeout = timeout
 			return p
 		})
@@ -272,7 +299,7 @@ func WithHTTP2ReadIdleTimeout(timeout time.Duration) ClientOrHTTPClientParam {
 // If unset, the client defaults to 15 seconds, if HTTP/2 is enabled and the ReadIdleTimeout is > 0.
 func WithHTTP2PingTimeout(timeout time.Duration) ClientOrHTTPClientParam {
 	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
-		b.TransportParams = refreshingclient.ConfigureTransport(b.TransportParams, func(p refreshingclient.TransportParams) refreshingclient.TransportParams {
+		b.TransportParams = refreshable.View(b.TransportParams, func(p refreshingclient.TransportParams) refreshingclient.TransportParams {
 			p.HTTP2PingTimeout = timeout
 			return p
 		})
@@ -284,7 +311,7 @@ func WithHTTP2PingTimeout(timeout time.Duration) ClientOrHTTPClientParam {
 // will maintain. If unset, the client defaults to 200.
 func WithMaxIdleConns(conns int) ClientOrHTTPClientParam {
 	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
-		b.TransportParams = refreshingclient.ConfigureTransport(b.TransportParams, func(p refreshingclient.TransportParams) refreshingclient.TransportParams {
+		b.TransportParams = refreshable.View(b.TransportParams, func(p refreshingclient.TransportParams) refreshingclient.TransportParams {
 			p.MaxIdleConns = conns
 			return p
 		})
@@ -296,7 +323,7 @@ func WithMaxIdleConns(conns int) ClientOrHTTPClientParam {
 // will maintain per destination. If unset, the client defaults to 100.
 func WithMaxIdleConnsPerHost(conns int) ClientOrHTTPClientParam {
 	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
-		b.TransportParams = refreshingclient.ConfigureTransport(b.TransportParams, func(p refreshingclient.TransportParams) refreshingclient.TransportParams {
+		b.TransportParams = refreshable.View(b.TransportParams, func(p refreshingclient.TransportParams) refreshingclient.TransportParams {
 			p.MaxIdleConnsPerHost = conns
 			return p
 		})
@@ -309,11 +336,11 @@ func WithMaxIdleConnsPerHost(conns int) ClientOrHTTPClientParam {
 // If unset, the default is http.ProxyFromEnvironment.
 func WithNoProxy() ClientOrHTTPClientParam {
 	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
-		b.DialerParams = refreshingclient.ConfigureDialer(b.DialerParams, func(p refreshingclient.DialerParams) refreshingclient.DialerParams {
+		b.DialerParams = refreshable.View(b.DialerParams, func(p refreshingclient.DialerParams) refreshingclient.DialerParams {
 			p.SocksProxyURL = nil
 			return p
 		})
-		b.TransportParams = refreshingclient.ConfigureTransport(b.TransportParams, func(p refreshingclient.TransportParams) refreshingclient.TransportParams {
+		b.TransportParams = refreshable.View(b.TransportParams, func(p refreshingclient.TransportParams) refreshingclient.TransportParams {
 			p.HTTPProxyURL = nil
 			p.ProxyFromEnvironment = false
 			return p
@@ -326,7 +353,7 @@ func WithNoProxy() ClientOrHTTPClientParam {
 // the Go standard library's http.ProxyFromEnvironment.
 func WithProxyFromEnvironment() ClientOrHTTPClientParam {
 	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
-		b.TransportParams = refreshingclient.ConfigureTransport(b.TransportParams, func(p refreshingclient.TransportParams) refreshingclient.TransportParams {
+		b.TransportParams = refreshable.View(b.TransportParams, func(p refreshingclient.TransportParams) refreshingclient.TransportParams {
 			p.ProxyFromEnvironment = true
 			return p
 		})
@@ -343,12 +370,12 @@ func WithProxyURL(proxyURLString string) ClientOrHTTPClientParam {
 		}
 		switch proxyURL.Scheme {
 		case "http", "https":
-			b.TransportParams = refreshingclient.ConfigureTransport(b.TransportParams, func(p refreshingclient.TransportParams) refreshingclient.TransportParams {
+			b.TransportParams = refreshable.View(b.TransportParams, func(p refreshingclient.TransportParams) refreshingclient.TransportParams {
 				p.HTTPProxyURL = proxyURL
 				return p
 			})
 		case "socks5", "socks5h":
-			b.DialerParams = refreshingclient.ConfigureDialer(b.DialerParams, func(p refreshingclient.DialerParams) refreshingclient.DialerParams {
+			b.DialerParams = refreshable.View(b.DialerParams, func(p refreshingclient.DialerParams) refreshingclient.DialerParams {
 				p.SocksProxyURL = proxyURL
 				return p
 			})
@@ -380,8 +407,47 @@ func WithTLSInsecureSkipVerify() ClientOrHTTPClientParam {
 		if b.TLSConfig != nil {
 			b.TLSConfig.InsecureSkipVerify = true
 		}
-		b.TransportParams = refreshingclient.ConfigureTransport(b.TransportParams, func(p refreshingclient.TransportParams) refreshingclient.TransportParams {
-			p.TLS.InsecureSkipVerify = true
+		b.TransportParams = refreshable.View(b.TransportParams, func(p refreshingclient.TransportParams) refreshingclient.TransportParams {
+			p.TLSConfigurationParams.InsecureSkipVerify = true
+			return p
+		})
+		return nil
+	})
+}
+
+// WithKeyAndCertFile sets the client TLS certificate and key file paths.
+// The files are read when the client is created and on each request to support certificate rotation.
+func WithKeyAndCertFile(keyFile string, certFile string) ClientOrHTTPClientParam {
+	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
+		b.TransportParams = refreshable.View(b.TransportParams, func(p refreshingclient.TransportParams) refreshingclient.TransportParams {
+			p.TLSConfigurationParams.KeyFile = keyFile
+			p.TLSConfigurationParams.CertFile = certFile
+			return p
+		})
+		return nil
+	})
+}
+
+// WithDynamicCertReload enables re-reading client TLS cert/key files on each TLS handshake.
+// By default, client certificates are loaded once at client creation time. When this option is
+// enabled, the cert and key files are re-read from disk on every TLS handshake, allowing the
+// client to pick up rotated certificates without restarting.
+func WithDynamicCertReload() ClientOrHTTPClientParam {
+	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
+		b.TransportParams = refreshable.View(b.TransportParams, func(p refreshingclient.TransportParams) refreshingclient.TransportParams {
+			p.TLSConfigurationParams.DynamicCertReload = true
+			return p
+		})
+		return nil
+	})
+}
+
+// WithCAFiles sets the CA certificate file paths for the client's TLS configuration.
+// The files are read when the client is created and periodically refreshed to support certificate rotation.
+func WithCAFiles(CAFiles []string) ClientOrHTTPClientParam {
+	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
+		b.TransportParams = refreshable.View(b.TransportParams, func(p refreshingclient.TransportParams) refreshingclient.TransportParams {
+			p.TLSConfigurationParams.CAFiles = CAFiles
 			return p
 		})
 		return nil
@@ -392,7 +458,7 @@ func WithTLSInsecureSkipVerify() ClientOrHTTPClientParam {
 // If unset, the client defaults to 90 seconds.
 func WithDialTimeout(timeout time.Duration) ClientOrHTTPClientParam {
 	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
-		b.DialerParams = refreshingclient.ConfigureDialer(b.DialerParams, func(p refreshingclient.DialerParams) refreshingclient.DialerParams {
+		b.DialerParams = refreshable.View(b.DialerParams, func(p refreshingclient.DialerParams) refreshingclient.DialerParams {
 			p.DialTimeout = timeout
 			return p
 		})
@@ -404,7 +470,7 @@ func WithDialTimeout(timeout time.Duration) ClientOrHTTPClientParam {
 // If unset, the client defaults to 90 seconds.
 func WithIdleConnTimeout(timeout time.Duration) ClientOrHTTPClientParam {
 	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
-		b.TransportParams = refreshingclient.ConfigureTransport(b.TransportParams, func(p refreshingclient.TransportParams) refreshingclient.TransportParams {
+		b.TransportParams = refreshable.View(b.TransportParams, func(p refreshingclient.TransportParams) refreshingclient.TransportParams {
 			p.IdleConnTimeout = timeout
 			return p
 		})
@@ -416,7 +482,7 @@ func WithIdleConnTimeout(timeout time.Duration) ClientOrHTTPClientParam {
 // If unset, the client defaults to 10 seconds.
 func WithTLSHandshakeTimeout(timeout time.Duration) ClientOrHTTPClientParam {
 	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
-		b.TransportParams = refreshingclient.ConfigureTransport(b.TransportParams, func(p refreshingclient.TransportParams) refreshingclient.TransportParams {
+		b.TransportParams = refreshable.View(b.TransportParams, func(p refreshingclient.TransportParams) refreshingclient.TransportParams {
 			p.TLSHandshakeTimeout = timeout
 			return p
 		})
@@ -429,7 +495,7 @@ func WithTLSHandshakeTimeout(timeout time.Duration) ClientOrHTTPClientParam {
 // If unset, the client defaults to 1 second.
 func WithExpectContinueTimeout(timeout time.Duration) ClientOrHTTPClientParam {
 	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
-		b.TransportParams = refreshingclient.ConfigureTransport(b.TransportParams, func(p refreshingclient.TransportParams) refreshingclient.TransportParams {
+		b.TransportParams = refreshable.View(b.TransportParams, func(p refreshingclient.TransportParams) refreshingclient.TransportParams {
 			p.ExpectContinueTimeout = timeout
 			return p
 		})
@@ -442,7 +508,7 @@ func WithExpectContinueTimeout(timeout time.Duration) ClientOrHTTPClientParam {
 // the client defaults to having no response header timeout.
 func WithResponseHeaderTimeout(timeout time.Duration) ClientOrHTTPClientParam {
 	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
-		b.TransportParams = refreshingclient.ConfigureTransport(b.TransportParams, func(p refreshingclient.TransportParams) refreshingclient.TransportParams {
+		b.TransportParams = refreshable.View(b.TransportParams, func(p refreshingclient.TransportParams) refreshingclient.TransportParams {
 			p.ResponseHeaderTimeout = timeout
 			return p
 		})
@@ -454,7 +520,7 @@ func WithResponseHeaderTimeout(timeout time.Duration) ClientOrHTTPClientParam {
 // If unset, the client defaults to 30 seconds.
 func WithKeepAlive(keepAlive time.Duration) ClientOrHTTPClientParam {
 	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
-		b.DialerParams = refreshingclient.ConfigureDialer(b.DialerParams, func(p refreshingclient.DialerParams) refreshingclient.DialerParams {
+		b.DialerParams = refreshable.View(b.DialerParams, func(p refreshingclient.DialerParams) refreshingclient.DialerParams {
 			p.KeepAlive = keepAlive
 			return p
 		})
@@ -465,13 +531,13 @@ func WithKeepAlive(keepAlive time.Duration) ClientOrHTTPClientParam {
 // WithBaseURLs sets the base URLs for every request. This is meant to be used in conjunction with WithPath.
 func WithBaseURLs(urls []string) ClientParam {
 	return clientParamFunc(func(b *clientBuilder) error {
-		b.URIs = refreshable.NewStringSlice(refreshable.NewDefaultRefreshable(urls))
+		b.URIs = refreshable.New(urls)
 		return nil
 	})
 }
 
 // WithRefreshableBaseURLs sets the base URLs for every request. This is meant to be used in conjunction with WithPath.
-func WithRefreshableBaseURLs(urls refreshable.StringSlice) ClientParam {
+func WithRefreshableBaseURLs(urls refreshable.Refreshable[[]string]) ClientParam {
 	return clientParamFunc(func(b *clientBuilder) error {
 		b.URIs = urls
 		return nil
@@ -492,9 +558,9 @@ func WithAllowCreateWithEmptyURIs() ClientParam {
 // Defaults to 2 seconds. <= 0 indicates no limit.
 func WithMaxBackoff(maxBackoff time.Duration) ClientParam {
 	return clientParamFunc(func(b *clientBuilder) error {
-		b.RetryParams = refreshingclient.ConfigureRetry(b.RetryParams, func(p refreshingclient.RetryParams) refreshingclient.RetryParams {
-			p.MaxBackoff = maxBackoff
-			return p
+		b.RetryParams = refreshable.View(b.RetryParams, func(r refreshingclient.RetryParams) refreshingclient.RetryParams {
+			r.MaxBackoff = maxBackoff
+			return r
 		})
 		return nil
 	})
@@ -503,9 +569,9 @@ func WithMaxBackoff(maxBackoff time.Duration) ClientParam {
 // WithInitialBackoff sets the initial backoff between retried calls to the same URI. Defaults to 250ms.
 func WithInitialBackoff(initialBackoff time.Duration) ClientParam {
 	return clientParamFunc(func(b *clientBuilder) error {
-		b.RetryParams = refreshingclient.ConfigureRetry(b.RetryParams, func(p refreshingclient.RetryParams) refreshingclient.RetryParams {
-			p.InitialBackoff = initialBackoff
-			return p
+		b.RetryParams = refreshable.View(b.RetryParams, func(r refreshingclient.RetryParams) refreshingclient.RetryParams {
+			r.InitialBackoff = initialBackoff
+			return r
 		})
 		return nil
 	})
@@ -518,7 +584,7 @@ func WithInitialBackoff(initialBackoff time.Duration) ClientParam {
 func WithMaxRetries(maxTransportRetries int) ClientParam {
 	return clientParamFunc(func(b *clientBuilder) error {
 		attempts := maxTransportRetries + 1
-		b.MaxAttempts = refreshable.NewIntPtr(refreshable.NewDefaultRefreshable(&attempts))
+		b.MaxAttempts = refreshable.New(&attempts)
 		return nil
 	})
 }
@@ -528,8 +594,7 @@ func WithMaxRetries(maxTransportRetries int) ClientParam {
 func WithUnlimitedRetries() ClientParam {
 	return clientParamFunc(func(b *clientBuilder) error {
 		// max attempts of 0 indicates no limit
-		attempts := 0
-		b.MaxAttempts = refreshable.NewIntPtr(refreshable.NewDefaultRefreshable(&attempts))
+		b.MaxAttempts = refreshable.New(new(int))
 		return nil
 	})
 }
@@ -546,7 +611,7 @@ func WithDisableRestErrors() ClientParam {
 // WithDisableKeepAlives disables keep alives on the http transport
 func WithDisableKeepAlives() ClientOrHTTPClientParam {
 	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
-		b.TransportParams = refreshingclient.ConfigureTransport(b.TransportParams, func(p refreshingclient.TransportParams) refreshingclient.TransportParams {
+		b.TransportParams = refreshable.View(b.TransportParams, func(p refreshingclient.TransportParams) refreshingclient.TransportParams {
 			p.DisableKeepAlives = true
 			return p
 		})
@@ -565,7 +630,7 @@ func WithErrorDecoder(errorDecoder ErrorDecoder) ClientParam {
 // password.
 func WithBasicAuth(user, password string) ClientOrHTTPClientParam {
 	return WithInnerMiddleware(MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
-		setBasicAuth(req.Header, user, password)
+		setBasicAuth(req, user, password)
 		return next.RoundTrip(req)
 	}))
 }
@@ -578,7 +643,7 @@ func WithBasicAuthProvider(provider BasicAuthProvider) ClientOrHTTPClientParam {
 		if err != nil {
 			return nil, err
 		}
-		setBasicAuth(req.Header, basicAuth.User, basicAuth.Password)
+		setBasicAuth(req, basicAuth.User, basicAuth.Password)
 		return next.RoundTrip(req)
 	}))
 }
@@ -594,24 +659,10 @@ func WithBasicAuthOptionalProvider(provider BasicAuthOptionalProvider) ClientOrH
 			return nil, err
 		}
 		if basicAuth != nil {
-			setBasicAuth(req.Header, basicAuth.User, basicAuth.Password)
+			setBasicAuth(req, basicAuth.User, basicAuth.Password)
 		}
 		return next.RoundTrip(req)
 	}))
-}
-
-// WithBalancedURIScoring adds middleware that prioritizes sending requests to URIs with the fewest in-flight requests
-// and least recent errors.
-// Deprecated: This param is a no-op as balanced URI scoring is the default behavior.
-func WithBalancedURIScoring() ClientParam {
-	return clientParamFunc(func(b *clientBuilder) error {
-		b.URIScorerBuilder = func(uris []string) internal.URIScoringMiddleware {
-			return internal.NewBalancedURIScoringMiddleware(uris, func() int64 {
-				return time.Now().UnixNano()
-			})
-		}
-		return nil
-	})
 }
 
 // WithRandomURIScoring adds middleware that randomizes the order URIs are prioritized in for each request.

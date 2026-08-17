@@ -17,12 +17,14 @@ package httpclient_test
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
-	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient"
+	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpclient"
 	"github.com/palantir/pkg/metrics"
 	"github.com/palantir/pkg/tlsconfig"
 	"github.com/stretchr/testify/assert"
@@ -92,7 +94,8 @@ func TestRoundTripperWithMetrics(t *testing.T) {
 	testStatusCode := map[int]string{
 		200: "2xx",
 		500: "5xx",
-		0:   "other",
+		// statusCode 0: no server is stood up, so the request hits a closed port (see below).
+		0: "connection_error",
 	}
 
 	rpcNamesAndExpectedTags := map[string]string{
@@ -115,7 +118,12 @@ func TestRoundTripperWithMetrics(t *testing.T) {
 			defer server.Close()
 			serverURLstr = server.URL
 		} else {
-			serverURLstr = "http://not-a-real-host:12345"
+			// Bind then immediately close a loopback listener so the request
+			// deterministically fails with "connection refused".
+			ln, lerr := net.Listen("tcp", "127.0.0.1:0")
+			require.NoError(t, lerr)
+			serverURLstr = "http://" + ln.Addr().String()
+			require.NoError(t, ln.Close())
 		}
 
 		// create client
@@ -232,7 +240,10 @@ func TestMetricsMiddleware_ClientTimeout(t *testing.T) {
 
 	_, err = client.Get(ctx, httpclient.WithRPCMethodName("test-endpoint"))
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "Client.Timeout exceeded while awaiting headers")
+	// The error message changed in newer Go versions
+	require.True(t, strings.Contains(err.Error(), "Client.Timeout exceeded while awaiting headers") ||
+		strings.Contains(err.Error(), "context deadline exceeded"),
+		"Expected timeout error, got: %s", err.Error())
 
 	found := false
 	rootRegistry.Each(func(name string, tags metrics.Tags, value metrics.MetricVal) {
@@ -285,6 +296,81 @@ func TestMetricsMiddleware_ContextCanceled(t *testing.T) {
 			metrics.MustNewTag("service-name", "test-service"): {},
 		}
 		assert.Equal(t, expectedTags, tags.ToSet(), "expected timeout tags for %v", err)
+	})
+	assert.True(t, found, "did not find client.response metric")
+}
+
+func TestMetricsMiddleware_TLSVerifyError(t *testing.T) {
+	// NewTLSServer uses a self-signed cert that the client does not trust, so
+	// certificate verification fails during the handshake.
+	srv := httptest.NewTLSServer(http.NotFoundHandler())
+	defer srv.Close()
+
+	rootRegistry := metrics.NewRootMetricsRegistry()
+	ctx := metrics.WithRegistry(context.Background(), rootRegistry)
+
+	client, err := httpclient.NewClient(
+		httpclient.WithBaseURLs([]string{srv.URL}),
+		httpclient.WithServiceName("test-service"),
+		httpclient.WithMetrics(),
+		httpclient.WithMaxRetries(0))
+	require.NoError(t, err)
+
+	_, err = client.Get(ctx, httpclient.WithRPCMethodName("test-endpoint"))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "tls: failed to verify certificate")
+
+	found := false
+	rootRegistry.Each(func(name string, tags metrics.Tags, value metrics.MetricVal) {
+		if name != "client.response" {
+			return
+		}
+		found = true
+		expectedTags := map[metrics.Tag]struct{}{
+			metrics.MustNewTag("family", "tls_verify_error"):   {},
+			metrics.MustNewTag("method", "get"):                {},
+			metrics.MustNewTag("method-name", "test-endpoint"): {},
+			metrics.MustNewTag("service-name", "test-service"): {},
+		}
+		assert.Equal(t, expectedTags, tags.ToSet(), "expected tls_verify_error tags for %v", err)
+	})
+	assert.True(t, found, "did not find client.response metric")
+}
+
+func TestMetricsMiddleware_ConnectionError(t *testing.T) {
+	// Bind a loopback listener then immediately close it so the port refuses connections.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	addr := ln.Addr().String()
+	require.NoError(t, ln.Close())
+
+	rootRegistry := metrics.NewRootMetricsRegistry()
+	ctx := metrics.WithRegistry(context.Background(), rootRegistry)
+
+	client, err := httpclient.NewClient(
+		httpclient.WithBaseURLs([]string{"http://" + addr}),
+		httpclient.WithServiceName("test-service"),
+		httpclient.WithMetrics(),
+		httpclient.WithMaxRetries(0))
+	require.NoError(t, err)
+
+	_, err = client.Get(ctx, httpclient.WithRPCMethodName("test-endpoint"))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "connection refused")
+
+	found := false
+	rootRegistry.Each(func(name string, tags metrics.Tags, value metrics.MetricVal) {
+		if name != "client.response" {
+			return
+		}
+		found = true
+		expectedTags := map[metrics.Tag]struct{}{
+			metrics.MustNewTag("family", "connection_error"):   {},
+			metrics.MustNewTag("method", "get"):                {},
+			metrics.MustNewTag("method-name", "test-endpoint"): {},
+			metrics.MustNewTag("service-name", "test-service"): {},
+		}
+		assert.Equal(t, expectedTags, tags.ToSet(), "expected connection_error tags for %v", err)
 	})
 	assert.True(t, found, "did not find client.response metric")
 }

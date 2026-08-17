@@ -31,7 +31,6 @@ func (r *rendezvousHashScorer) GetURIsInOrderOfIncreasingScore(header http.Heade
 	if !ok || len(hashHeaderValues) == 0 {
 		return getURIsInRandomOrder(r.uris, r.nanoClock())
 	}
-	fnv.New64a()
 	uris := make([]string, 0, len(r.uris))
 	scores := make(map[string]uint32, len(r.uris))
 	hash := fnv.New32()
@@ -54,7 +53,7 @@ func (r *rendezvousHashScorer) GetURIsInOrderOfIncreasingScore(header http.Heade
 	return uris
 }
 
-func (r *rendezvousHashScorer) RoundTrip(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+func (r *rendezvousHashScorer) RoundTripForURI(_ string, req *http.Request, next http.RoundTripper) (*http.Response, error) {
 	return next.RoundTrip(req)
 }
 

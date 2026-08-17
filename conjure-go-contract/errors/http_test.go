@@ -18,11 +18,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http/httptest"
 	"testing"
 
-	"github.com/palantir/conjure-go-runtime/v2/conjure-go-contract/errors"
+	"github.com/palantir/conjure-go-runtime/v3/conjure-go-contract/errors"
 	wparams "github.com/palantir/witchcraft-go-params"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -30,7 +30,7 @@ import (
 
 func TestWriteErrorResponse_ValidateJSON(t *testing.T) {
 	testError := errors.NewError(errors.MustErrorType(errors.Timeout, "MyApplication:Timeout"),
-		wparams.NewSafeParamStorer(map[string]interface{}{
+		wparams.NewSafeParamStorer(map[string]any{
 			"metadata": struct {
 				KeyB int `json:"keyB"`
 			}{
@@ -54,7 +54,7 @@ func TestWriteErrorResponse_ValidateJSON(t *testing.T) {
 	response := recorder.Result()
 
 	assert.Equal(t, "application/json; charset=utf-8", response.Header.Get("Content-Type"))
-	body, err := ioutil.ReadAll(response.Body)
+	body, err := io.ReadAll(response.Body)
 	require.NoError(t, err)
 
 	var buffer bytes.Buffer

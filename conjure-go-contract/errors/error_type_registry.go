@@ -18,13 +18,13 @@ import (
 	"fmt"
 	"reflect"
 
-	"github.com/palantir/conjure-go-runtime/v2/conjure-go-contract/codecs"
+	"github.com/palantir/conjure-go-runtime/v3/conjure-go-contract/codecs"
 	werror "github.com/palantir/witchcraft-go-error"
 )
 
 var globalRegistry = NewReflectTypeConjureErrorDecoder()
 
-var errorInterfaceType = reflect.TypeOf((*Error)(nil)).Elem()
+var errorInterfaceType = reflect.TypeFor[Error]()
 
 // RegisterErrorType registers an error name and its go type in a global registry.
 // The type should be a struct type whose pointer implements Error.
@@ -46,6 +46,22 @@ type ReflectTypeConjureErrorDecoder struct {
 	registry map[string]reflect.Type
 }
 
+// MustRegisterErrorTypes registers the provided error types in the decoder.
+// Panics if any error type is already registered or if any type does not implement Error.
+func (d *ReflectTypeConjureErrorDecoder) MustRegisterErrorTypes(errorTypes ...Error) *ReflectTypeConjureErrorDecoder {
+	for _, errorType := range errorTypes {
+		name := errorType.Name()
+		typ := reflect.TypeOf(errorType)
+		if typ.Kind() != reflect.Pointer {
+			panic(fmt.Errorf("error type %v must be a pointer", typ))
+		}
+		if err := d.RegisterErrorType(name, typ.Elem()); err != nil {
+			panic(err)
+		}
+	}
+	return d
+}
+
 func (d *ReflectTypeConjureErrorDecoder) RegisterErrorType(name string, typ reflect.Type) error {
 	if existing, exists := d.registry[name]; exists {
 		return fmt.Errorf("ErrorName %v already registered as %v", name, existing)
@@ -58,18 +74,18 @@ func (d *ReflectTypeConjureErrorDecoder) RegisterErrorType(name string, typ refl
 }
 
 func (d *ReflectTypeConjureErrorDecoder) DecodeConjureError(errorName string, body []byte) (Error, error) {
-	typ, ok := d.registry[errorName]
-	if !ok {
-		// Unrecognized error name, fall back to genericError
-		typ = reflect.TypeOf(genericError{})
+	if typ, ok := d.registry[errorName]; ok {
+		instance := reflect.New(typ).Interface()
+		if err := codecs.JSON.Unmarshal(body, &instance); err == nil {
+			// RegisterErrorType guarantees *typ implements Error, so this assertion always holds.
+			return instance.(Error), nil
+		}
+		// The registered type failed to decode the body. Rather than discard the conjure error, fall through to a genericError,
+		// which decodes parameters into a map[string]any and preserves the error name, code, instance ID, and raw parameters.
 	}
-	instance := reflect.New(typ).Interface()
-	if err := codecs.JSON.Unmarshal(body, &instance); err != nil {
-		return nil, werror.Wrap(err, "failed to unmarshal body using registered type", werror.SafeParam("type", typ.String()))
-	}
-	cerr, ok := instance.(Error)
-	if !ok {
-		return nil, werror.Error("unmarshaled type does not implement errors.Error interface", werror.SafeParam("type", typ.String()))
+	var cerr genericError
+	if err := codecs.JSON.Unmarshal(body, &cerr); err != nil {
+		return nil, werror.Wrap(err, "failed to unmarshal body as generic conjure error")
 	}
 	return cerr, nil
 }

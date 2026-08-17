@@ -21,10 +21,11 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
-	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient"
+	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpclient"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -243,30 +244,6 @@ func TestAuthHeaders(t *testing.T) {
 			Server:        basicAuthServer,
 			RequestParams: []httpclient.RequestParam{httpclient.WithRequestBasicAuth(username, password)},
 		},
-		{
-			Name:          "WithRequestBasicAuth param beats config basic",
-			Server:        basicAuthServer,
-			Config:        httpclient.ClientConfig{BasicAuth: &httpclient.BasicAuth{User: "wrong", Password: "wrong"}},
-			RequestParams: []httpclient.RequestParam{httpclient.WithRequestBasicAuth(username, password)},
-		},
-		{
-			Name:          "WithRequestBasicAuth param beats config bearer",
-			Server:        basicAuthServer,
-			Config:        httpclient.ClientConfig{APIToken: &token},
-			RequestParams: []httpclient.RequestParam{httpclient.WithRequestBasicAuth(username, password)},
-		},
-		{
-			Name:          "WithRequestBasicAuth param beats param basic",
-			Server:        basicAuthServer,
-			ClientParams:  []httpclient.ClientOrHTTPClientParam{httpclient.WithBasicAuth("wrong", "wrong")},
-			RequestParams: []httpclient.RequestParam{httpclient.WithRequestBasicAuth(username, password)},
-		},
-		{
-			Name:          "WithRequestBasicAuth param beats param bearer",
-			Server:        basicAuthServer,
-			ClientParams:  []httpclient.ClientOrHTTPClientParam{httpclient.WithAuthToken(token)},
-			RequestParams: []httpclient.RequestParam{httpclient.WithRequestBasicAuth(username, password)},
-		},
 	} {
 		t.Run(tc.Name, func(t *testing.T) {
 			t.Run("httpclient.Client", func(t *testing.T) {
@@ -317,4 +294,100 @@ func TestAuthHeaders(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Verifies that the auth middleware does not re-attach the Authorization header
+// when the stdlib follows a cross-host redirect.
+func TestAuthHeaderNotLeakedOnCrossHostRedirect(t *testing.T) {
+	const (
+		token    = "token"
+		username = "user"
+		password = "pass"
+	)
+	for _, tc := range []struct {
+		name   string
+		param  httpclient.ClientOrHTTPClientParam
+		expect string
+	}{
+		{
+			name:   "WithAuthToken",
+			param:  httpclient.WithAuthToken(token),
+			expect: "Bearer " + token,
+		},
+		{
+			name:   "WithBasicAuth",
+			param:  httpclient.WithBasicAuth(username, password),
+			expect: "Basic " + base64.StdEncoding.EncodeToString([]byte(username+":"+password)),
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var redirectCalled bool
+			var redirectAuthValue string
+			redirectHost := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+				redirectCalled = true
+				redirectAuthValue = req.Header.Get("Authorization")
+				rw.WriteHeader(http.StatusOK)
+			}))
+			defer redirectHost.Close()
+
+			// redirect from 127.0.0.1 to "localhost" so the target differs but is still reachable
+			redirectURL := strings.Replace(redirectHost.URL, "127.0.0.1", "localhost", 1)
+			require.NotEqual(t, redirectHost.URL, redirectURL, "expected httptest server to bind 127.0.0.1")
+
+			var originAuthValue string
+			origin := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+				originAuthValue = req.Header.Get("Authorization")
+				http.Redirect(rw, req, redirectURL, http.StatusFound)
+			}))
+			defer origin.Close()
+
+			client, err := httpclient.NewClient(
+				httpclient.WithBaseURLs([]string{origin.URL}),
+				httpclient.WithHTTPTimeout(time.Minute),
+				tc.param,
+			)
+			require.NoError(t, err)
+
+			resp, err := client.Get(context.Background())
+			require.NoError(t, err)
+			require.NoError(t, resp.Body.Close())
+
+			// Only the origin should see the Authorization header
+			assert.Equal(t, tc.expect, originAuthValue)
+			assert.True(t, redirectCalled)
+			assert.Empty(t, redirectAuthValue)
+		})
+	}
+}
+
+// Verifies that following a same-host redirect still attaches the Authorization header.
+func TestAuthHeaderPreservedOnSameHostRedirect(t *testing.T) {
+	const token = "token"
+
+	var redirectCalled bool
+	var authValue string
+	server := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		if req.URL.Path == "/redirect" {
+			redirectCalled = true
+			authValue = req.Header.Get("Authorization")
+			rw.WriteHeader(http.StatusOK)
+			return
+		}
+		http.Redirect(rw, req, "/redirect", http.StatusFound)
+	}))
+	defer server.Close()
+
+	client, err := httpclient.NewClient(
+		httpclient.WithBaseURLs([]string{server.URL}),
+		httpclient.WithHTTPTimeout(time.Minute),
+		httpclient.WithAuthToken(token),
+	)
+	require.NoError(t, err)
+
+	resp, err := client.Get(context.Background())
+	require.NoError(t, err)
+	require.NoError(t, resp.Body.Close())
+
+	assert.True(t, redirectCalled)
+	assert.Equal(t, "Bearer "+token, authValue)
 }

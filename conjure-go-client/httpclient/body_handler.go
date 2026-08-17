@@ -18,19 +18,19 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/palantir/conjure-go-runtime/v2/conjure-go-contract/codecs"
+	"github.com/palantir/conjure-go-runtime/v3/conjure-go-contract/codecs"
 	"github.com/palantir/pkg/bytesbuffers"
 	werror "github.com/palantir/witchcraft-go-error"
 )
 
 type bodyMiddleware struct {
-	requestInput   interface{}
+	requestInput   any
 	requestEncoder codecs.Encoder
 
 	// if rawOutput is true, the body of the response is not drained before returning -- it is the responsibility of the
 	// caller to read from and properly close the response body.
 	rawOutput       bool
-	responseOutput  interface{}
+	responseOutput  any
 	responseDecoder codecs.Decoder
 
 	bufferPool bytesbuffers.Pool

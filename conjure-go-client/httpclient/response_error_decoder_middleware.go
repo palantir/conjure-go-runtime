@@ -15,13 +15,13 @@
 package httpclient
 
 import (
-	"io/ioutil"
+	"io"
 	"net/http"
 	"strings"
 
-	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient/internal"
-	"github.com/palantir/conjure-go-runtime/v2/conjure-go-contract/codecs"
-	"github.com/palantir/conjure-go-runtime/v2/conjure-go-contract/errors"
+	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpclient/internal"
+	"github.com/palantir/conjure-go-runtime/v3/conjure-go-contract/codecs"
+	"github.com/palantir/conjure-go-runtime/v3/conjure-go-contract/errors"
 	werror "github.com/palantir/witchcraft-go-error"
 )
 
@@ -77,10 +77,10 @@ func (d restErrorDecoder) Handles(resp *http.Response) bool {
 }
 
 func (d restErrorDecoder) DecodeError(resp *http.Response) error {
-	safeParams := map[string]interface{}{
+	safeParams := map[string]any{
 		"statusCode": resp.StatusCode,
 	}
-	unsafeParams := map[string]interface{}{}
+	unsafeParams := map[string]any{}
 	if resp.StatusCode >= http.StatusTemporaryRedirect &&
 		resp.StatusCode < http.StatusBadRequest {
 		location, err := resp.Location()
@@ -92,7 +92,7 @@ func (d restErrorDecoder) DecodeError(resp *http.Response) error {
 	wUnsafeParams := werror.UnsafeParams(unsafeParams)
 
 	// TODO(#98): If a byte buffer pool is configured, use it to avoid an allocation.
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return werror.Wrap(err, "server returned an error and failed to read body", wSafeParams, wUnsafeParams)
 	}

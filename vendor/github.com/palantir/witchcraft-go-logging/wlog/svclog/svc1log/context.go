@@ -78,7 +78,7 @@ func FromContext(ctx context.Context) Logger {
 	return WithParams(logger, params...)
 }
 
-func safeAndUnsafeParamsFromParams(params []Param) (safe map[string]interface{}, unsafe map[string]interface{}) {
+func safeAndUnsafeParamsFromParams(params []Param) (safe map[string]any, unsafe map[string]any) {
 	logEntry := wlog.NewMapLogEntry()
 	for _, currParam := range params {
 		currParam.apply(logEntry)

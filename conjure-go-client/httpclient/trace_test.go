@@ -20,7 +20,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/palantir/conjure-go-runtime/v2/conjure-go-client/httpclient"
+	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpclient"
 	"github.com/palantir/witchcraft-go-tracing/wtracing"
 	"github.com/palantir/witchcraft-go-tracing/wtracing/propagation/b3"
 	"github.com/palantir/witchcraft-go-tracing/wzipkin"
@@ -81,8 +81,9 @@ func TestTracing(t *testing.T) {
 				spanCtx := b3.SpanExtractor(req)()
 				if testCase.shouldPropagateTrace {
 					assert.NoError(t, spanCtx.Err)
+					assert.NotEmpty(t, spanCtx.TraceID)
 				} else {
-					assert.Error(t, spanCtx.Err)
+					assert.Empty(t, spanCtx.TraceID)
 				}
 				rw.WriteHeader(http.StatusOK)
 			}))
@@ -99,7 +100,7 @@ func TestTracing(t *testing.T) {
 }
 
 func mustNewTracer() wtracing.Tracer {
-	tracer, err := wzipkin.NewTracer(&testReporter{reporterMap: map[string]interface{}{}})
+	tracer, err := wzipkin.NewTracer(&testReporter{reporterMap: map[string]any{}})
 	if err != nil {
 		panic(err)
 	}
@@ -107,7 +108,7 @@ func mustNewTracer() wtracing.Tracer {
 }
 
 type testReporter struct {
-	reporterMap map[string]interface{}
+	reporterMap map[string]any
 }
 
 func (r *testReporter) Send(span wtracing.SpanModel) {

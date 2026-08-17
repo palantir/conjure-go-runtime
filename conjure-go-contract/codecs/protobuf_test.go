@@ -18,8 +18,8 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/palantir/conjure-go-runtime/v2/conjure-go-contract/codecs"
-	"github.com/palantir/conjure-go-runtime/v2/conjure-go-contract/codecs/internal/gopb"
+	"github.com/palantir/conjure-go-runtime/v3/conjure-go-contract/codecs"
+	"github.com/palantir/conjure-go-runtime/v3/conjure-go-contract/codecs/internal/gopb"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 )
