@@ -278,6 +278,7 @@ func TestMiddlewareOrdering(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
 				delete(req.Header, "Accept-Encoding")
 				delete(req.Header, "User-Agent")
+				delete(req.Header, "Expect-Within")
 				assert.Equal(t, tc.ExpectHeaders, req.Header)
 			}))
 			defer server.Close()

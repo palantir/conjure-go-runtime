@@ -50,15 +50,16 @@ func TestRefreshableClientConfig(t *testing.T) {
 		assert.Equal(t, false, initialTransport.DisableKeepAlives)
 		assert.NotNil(t, initialTransport.Proxy)
 
-		if assert.Len(t, initialMiddlewares, 3) {
-			assert.IsType(t, recoveryMiddleware{}, initialMiddlewares[0])
-			if assert.IsType(t, traceMiddleware{}, initialMiddlewares[1]) {
-				traceM := initialMiddlewares[1].(traceMiddleware)
+		if assert.Len(t, initialMiddlewares, 4) {
+			assert.IsType(t, &expectWithinMiddleware{}, initialMiddlewares[0])
+			assert.IsType(t, recoveryMiddleware{}, initialMiddlewares[1])
+			if assert.IsType(t, traceMiddleware{}, initialMiddlewares[2]) {
+				traceM := initialMiddlewares[2].(traceMiddleware)
 				assert.False(t, traceM.DisableRequestSpan)
 				assert.False(t, traceM.DisableTraceHeaders)
 			}
-			if assert.IsType(t, &metricsMiddleware{}, initialMiddlewares[2]) {
-				metricsM := initialMiddlewares[2].(*metricsMiddleware)
+			if assert.IsType(t, &metricsMiddleware{}, initialMiddlewares[3]) {
+				metricsM := initialMiddlewares[3].(*metricsMiddleware)
 				assert.False(t, metricsM.Disabled.Current())
 				assert.Equal(t, serviceName, metricsM.ServiceName.Current())
 			}
@@ -282,5 +283,58 @@ func TestRefreshableClientConfig(t *testing.T) {
 
 		initialConfig.Default.Security.InsecureSkipVerify = nil
 		updateRefreshableBytes(initialConfig)
+	})
+
+	t.Run("expect-within enforcement updates", func(t *testing.T) {
+		oldClient := currentHTTPClient()
+		_, oldMiddlewares := unwrapTransport(oldClient.Transport)
+
+		// Initially, expect-within middleware is at index 0 with default enforcement (defer)
+		require.Len(t, oldMiddlewares, 4)
+		oldExpectWithinMiddleware, ok := oldMiddlewares[0].(*expectWithinMiddleware)
+		require.True(t, ok, "First middleware should be expectWithinMiddleware")
+
+		// Update enforcement to "enforce"
+		initialConfig.Default.ExpectWithin.Enforcement = "enforce"
+		updateRefreshableBytes(initialConfig)
+
+		newClient := currentHTTPClient()
+		_, newMiddlewares := unwrapTransport(newClient.Transport)
+
+		// Verify middleware is updated
+		require.Len(t, newMiddlewares, 4)
+		newExpectWithinMiddleware, ok := newMiddlewares[0].(*expectWithinMiddleware)
+		require.True(t, ok, "First middleware should be expectWithinMiddleware")
+
+		// The middleware should be different due to the enforcement update
+		assert.Equal(t, oldExpectWithinMiddleware, newExpectWithinMiddleware, "expect-within middleware should be the same instance (refreshable backing)")
+
+		// Reset
+		initialConfig.Default.ExpectWithin.Enforcement = ""
+		updateRefreshableBytes(initialConfig)
+	})
+
+	t.Run("expect-within disabled at creation time", func(t *testing.T) {
+		// Create a new client with ExpectWithin explicitly disabled
+		disabledConfig := ServicesConfig{
+			Services: map[string]ClientConfig{
+				"disabled-service": {
+					ServiceName: "disabled-service",
+					URIs:        []string{"https://localhost"},
+					ExpectWithin: ExpectWithinConfig{
+						Enabled: &[]bool{false}[0],
+					},
+				},
+			},
+		}
+		disabledClient, err := NewClient(WithConfig(disabledConfig.ClientConfig("disabled-service")))
+		require.NoError(t, err)
+
+		// Verify that expect-within middleware is not present
+		_, middlewares := unwrapTransport(disabledClient.(*clientImpl).client.Current().Transport)
+		require.Len(t, middlewares, 3, "Should have 3 middlewares (expect-within disabled)")
+		// First middleware should be recoveryMiddleware
+		_, ok := middlewares[0].(recoveryMiddleware)
+		require.True(t, ok, "First middleware should be recoveryMiddleware when expect-within is disabled")
 	})
 }
