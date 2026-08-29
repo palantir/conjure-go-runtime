@@ -1,6 +1,0 @@
-type: improvement
-improvement:
-  description: |
-    expose WithBasicAuthProvider client param.
-  links:
-    - https://github.com/palantir/conjure-go-runtime/pull/616

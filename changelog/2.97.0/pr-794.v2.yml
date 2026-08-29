@@ -1,5 +1,0 @@
-type: improvement
-improvement:
-  description: Update client_params to give an WithoutMetrics option
-  links:
-  - https://github.com/palantir/conjure-go-runtime/pull/794
