@@ -1,5 +1,0 @@
-type: improvement
-improvement:
-  description: Add errors.NewWrappedError
-  links:
-  - https://github.com/palantir/conjure-go-runtime/pull/101

@@ -1,7 +1,0 @@
-type: fix
-fix:
-  description: |-
-    Avoid double encoding URL parameters
-    Fixes: #181
-  links:
-  - https://github.com/palantir/conjure-go-runtime/pull/182

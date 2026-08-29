@@ -1,5 +1,0 @@
-type: break
-break:
-  description: Update module to v2
-  links:
-  - https://github.com/palantir/conjure-go-runtime/pull/100

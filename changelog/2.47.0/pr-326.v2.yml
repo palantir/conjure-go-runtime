@@ -1,5 +1,0 @@
-type: improvement
-improvement:
-  description: Add snappy compression support to conjure client.
-  links:
-  - https://github.com/palantir/conjure-go-runtime/pull/326
