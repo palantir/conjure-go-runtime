@@ -63,10 +63,12 @@ func (l *jsonMapLogger) Error(msg string, params ...Param) {
 }
 
 func (l *jsonMapLogger) logOutput(params []Param) {
-	params = append(params, StringParam(TimeKey, time.Now().Format(time.RFC3339Nano)))
+	paramsWithTime := make([]Param, len(params)+1)
+	paramsWithTime[0] = StringParam(TimeKey, time.Now().Format(time.RFC3339Nano))
+	copy(paramsWithTime[1:], params)
 
 	entry := NewMapLogEntry()
-	ApplyParams(entry, params)
+	ApplyParams(entry, paramsWithTime)
 	bytes, _ := json.Marshal(entry.AllValues())
 	_, _ = fmt.Fprintln(l.w, string(bytes))
 }
