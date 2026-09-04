@@ -11,7 +11,7 @@ require (
 	github.com/palantir/pkg/metrics v1.10.1
 	github.com/palantir/pkg/refreshable/v2 v2.9.0
 	github.com/palantir/pkg/retry v1.3.0
-	github.com/palantir/pkg/safejson v1.2.0
+	github.com/palantir/pkg/safejson v1.3.0
 	github.com/palantir/pkg/tlsconfig v1.5.0
 	github.com/palantir/pkg/uuid v1.3.0
 	github.com/palantir/witchcraft-go-error v1.49.0

@@ -38,8 +38,8 @@ github.com/palantir/pkg/retry v1.3.0 h1:uHrY3sv4q3XefvVLyqKIK1frXE9ZxtCtNtvijAkw
 github.com/palantir/pkg/retry v1.3.0/go.mod h1:HzOR3eLw/9PiujskMpjaC6m3uU8fy53s6NszjbmpbOQ=
 github.com/palantir/pkg/rid v1.2.0 h1:sEdklNKk4hrDm0JsUyICYakbc+16GrC6pYxMFjfqXkE=
 github.com/palantir/pkg/rid v1.2.0/go.mod h1:W+w31R+a/6RzShEybZfbu86sOMcg+hR2h/KmoSDu2kQ=
-github.com/palantir/pkg/safejson v1.2.0 h1:mNARH/UdpeDjHSUujUYXSqe4Rclul53xle2CLm6UG34=
-github.com/palantir/pkg/safejson v1.2.0/go.mod h1:Pmxy4EUrfp5sSji5IhNySUKhEyaZw85SoOzag/lzsYg=
+github.com/palantir/pkg/safejson v1.3.0 h1:lFrvyErsOhspiGn4FLqsgE8ulxgunssmbNi2nLTnKGQ=
+github.com/palantir/pkg/safejson v1.3.0/go.mod h1:1g3kfVP+X3gkc1vox2fOWrxBbj3l3Dy+0N8a3ybmFYA=
 github.com/palantir/pkg/safelong v1.3.0 h1:0PL39zwIPrGjGaEK1Lg7uqakTakB00dQwVf0LsowW0Q=
 github.com/palantir/pkg/safelong v1.3.0/go.mod h1:KEMQTEZfl1BDJA4FWAR6sTKqzgeDVx9zIeFHSggA634=
 github.com/palantir/pkg/safeyaml v1.2.0 h1:5IbhlQstu0JC4STfWvLiWex47sFtBHzxjEYbckpjEcY=
