@@ -15,6 +15,7 @@
 package internal
 
 import (
+	"net/http"
 	"sync/atomic"
 	"testing"
 
@@ -25,8 +26,8 @@ func TestRandomScorerGetURIsRandomizes(t *testing.T) {
 	uris := []string{"uri1", "uri2", "uri3", "uri4", "uri5"}
 	var counter atomic.Int64
 	scorer := NewRandomURIScoringMiddleware(uris, func() int64 { return counter.Add(1) })
-	scoredUris1 := scorer.GetURIsInOrderOfIncreasingScore()
-	scoredUris2 := scorer.GetURIsInOrderOfIncreasingScore()
+	scoredUris1 := scorer.GetURIsInOrderOfIncreasingScore(http.Header{})
+	scoredUris2 := scorer.GetURIsInOrderOfIncreasingScore(http.Header{})
 	assert.ElementsMatch(t, scoredUris1, scoredUris2)
 	assert.NotEqual(t, scoredUris1, scoredUris2)
 }
