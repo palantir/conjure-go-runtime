@@ -34,6 +34,7 @@ type RequestRetrier struct {
 	currentURI    string
 	retrier       retry.Retrier
 	uris          []string
+	hosts         map[string]struct{}
 	offset        int
 	relocatedURIs map[string]struct{}
 	failedURIs    map[string]struct{}
@@ -49,12 +50,41 @@ func NewRequestRetrier(uris []string, retrier retry.Retrier, maxAttempts int) *R
 		currentURI:    uris[offset],
 		retrier:       retrier,
 		uris:          uris,
+		hosts:         configuredHosts(uris),
 		offset:        offset,
 		relocatedURIs: map[string]struct{}{},
 		failedURIs:    map[string]struct{}{},
 		maxAttempts:   maxAttempts,
 		attemptCount:  0,
 	}
+}
+
+// configuredHosts returns the set of hosts named by uris. URIs which do not parse, or which
+// name no host, are omitted. If no URI yields a host the result is empty, in which case
+// Location values are used without being checked against it.
+func configuredHosts(uris []string) map[string]struct{} {
+	hosts := make(map[string]struct{}, len(uris))
+	for _, uri := range uris {
+		parsed, err := url.Parse(uri)
+		if err != nil {
+			continue
+		}
+		if host := parsed.Hostname(); host != "" {
+			hosts[host] = struct{}{}
+		}
+	}
+	return hosts
+}
+
+// isConfiguredHost reports whether otherURI names one of the hosts from the configured URIs.
+// A retryOther response directs the client to another node of the same service, so a Location
+// naming some other host does not describe a node this client is configured to use.
+func (r *RequestRetrier) isConfiguredHost(otherURI *url.URL) bool {
+	if len(r.hosts) == 0 {
+		return true
+	}
+	_, ok := r.hosts[otherURI.Hostname()]
+	return ok
 }
 
 func (r *RequestRetrier) attemptsRemaining() bool {
@@ -110,7 +140,9 @@ func (r *RequestRetrier) getRetryFn(resp *http.Response, respErr error) func() b
 		return r.nextURIOrBackoff
 	} else if shouldTryOther, otherURI := isRetryOtherResponse(resp, respErr, errCode); shouldTryOther {
 		// 307 or 308: go to next node, or particular node if provided.
-		if otherURI != nil {
+		// A Location naming a host outside the configured URIs is ignored and handled as
+		// though no Location had been provided.
+		if otherURI != nil && r.isConfiguredHost(otherURI) {
 			return func() bool {
 				r.setURIAndResetBackoff(otherURI)
 				return true
