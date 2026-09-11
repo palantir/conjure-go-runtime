@@ -34,7 +34,7 @@ type RequestRetrier struct {
 	currentURI    string
 	retrier       retry.Retrier
 	uris          []string
-	hosts         map[string]struct{}
+	origins       map[origin]struct{}
 	offset        int
 	relocatedURIs map[string]struct{}
 	failedURIs    map[string]struct{}
@@ -50,7 +50,7 @@ func NewRequestRetrier(uris []string, retrier retry.Retrier, maxAttempts int) *R
 		currentURI:    uris[offset],
 		retrier:       retrier,
 		uris:          uris,
-		hosts:         configuredHosts(uris),
+		origins:       configuredOrigins(uris),
 		offset:        offset,
 		relocatedURIs: map[string]struct{}{},
 		failedURIs:    map[string]struct{}{},
@@ -59,31 +59,73 @@ func NewRequestRetrier(uris []string, retrier retry.Retrier, maxAttempts int) *R
 	}
 }
 
-// configuredHosts returns the set of hosts named by uris. URIs which do not parse, or which
-// name no host, are omitted. If no URI yields a host the result is empty, in which case
-// Location values are used without being checked against it.
-func configuredHosts(uris []string) map[string]struct{} {
-	hosts := make(map[string]struct{}, len(uris))
+// origin identifies a node by the parts of a URI which determine where a request is sent.
+// The path plays no part in identifying the node.
+type origin struct {
+	scheme string
+	host   string
+	port   string
+}
+
+// originOf derives the origin of uri. ok is false when uri names no host, or names no port
+// and no default port is known for its scheme, in which case uri can not be compared against
+// the configured origins.
+func originOf(uri *url.URL) (o origin, ok bool) {
+	host := uri.Hostname()
+	if host == "" {
+		return origin{}, false
+	}
+	scheme := strings.ToLower(uri.Scheme)
+	port := uri.Port()
+	if port == "" {
+		port = defaultPortForScheme(scheme)
+	}
+	if port == "" {
+		return origin{}, false
+	}
+	return origin{scheme: scheme, host: host, port: port}, true
+}
+
+// defaultPortForScheme returns the port a URI of the given scheme uses when it names none,
+// or the empty string when no default is known.
+func defaultPortForScheme(scheme string) string {
+	switch scheme {
+	case "http", meshSchemePrefix + "http":
+		return "80"
+	case "https", meshSchemePrefix + "https":
+		return "443"
+	default:
+		return ""
+	}
+}
+
+// configuredOrigins returns the set of origins named by uris. URIs which do not parse, or
+// which have no derivable origin, are omitted.
+func configuredOrigins(uris []string) map[origin]struct{} {
+	origins := make(map[origin]struct{}, len(uris))
 	for _, uri := range uris {
 		parsed, err := url.Parse(uri)
 		if err != nil {
 			continue
 		}
-		if host := parsed.Hostname(); host != "" {
-			hosts[host] = struct{}{}
+		if o, ok := originOf(parsed); ok {
+			origins[o] = struct{}{}
 		}
 	}
-	return hosts
+	return origins
 }
 
-// isConfiguredHost reports whether otherURI names one of the hosts from the configured URIs.
-// A retryOther response directs the client to another node of the same service, so a Location
-// naming some other host does not describe a node this client is configured to use.
-func (r *RequestRetrier) isConfiguredHost(otherURI *url.URL) bool {
-	if len(r.hosts) == 0 {
-		return true
+// isConfiguredOrigin reports whether otherURI names one of the origins from the configured
+// URIs. A retryOther response directs the client to another node of the same service, so a
+// Location outside those origins does not describe a node this client is configured to use.
+// A Location with no derivable origin is not used, nor is any Location when the configured
+// URIs yield no origins to compare against.
+func (r *RequestRetrier) isConfiguredOrigin(otherURI *url.URL) bool {
+	o, ok := originOf(otherURI)
+	if !ok {
+		return false
 	}
-	_, ok := r.hosts[otherURI.Hostname()]
+	_, ok = r.origins[o]
 	return ok
 }
 
@@ -140,9 +182,9 @@ func (r *RequestRetrier) getRetryFn(resp *http.Response, respErr error) func() b
 		return r.nextURIOrBackoff
 	} else if shouldTryOther, otherURI := isRetryOtherResponse(resp, respErr, errCode); shouldTryOther {
 		// 307 or 308: go to next node, or particular node if provided.
-		// A Location naming a host outside the configured URIs is ignored and handled as
-		// though no Location had been provided.
-		if otherURI != nil && r.isConfiguredHost(otherURI) {
+		// A Location outside the configured origins is ignored and handled as though no
+		// Location had been provided.
+		if otherURI != nil && r.isConfiguredOrigin(otherURI) {
 			return func() bool {
 				r.setURIAndResetBackoff(otherURI)
 				return true

@@ -146,7 +146,57 @@ func TestRequestRetrier_DoesNotRelocateToUnconfiguredHost(t *testing.T) {
 	require.False(t, isRelocated)
 }
 
-func TestRequestRetrier_SkipsLocationValidationWhenNoConfiguredHostsParse(t *testing.T) {
+func TestRequestRetrier_DoesNotRelocateToUnconfiguredPort(t *testing.T) {
+	r := NewRequestRetrier([]string{"http://127.0.0.1:8080"}, retry.Start(context.Background()), 3)
+
+	uri, isRelocated := r.GetNextURI(nil, nil)
+	require.Equal(t, uri, "http://127.0.0.1:8080")
+	require.False(t, isRelocated)
+
+	respWithLocationHeader := &http.Response{
+		StatusCode: StatusCodeRetryOther,
+		Header:     http.Header{"Location": []string{"http://127.0.0.1:9090"}},
+	}
+	uri, isRelocated = r.GetNextURI(respWithLocationHeader, nil)
+	require.Equal(t, uri, "http://127.0.0.1:8080")
+	require.False(t, isRelocated)
+}
+
+func TestRequestRetrier_DoesNotRelocateToUnconfiguredScheme(t *testing.T) {
+	r := NewRequestRetrier([]string{"https://example.com"}, retry.Start(context.Background()), 3)
+
+	uri, isRelocated := r.GetNextURI(nil, nil)
+	require.Equal(t, uri, "https://example.com")
+	require.False(t, isRelocated)
+
+	respWithLocationHeader := &http.Response{
+		StatusCode: StatusCodeRetryOther,
+		Header:     http.Header{"Location": []string{"http://example.com"}},
+	}
+	uri, isRelocated = r.GetNextURI(respWithLocationHeader, nil)
+	require.Equal(t, uri, "https://example.com")
+	require.False(t, isRelocated)
+}
+
+func TestRequestRetrier_RelocatesWhenOnlyThePathDiffers(t *testing.T) {
+	// An omitted port is equivalent to the default for the scheme, and the path plays no
+	// part in identifying the node.
+	r := NewRequestRetrier([]string{"https://example.com:443"}, retry.Start(context.Background()), 3)
+
+	uri, isRelocated := r.GetNextURI(nil, nil)
+	require.Equal(t, uri, "https://example.com:443")
+	require.False(t, isRelocated)
+
+	respWithLocationHeader := &http.Response{
+		StatusCode: StatusCodeRetryOther,
+		Header:     http.Header{"Location": []string{"https://example.com/api/resource"}},
+	}
+	uri, isRelocated = r.GetNextURI(respWithLocationHeader, nil)
+	require.Equal(t, uri, "https://example.com/api/resource")
+	require.True(t, isRelocated)
+}
+
+func TestRequestRetrier_DoesNotRelocateWhenNoConfiguredOriginParses(t *testing.T) {
 	r := NewRequestRetrier([]string{"a"}, retry.Start(context.Background()), 3)
 
 	uri, isRelocated := r.GetNextURI(nil, nil)
@@ -158,8 +208,8 @@ func TestRequestRetrier_SkipsLocationValidationWhenNoConfiguredHostsParse(t *tes
 		Header:     http.Header{"Location": []string{"http://example.com"}},
 	}
 	uri, isRelocated = r.GetNextURI(respWithLocationHeader, nil)
-	require.Equal(t, uri, "http://example.com")
-	require.True(t, isRelocated)
+	require.Equal(t, uri, "a")
+	require.False(t, isRelocated)
 }
 
 func TestRequestRetrier_GetNextURI(t *testing.T) {

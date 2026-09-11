@@ -142,21 +142,51 @@ func TestBackoffSingleURL(t *testing.T) {
 }
 
 func TestFailoverOtherURL(t *testing.T) {
-	didHitS1, didHitS2 := false, false
+	relocatedHits := 0
 
+	// s1 serves the relocated path, and sends the client elsewhere for anything else so
+	// that the request converges whichever configured URI is tried first.
+	s1 := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		if req.URL.Path == "/relocated" {
+			relocatedHits++
+			rw.WriteHeader(http.StatusOK)
+			return
+		}
+		rw.WriteHeader(http.StatusServiceUnavailable)
+	}))
+
+	s2 := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		rw.Header()["Location"] = []string{s1.URL + "/relocated"}
+		rw.WriteHeader(http.StatusPermanentRedirect)
+	}))
+
+	// s1 is configured alongside s2, so a Location naming it is used.
+	cli, err := NewClient(WithBaseURLs([]string{s2.URL, s1.URL}))
+	require.NoError(t, err)
+
+	_, err = cli.Do(context.Background(), WithRequestMethod("GET"))
+	assert.NoError(t, err)
+	assert.Positive(t, relocatedHits, "expected the client to follow the Location to the configured node")
+}
+
+func TestFailoverOtherURLNotConfigured(t *testing.T) {
+	didHitS1 := false
+	s2Hits, s3Hits := 0, 0
+
+	// s1 is deliberately absent from the client's configured URIs.
 	s1 := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
 		didHitS1 = true
 		rw.WriteHeader(http.StatusOK)
 	}))
 
 	s2 := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
-		didHitS2 = true
+		s2Hits++
 		rw.Header()["Location"] = []string{s1.URL}
 		rw.WriteHeader(http.StatusPermanentRedirect)
 	}))
 
 	s3 := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
-		didHitS2 = true
+		s3Hits++
 		rw.Header()["Location"] = []string{s1.URL}
 		rw.WriteHeader(http.StatusPermanentRedirect)
 	}))
@@ -164,10 +194,12 @@ func TestFailoverOtherURL(t *testing.T) {
 	cli, err := NewClient(WithBaseURLs([]string{s2.URL, s3.URL}))
 	require.NoError(t, err)
 
+	// The Location names a node outside the configured URIs, so it is not used. The client
+	// retries its configured nodes instead and exhausts its attempts there.
 	_, err = cli.Do(context.Background(), WithRequestMethod("GET"))
-	assert.NoError(t, err)
-	assert.True(t, didHitS2)
-	assert.True(t, didHitS1)
+	assert.Error(t, err)
+	assert.False(t, didHitS1, "should not send the request to a URI outside the configured set")
+	assert.Greater(t, s2Hits+s3Hits, 1, "expected the configured nodes to be retried")
 }
 
 func TestFailoverDistribution(t *testing.T) {
