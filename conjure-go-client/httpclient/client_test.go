@@ -73,6 +73,10 @@ func TestCanUseRelocationURI(t *testing.T) {
 		case "/newPath":
 			rw.WriteHeader(200)
 			assert.NoError(t, codecs.JSON.Encode(rw, respBody))
+		default:
+			// Configured URIs are tried in a shuffled order, so this node may be tried
+			// first. Send the client on to the node which serves /oldPath.
+			rw.WriteHeader(503)
 		}
 	}))
 	defer relocationServer.Close()
@@ -88,7 +92,9 @@ func TestCanUseRelocationURI(t *testing.T) {
 
 	client, err := httpclient.NewClient(
 		httpclient.WithBytesBufferPool(bytesbuffers.NewSizedPool(1, 10)),
-		httpclient.WithBaseURLs([]string{server.URL}),
+		// Both nodes are configured, since a Location is only used when it names one of
+		// the client's configured origins.
+		httpclient.WithBaseURLs([]string{server.URL, relocationServer.URL}),
 	)
 	assert.NoError(t, err)
 
