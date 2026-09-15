@@ -53,3 +53,9 @@ type wrappedClient struct {
 func (c *wrappedClient) RoundTrip(req *http.Request) (*http.Response, error) {
 	return c.middleware.RoundTrip(req, c.baseTransport)
 }
+
+func (c *wrappedClient) CloseIdleConnections() {
+	if transport, ok := c.baseTransport.(interface{ CloseIdleConnections() }); ok {
+		transport.CloseIdleConnections()
+	}
+}

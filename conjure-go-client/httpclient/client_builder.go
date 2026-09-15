@@ -19,8 +19,10 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"maps"
 	"net/http"
 	"runtime"
+	"slices"
 	"time"
 
 	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpclient/internal"
@@ -105,7 +107,11 @@ func (b *httpClientBuilder) Build(ctx context.Context, params ...HTTPClientParam
 
 	// Create dialer and transport
 	dialer := refreshingclient.NewRefreshableDialer(ctx, b.DialerParams)
-	transport := refreshingclient.NewRefreshableTransport(ctx, b.TransportParams, refreshableConfig, dialer)
+	transportParams := refreshable.MergeAuto(b.TransportParams, b.DialerParams, func(p refreshingclient.TransportParams, d refreshingclient.DialerParams) refreshingclient.TransportParams {
+		p.SocksProxyURL = d.SocksProxyURL
+		return p
+	})
+	transport := refreshingclient.NewRefreshableTransport(ctx, transportParams, refreshableConfig, dialer)
 	transport = wrapTransport(transport, newMetricsMiddleware(b.ServiceName, b.MetricsTagProviders, b.DisableMetrics))
 	transport = wrapTransport(transport, newTraceMiddleware(b.ServiceName, b.DisableRequestSpan, b.DisableTraceHeaders))
 	if !b.DisableRecovery {
@@ -141,8 +147,8 @@ func (b *httpClientBuilder) getRefreshableTLSConfig(ctx context.Context) (refres
 	}
 	tlsParams, _ := refreshable.MergeValidatedAndRefreshable(ctx, multiFileRefreshable, b.TransportParams, func(t2 map[string][]byte, t1 refreshingclient.TransportParams) refreshingclient.TLSParams {
 		var caBytes [][]byte
-		for _, caSlice := range t2 {
-			caBytes = append(caBytes, caSlice)
+		for _, path := range slices.Sorted(maps.Keys(t2)) {
+			caBytes = append(caBytes, t2[path])
 		}
 		return refreshingclient.TLSParams{
 			CABytes:            caBytes,
@@ -154,9 +160,7 @@ func (b *httpClientBuilder) getRefreshableTLSConfig(ctx context.Context) (refres
 	})
 	if b.TLSCABytes != nil {
 		tlsParams, _ = refreshable.MergeValidatedAndRefreshable(ctx, tlsParams, b.TLSCABytes, func(tlsParams refreshingclient.TLSParams, caByteSlices [][]byte) refreshingclient.TLSParams {
-			for _, caByteSlice := range caByteSlices {
-				tlsParams.CABytes = append(tlsParams.CABytes, caByteSlice)
-			}
+			tlsParams.CABytes = slices.Concat(tlsParams.CABytes, caByteSlices)
 			return tlsParams
 		})
 	}

@@ -15,10 +15,11 @@
 package httpclient_test
 
 import (
+	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/http/httptrace"
 	"sync"
 	"testing"
 	"time"
@@ -27,6 +28,65 @@ import (
 	"github.com/palantir/pkg/refreshable/v2"
 	"github.com/stretchr/testify/require"
 )
+
+func TestHTTPClientSOCKSProxyRefresh(t *testing.T) {
+	for _, override := range []bool{false, true} {
+		t.Run(fmt.Sprint("override=", override), func(t *testing.T) {
+			config := httpclient.ClientConfig{ServiceName: "test", ProxyURL: new("socks5://127.0.0.1:12345"), ProxyFromEnvironment: new(false)}
+			configs := refreshable.New(config)
+			var params []httpclient.HTTPClientParam
+			if override {
+				params = append(params, httpclient.WithNoProxy())
+			}
+			clients, err := httpclient.NewHTTPClientFromRefreshableConfig(t.Context(), configs, params...)
+			require.NoError(t, err)
+			initial := unwrapTransport(clients.Current().Transport)
+			config.ConnectTimeout = new(time.Second)
+			configs.Update(config)
+			require.Same(t, initial, unwrapTransport(clients.Current().Transport))
+			for _, proxyURL := range []*string{new("socks5://127.0.0.1:12346"), nil} {
+				config.ProxyURL = proxyURL
+				configs.Update(config)
+				current := unwrapTransport(clients.Current().Transport)
+				if override {
+					require.Same(t, initial, current)
+				} else {
+					require.NotSame(t, initial, current)
+				}
+				initial = current
+			}
+		})
+	}
+}
+
+func TestHTTPClientCloseIdleConnections(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }))
+	t.Cleanup(server.Close)
+	config := httpclient.ClientConfig{ServiceName: "test"}
+	configs := refreshable.New(config)
+	clients, err := httpclient.NewHTTPClientFromRefreshableConfig(t.Context(), configs, httpclient.WithNoProxy())
+	require.NoError(t, err)
+	client := clients.Current()
+	t.Cleanup(client.CloseIdleConnections)
+	request := func() bool {
+		var reused bool
+		ctx := httptrace.WithClientTrace(t.Context(), &httptrace.ClientTrace{GotConn: func(info httptrace.GotConnInfo) { reused = info.Reused }})
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL, nil)
+		require.NoError(t, err)
+		resp, err := client.Do(req)
+		require.NoError(t, err)
+		require.NoError(t, resp.Body.Close())
+		return reused
+	}
+	for i := range 2 {
+		require.False(t, request())
+		require.True(t, request())
+		client.CloseIdleConnections()
+		require.False(t, request())
+		config.MaxIdleConns = new(50 + i)
+		configs.Update(config)
+	}
+}
 
 func TestHTTPClientConcurrentTransportRefresh(t *testing.T) {
 	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -55,18 +115,14 @@ func TestHTTPClientConcurrentTransportRefresh(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, resp.Body.Close())
 
-	stop := make(chan struct{})
-	var wg sync.WaitGroup
+	start := make(chan struct{})
+	var ready, wg sync.WaitGroup
+	ready.Add(8)
 	for range 8 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for {
-				select {
-				case <-stop:
-					return
-				default:
-				}
+		wg.Go(func() {
+			ready.Done()
+			<-start
+			for range 50 {
 				resp, err := client.Get(server.URL)
 				if err != nil {
 					t.Error(err)
@@ -79,16 +135,16 @@ func TestHTTPClientConcurrentTransportRefresh(t *testing.T) {
 					t.Error(err)
 				}
 			}
-		}()
+		})
 	}
-
+	ready.Wait()
+	close(start)
 	for i := range 200 {
 		next := config
 		next.MaxIdleConns = new(50 + i%2)
 		next.Security.DynamicCertReload = new(i%2 == 0)
 		configRefreshable.Update(next)
 	}
-	close(stop)
 	wg.Wait()
 
 	resp, err = client.Get(server.URL)
@@ -96,81 +152,4 @@ func TestHTTPClientConcurrentTransportRefresh(t *testing.T) {
 	_, err = io.Copy(io.Discard, resp.Body)
 	require.NoError(t, err)
 	require.NoError(t, resp.Body.Close())
-}
-
-func TestHTTPClientRefreshClosesRetiredIdleConnections(t *testing.T) {
-	connections := &refreshConnectionStates{states: make(map[net.Conn]http.ConnState)}
-	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusNoContent)
-	}))
-	server.Config.ConnState = connections.update
-	server.Start()
-	t.Cleanup(server.Close)
-
-	config := httpclient.ClientConfig{
-		ServiceName:  "test",
-		URIs:         []string{server.URL},
-		MaxIdleConns: new(50),
-	}
-	configRefreshable := refreshable.New(config)
-	clients, err := httpclient.NewHTTPClientFromRefreshableConfig(t.Context(), configRefreshable, httpclient.WithNoProxy())
-	require.NoError(t, err)
-	client := clients.Current()
-
-	request := func() {
-		resp, err := client.Get(server.URL)
-		require.NoError(t, err)
-		_, err = io.Copy(io.Discard, resp.Body)
-		require.NoError(t, err)
-		require.NoError(t, resp.Body.Close())
-	}
-	request()
-	require.Eventually(t, func() bool {
-		return connections.count(http.StateIdle) == 1
-	}, 2*time.Second, 10*time.Millisecond)
-
-	next := config
-	next.MaxIdleConns = new(51)
-	configRefreshable.Update(next)
-	require.Eventually(t, func() bool {
-		return connections.open() == 0
-	}, 2*time.Second, 10*time.Millisecond)
-
-	request()
-	require.Eventually(t, func() bool {
-		return connections.count(http.StateIdle) == 1
-	}, 2*time.Second, 10*time.Millisecond)
-}
-
-type refreshConnectionStates struct {
-	mu     sync.Mutex
-	states map[net.Conn]http.ConnState
-}
-
-func (c *refreshConnectionStates) update(conn net.Conn, state http.ConnState) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if state == http.StateClosed || state == http.StateHijacked {
-		delete(c.states, conn)
-		return
-	}
-	c.states[conn] = state
-}
-
-func (c *refreshConnectionStates) count(state http.ConnState) int {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	count := 0
-	for _, current := range c.states {
-		if current == state {
-			count++
-		}
-	}
-	return count
-}
-
-func (c *refreshConnectionStates) open() int {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return len(c.states)
 }

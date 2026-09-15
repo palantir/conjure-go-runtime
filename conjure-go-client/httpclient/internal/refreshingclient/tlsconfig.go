@@ -18,6 +18,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"reflect"
 
 	"github.com/palantir/pkg/refreshable/v2"
 	"github.com/palantir/pkg/tlsconfig"
@@ -52,12 +53,19 @@ func WrapTLSConfig(config *tls.Config) *TLSConfig {
 // N.B. This subscription only fires when the paths are updated, not when the contents of the files are updated.
 // When DynamicCertReload is enabled, the cert/key files are re-read on each TLS handshake via GetClientCertificate.
 func NewRefreshableTLSConfig(ctx context.Context, params refreshable.Validated[TLSParams]) (refreshable.Validated[*TLSConfig], error) {
+	var previousParams TLSParams
+	var previousConfig *TLSConfig
 	r, _, err := refreshable.MapValidated(ctx, params, func(ctx context.Context, p TLSParams) (*TLSConfig, error) {
+		// Validation recovery can notify again with unchanged parameters.
+		if previousConfig != nil && reflect.DeepEqual(previousParams, p) {
+			return previousConfig, nil
+		}
 		config, err := NewTLSConfig(ctx, p)
 		if err != nil {
 			return nil, err
 		}
-		return WrapTLSConfig(config), nil
+		previousParams, previousConfig = p, WrapTLSConfig(config)
+		return previousConfig, nil
 	})
 	if err != nil {
 		return nil, werror.WrapWithContextParams(ctx, err, "failed to build RefreshableTLSConfig")

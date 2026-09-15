@@ -17,11 +17,15 @@ package refreshingclient
 import (
 	"context"
 	"crypto/tls"
+	"io"
 	"net/http"
+	"net/http/httptrace"
 	"net/url"
 	"runtime"
-	"sync/atomic"
+	"slices"
+	"sync"
 	"time"
+	"weak"
 
 	"github.com/palantir/pkg/refreshable/v2"
 	"github.com/palantir/witchcraft-go-logging/wlog/svclog/svc1log"
@@ -38,6 +42,7 @@ type TransportParams struct {
 	ResponseHeaderTimeout time.Duration
 	TLSHandshakeTimeout   time.Duration
 	HTTPProxyURL          *url.URL
+	SocksProxyURL         *url.URL
 	ProxyFromEnvironment  bool
 	HTTP2ReadIdleTimeout  time.Duration
 	HTTP2PingTimeout      time.Duration
@@ -55,8 +60,13 @@ type TLSConfigurationParams struct {
 
 func NewRefreshableTransport(ctx context.Context, p refreshable.Refreshable[TransportParams], refreshableConfig refreshable.Validated[*TLSConfig], dialer ContextDialer) http.RoundTripper {
 	validTLSConfig := refreshable.MapFromValidatedAuto(refreshableConfig, func(t *TLSConfig) *TLSConfig { return t })
-	states := refreshable.MergeAuto(validTLSConfig, p, func(t *TLSConfig, p TransportParams) transportState {
-		state := &managedTransport{transport: newTransport(ctx, p, t.config(), dialer)}
+	inputs := refreshable.MergeAuto(validTLSConfig, p, func(t *TLSConfig, p TransportParams) transportInputs {
+		// TLS changes arrive through validTLSConfig after validation.
+		p.TLSConfigurationParams = TLSConfigurationParams{}
+		return transportInputs{tls: t, params: p}
+	})
+	states := refreshable.MapAuto(inputs, func(input transportInputs) transportState {
+		state := &managedTransport{transport: newTransport(ctx, input.params, input.tls.config(), dialer)}
 		return func() *managedTransport { return state }
 	})
 	var previous *managedTransport
@@ -68,11 +78,19 @@ func NewRefreshableTransport(ctx context.Context, p refreshable.Refreshable[Tran
 		previous = current
 	})
 	result := &RefreshableTransport{states: states}
-	runtime.AddCleanup(result, unsubscribeRefreshable, unsubscribe)
+	runtime.AddCleanup(result, func(unsubscribe refreshable.UnsubscribeFunc) {
+		unsubscribe()
+		previous.retire()
+	}, unsubscribe)
 	return result
 }
 
 type transportState func() *managedTransport
+
+type transportInputs struct {
+	tls    *TLSConfig
+	params TransportParams
+}
 
 // RefreshableTransport implements http.RoundTripper backed by a refreshable *http.Transport.
 // The transport and internal dialer are each rebuilt when any of their respective parameters are updated.
@@ -80,10 +98,6 @@ type transportState func() *managedTransport
 // Storing the transport directly would inspect connection-pool state while net/http concurrently mutates it.
 type RefreshableTransport struct {
 	states refreshable.Refreshable[transportState]
-}
-
-func unsubscribeRefreshable(unsubscribe refreshable.UnsubscribeFunc) {
-	unsubscribe()
 }
 
 func (r *RefreshableTransport) CurrentTransport() *http.Transport {
@@ -94,26 +108,101 @@ func (r *RefreshableTransport) RoundTrip(req *http.Request) (*http.Response, err
 	return r.states.Current()().RoundTrip(req)
 }
 
+func (r *RefreshableTransport) CloseIdleConnections() {
+	r.CurrentTransport().CloseIdleConnections()
+}
+
 type managedTransport struct {
 	transport *http.Transport
 
-	retired atomic.Bool
+	mu      sync.Mutex
+	retired bool
+	// Zero-count connections may still have canceled streams draining when retirement begins.
+	connections map[weak.Pointer[tls.Conn]]int
 }
 
 func (t *managedTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	defer func() {
-		// A request that selected this transport before retirement can start
-		// afterward, undoing CloseIdleConnections. Close again when it returns.
-		if t.retired.Load() {
-			t.transport.CloseIdleConnections()
+	var connections []weak.Pointer[tls.Conn]
+	req = req.WithContext(httptrace.WithClientTrace(req.Context(), &httptrace.ClientTrace{
+		GotConn: func(info httptrace.GotConnInfo) {
+			conn, ok := info.Conn.(*tls.Conn)
+			if !ok || conn.ConnectionState().NegotiatedProtocol != http2.NextProtoTLS {
+				return
+			}
+			key := weak.Make(conn)
+			t.mu.Lock()
+			if t.connections == nil {
+				t.connections = make(map[weak.Pointer[tls.Conn]]int)
+			}
+			if _, exists := t.connections[key]; !exists {
+				// Neither the bookkeeping nor its cleanup may keep a closed connection alive.
+				runtime.AddCleanup(conn, func(owner weak.Pointer[managedTransport]) {
+					if owner := owner.Value(); owner != nil {
+						owner.mu.Lock()
+						delete(owner.connections, key)
+						owner.mu.Unlock()
+					}
+				}, weak.Make(t))
+			}
+			t.connections[key]++
+			connections = append(connections, key)
+			t.mu.Unlock()
+		},
+	}))
+	release := sync.OnceFunc(func() {
+		t.mu.Lock()
+		for _, key := range connections {
+			if _, exists := t.connections[key]; exists {
+				t.connections[key]--
+			}
 		}
-	}()
-	return t.transport.RoundTrip(req)
+		t.mu.Unlock()
+		t.closeRetiredIdleConnections()
+	})
+	resp, err := t.transport.RoundTrip(req)
+	if err == nil && resp.ProtoMajor == 2 && resp.Body != http.NoBody {
+		resp.Body = &retiringResponseBody{ReadCloser: resp.Body, release: release}
+	} else {
+		release()
+	}
+	return resp, err
+}
+
+func (t *managedTransport) closeRetiredIdleConnections() {
+	t.mu.Lock()
+	if !t.retired {
+		t.mu.Unlock()
+		return
+	}
+	t.transport.CloseIdleConnections()
+	// Body.Close can return before a canceled HTTP/2 stream finishes teardown.
+	// Close only connections whose callers have all released their responses.
+	for key, requests := range t.connections {
+		if requests == 0 {
+			if conn := key.Value(); conn != nil {
+				_ = conn.Close()
+			}
+			delete(t.connections, key)
+		}
+	}
+	t.mu.Unlock()
+}
+
+type retiringResponseBody struct {
+	io.ReadCloser
+	release func()
+}
+
+func (b *retiringResponseBody) Close() error {
+	defer b.release()
+	return b.ReadCloser.Close()
 }
 
 func (t *managedTransport) retire() {
-	t.retired.Store(true)
-	t.transport.CloseIdleConnections()
+	t.mu.Lock()
+	t.retired = true
+	t.mu.Unlock()
+	t.closeRetiredIdleConnections()
 }
 
 func newTransport(ctx context.Context, p TransportParams, tlsConfig *tls.Config, dialer ContextDialer) *http.Transport {
@@ -127,12 +216,16 @@ func newTransport(ctx context.Context, p TransportParams, tlsConfig *tls.Config,
 	}
 
 	// HTTP/2 setup modifies NextProtos; each transport must own its config.
+	tlsConfig = tlsConfig.Clone()
+	if tlsConfig != nil {
+		tlsConfig.NextProtos = slices.Clone(tlsConfig.NextProtos)
+	}
 	transport := &http.Transport{
 		Proxy:                 transportProxy,
 		DialContext:           dialer.DialContext,
 		MaxIdleConns:          p.MaxIdleConns,
 		MaxIdleConnsPerHost:   p.MaxIdleConnsPerHost,
-		TLSClientConfig:       tlsConfig.Clone(),
+		TLSClientConfig:       tlsConfig,
 		DisableKeepAlives:     p.DisableKeepAlives,
 		ExpectContinueTimeout: p.ExpectContinueTimeout,
 		IdleConnTimeout:       p.IdleConnTimeout,

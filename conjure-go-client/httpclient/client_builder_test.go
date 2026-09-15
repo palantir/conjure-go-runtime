@@ -78,6 +78,27 @@ func TestNewHTTPClientWithoutURIs(t *testing.T) {
 	require.NotNil(t, c.Current())
 }
 
+func TestTransportRefreshPreservesUnchangedCAConfiguration(t *testing.T) {
+	dir := t.TempDir()
+	paths := []string{filepath.Join(dir, "c.pem"), filepath.Join(dir, "a.pem"), filepath.Join(dir, "b.pem")}
+	for i, path := range paths {
+		createTestCACertFile(t, path, int64(i+1), path)
+	}
+	config := httpclient.ClientConfig{ServiceName: "test", Security: httpclient.SecurityConfig{CAFiles: paths}}
+	configs := refreshable.New(config)
+	extraCAs := refreshable.New([][]byte{generateTestCACertPEM(t, 4, "extra CA")})
+	clients, err := httpclient.NewHTTPClientFromRefreshableConfig(t.Context(), configs, httpclient.WithTLSCABytes(extraCAs))
+	require.NoError(t, err)
+	initialPool := unwrapTransport(clients.Current().Transport).TLSClientConfig.RootCAs
+	for i := range 32 {
+		config.MaxIdleConns = new(50 + i)
+		configs.Update(config)
+		require.Same(t, initialPool, unwrapTransport(clients.Current().Transport).TLSClientConfig.RootCAs)
+	}
+	extraCAs.Update([][]byte{generateTestCACertPEM(t, 5, "replacement CA")})
+	require.NotSame(t, initialPool, unwrapTransport(clients.Current().Transport).TLSClientConfig.RootCAs)
+}
+
 func TestAddingCAFileIsCaptured(t *testing.T) {
 	// Create a temp directory with CA certificate files
 	tmpDir := t.TempDir()
