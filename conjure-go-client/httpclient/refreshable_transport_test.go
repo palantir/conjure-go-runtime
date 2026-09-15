@@ -29,20 +29,31 @@ import (
 )
 
 func TestHTTPClientConcurrentTransportRefresh(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = io.WriteString(w, "ok")
 	}))
+	server.EnableHTTP2 = true
+	server.StartTLS()
 	t.Cleanup(server.Close)
 
 	config := httpclient.ClientConfig{
 		ServiceName:  "test",
 		URIs:         []string{server.URL},
 		MaxIdleConns: new(50),
+		Security: httpclient.SecurityConfig{
+			InsecureSkipVerify: new(true),
+		},
 	}
 	configRefreshable := refreshable.New(config)
 	clients, err := httpclient.NewHTTPClientFromRefreshableConfig(t.Context(), configRefreshable, httpclient.WithNoProxy())
 	require.NoError(t, err)
 	client := clients.Current()
+	resp, err := client.Get(server.URL)
+	require.NoError(t, err)
+	require.Equal(t, 2, resp.ProtoMajor)
+	_, err = io.Copy(io.Discard, resp.Body)
+	require.NoError(t, err)
+	require.NoError(t, resp.Body.Close())
 
 	stop := make(chan struct{})
 	var wg sync.WaitGroup
@@ -58,10 +69,15 @@ func TestHTTPClientConcurrentTransportRefresh(t *testing.T) {
 				}
 				resp, err := client.Get(server.URL)
 				if err != nil {
-					continue
+					t.Error(err)
+					return
 				}
-				_, _ = io.Copy(io.Discard, resp.Body)
-				_ = resp.Body.Close()
+				if _, err := io.Copy(io.Discard, resp.Body); err != nil {
+					t.Error(err)
+				}
+				if err := resp.Body.Close(); err != nil {
+					t.Error(err)
+				}
 			}
 		}()
 	}
@@ -69,12 +85,13 @@ func TestHTTPClientConcurrentTransportRefresh(t *testing.T) {
 	for i := range 200 {
 		next := config
 		next.MaxIdleConns = new(50 + i%2)
+		next.Security.DynamicCertReload = new(i%2 == 0)
 		configRefreshable.Update(next)
 	}
 	close(stop)
 	wg.Wait()
 
-	resp, err := client.Get(server.URL)
+	resp, err = client.Get(server.URL)
 	require.NoError(t, err)
 	_, err = io.Copy(io.Discard, resp.Body)
 	require.NoError(t, err)

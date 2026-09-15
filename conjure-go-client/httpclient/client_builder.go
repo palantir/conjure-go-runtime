@@ -116,10 +116,10 @@ func (b *httpClientBuilder) Build(ctx context.Context, params ...HTTPClientParam
 	return refreshingclient.NewRefreshableHTTPClient(transport, b.Timeout), nil
 }
 
-func (b *httpClientBuilder) getRefreshableTLSConfig(ctx context.Context) (refreshable.Validated[*tls.Config], error) {
+func (b *httpClientBuilder) getRefreshableTLSConfig(ctx context.Context) (refreshable.Validated[*refreshingclient.TLSConfig], error) {
 	if b.TLSConfig != nil {
-		refreshableOfStaticTLSConfig := refreshable.New(b.TLSConfig)
-		validatedStaticTLSConfig, _, err := refreshable.Validate(ctx, refreshableOfStaticTLSConfig, func(ctx context.Context, cfg *tls.Config) error {
+		refreshableOfStaticTLSConfig := refreshable.New(refreshingclient.WrapTLSConfig(b.TLSConfig))
+		validatedStaticTLSConfig, _, err := refreshable.Validate(ctx, refreshableOfStaticTLSConfig, func(ctx context.Context, cfg *refreshingclient.TLSConfig) error {
 			// No validation needed given validation is done when setting config
 			return nil
 		})

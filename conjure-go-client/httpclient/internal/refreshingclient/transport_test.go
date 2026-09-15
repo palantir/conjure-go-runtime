@@ -17,50 +17,148 @@ package refreshingclient
 import (
 	"context"
 	"crypto/tls"
-	"errors"
+	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/palantir/pkg/refreshable/v2"
 	"github.com/stretchr/testify/require"
 )
 
 func TestRefreshableTransportIgnoresInvalidTLSUpdates(t *testing.T) {
-	tlsConfig := refreshable.New(&tls.Config{ServerName: "initial"})
-	validatedTLSConfig, _, err := refreshable.Validate(t.Context(), tlsConfig, func(_ context.Context, config *tls.Config) error {
-		if config.ServerName == "invalid" {
-			return errors.New("invalid TLS config")
-		}
+	params := refreshable.New(TLSParams{})
+	validatedParams, _, err := refreshable.Validate(t.Context(), params, func(context.Context, TLSParams) error {
 		return nil
 	})
+	require.NoError(t, err)
+	validatedTLSConfig, err := NewRefreshableTLSConfig(t.Context(), validatedParams)
 	require.NoError(t, err)
 
 	transport := NewRefreshableTransport(t.Context(), refreshable.New(TransportParams{}), validatedTLSConfig, &net.Dialer{}).(*RefreshableTransport)
 	initial := transport.CurrentTransport()
 
-	tlsConfig.Update(&tls.Config{ServerName: "invalid"})
+	params.Update(TLSParams{CABytes: [][]byte{[]byte("invalid CA")}})
+	_, err = validatedTLSConfig.Validation()
+	require.Error(t, err)
 	require.Same(t, initial, transport.CurrentTransport())
 
-	tlsConfig.Update(&tls.Config{ServerName: "refreshed"})
+	params.Update(TLSParams{InsecureSkipVerify: true})
+	_, err = validatedTLSConfig.Validation()
+	require.NoError(t, err)
 	require.NotSame(t, initial, transport.CurrentTransport())
 }
 
-func TestManagedTransportDefersRetiredCleanupUntilRequestsComplete(t *testing.T) {
-	state := newManagedTransport(&http.Transport{})
-	closeCalls := 0
-	state.closeIdleConnections = func() {
-		closeCalls++
+func TestTransportOwnsTLSConfig(t *testing.T) {
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	server.EnableHTTP2 = true
+	server.StartTLS()
+	t.Cleanup(server.Close)
+	config := &tls.Config{NextProtos: []string{"http/1.1"}, InsecureSkipVerify: true}
+	h2 := newTransport(t.Context(), TransportParams{}, config, &net.Dialer{})
+	h1 := newTransport(t.Context(), TransportParams{DisableHTTP2: true}, config, &net.Dialer{})
+	for transport, protocol := range map[*http.Transport]int{h2: 2, h1: 1} {
+		t.Cleanup(transport.CloseIdleConnections)
+		resp, err := (&http.Client{Transport: transport}).Get(server.URL)
+		require.NoError(t, err)
+		require.Equal(t, protocol, resp.ProtoMajor)
+		_, err = io.Copy(io.Discard, resp.Body)
+		require.NoError(t, err)
+		require.NoError(t, resp.Body.Close())
 	}
+	require.Equal(t, []string{"http/1.1"}, config.NextProtos)
+	require.NotSame(t, config, h2.TLSClientConfig)
+	require.NotSame(t, config, h1.TLSClientConfig)
+}
 
-	require.True(t, state.acquire())
-	state.retire()
-	require.Equal(t, 0, closeCalls)
-	require.False(t, state.acquire())
+func TestRefreshableTLSConfigConcurrentClone(t *testing.T) {
+	params := refreshable.New(TLSParams{})
+	validatedParams, _, err := refreshable.Validate(t.Context(), params, func(context.Context, TLSParams) error {
+		return nil
+	})
+	require.NoError(t, err)
+	config, err := NewRefreshableTLSConfig(t.Context(), validatedParams)
+	require.NoError(t, err)
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				config.Unvalidated().config().Clone()
+			}
+		}
+	}()
+	for i := range 200 {
+		params.Update(TLSParams{DynamicCertReload: i%2 == 0})
+	}
+	close(stop)
+	<-done
+}
 
-	state.release()
-	require.Equal(t, 1, closeCalls)
-
-	state.retire()
-	require.Equal(t, 1, closeCalls)
+func TestManagedTransportRetirement(t *testing.T) {
+	for _, timing := range []string{"before request", "during request"} {
+		t.Run(timing, func(t *testing.T) {
+			started := make(chan struct{})
+			finish := make(chan struct{})
+			closed := make(chan struct{})
+			server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				close(started)
+				<-finish
+				_, _ = io.WriteString(w, "ok")
+			}))
+			server.Config.ConnState = func(_ net.Conn, state http.ConnState) {
+				if state == http.StateClosed {
+					close(closed)
+				}
+			}
+			server.Start()
+			t.Cleanup(server.Close)
+			finishRequest := sync.OnceFunc(func() { close(finish) })
+			t.Cleanup(finishRequest)
+			state := &managedTransport{transport: &http.Transport{}}
+			t.Cleanup(state.transport.CloseIdleConnections)
+			if timing == "before request" {
+				state.retire()
+			}
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			defer cancel()
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL, nil)
+			require.NoError(t, err)
+			var resp *http.Response
+			done := make(chan struct{})
+			go func() {
+				resp, err = state.RoundTrip(req)
+				close(done)
+			}()
+			select {
+			case <-started:
+			case <-ctx.Done():
+				t.Fatal(ctx.Err())
+			}
+			if timing == "during request" {
+				state.retire()
+			}
+			finishRequest()
+			<-done
+			require.NoError(t, err)
+			body, err := io.ReadAll(resp.Body)
+			require.NoError(t, err)
+			require.NoError(t, resp.Body.Close())
+			require.Equal(t, "ok", string(body))
+			select {
+			case <-closed:
+			case <-ctx.Done():
+				t.Fatal("retired transport retained an idle connection")
+			}
+		})
+	}
 }

@@ -20,7 +20,7 @@ import (
 	"net/http"
 	"net/url"
 	"runtime"
-	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/palantir/pkg/refreshable/v2"
@@ -53,10 +53,10 @@ type TLSConfigurationParams struct {
 	DynamicCertReload  bool
 }
 
-func NewRefreshableTransport(ctx context.Context, p refreshable.Refreshable[TransportParams], refreshableConfig refreshable.Validated[*tls.Config], dialer ContextDialer) http.RoundTripper {
-	validTLSConfig := refreshable.MapFromValidatedAuto(refreshableConfig, func(t *tls.Config) *tls.Config { return t })
-	states := refreshable.MergeAuto(validTLSConfig, p, func(t *tls.Config, p TransportParams) transportState {
-		state := newManagedTransport(newTransport(ctx, p, t, dialer))
+func NewRefreshableTransport(ctx context.Context, p refreshable.Refreshable[TransportParams], refreshableConfig refreshable.Validated[*TLSConfig], dialer ContextDialer) http.RoundTripper {
+	validTLSConfig := refreshable.MapFromValidatedAuto(refreshableConfig, func(t *TLSConfig) *TLSConfig { return t })
+	states := refreshable.MergeAuto(validTLSConfig, p, func(t *TLSConfig, p TransportParams) transportState {
+		state := &managedTransport{transport: newTransport(ctx, p, t.config(), dialer)}
 		return func() *managedTransport { return state }
 	})
 	var previous *managedTransport
@@ -91,70 +91,29 @@ func (r *RefreshableTransport) CurrentTransport() *http.Transport {
 }
 
 func (r *RefreshableTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	for {
-		state := r.states.Current()()
-		if !state.acquire() {
-			continue
-		}
-		defer state.release()
-		return state.transport.RoundTrip(req)
-	}
+	return r.states.Current()().RoundTrip(req)
 }
 
 type managedTransport struct {
 	transport *http.Transport
 
-	mu                     sync.Mutex
-	active                 int
-	retired                bool
-	retiredIdleConnsClosed bool
-	closeIdleConnections   func()
+	retired atomic.Bool
 }
 
-func newManagedTransport(transport *http.Transport) *managedTransport {
-	return &managedTransport{
-		transport:            transport,
-		closeIdleConnections: transport.CloseIdleConnections,
-	}
-}
-
-func (t *managedTransport) acquire() bool {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if t.retired {
-		return false
-	}
-	t.active++
-	return true
-}
-
-func (t *managedTransport) release() {
-	t.mu.Lock()
-	t.active--
-	closeIdleConnections := t.markRetiredIdleConnectionsClosed()
-	t.mu.Unlock()
-	if closeIdleConnections {
-		t.closeIdleConnections()
-	}
+func (t *managedTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	defer func() {
+		// A request that selected this transport before retirement can start
+		// afterward, undoing CloseIdleConnections. Close again when it returns.
+		if t.retired.Load() {
+			t.transport.CloseIdleConnections()
+		}
+	}()
+	return t.transport.RoundTrip(req)
 }
 
 func (t *managedTransport) retire() {
-	t.mu.Lock()
-	t.retired = true
-	closeIdleConnections := t.markRetiredIdleConnectionsClosed()
-	t.mu.Unlock()
-	if closeIdleConnections {
-		t.closeIdleConnections()
-	}
-}
-
-// markRetiredIdleConnectionsClosed must be called with t.mu held.
-func (t *managedTransport) markRetiredIdleConnectionsClosed() bool {
-	if !t.retired || t.active != 0 || t.retiredIdleConnsClosed {
-		return false
-	}
-	t.retiredIdleConnsClosed = true
-	return true
+	t.retired.Store(true)
+	t.transport.CloseIdleConnections()
 }
 
 func newTransport(ctx context.Context, p TransportParams, tlsConfig *tls.Config, dialer ContextDialer) *http.Transport {
@@ -167,12 +126,13 @@ func newTransport(ctx context.Context, p TransportParams, tlsConfig *tls.Config,
 		transportProxy = http.ProxyFromEnvironment
 	}
 
+	// HTTP/2 setup modifies NextProtos; each transport must own its config.
 	transport := &http.Transport{
 		Proxy:                 transportProxy,
 		DialContext:           dialer.DialContext,
 		MaxIdleConns:          p.MaxIdleConns,
 		MaxIdleConnsPerHost:   p.MaxIdleConnsPerHost,
-		TLSClientConfig:       tlsConfig,
+		TLSClientConfig:       tlsConfig.Clone(),
 		DisableKeepAlives:     p.DisableKeepAlives,
 		ExpectContinueTimeout: p.ExpectContinueTimeout,
 		IdleConnTimeout:       p.IdleConnTimeout,

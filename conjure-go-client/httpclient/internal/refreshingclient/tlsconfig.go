@@ -34,6 +34,16 @@ type TLSParams struct {
 	DynamicCertReload  bool
 }
 
+// TLSConfig hides live TLS state from reflect.DeepEqual. Reusing the pointer
+// preserves equality when a validated refreshable retains its last valid value.
+type TLSConfig struct {
+	config func() *tls.Config
+}
+
+func WrapTLSConfig(config *tls.Config) *TLSConfig {
+	return &TLSConfig{config: func() *tls.Config { return config }}
+}
+
 // NewRefreshableTLSConfig evaluates the provided TLSParams and returns a RefreshableTLSConfig that will update the
 // underlying *tls.Config when the TLSParams change.
 // IF the initial TLSParams are invalid, NewRefreshableTLSConfig will return an error.
@@ -41,9 +51,13 @@ type TLSParams struct {
 //
 // N.B. This subscription only fires when the paths are updated, not when the contents of the files are updated.
 // When DynamicCertReload is enabled, the cert/key files are re-read on each TLS handshake via GetClientCertificate.
-func NewRefreshableTLSConfig(ctx context.Context, params refreshable.Validated[TLSParams]) (refreshable.Validated[*tls.Config], error) {
-	r, _, err := refreshable.MapValidated(ctx, params, func(ctx context.Context, p TLSParams) (*tls.Config, error) {
-		return NewTLSConfig(ctx, p)
+func NewRefreshableTLSConfig(ctx context.Context, params refreshable.Validated[TLSParams]) (refreshable.Validated[*TLSConfig], error) {
+	r, _, err := refreshable.MapValidated(ctx, params, func(ctx context.Context, p TLSParams) (*TLSConfig, error) {
+		config, err := NewTLSConfig(ctx, p)
+		if err != nil {
+			return nil, err
+		}
+		return WrapTLSConfig(config), nil
 	})
 	if err != nil {
 		return nil, werror.WrapWithContextParams(ctx, err, "failed to build RefreshableTLSConfig")
