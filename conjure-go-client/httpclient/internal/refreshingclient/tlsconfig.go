@@ -23,6 +23,7 @@ import (
 	"github.com/palantir/pkg/refreshable/v2"
 	"github.com/palantir/pkg/tlsconfig"
 	werror "github.com/palantir/witchcraft-go-error"
+	"github.com/palantir/witchcraft-go-logging/wlog/svclog/svc1log"
 )
 
 // TLSParams contains the parameters needed to build a *tls.Config.
@@ -55,10 +56,13 @@ func WrapTLSConfig(config *tls.Config) *TLSConfig {
 func NewRefreshableTLSConfig(ctx context.Context, params refreshable.Validated[TLSParams]) (refreshable.Validated[*TLSConfig], error) {
 	var previousParams TLSParams
 	var previousConfig *TLSConfig
-	r, _, err := refreshable.MapValidated(ctx, params, func(ctx context.Context, p TLSParams) (*TLSConfig, error) {
+	r, err := refreshable.MapValidatedAuto(ctx, params, func(ctx context.Context, p TLSParams) (*TLSConfig, error) {
 		// Validation recovery can notify again with unchanged parameters.
-		if previousConfig != nil && reflect.DeepEqual(previousParams, p) {
-			return previousConfig, nil
+		if previousConfig != nil {
+			if reflect.DeepEqual(previousParams, p) {
+				return previousConfig, nil
+			}
+			svc1log.FromContext(ctx).Debug("Reconstructing TLS Config")
 		}
 		config, err := NewTLSConfig(ctx, p)
 		if err != nil {

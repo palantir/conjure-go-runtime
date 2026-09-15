@@ -64,7 +64,13 @@ func NewRefreshableTransport(ctx context.Context, p refreshable.Refreshable[Tran
 		p.TLSConfigurationParams = TLSConfigurationParams{}
 		return transportInputs{tls: t, params: p}
 	})
+	rebuild := false
 	states := refreshable.MapAuto(inputs, func(input transportInputs) transportState {
+		if !rebuild {
+			rebuild = true
+		} else {
+			svc1log.FromContext(ctx).Debug("Reconstructing HTTP Transport")
+		}
 		state := &managedTransport{transport: newTransport(ctx, input.params, input.tls.config(), dialer)}
 		return func() *managedTransport { return state }
 	})
@@ -135,8 +141,8 @@ func (t *managedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 			}
 			if _, exists := t.connections[key]; !exists {
 				// Neither the bookkeeping nor its cleanup may keep a closed connection alive.
-				runtime.AddCleanup(conn, func(owner weak.Pointer[managedTransport]) {
-					if owner := owner.Value(); owner != nil {
+				runtime.AddCleanup(conn, func(ownerP weak.Pointer[managedTransport]) {
+					if owner := ownerP.Value(); owner != nil {
 						owner.mu.Lock()
 						delete(owner.connections, key)
 						owner.mu.Unlock()
@@ -205,8 +211,6 @@ func (t *managedTransport) retire() {
 }
 
 func newTransport(ctx context.Context, p TransportParams, tlsConfig *tls.Config, dialer ContextDialer) *http.Transport {
-	svc1log.FromContext(ctx).Debug("Reconstructing HTTP Transport")
-
 	var transportProxy func(*http.Request) (*url.URL, error)
 	if p.ProxyURL != nil {
 		transportProxy = http.ProxyURL(p.ProxyURL)

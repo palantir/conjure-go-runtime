@@ -34,14 +34,18 @@ type ContextDialer interface {
 }
 
 func NewRefreshableDialer(ctx context.Context, r refreshable.Refreshable[DialerParams]) ContextDialer {
-	mapped, _ := refreshable.Map(r, func(p DialerParams) ContextDialer {
-		svc1log.FromContext(ctx).Debug("Reconstructing HTTP Dialer")
+	rebuild := false
+	return &RefreshableDialer{Refreshable: refreshable.MapAuto(r, func(p DialerParams) ContextDialer {
+		if !rebuild {
+			rebuild = true
+		} else {
+			svc1log.FromContext(ctx).Debug("Reconstructing HTTP Dialer")
+		}
 		return &net.Dialer{
 			Timeout:   p.DialTimeout,
 			KeepAlive: p.KeepAlive,
 		}
-	})
-	return &RefreshableDialer{Refreshable: mapped}
+	})}
 }
 
 type RefreshableDialer struct {
