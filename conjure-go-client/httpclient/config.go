@@ -420,10 +420,8 @@ func newValidatedClientParamsFromConfig(ctx context.Context, config ClientConfig
 			return refreshingclient.ValidatedClientParams{}, werror.WrapWithContextParams(ctx, err, "invalid proxy url")
 		}
 		switch proxyURL.Scheme {
-		case "http", "https":
-			transport.HTTPProxyURL = proxyURL
-		case "socks5", "socks5h":
-			dialer.SocksProxyURL = proxyURL
+		case "http", "https", "socks5", "socks5h":
+			transport.ProxyURL = proxyURL
 		default:
 			return refreshingclient.ValidatedClientParams{}, werror.WrapWithContextParams(ctx, err, "invalid proxy url: only http(s) and socks5 are supported")
 		}

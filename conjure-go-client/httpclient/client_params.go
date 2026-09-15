@@ -336,12 +336,8 @@ func WithMaxIdleConnsPerHost(conns int) ClientOrHTTPClientParam {
 // If unset, the default is http.ProxyFromEnvironment.
 func WithNoProxy() ClientOrHTTPClientParam {
 	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
-		b.DialerParams = refreshable.View(b.DialerParams, func(p refreshingclient.DialerParams) refreshingclient.DialerParams {
-			p.SocksProxyURL = nil
-			return p
-		})
 		b.TransportParams = refreshable.View(b.TransportParams, func(p refreshingclient.TransportParams) refreshingclient.TransportParams {
-			p.HTTPProxyURL = nil
+			p.ProxyURL = nil
 			p.ProxyFromEnvironment = false
 			return p
 		})
@@ -362,6 +358,7 @@ func WithProxyFromEnvironment() ClientOrHTTPClientParam {
 }
 
 // WithProxyURL can be used to set a socks5 or HTTP(s) proxy.
+// Explicit URLs take precedence over environment proxies.
 func WithProxyURL(proxyURLString string) ClientOrHTTPClientParam {
 	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
 		proxyURL, err := url.Parse(proxyURLString)
@@ -369,14 +366,9 @@ func WithProxyURL(proxyURLString string) ClientOrHTTPClientParam {
 			return werror.Wrap(err, "failed to parse proxy url")
 		}
 		switch proxyURL.Scheme {
-		case "http", "https":
+		case "http", "https", "socks5", "socks5h":
 			b.TransportParams = refreshable.View(b.TransportParams, func(p refreshingclient.TransportParams) refreshingclient.TransportParams {
-				p.HTTPProxyURL = proxyURL
-				return p
-			})
-		case "socks5", "socks5h":
-			b.DialerParams = refreshable.View(b.DialerParams, func(p refreshingclient.DialerParams) refreshingclient.DialerParams {
-				p.SocksProxyURL = proxyURL
+				p.ProxyURL = proxyURL
 				return p
 			})
 		default:

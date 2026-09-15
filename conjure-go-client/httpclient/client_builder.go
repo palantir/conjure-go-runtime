@@ -107,11 +107,7 @@ func (b *httpClientBuilder) Build(ctx context.Context, params ...HTTPClientParam
 
 	// Create dialer and transport
 	dialer := refreshingclient.NewRefreshableDialer(ctx, b.DialerParams)
-	transportParams := refreshable.MergeAuto(b.TransportParams, b.DialerParams, func(p refreshingclient.TransportParams, d refreshingclient.DialerParams) refreshingclient.TransportParams {
-		p.SocksProxyURL = d.SocksProxyURL
-		return p
-	})
-	transport := refreshingclient.NewRefreshableTransport(ctx, transportParams, refreshableConfig, dialer)
+	transport := refreshingclient.NewRefreshableTransport(ctx, b.TransportParams, refreshableConfig, dialer)
 	transport = wrapTransport(transport, newMetricsMiddleware(b.ServiceName, b.MetricsTagProviders, b.DisableMetrics))
 	transport = wrapTransport(transport, newTraceMiddleware(b.ServiceName, b.DisableRequestSpan, b.DisableTraceHeaders))
 	if !b.DisableRecovery {
@@ -306,9 +302,8 @@ func newClientBuilder() *clientBuilder {
 			ServiceName: refreshable.New(""),
 			Timeout:     refreshable.New(defaultHTTPTimeout),
 			DialerParams: refreshable.New(refreshingclient.DialerParams{
-				DialTimeout:   defaultDialTimeout,
-				KeepAlive:     defaultKeepAlive,
-				SocksProxyURL: nil,
+				DialTimeout: defaultDialTimeout,
+				KeepAlive:   defaultKeepAlive,
 			}),
 			TransportParams: refreshable.New(refreshingclient.TransportParams{
 				MaxIdleConns:          defaultMaxIdleConns,
@@ -319,7 +314,7 @@ func newClientBuilder() *clientBuilder {
 				ExpectContinueTimeout: defaultExpectContinueTimeout,
 				ResponseHeaderTimeout: 0,
 				TLSHandshakeTimeout:   defaultTLSHandshakeTimeout,
-				HTTPProxyURL:          nil,
+				ProxyURL:              nil,
 				ProxyFromEnvironment:  true,
 				HTTP2ReadIdleTimeout:  defaultHTTP2ReadIdleTimeout,
 				HTTP2PingTimeout:      defaultHTTP2PingTimeout,

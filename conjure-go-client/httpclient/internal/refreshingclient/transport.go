@@ -41,8 +41,7 @@ type TransportParams struct {
 	ExpectContinueTimeout time.Duration
 	ResponseHeaderTimeout time.Duration
 	TLSHandshakeTimeout   time.Duration
-	HTTPProxyURL          *url.URL
-	SocksProxyURL         *url.URL
+	ProxyURL              *url.URL
 	ProxyFromEnvironment  bool
 	HTTP2ReadIdleTimeout  time.Duration
 	HTTP2PingTimeout      time.Duration
@@ -209,8 +208,8 @@ func newTransport(ctx context.Context, p TransportParams, tlsConfig *tls.Config,
 	svc1log.FromContext(ctx).Debug("Reconstructing HTTP Transport")
 
 	var transportProxy func(*http.Request) (*url.URL, error)
-	if p.HTTPProxyURL != nil {
-		transportProxy = func(*http.Request) (*url.URL, error) { return p.HTTPProxyURL, nil }
+	if p.ProxyURL != nil {
+		transportProxy = http.ProxyURL(p.ProxyURL)
 	} else if p.ProxyFromEnvironment {
 		transportProxy = http.ProxyFromEnvironment
 	}

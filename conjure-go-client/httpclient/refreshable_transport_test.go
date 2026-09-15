@@ -29,7 +29,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestHTTPClientSOCKSProxyRefresh(t *testing.T) {
+func TestHTTPClientProxyRefresh(t *testing.T) {
 	for _, override := range []bool{false, true} {
 		t.Run(fmt.Sprint("override=", override), func(t *testing.T) {
 			config := httpclient.ClientConfig{ServiceName: "test", ProxyURL: new("socks5://127.0.0.1:12345"), ProxyFromEnvironment: new(false)}
@@ -44,17 +44,48 @@ func TestHTTPClientSOCKSProxyRefresh(t *testing.T) {
 			config.ConnectTimeout = new(time.Second)
 			configs.Update(config)
 			require.Same(t, initial, unwrapTransport(clients.Current().Transport))
-			for _, proxyURL := range []*string{new("socks5://127.0.0.1:12346"), nil} {
+			for _, proxyURL := range []*string{new("socks5://127.0.0.1:12346"), new("socks5h://user:pass@proxy:1080"), new("http://proxy:8080"), new("https://proxy:8443"), nil} {
 				config.ProxyURL = proxyURL
 				configs.Update(config)
 				current := unwrapTransport(clients.Current().Transport)
 				if override {
 					require.Same(t, initial, current)
+					require.Nil(t, current.Proxy)
 				} else {
 					require.NotSame(t, initial, current)
+					if proxyURL == nil {
+						require.Nil(t, current.Proxy)
+					} else {
+						require.NotNil(t, current.Proxy)
+						selected, err := current.Proxy(&http.Request{})
+						require.NoError(t, err)
+						require.Equal(t, *proxyURL, selected.String())
+					}
 				}
 				initial = current
 			}
+		})
+	}
+}
+
+func TestHTTPClientProxyURLOverrides(t *testing.T) {
+	for _, scheme := range []string{"http", "https", "socks5", "socks5h"} {
+		t.Run(scheme, func(t *testing.T) {
+			proxyURL := scheme + "://user:pass@proxy:1080"
+			config := refreshable.New(httpclient.ClientConfig{ServiceName: "test", ProxyURL: new("socks5://old-proxy:1080")})
+			clients, err := httpclient.NewHTTPClientFromRefreshableConfig(t.Context(), config,
+				httpclient.WithProxyURL("http://other-proxy:8080"),
+				httpclient.WithProxyURL(proxyURL))
+			require.NoError(t, err)
+			transport := unwrapTransport(clients.Current().Transport)
+			req, err := http.NewRequest(http.MethodGet, "https://example.com", nil)
+			require.NoError(t, err)
+			selected, err := transport.Proxy(req)
+			require.NoError(t, err)
+			require.NotNil(t, selected)
+			require.Equal(t, proxyURL, selected.String())
+			config.Update(httpclient.ClientConfig{ServiceName: "test", ProxyURL: new("http://updated-proxy:8080")})
+			require.Same(t, transport, unwrapTransport(clients.Current().Transport))
 		})
 	}
 }
