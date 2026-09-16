@@ -229,10 +229,13 @@ func TestRefreshableClientConfig(t *testing.T) {
 	})
 
 	t.Run("disable http2, transport updates", func(t *testing.T) {
+		http2Enabled := func(transport *http.Transport) bool {
+			return transport.TLSNextProto["h2"] != nil || transport.Protocols != nil && transport.Protocols.HTTP2()
+		}
 		oldClient := currentHTTPClient()
 		oldTransport, _ := unwrapTransport(oldClient.Transport)
 
-		assert.Contains(t, oldTransport.TLSNextProto, "h2")
+		assert.True(t, http2Enabled(oldTransport))
 
 		disableHTTP2 := true
 		initialConfig.Default.DisableHTTP2 = &disableHTTP2
@@ -241,7 +244,7 @@ func TestRefreshableClientConfig(t *testing.T) {
 		newClient := currentHTTPClient()
 		newTransport, _ := unwrapTransport(newClient.Transport)
 
-		assert.NotContains(t, newTransport.TLSNextProto, "h2")
+		assert.False(t, http2Enabled(newTransport))
 
 		initialConfig.Default.DisableHTTP2 = nil
 		updateRefreshableBytes(initialConfig)
@@ -251,7 +254,7 @@ func TestRefreshableClientConfig(t *testing.T) {
 		oldClient := currentHTTPClient()
 		oldTransport, _ := unwrapTransport(oldClient.Transport)
 
-		assert.Contains(t, oldTransport.TLSNextProto, "h2")
+		assert.NotNil(t, oldTransport.Proxy)
 
 		disableProxy := false
 		initialConfig.Default.ProxyFromEnvironment = &disableProxy

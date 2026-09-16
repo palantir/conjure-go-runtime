@@ -18,10 +18,12 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"reflect"
 
 	"github.com/palantir/pkg/refreshable/v2"
 	"github.com/palantir/pkg/tlsconfig"
 	werror "github.com/palantir/witchcraft-go-error"
+	"github.com/palantir/witchcraft-go-logging/wlog/svclog/svc1log"
 )
 
 // TLSParams contains the parameters needed to build a *tls.Config.
@@ -34,6 +36,16 @@ type TLSParams struct {
 	DynamicCertReload  bool
 }
 
+// TLSConfig hides live TLS state from reflect.DeepEqual. Reusing the pointer
+// preserves equality when a validated refreshable retains its last valid value.
+type TLSConfig struct {
+	config func() *tls.Config
+}
+
+func WrapTLSConfig(config *tls.Config) *TLSConfig {
+	return &TLSConfig{config: func() *tls.Config { return config }}
+}
+
 // NewRefreshableTLSConfig evaluates the provided TLSParams and returns a RefreshableTLSConfig that will update the
 // underlying *tls.Config when the TLSParams change.
 // IF the initial TLSParams are invalid, NewRefreshableTLSConfig will return an error.
@@ -41,9 +53,23 @@ type TLSParams struct {
 //
 // N.B. This subscription only fires when the paths are updated, not when the contents of the files are updated.
 // When DynamicCertReload is enabled, the cert/key files are re-read on each TLS handshake via GetClientCertificate.
-func NewRefreshableTLSConfig(ctx context.Context, params refreshable.Validated[TLSParams]) (refreshable.Validated[*tls.Config], error) {
-	r, _, err := refreshable.MapValidated(ctx, params, func(ctx context.Context, p TLSParams) (*tls.Config, error) {
-		return NewTLSConfig(ctx, p)
+func NewRefreshableTLSConfig(ctx context.Context, params refreshable.Validated[TLSParams]) (refreshable.Validated[*TLSConfig], error) {
+	var previousParams TLSParams
+	var previousConfig *TLSConfig
+	r, err := refreshable.MapValidatedAuto(ctx, params, func(ctx context.Context, p TLSParams) (*TLSConfig, error) {
+		// Validation recovery can notify again with unchanged parameters.
+		if previousConfig != nil {
+			if reflect.DeepEqual(previousParams, p) {
+				return previousConfig, nil
+			}
+			svc1log.FromContext(ctx).Debug("Reconstructing TLS Config")
+		}
+		config, err := NewTLSConfig(ctx, p)
+		if err != nil {
+			return nil, err
+		}
+		previousParams, previousConfig = p, WrapTLSConfig(config)
+		return previousConfig, nil
 	})
 	if err != nil {
 		return nil, werror.WrapWithContextParams(ctx, err, "failed to build RefreshableTLSConfig")

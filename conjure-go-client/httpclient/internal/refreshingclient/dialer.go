@@ -17,49 +17,35 @@ package refreshingclient
 import (
 	"context"
 	"net"
-	"net/url"
 	"time"
 
 	"github.com/palantir/pkg/refreshable/v2"
 	"github.com/palantir/witchcraft-go-logging/wlog/svclog/svc1log"
-	"golang.org/x/net/proxy"
 )
 
 type DialerParams struct {
-	DialTimeout   time.Duration
-	KeepAlive     time.Duration
-	SocksProxyURL *url.URL
+	DialTimeout time.Duration
+	KeepAlive   time.Duration
 }
 
-// ContextDialer is the interface implemented by net.Dialer, proxy.Dialer, and others
+// ContextDialer is the interface implemented by net.Dialer and other context-aware dialers.
 type ContextDialer interface {
 	DialContext(ctx context.Context, network, address string) (net.Conn, error)
 }
 
 func NewRefreshableDialer(ctx context.Context, r refreshable.Refreshable[DialerParams]) ContextDialer {
-	mapped, _ := refreshable.Map(r, func(p DialerParams) ContextDialer {
-		svc1log.FromContext(ctx).Debug("Reconstructing HTTP Dialer")
-		dialer := &net.Dialer{
+	rebuild := false
+	return &RefreshableDialer{Refreshable: refreshable.MapAuto(r, func(p DialerParams) ContextDialer {
+		if !rebuild {
+			rebuild = true
+		} else {
+			svc1log.FromContext(ctx).Debug("Reconstructing HTTP Dialer")
+		}
+		return &net.Dialer{
 			Timeout:   p.DialTimeout,
 			KeepAlive: p.KeepAlive,
 		}
-		if p.SocksProxyURL == nil {
-			return dialer
-		}
-		proxyDialer, err := proxy.FromURL(p.SocksProxyURL, dialer)
-		if err != nil {
-			// should never happen; checked in the validating refreshable
-			svc1log.FromContext(ctx).Error("Failed to construct socks5 dialer. Please report this as a bug in conjure-go-runtime.", svc1log.Stacktrace(err))
-			return dialer
-		}
-		// proxy.Dialer interface only has Dial(), but we need DialContext.
-		// The underlying dialer already implements DialContext, so we can safely cast if it's *net.Dialer.
-		if contextDialer, ok := proxyDialer.(ContextDialer); ok {
-			return contextDialer
-		}
-		return dialer
-	})
-	return &RefreshableDialer{Refreshable: mapped}
+	})}
 }
 
 type RefreshableDialer struct {

@@ -78,6 +78,27 @@ func TestNewHTTPClientWithoutURIs(t *testing.T) {
 	require.NotNil(t, c.Current())
 }
 
+func TestTransportRefreshPreservesUnchangedCAConfiguration(t *testing.T) {
+	dir := t.TempDir()
+	paths := []string{filepath.Join(dir, "c.pem"), filepath.Join(dir, "a.pem"), filepath.Join(dir, "b.pem")}
+	for i, path := range paths {
+		createTestCACertFile(t, path, int64(i+1), path)
+	}
+	config := httpclient.ClientConfig{ServiceName: "test", Security: httpclient.SecurityConfig{CAFiles: paths}}
+	configs := refreshable.New(config)
+	extraCAs := refreshable.New([][]byte{generateTestCACertPEM(t, 4, "extra CA")})
+	clients, err := httpclient.NewHTTPClientFromRefreshableConfig(t.Context(), configs, httpclient.WithTLSCABytes(extraCAs))
+	require.NoError(t, err)
+	initialPool := unwrapTransport(clients.Current().Transport).TLSClientConfig.RootCAs
+	for i := range 32 {
+		config.MaxIdleConns = new(50 + i)
+		configs.Update(config)
+		require.Same(t, initialPool, unwrapTransport(clients.Current().Transport).TLSClientConfig.RootCAs)
+	}
+	extraCAs.Update([][]byte{generateTestCACertPEM(t, 5, "replacement CA")})
+	require.NotSame(t, initialPool, unwrapTransport(clients.Current().Transport).TLSClientConfig.RootCAs)
+}
+
 func TestAddingCAFileIsCaptured(t *testing.T) {
 	// Create a temp directory with CA certificate files
 	tmpDir := t.TempDir()
@@ -363,41 +384,13 @@ func unwrapTransport(rt http.RoundTripper) *http.Transport {
 		switch t := rt.(type) {
 		case *http.Transport:
 			return t
+		case interface{ CurrentTransport() *http.Transport }:
+			return t.CurrentTransport()
 		default:
-			if transport := unwrapRefreshableValidatedTransport(rt); transport != nil {
-				return transport
-			}
 			rt = getUnexportedBaseTransport(rt)
 		}
 	}
 	return nil
-}
-
-func unwrapRefreshableValidatedTransport(rt http.RoundTripper) *http.Transport {
-	val := reflect.ValueOf(rt)
-	if val.Kind() == reflect.Pointer {
-		val = val.Elem()
-	}
-	if val.Kind() != reflect.Struct {
-		return nil
-	}
-	field := val.FieldByName("Refreshable")
-	if !field.IsValid() {
-		return nil
-	}
-	method := field.MethodByName("Unvalidated")
-	if !method.IsValid() {
-		return nil
-	}
-	result := method.Call(nil)
-	if len(result) == 0 {
-		return nil
-	}
-	transport, ok := result[0].Interface().(*http.Transport)
-	if !ok {
-		return nil
-	}
-	return transport
 }
 
 // getUnexportedBaseTransport uses unsafe reflection to access the unexported baseTransport

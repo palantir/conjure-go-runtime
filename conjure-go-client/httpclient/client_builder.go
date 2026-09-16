@@ -19,8 +19,10 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"maps"
 	"net/http"
 	"runtime"
+	"slices"
 	"time"
 
 	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpclient/internal"
@@ -116,10 +118,10 @@ func (b *httpClientBuilder) Build(ctx context.Context, params ...HTTPClientParam
 	return refreshingclient.NewRefreshableHTTPClient(transport, b.Timeout), nil
 }
 
-func (b *httpClientBuilder) getRefreshableTLSConfig(ctx context.Context) (refreshable.Validated[*tls.Config], error) {
+func (b *httpClientBuilder) getRefreshableTLSConfig(ctx context.Context) (refreshable.Validated[*refreshingclient.TLSConfig], error) {
 	if b.TLSConfig != nil {
-		refreshableOfStaticTLSConfig := refreshable.New(b.TLSConfig)
-		validatedStaticTLSConfig, _, err := refreshable.Validate(ctx, refreshableOfStaticTLSConfig, func(ctx context.Context, cfg *tls.Config) error {
+		refreshableOfStaticTLSConfig := refreshable.New(refreshingclient.WrapTLSConfig(b.TLSConfig))
+		validatedStaticTLSConfig, _, err := refreshable.Validate(ctx, refreshableOfStaticTLSConfig, func(ctx context.Context, cfg *refreshingclient.TLSConfig) error {
 			// No validation needed given validation is done when setting config
 			return nil
 		})
@@ -141,8 +143,8 @@ func (b *httpClientBuilder) getRefreshableTLSConfig(ctx context.Context) (refres
 	}
 	tlsParams, _ := refreshable.MergeValidatedAndRefreshable(ctx, multiFileRefreshable, b.TransportParams, func(t2 map[string][]byte, t1 refreshingclient.TransportParams) refreshingclient.TLSParams {
 		var caBytes [][]byte
-		for _, caSlice := range t2 {
-			caBytes = append(caBytes, caSlice)
+		for _, path := range slices.Sorted(maps.Keys(t2)) {
+			caBytes = append(caBytes, t2[path])
 		}
 		return refreshingclient.TLSParams{
 			CABytes:            caBytes,
@@ -154,9 +156,7 @@ func (b *httpClientBuilder) getRefreshableTLSConfig(ctx context.Context) (refres
 	})
 	if b.TLSCABytes != nil {
 		tlsParams, _ = refreshable.MergeValidatedAndRefreshable(ctx, tlsParams, b.TLSCABytes, func(tlsParams refreshingclient.TLSParams, caByteSlices [][]byte) refreshingclient.TLSParams {
-			for _, caByteSlice := range caByteSlices {
-				tlsParams.CABytes = append(tlsParams.CABytes, caByteSlice)
-			}
+			tlsParams.CABytes = slices.Concat(tlsParams.CABytes, caByteSlices)
 			return tlsParams
 		})
 	}
@@ -302,9 +302,8 @@ func newClientBuilder() *clientBuilder {
 			ServiceName: refreshable.New(""),
 			Timeout:     refreshable.New(defaultHTTPTimeout),
 			DialerParams: refreshable.New(refreshingclient.DialerParams{
-				DialTimeout:   defaultDialTimeout,
-				KeepAlive:     defaultKeepAlive,
-				SocksProxyURL: nil,
+				DialTimeout: defaultDialTimeout,
+				KeepAlive:   defaultKeepAlive,
 			}),
 			TransportParams: refreshable.New(refreshingclient.TransportParams{
 				MaxIdleConns:          defaultMaxIdleConns,
@@ -315,7 +314,7 @@ func newClientBuilder() *clientBuilder {
 				ExpectContinueTimeout: defaultExpectContinueTimeout,
 				ResponseHeaderTimeout: 0,
 				TLSHandshakeTimeout:   defaultTLSHandshakeTimeout,
-				HTTPProxyURL:          nil,
+				ProxyURL:              nil,
 				ProxyFromEnvironment:  true,
 				HTTP2ReadIdleTimeout:  defaultHTTP2ReadIdleTimeout,
 				HTTP2PingTimeout:      defaultHTTP2PingTimeout,

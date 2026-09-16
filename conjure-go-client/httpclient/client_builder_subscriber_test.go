@@ -16,8 +16,13 @@ package httpclient_test
 
 import (
 	"context"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"runtime"
+	"sync"
 	"testing"
 	"time"
 
@@ -26,6 +31,49 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestUsedHTTPClientSubscriberCleanup(t *testing.T) {
+	for _, http2 := range []bool{false, true} {
+		t.Run(fmt.Sprint("http2=", http2), func(t *testing.T) {
+			finish := make(chan struct{})
+			server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.(http.Flusher).Flush()
+				<-finish
+				_, _ = io.WriteString(w, "ok")
+			}))
+			server.EnableHTTP2 = http2
+			server.StartTLS()
+			t.Cleanup(server.Close)
+			complete := sync.OnceFunc(func() { close(finish) })
+			t.Cleanup(complete)
+			config := refreshable.New(httpclient.ClientConfig{
+				ServiceName:     "test",
+				ReadTimeout:     new(time.Duration(0)),
+				IdleConnTimeout: new(time.Duration(0)),
+				// The HTTP/2 health-check timer can temporarily retain closed connections.
+				HTTP2ReadIdleTimeout: new(time.Duration(0)),
+				Security:             httpclient.SecurityConfig{InsecureSkipVerify: new(true)},
+			})
+			body := func() io.ReadCloser {
+				clients, err := httpclient.NewHTTPClientFromRefreshableConfig(context.Background(), config, httpclient.WithNoProxy())
+				require.NoError(t, err)
+				resp, err := clients.Current().Get(server.URL)
+				require.NoError(t, err)
+				return resp.Body
+			}()
+			forceGCAndCleanup()
+			complete()
+			data, err := io.ReadAll(body)
+			require.NoError(t, err)
+			require.Equal(t, "ok", string(data))
+			require.NoError(t, body.Close())
+			body = nil
+			forceGCAndCleanup()
+			require.Zero(t, updatableSubscriberCount(t, config))
+			runtime.KeepAlive(config)
+		})
+	}
+}
 
 // TestNewClientFromRefreshableConfigSubscriberCleanup verifies that creating
 // and discarding clients built from a refreshable config does not leak
