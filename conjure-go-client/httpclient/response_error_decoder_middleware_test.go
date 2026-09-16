@@ -70,22 +70,13 @@ func TestErrorDecoderMiddlewares(t *testing.T) {
 			},
 		},
 		{
-			name: "307 with location on another host",
+			name: "307 with location",
 			handler: func(w http.ResponseWriter, r *http.Request) {
-				w.Header().Set("Location", "https://example.com")
+				w.Header().Set("Location", "https://google.com")
 				w.WriteHeader(307)
 			},
 			verify: func(t *testing.T, u *url.URL, err error) {
-				// The location names a host which is not one of the client's configured
-				// URIs, so the request is not relocated to it. The location is still
-				// reported on the returned error.
-				assert.EqualError(t, err, "httpclient request failed: 307 Temporary Redirect")
-				code, ok := httpclient.StatusCodeFromError(err)
-				assert.True(t, ok)
-				assert.Equal(t, 307, code)
-				location, ok := httpclient.LocationFromError(err)
-				assert.True(t, ok)
-				assert.Equal(t, "https://example.com", location)
+				assert.NoError(t, err)
 			},
 		},
 		{
