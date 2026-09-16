@@ -39,7 +39,7 @@ type balancedScorer struct {
 }
 
 type uriInfo struct {
-	inflight       int32
+	inflight       atomic.Int32
 	recentFailures CourseExponentialDecayReservoir
 }
 
@@ -80,8 +80,8 @@ func (u *balancedScorer) GetURIsInOrderOfIncreasingScore() []string {
 func (u *balancedScorer) RoundTripForURI(baseURI string, req *http.Request, next http.RoundTripper) (*http.Response, error) {
 	info, foundInfo := u.uriInfos[baseURI]
 	if foundInfo {
-		atomic.AddInt32(&info.inflight, 1)
-		defer atomic.AddInt32(&info.inflight, -1)
+		info.inflight.Add(1)
+		defer info.inflight.Add(-1)
 	}
 	resp, err := next.RoundTrip(req)
 	if resp == nil || err != nil {
@@ -102,7 +102,7 @@ func (u *balancedScorer) RoundTripForURI(baseURI string, req *http.Request, next
 }
 
 func (i *uriInfo) computeScore() int32 {
-	return atomic.LoadInt32(&i.inflight) + int32(math.Round(i.recentFailures.Get()))
+	return i.inflight.Load() + int32(math.Round(i.recentFailures.Get()))
 }
 
 func isGlobalQosStatus(statusCode int) bool {

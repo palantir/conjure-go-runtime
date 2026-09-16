@@ -119,7 +119,7 @@ func testProxy(t *testing.T, readIdleTimeout, pingTimeout time.Duration, expecte
 type proxyServer struct {
 	ln        net.Listener
 	proxyURL  string
-	dialCount int32
+	dialCount atomic.Int32
 }
 
 func newProxyServer(t *testing.T, proxyURL string) *proxyServer {
@@ -139,7 +139,7 @@ func (p *proxyServer) serve(t *testing.T, stopCh chan struct{}, expectErr bool) 
 		return
 	}
 	require.NoError(t, err)
-	atomic.AddInt32(&p.dialCount, 1)
+	p.dialCount.Add(1)
 	go p.handleConnection(t, conn, stopCh)
 }
 
@@ -157,5 +157,5 @@ func (p *proxyServer) handleConnection(t *testing.T, in net.Conn, stopCh chan st
 }
 
 func (p *proxyServer) DialCount() int {
-	return int(atomic.LoadInt32(&p.dialCount))
+	return int(p.dialCount.Load())
 }
