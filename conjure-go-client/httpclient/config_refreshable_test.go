@@ -106,7 +106,7 @@ func TestRefreshableClientConfig(t *testing.T) {
 
 	t.Run("refreshable config without uris fails", func(t *testing.T) {
 		getClientURIs := func(client Client) []string {
-			return client.(*clientImpl).uriScorer.CurrentURIScoringMiddleware().GetURIsInOrderOfIncreasingScore()
+			return client.(*clientImpl).uriScorer.CurrentURIScoringMiddleware().GetURIsInOrderOfIncreasingScore(http.Header{"foo": []string{"foo"}})
 		}
 		refreshableClientConfig, unsubscribe := refreshable.Map(refreshableServicesConfig, func(t ServicesConfig) ClientConfig {
 			return t.ClientConfig(serviceName)

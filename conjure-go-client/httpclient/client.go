@@ -82,7 +82,11 @@ func (c *clientImpl) Delete(ctx context.Context, params ...RequestParam) (*http.
 }
 
 func (c *clientImpl) Do(ctx context.Context, params ...RequestParam) (*http.Response, error) {
-	uris, attempts := c.currentURIsAndMaxAttempts()
+	headers, err := getHeadersFromRequestParams(params...)
+	if err != nil {
+		return nil, err
+	}
+	uris, attempts := c.currentURIsAndMaxAttempts(headers)
 	if len(uris) == 0 {
 		return nil, werror.WrapWithContextParams(ctx, ErrEmptyURIs, "", werror.SafeParam("serviceName", c.serviceName.Current()))
 	}
@@ -90,8 +94,8 @@ func (c *clientImpl) Do(ctx context.Context, params ...RequestParam) (*http.Resp
 	return resp, err
 }
 
-func (c *clientImpl) currentURIsAndMaxAttempts() ([]string, int) {
-	uris := c.uriScorer.CurrentURIScoringMiddleware().GetURIsInOrderOfIncreasingScore()
+func (c *clientImpl) currentURIsAndMaxAttempts(headers http.Header) ([]string, int) {
+	uris := c.uriScorer.CurrentURIScoringMiddleware().GetURIsInOrderOfIncreasingScore(headers)
 	attempts := 2 * len(uris)
 	if c.maxAttempts != nil {
 		if confMaxAttempts := c.maxAttempts.Current(); confMaxAttempts != nil {
@@ -123,6 +127,24 @@ func (c *clientImpl) doWithURIs(ctx context.Context, uris []string, maxAttempts 
 			svc1log.FromContext(ctx).Debug("Retrying request", svc1log.Stacktrace(attemptErr))
 		}
 	}
+}
+
+func getHeadersFromRequestParams(params ...RequestParam) (http.Header, error) {
+	b := &requestBuilder{
+		headers:        make(http.Header),
+		query:          make(url.Values),
+		bodyMiddleware: &bodyMiddleware{},
+	}
+
+	for _, p := range params {
+		if p == nil {
+			continue
+		}
+		if err := p.apply(b); err != nil {
+			return nil, err
+		}
+	}
+	return b.headers, nil
 }
 
 func (c *clientImpl) doOnce(
