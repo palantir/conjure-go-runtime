@@ -25,6 +25,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpclient/deadlines"
 	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpclient/internal"
 	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpclient/internal/refreshingclient"
 	"github.com/palantir/pkg/bytesbuffers"
@@ -73,13 +74,14 @@ type clientBuilder struct {
 }
 
 type httpClientBuilder struct {
-	ServiceName     refreshable.Refreshable[string]
-	Timeout         refreshable.Refreshable[time.Duration]
-	DialerParams    refreshable.Refreshable[refreshingclient.DialerParams]
-	TLSConfig       *tls.Config // If unset, config in TransportParams will be used.
-	TransportParams refreshable.Refreshable[refreshingclient.TransportParams]
-	TLSCABytes      refreshable.Refreshable[[][]byte] // Optional refreshable CA bytes to combine with TLSParams.
-	Middlewares     []Middleware
+	ServiceName             refreshable.Refreshable[string]
+	Timeout                 refreshable.Refreshable[time.Duration]
+	DialerParams            refreshable.Refreshable[refreshingclient.DialerParams]
+	TLSConfig               *tls.Config // If unset, config in TransportParams will be used.
+	TransportParams         refreshable.Refreshable[refreshingclient.TransportParams]
+	TLSCABytes              refreshable.Refreshable[[][]byte] // Optional refreshable CA bytes to combine with TLSParams.
+	ExpectWithinEnforcement refreshable.Refreshable[deadlines.Enforcement]
+	Middlewares             []Middleware
 
 	DisableMetrics      refreshable.Refreshable[bool]
 	MetricsTagProviders []TagsProvider
@@ -89,6 +91,7 @@ type httpClientBuilder struct {
 	DisableRequestSpan  bool
 	DisableRecovery     bool
 	DisableTraceHeaders bool
+	DisableExpectWithin bool
 }
 
 func (b *httpClientBuilder) Build(ctx context.Context, params ...HTTPClientParam) (refreshable.Refreshable[*http.Client], error) {
@@ -112,6 +115,9 @@ func (b *httpClientBuilder) Build(ctx context.Context, params ...HTTPClientParam
 	transport = wrapTransport(transport, newTraceMiddleware(b.ServiceName, b.DisableRequestSpan, b.DisableTraceHeaders))
 	if !b.DisableRecovery {
 		transport = wrapTransport(transport, recoveryMiddleware{})
+	}
+	if !b.DisableExpectWithin {
+		transport = wrapTransport(transport, newExpectWithinMiddleware(b.ExpectWithinEnforcement, b.Timeout))
 	}
 	transport = wrapTransport(transport, b.Middlewares...)
 
@@ -319,12 +325,13 @@ func newClientBuilder() *clientBuilder {
 				HTTP2ReadIdleTimeout:  defaultHTTP2ReadIdleTimeout,
 				HTTP2PingTimeout:      defaultHTTP2PingTimeout,
 			}),
-			Middlewares:         nil,
-			DisableMetrics:      refreshable.New(false),
-			MetricsTagProviders: nil,
-			DisableRecovery:     false,
-			DisableRequestSpan:  false,
-			DisableTraceHeaders: false,
+			Middlewares:             nil,
+			DisableMetrics:          refreshable.New(false),
+			MetricsTagProviders:     nil,
+			ExpectWithinEnforcement: refreshable.New(deadlines.EnforcementDefer),
+			DisableRecovery:         false,
+			DisableRequestSpan:      false,
+			DisableTraceHeaders:     false,
 		},
 		URIs:            nil,
 		BytesBufferPool: nil,
@@ -378,6 +385,9 @@ func newClientBuilderFromRefreshableConfig(ctx context.Context, config refreshab
 		TagsProviderFunc(func(*http.Request, *http.Response, error) metrics.Tags {
 			return metricsTags.Current()
 		}))
+	b.HTTP.ExpectWithinEnforcement, _ = refreshable.MapFromValidated(validParams, func(p refreshingclient.ValidatedClientParams) deadlines.Enforcement {
+		return p.ExpectWithinEnforcement
+	})
 
 	apiToken, _ := refreshable.MapFromValidated(validParams, func(p refreshingclient.ValidatedClientParams) *string {
 		return p.APIToken

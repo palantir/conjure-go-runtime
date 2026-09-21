@@ -17,6 +17,7 @@ package refreshingclient
 import (
 	"time"
 
+	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpclient/deadlines"
 	"github.com/palantir/pkg/metrics"
 )
 
@@ -25,17 +26,18 @@ import (
 // so unnecessary updates are not pushed to subscribers.
 // Values are generally known to be "valid" to minimize downstream error handling.
 type ValidatedClientParams struct {
-	APIToken       *string
-	BasicAuth      *BasicAuth
-	Dialer         DialerParams
-	DisableMetrics bool
-	MaxAttempts    *int
-	MetricsTags    metrics.Tags
-	Retry          RetryParams
-	ServiceName    string
-	Timeout        time.Duration
-	Transport      TransportParams
-	URIs           []string
+	APIToken                *string
+	BasicAuth               *BasicAuth
+	Dialer                  DialerParams
+	DisableMetrics          bool
+	MaxAttempts             *int
+	MetricsTags             metrics.Tags
+	ExpectWithinEnforcement deadlines.Enforcement
+	Retry                   RetryParams
+	ServiceName             string
+	Timeout                 time.Duration
+	Transport               TransportParams
+	URIs                    []string
 }
 
 // BasicAuth represents the configuration for HTTP Basic Authorization

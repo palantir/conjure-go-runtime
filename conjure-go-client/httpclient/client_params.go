@@ -21,6 +21,7 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpclient/deadlines"
 	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpclient/internal"
 	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpclient/internal/refreshingclient"
 	"github.com/palantir/conjure-go-runtime/v3/conjure-go-contract/errors"
@@ -250,6 +251,36 @@ func WithDisableTracing() ClientOrHTTPClientParam {
 func WithDisableTraceHeaderPropagation() ClientOrHTTPClientParam {
 	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
 		b.DisableTraceHeaders = true
+		return nil
+	})
+}
+
+// WithExpectWithinEnforcement sets the enforcement strategy for the "Expect-Within" header.
+//
+// The enforcement parameter controls how the client handles deadline propagation:
+//   - deadlines.EnforcementDefer (default): Signals that the Expect-Within deadline should not be enforced at this
+//     layer, but allows this layer or downstream services to set a different enforcement policy for their operations.
+//     Does not set a value for the Expect-Within-Enforced header.
+//     When a request checks its Expect-Within state and the deadline has elapsed, it will be recorded as a metric, but
+//     will not return an error.
+//   - deadlines.EnforcementEnforce: Enforces deadlines at this layer and signals downstream services to also enforce
+//     deadlines by setting the Expect-Within-Enforced header to "true". When a request checks its Expect-Within state and the deadline has elapsed, it will record a metric and return
+//     an error (the request will not be made).
+//   - deadlines.EnforcementDisable: Signals that the Expect-Within deadline should not be enforced, neither at this
+//     layer nor by any downstream services. When a request checks its Expect-Within state and the deadline has elapsed,
+//     it will be recorded as a metric, but will not return an error.
+func WithExpectWithinEnforcement(enforcement deadlines.Enforcement) ClientOrHTTPClientParam {
+	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
+		b.ExpectWithinEnforcement = refreshable.New(enforcement)
+		return nil
+	})
+}
+
+// WithDisableExpectWithinIntegration disables all behavior related to the "Expect-Within" header (it does not register
+// the Expect-Within middleware at all).
+func WithDisableExpectWithinIntegration() ClientOrHTTPClientParam {
+	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
+		b.DisableExpectWithin = true
 		return nil
 	})
 }

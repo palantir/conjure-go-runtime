@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpclient/deadlines"
 	"github.com/palantir/conjure-go-runtime/v3/conjure-go-contract/errors"
 	werror "github.com/palantir/witchcraft-go-error"
 	"github.com/palantir/witchcraft-go-logging/wlog/svclog/svc1log"
@@ -62,6 +63,11 @@ func (h handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			svc1log.FromContext(r.Context()).Warn("Error encountered after HTTP response was written. Can not encode error to response.", svc1log.Stacktrace(err))
 			return
 		}
+		// Set deadline expired header if this is a deadline error
+		if reason := deadlines.GetDeadlineExpiredReason(err); reason != nil {
+			w.Header().Set(deadlines.HeaderDeadlineExpiredReason, reason.String())
+		}
+
 		cause := getSerializableCause(err)
 		switch e := cause.(type) {
 		case errors.Error:
@@ -93,10 +99,14 @@ func (h handler) handleError(ctx context.Context, statusCode int, err error) {
 }
 
 // StatusCodeMapper maps a provided error to an HTTP status code.
+// If the error is a deadline expired error, the appropriate status code (400 or 500) is used.
 // If the error's RootCause is a conjure error, the status mapping to the errorCode field is used.
 // If the provided error is a contains the legacy httpStatusCode parameter, that value is used.
 // Otherwise, returns http.StatusInternalServerError (500).
 func StatusCodeMapper(err error) int {
+	if reason := deadlines.GetDeadlineExpiredReason(err); reason != nil {
+		return reason.StatusCode()
+	}
 	if conjureErr := errors.GetConjureError(err); conjureErr != nil {
 		return conjureErr.Code().StatusCode()
 	}

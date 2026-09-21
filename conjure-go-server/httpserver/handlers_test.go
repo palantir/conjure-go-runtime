@@ -24,6 +24,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpclient/deadlines"
 	"github.com/palantir/conjure-go-runtime/v3/conjure-go-contract/codecs"
 	"github.com/palantir/conjure-go-runtime/v3/conjure-go-contract/errors"
 	werror "github.com/palantir/witchcraft-go-error"
@@ -219,6 +220,70 @@ func TestHandler_ServeHTTP(t *testing.T) {
 			},
 		},
 		{
+			name: "400 deadline expired external error",
+			handler: func(rw http.ResponseWriter, req *http.Request) error {
+				return deadlines.ErrDeadlineExpiredExternal
+			},
+			verifyResp: func(t *testing.T, resp *http.Response) {
+				assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+				assert.Equal(t, "external", resp.Header.Get(deadlines.HeaderDeadlineExpiredReason))
+				assert.Equal(t, "text/plain; charset=utf-8", resp.Header.Get("Content-Type"))
+				body, err := io.ReadAll(resp.Body)
+				assert.NoError(t, err)
+				assert.Contains(t, string(body), "externally provided deadline")
+			},
+			verifyLog: func(t *testing.T, i []byte) {
+				logLine := map[string]any{}
+				err := codecs.JSON.Unmarshal(i, &logLine)
+				require.NoError(t, err)
+				assert.Equal(t, "INFO", logLine["level"])
+				assert.Equal(t, "Error handling request", logLine["message"])
+			},
+		},
+		{
+			name: "500 deadline expired internal error",
+			handler: func(rw http.ResponseWriter, req *http.Request) error {
+				return deadlines.ErrDeadlineExpiredInternal
+			},
+			verifyResp: func(t *testing.T, resp *http.Response) {
+				assert.Equal(t, http.StatusInternalServerError, resp.StatusCode)
+				assert.Equal(t, "internal", resp.Header.Get(deadlines.HeaderDeadlineExpiredReason))
+				assert.Equal(t, "text/plain; charset=utf-8", resp.Header.Get("Content-Type"))
+				body, err := io.ReadAll(resp.Body)
+				assert.NoError(t, err)
+				assert.Contains(t, string(body), "internal deadline")
+			},
+			verifyLog: func(t *testing.T, i []byte) {
+				logLine := map[string]any{}
+				err := codecs.JSON.Unmarshal(i, &logLine)
+				require.NoError(t, err)
+				assert.Equal(t, "ERROR", logLine["level"])
+				assert.Equal(t, "Error handling request", logLine["message"])
+			},
+		},
+		{
+			name: "400 wrapped deadline expired external error",
+			handler: func(rw http.ResponseWriter, req *http.Request) error {
+				return werror.Wrap(deadlines.ErrDeadlineExpiredExternal, "deadline exceeded", werror.SafeParam("attempt", 3))
+			},
+			verifyResp: func(t *testing.T, resp *http.Response) {
+				assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+				assert.Equal(t, "external", resp.Header.Get(deadlines.HeaderDeadlineExpiredReason))
+				assert.Equal(t, "text/plain; charset=utf-8", resp.Header.Get("Content-Type"))
+				body, err := io.ReadAll(resp.Body)
+				assert.NoError(t, err)
+				assert.Contains(t, string(body), "deadline exceeded")
+			},
+			verifyLog: func(t *testing.T, i []byte) {
+				logLine := map[string]any{}
+				err := codecs.JSON.Unmarshal(i, &logLine)
+				require.NoError(t, err)
+				assert.Equal(t, "INFO", logLine["level"])
+				assert.Equal(t, "Error handling request", logLine["message"])
+				assert.Equal(t, map[string]any{"attempt": json.Number("3")}, logLine["params"])
+			},
+		},
+		{
 			name: "Error after writing to response",
 			rwCreator: func(w http.ResponseWriter) http.ResponseWriter {
 				return &testResponseWriter{ResponseWriter: w}
@@ -279,6 +344,26 @@ func TestStatusCodeMapper(t *testing.T) {
 		err          error
 		expectedCode int
 	}{
+		{
+			name:         "deadline expired external error",
+			err:          deadlines.ErrDeadlineExpiredExternal,
+			expectedCode: http.StatusBadRequest,
+		},
+		{
+			name:         "deadline expired internal error",
+			err:          deadlines.ErrDeadlineExpiredInternal,
+			expectedCode: http.StatusInternalServerError,
+		},
+		{
+			name:         "wrapped deadline expired external error",
+			err:          werror.Wrap(deadlines.ErrDeadlineExpiredExternal, "deadline exceeded"),
+			expectedCode: http.StatusBadRequest,
+		},
+		{
+			name:         "wrapped deadline expired internal error",
+			err:          werror.Wrap(deadlines.ErrDeadlineExpiredInternal, "deadline exceeded"),
+			expectedCode: http.StatusInternalServerError,
+		},
 		{
 			name:         "conjure not found error",
 			err:          errors.NewNotFound(),
