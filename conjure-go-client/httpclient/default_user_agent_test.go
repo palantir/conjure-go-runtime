@@ -93,7 +93,7 @@ func TestDefaultUserAgentMiddleware(t *testing.T) {
 		require.NoError(t, err)
 		resp, err := client.Do(req)
 		require.NoError(t, err)
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		assert.Equal(t, defaultUserAgent(), observedUserAgent)
 		assert.NotEqual(t, "", observedUserAgent)
@@ -118,7 +118,7 @@ func TestDefaultUserAgentMiddleware(t *testing.T) {
 		require.NoError(t, err)
 		resp, err := client.Do(req)
 		require.NoError(t, err)
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		assert.Equal(t, "explicit-agent", observedUserAgent)
 
