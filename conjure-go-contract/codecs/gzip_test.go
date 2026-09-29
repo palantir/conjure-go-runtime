@@ -24,14 +24,14 @@ import (
 )
 
 func TestGZIPCompression(t *testing.T) {
-	// create a compressible string
-	input := strings.Join([]string{
+	// create a compressible string large enough that gzip does not fall back to a stored block
+	input := strings.Repeat(strings.Join([]string{
 		strings.Repeat("a", 10),
 		strings.Repeat("b", 10),
 		strings.Repeat("a", 10),
 		strings.Repeat("c", 10),
 		strings.Repeat("a", 10),
-	}, "")
+	}, ""), 10)
 	gzipEncoder := GZIP(Plain)
 
 	t.Run("Encode/Decode", func(t *testing.T) {

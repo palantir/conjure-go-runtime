@@ -137,7 +137,8 @@ func TestHandler_ServeHTTP(t *testing.T) {
 				assert.Equal(t, "application/json", resp.Header.Get("Content-Type"))
 				body, err := io.ReadAll(resp.Body)
 				assert.NoError(t, err)
-				assert.Equal(t, "json: error calling MarshalJSON for type httpserver.testJSONErrorMarshalFails: failed to marshal json\n", string(body))
+				// Go 1.27 reports the pointer type in MarshalerError, so accept either form.
+				assert.Regexp(t, `^json: error calling MarshalJSON for type \*?httpserver\.testJSONErrorMarshalFails: failed to marshal json\n$`, string(body))
 			},
 			verifyLog: func(t *testing.T, i []byte) {
 				logLine := map[string]any{}
