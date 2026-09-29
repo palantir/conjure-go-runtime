@@ -313,3 +313,120 @@ func TestRedirectWithBodyAndBytesBuffer(t *testing.T) {
 		assert.Nil(t, resp)
 	})
 }
+
+func TestRequestBufferPoolCleanup(t *testing.T) {
+	t.Run("encoder error", func(t *testing.T) {
+		pool := newCountingBufferPool()
+		client, err := httpclient.NewClient(
+			httpclient.WithBaseURLs([]string{"https://localhost"}),
+			httpclient.WithBytesBufferPool(pool),
+			httpclient.WithMaxRetries(0),
+		)
+		require.NoError(t, err)
+
+		_, err = client.Do(t.Context(),
+			httpclient.WithRequestMethod(http.MethodPost),
+			httpclient.WithJSONRequest(make(chan int)),
+		)
+		require.Error(t, err)
+		assert.Equal(t, 1, pool.gets)
+		assert.Equal(t, 1, pool.puts)
+	})
+
+	t.Run("encoder panic", func(t *testing.T) {
+		pool := newCountingBufferPool()
+		client, err := httpclient.NewClient(
+			httpclient.WithBaseURLs([]string{"https://localhost"}),
+			httpclient.WithBytesBufferPool(pool),
+			httpclient.WithMaxRetries(0),
+		)
+		require.NoError(t, err)
+
+		_, err = client.Do(t.Context(),
+			httpclient.WithRequestMethod(http.MethodPost),
+			httpclient.WithRequestBody("request", panicEncoder{}),
+		)
+		require.Error(t, err)
+		assert.Equal(t, 1, pool.gets)
+		assert.Equal(t, 1, pool.puts)
+	})
+
+	t.Run("middleware panic", func(t *testing.T) {
+		pool := newCountingBufferPool()
+		client, err := httpclient.NewClient(
+			httpclient.WithBaseURLs([]string{"https://localhost"}),
+			httpclient.WithBytesBufferPool(pool),
+			httpclient.WithMaxRetries(0),
+			httpclient.WithMiddleware(panicMiddleware{err: fmt.Errorf("panic")}),
+		)
+		require.NoError(t, err)
+
+		_, err = client.Do(t.Context(),
+			httpclient.WithRequestMethod(http.MethodPost),
+			httpclient.WithJSONRequest(map[string]string{"key": "value"}),
+		)
+		require.Error(t, err)
+		assert.Equal(t, 1, pool.gets)
+		assert.Equal(t, 1, pool.puts)
+	})
+
+	t.Run("held while middleware uses body", func(t *testing.T) {
+		pool := newCountingBufferPool()
+		client, err := httpclient.NewClient(
+			httpclient.WithBaseURLs([]string{"https://localhost"}),
+			httpclient.WithBytesBufferPool(pool),
+			httpclient.WithMiddleware(httpclient.MiddlewareFunc(func(req *http.Request, _ http.RoundTripper) (*http.Response, error) {
+				assert.Equal(t, 0, pool.puts)
+				body, readErr := io.ReadAll(req.Body)
+				require.NoError(t, readErr)
+				assert.JSONEq(t, `{"key":"value"}`, string(body))
+				require.NoError(t, req.Body.Close())
+				return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody, Request: req}, nil
+			})),
+		)
+		require.NoError(t, err)
+
+		_, err = client.Do(t.Context(),
+			httpclient.WithRequestMethod(http.MethodPost),
+			httpclient.WithJSONRequest(map[string]string{"key": "value"}),
+		)
+		require.NoError(t, err)
+		assert.Equal(t, 1, pool.gets)
+		assert.Equal(t, 1, pool.puts)
+	})
+}
+
+type countingBufferPool struct {
+	buffer bytes.Buffer
+	gets   int
+	puts   int
+}
+
+func newCountingBufferPool() *countingBufferPool {
+	return &countingBufferPool{buffer: *bytes.NewBuffer(make([]byte, 0, 128))}
+}
+
+func (p *countingBufferPool) Get() *bytes.Buffer {
+	p.gets++
+	p.buffer.Reset()
+	return &p.buffer
+}
+
+func (p *countingBufferPool) Put(buffer *bytes.Buffer) {
+	p.puts++
+	buffer.Reset()
+}
+
+type panicEncoder struct{}
+
+func (panicEncoder) ContentType() string {
+	return "application/octet-stream"
+}
+
+func (panicEncoder) Encode(io.Writer, any) error {
+	panic("encode panic")
+}
+
+func (panicEncoder) Marshal(any) ([]byte, error) {
+	panic("marshal panic")
+}

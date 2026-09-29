@@ -631,8 +631,13 @@ func WithBasicAuth(user, password string) ClientOrHTTPClientParam {
 // The provider is expected to always return a nonempty BasicAuth value, or an error.
 func WithBasicAuthProvider(provider BasicAuthProvider) ClientOrHTTPClientParam {
 	return WithInnerMiddleware(MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+		if provider == nil {
+			closeRequestBody(req.Context(), req.Body)
+			return nil, werror.ErrorWithContextParams(req.Context(), "httpclient: nil provider passed to WithBasicAuthProvider")
+		}
 		basicAuth, err := provider(req.Context())
 		if err != nil {
+			closeRequestBody(req.Context(), req.Body)
 			return nil, err
 		}
 		setBasicAuth(req, basicAuth.User, basicAuth.Password)
@@ -646,8 +651,13 @@ func WithBasicAuthProvider(provider BasicAuthProvider) ClientOrHTTPClientParam {
 // no basic authentication header values are set.
 func WithBasicAuthOptionalProvider(provider BasicAuthOptionalProvider) ClientOrHTTPClientParam {
 	return WithInnerMiddleware(MiddlewareFunc(func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+		if provider == nil {
+			closeRequestBody(req.Context(), req.Body)
+			return nil, werror.ErrorWithContextParams(req.Context(), "httpclient: nil provider passed to WithBasicAuthOptionalProvider")
+		}
 		basicAuth, err := provider(req.Context())
 		if err != nil {
+			closeRequestBody(req.Context(), req.Body)
 			return nil, err
 		}
 		if basicAuth != nil {

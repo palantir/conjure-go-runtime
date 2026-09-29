@@ -39,6 +39,7 @@ type requestBodyFunc func() (length int64, body io.ReadCloser, getBody func() (i
 func (f requestBodyFunc) setRequestBody(req *http.Request) error {
 	contentLength, body, getBody, err := f()
 	if err != nil {
+		closeRequestBody(req.Context(), body)
 		return err
 	}
 	if body == nil {

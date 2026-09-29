@@ -17,8 +17,10 @@ package httpclient_test
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpclient"
@@ -34,14 +36,21 @@ func TestRecoveryMiddleware(t *testing.T) {
 
 	client, err := httpclient.NewClient(
 		httpclient.WithBaseURLs([]string{server.URL}),
+		httpclient.WithMaxRetries(0),
 		httpclient.WithMiddleware(panicMiddleware{err: helloErr}),
 	)
 	require.NoError(t, err)
 
-	_, err = client.Do(context.Background(), httpclient.WithRequestMethod(http.MethodGet))
+	body := &closeCountingRequestBody{Reader: strings.NewReader("request")}
+	_, err = client.Do(
+		context.Background(),
+		httpclient.WithRequestMethod(http.MethodPost),
+		httpclient.WithBinaryRequestBody(httpclient.RequestBodyStreamOnce(func() io.ReadCloser { return body })),
+	)
 	require.Error(t, err)
 	recovered, _ := werror.ParamFromError(err, "recovered")
 	require.Equal(t, helloErr.Error(), recovered)
+	require.Equal(t, 1, body.closes)
 }
 
 type panicMiddleware struct{ err error }
