@@ -196,9 +196,10 @@ func TestFailoverDistribution(t *testing.T) {
 		assert.NoError(t, err)
 	}
 	assert.Equal(t, requests, totalHits)
-	for i := range serverCount {
-		// Validate that requests are evenly distributed across servers
-		assert.True(t, serverHits[i] < 2*requests/serverCount)
+	assert.Equal(t, 0, serverHits[0])
+	// use a loose bound for the remaining server requests since they split requests randomly
+	for i := 1; i < serverCount; i++ {
+		assert.Greater(t, serverHits[i], requests/5, "server %d received too few requests: %v", i, serverHits)
 	}
 }
 
