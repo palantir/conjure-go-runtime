@@ -1,8 +1,8 @@
 module github.com/palantir/conjure-go-runtime/v3
 
-go 1.26.0
+go 1.27.0
 
-toolchain go1.26.8
+toolchain go1.27.1
 
 require (
 	github.com/golang/snappy v1.0.0
@@ -14,10 +14,10 @@ require (
 	github.com/palantir/pkg/safejson v1.3.0
 	github.com/palantir/pkg/tlsconfig v1.5.0
 	github.com/palantir/pkg/uuid v1.3.0
-	github.com/palantir/witchcraft-go-error v1.49.0
-	github.com/palantir/witchcraft-go-logging v1.73.0
-	github.com/palantir/witchcraft-go-params v1.47.0
-	github.com/palantir/witchcraft-go-tracing v1.48.0
+	github.com/palantir/witchcraft-go-error v1.50.0
+	github.com/palantir/witchcraft-go-logging v1.74.0
+	github.com/palantir/witchcraft-go-params v1.48.0
+	github.com/palantir/witchcraft-go-tracing v1.49.0
 	github.com/stretchr/testify v1.12.1
 	golang.org/x/net v0.59.0
 	google.golang.org/protobuf v1.36.12
