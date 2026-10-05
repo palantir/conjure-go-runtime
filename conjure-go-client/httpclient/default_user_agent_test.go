@@ -34,16 +34,34 @@ func TestComputeDefaultUserAgent(t *testing.T) {
 		expected string
 	}{
 		{
+			name:     "main module path without slash",
+			info:     &debug.BuildInfo{Main: debug.Module{Path: "bar-service"}},
+			ok:       true,
+			expected: "bar-service",
+		},
+		{
 			name:     "valid main module path",
 			info:     &debug.BuildInfo{Main: debug.Module{Path: "github.com/foo/bar-service"}},
 			ok:       true,
-			expected: "github.com/foo/bar-service",
+			expected: "bar-service",
 		},
 		{
 			name:     "main module path with major version suffix",
 			info:     &debug.BuildInfo{Main: debug.Module{Path: "github.com/foo/bar-service/v2"}},
 			ok:       true,
-			expected: "github.com/foo/bar-service/v2",
+			expected: "bar-service-v2",
+		},
+		{
+			name:     "main module path with multi-digit major version suffix",
+			info:     &debug.BuildInfo{Main: debug.Module{Path: "github.com/foo/bar-service/v10"}},
+			ok:       true,
+			expected: "bar-service-v10",
+		},
+		{
+			name:     "main module path with non-version suffix",
+			info:     &debug.BuildInfo{Main: debug.Module{Path: "github.com/foo/bar-service/v2beta"}},
+			ok:       true,
+			expected: "v2beta",
 		},
 		{
 			name:     "build info unavailable",
