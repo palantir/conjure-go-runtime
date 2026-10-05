@@ -37,19 +37,13 @@ func TestComputeDefaultUserAgent(t *testing.T) {
 			name:     "valid main module path",
 			info:     &debug.BuildInfo{Main: debug.Module{Path: "github.com/foo/bar-service"}},
 			ok:       true,
-			expected: "bar-service",
+			expected: "github.com/foo/bar-service",
 		},
 		{
 			name:     "main module path with major version suffix",
-			info:     &debug.BuildInfo{Main: debug.Module{Path: "github.com/palantir/conjure-go-runtime/v3"}},
+			info:     &debug.BuildInfo{Main: debug.Module{Path: "github.com/foo/bar-service/v2"}},
 			ok:       true,
-			expected: "conjure-go-runtime",
-		},
-		{
-			name:     "main module path with v1 is not treated as a version suffix",
-			info:     &debug.BuildInfo{Main: debug.Module{Path: "github.com/foo/v1"}},
-			ok:       true,
-			expected: "v1",
+			expected: "github.com/foo/bar-service/v2",
 		},
 		{
 			name:     "build info unavailable",

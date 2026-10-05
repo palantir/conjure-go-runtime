@@ -16,13 +16,11 @@ package httpclient
 
 import (
 	"net/http"
-	"path"
 	"runtime/debug"
 	"sync"
 
 	"github.com/palantir/pkg/metrics"
 	"github.com/palantir/pkg/refreshable/v2"
-	"golang.org/x/mod/module"
 )
 
 const (
@@ -33,22 +31,13 @@ const (
 	fallbackUserAgent = "conjure-go-runtime"
 )
 
-var (
-	defaultUserAgentOnce sync.Once
-	defaultUserAgentVal  string
-)
+// defaultUserAgent returns the User-Agent fallback for the running binary, computed once per process.
+var defaultUserAgent = sync.OnceValue(func() string {
+	info, ok := debug.ReadBuildInfo()
+	return computeDefaultUserAgent(info, ok)
+})
 
-// defaultUserAgent returns a User-Agent value derived from the running binary's main
-// module path, computed once per process. Falls back to fallbackUserAgent if build
-// info is unavailable (e.g. binary built without module support).
-func defaultUserAgent() string {
-	defaultUserAgentOnce.Do(func() {
-		info, ok := debug.ReadBuildInfo()
-		defaultUserAgentVal = computeDefaultUserAgent(info, ok)
-	})
-	return defaultUserAgentVal
-}
-
+// computeDefaultUserAgent returns the main module path from info, or fallbackUserAgent if build info is unavailable.
 func computeDefaultUserAgent(info *debug.BuildInfo, ok bool) string {
 	// "command-line-arguments" is the virtual package path the go command synthesizes when
 	// building/running a bare list of files instead of a package (e.g. "go run main.go"), so
@@ -57,16 +46,7 @@ func computeDefaultUserAgent(info *debug.BuildInfo, ok bool) string {
 	if !ok || info == nil || info.Main.Path == "" || info.Main.Path == "command-line-arguments" {
 		return fallbackUserAgent
 	}
-	// SplitPathVersion strips a trailing major-version suffix from the module path, e.g.
-	// "github.com/palantir/conjure-go-runtime/v3" -> "github.com/palantir/conjure-go-runtime".
-	modulePath := info.Main.Path
-	if prefix, _, splitOK := module.SplitPathVersion(modulePath); splitOK {
-		modulePath = prefix
-	}
-	if name := path.Base(modulePath); name != "" && name != "." && name != "/" {
-		return name
-	}
-	return fallbackUserAgent
+	return info.Main.Path
 }
 
 // newDefaultUserAgentMiddleware returns a Middleware that sets the User-Agent header to a
