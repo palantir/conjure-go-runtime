@@ -391,6 +391,22 @@ func WithTLSConfig(conf *tls.Config) ClientOrHTTPClientParam {
 	})
 }
 
+// WithTLSMinVersion sets the minimum TLS version while preserving CA and client certificate refresh.
+// Use a crypto/tls version constant, such as tls.VersionTLS12. Zero uses the Go default.
+// When combining with WithTLSConfig, apply WithTLSMinVersion after WithTLSConfig.
+func WithTLSMinVersion(version uint16) ClientOrHTTPClientParam {
+	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
+		if b.TLSConfig != nil {
+			b.TLSConfig.MinVersion = version
+		}
+		b.TransportParams = refreshable.View(b.TransportParams, func(p refreshingclient.TransportParams) refreshingclient.TransportParams {
+			p.TLSConfigurationParams.MinVersion = &version
+			return p
+		})
+		return nil
+	})
+}
+
 // WithTLSMaxVersion sets the maximum TLS version while preserving CA and client certificate refresh.
 // Use a crypto/tls version constant, such as tls.VersionTLS12. Zero uses the Go default.
 // When combining with WithTLSConfig, apply WithTLSMaxVersion after WithTLSConfig.

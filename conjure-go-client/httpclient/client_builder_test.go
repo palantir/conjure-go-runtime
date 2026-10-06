@@ -89,29 +89,44 @@ func TestTransportRefreshPreservesUnchangedCAConfiguration(t *testing.T) {
 	configs := refreshable.New(config)
 	extraCAs := refreshable.New([][]byte{generateTestCACertPEM(t, 4, "extra CA")})
 	clients, err := httpclient.NewHTTPClientFromRefreshableConfig(t.Context(), configs,
-		httpclient.WithTLSCABytes(extraCAs), httpclient.WithTLSMaxVersion(tls.VersionTLS12))
+		httpclient.WithTLSCABytes(extraCAs),
+		httpclient.WithTLSMinVersion(tls.VersionTLS13), httpclient.WithTLSMaxVersion(tls.VersionTLS13))
 	require.NoError(t, err)
 	initialPool := unwrapTransport(clients.Current().Transport).TLSClientConfig.RootCAs
-	require.Equal(t, uint16(tls.VersionTLS12), unwrapTransport(clients.Current().Transport).TLSClientConfig.MaxVersion)
+	require.Equal(t, uint16(tls.VersionTLS13), unwrapTransport(clients.Current().Transport).TLSClientConfig.MinVersion)
+	require.Equal(t, uint16(tls.VersionTLS13), unwrapTransport(clients.Current().Transport).TLSClientConfig.MaxVersion)
 	for i := range 32 {
 		config.MaxIdleConns = new(50 + i)
 		configs.Update(config)
 		require.Same(t, initialPool, unwrapTransport(clients.Current().Transport).TLSClientConfig.RootCAs)
-		require.Equal(t, uint16(tls.VersionTLS12), unwrapTransport(clients.Current().Transport).TLSClientConfig.MaxVersion)
+		require.Equal(t, uint16(tls.VersionTLS13), unwrapTransport(clients.Current().Transport).TLSClientConfig.MinVersion)
+		require.Equal(t, uint16(tls.VersionTLS13), unwrapTransport(clients.Current().Transport).TLSClientConfig.MaxVersion)
 	}
 	extraCAs.Update([][]byte{generateTestCACertPEM(t, 5, "replacement CA")})
 	require.NotSame(t, initialPool, unwrapTransport(clients.Current().Transport).TLSClientConfig.RootCAs)
-	require.Equal(t, uint16(tls.VersionTLS12), unwrapTransport(clients.Current().Transport).TLSClientConfig.MaxVersion)
+	require.Equal(t, uint16(tls.VersionTLS13), unwrapTransport(clients.Current().Transport).TLSClientConfig.MinVersion)
+	require.Equal(t, uint16(tls.VersionTLS13), unwrapTransport(clients.Current().Transport).TLSClientConfig.MaxVersion)
 }
 
-func TestWithTLSMaxVersion(t *testing.T) {
-	for _, serverMinVersion := range []uint16{tls.VersionTLS12, tls.VersionTLS13} {
-		t.Run(tls.VersionName(serverMinVersion), func(t *testing.T) {
+func TestWithTLSVersionBounds(t *testing.T) {
+	for _, test := range []struct {
+		name             string
+		param            httpclient.ClientParam
+		serverMinVersion uint16
+		serverMaxVersion uint16
+		expectedVersion  uint16
+	}{
+		{"maximum permits TLS 1.2", httpclient.WithTLSMaxVersion(tls.VersionTLS12), tls.VersionTLS12, tls.VersionTLS13, tls.VersionTLS12},
+		{"maximum rejects TLS 1.3", httpclient.WithTLSMaxVersion(tls.VersionTLS12), tls.VersionTLS13, tls.VersionTLS13, 0},
+		{"minimum permits TLS 1.3", httpclient.WithTLSMinVersion(tls.VersionTLS13), tls.VersionTLS12, tls.VersionTLS13, tls.VersionTLS13},
+		{"minimum rejects TLS 1.2", httpclient.WithTLSMinVersion(tls.VersionTLS13), tls.VersionTLS12, tls.VersionTLS12, 0},
+	} {
+		t.Run(test.name, func(t *testing.T) {
 			server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				assert.Equal(t, uint16(tls.VersionTLS12), r.TLS.Version)
+				assert.Equal(t, test.expectedVersion, r.TLS.Version)
 				w.WriteHeader(http.StatusOK)
 			}))
-			server.TLS = &tls.Config{MinVersion: serverMinVersion, MaxVersion: tls.VersionTLS13}
+			server.TLS = &tls.Config{MinVersion: test.serverMinVersion, MaxVersion: test.serverMaxVersion}
 			server.StartTLS()
 			defer server.Close()
 
@@ -119,32 +134,49 @@ func TestWithTLSMaxVersion(t *testing.T) {
 			client, err := httpclient.NewClientWithContext(t.Context(),
 				httpclient.WithBaseURLs([]string{server.URL}),
 				httpclient.WithTLSCABytes(refreshable.New([][]byte{caBytes})),
-				httpclient.WithTLSMaxVersion(tls.VersionTLS12),
+				test.param,
 				httpclient.WithMaxRetries(0),
 			)
 			require.NoError(t, err)
 			resp, err := client.Get(t.Context())
-			if serverMinVersion == tls.VersionTLS13 {
+			if test.expectedVersion == 0 {
 				require.Error(t, err)
 			} else {
 				require.NoError(t, err)
-				require.Equal(t, uint16(tls.VersionTLS12), resp.TLS.Version)
+				require.Equal(t, test.expectedVersion, resp.TLS.Version)
 			}
 		})
 	}
 }
 
-func TestWithTLSMaxVersionOverridesClonedTLSConfig(t *testing.T) {
+func TestWithTLSVersionBoundsOverridesClonedTLSConfig(t *testing.T) {
 	original := &tls.Config{MinVersion: tls.VersionTLS12, MaxVersion: tls.VersionTLS13}
-	for _, version := range []uint16{0, tls.VersionTLS12} {
+	for _, version := range []uint16{0, tls.VersionTLS12, tls.VersionTLS13} {
 		client, err := httpclient.NewHTTPClientWithContext(t.Context(),
-			httpclient.WithTLSConfig(original), httpclient.WithTLSMaxVersion(version))
+			httpclient.WithTLSConfig(original),
+			httpclient.WithTLSMinVersion(version), httpclient.WithTLSMaxVersion(version))
 		require.NoError(t, err)
 		config := unwrapTransport(client.Transport).TLSClientConfig
+		require.Equal(t, version, config.MinVersion)
 		require.Equal(t, version, config.MaxVersion)
-		require.Equal(t, uint16(tls.VersionTLS12), config.MinVersion)
+		require.Equal(t, uint16(tls.VersionTLS12), original.MinVersion)
 		require.Equal(t, uint16(tls.VersionTLS13), original.MaxVersion)
 	}
+}
+
+func TestTLSVersionDefaults(t *testing.T) {
+	client, err := httpclient.NewHTTPClientWithContext(t.Context())
+	require.NoError(t, err)
+	config := unwrapTransport(client.Transport).TLSClientConfig
+	require.Equal(t, uint16(tls.VersionTLS12), config.MinVersion)
+	require.Zero(t, config.MaxVersion)
+
+	client, err = httpclient.NewHTTPClientWithContext(t.Context(),
+		httpclient.WithTLSMinVersion(0), httpclient.WithTLSMaxVersion(0))
+	require.NoError(t, err)
+	config = unwrapTransport(client.Transport).TLSClientConfig
+	require.Zero(t, config.MinVersion)
+	require.Zero(t, config.MaxVersion)
 }
 
 func TestAddingCAFileIsCaptured(t *testing.T) {
