@@ -50,7 +50,7 @@ func TestRefreshableClientConfig(t *testing.T) {
 		assert.Equal(t, false, initialTransport.DisableKeepAlives)
 		assert.NotNil(t, initialTransport.Proxy)
 
-		if assert.Len(t, initialMiddlewares, 3) {
+		if assert.Len(t, initialMiddlewares, 4) {
 			assert.IsType(t, recoveryMiddleware{}, initialMiddlewares[0])
 			if assert.IsType(t, traceMiddleware{}, initialMiddlewares[1]) {
 				traceM := initialMiddlewares[1].(traceMiddleware)
@@ -61,6 +61,10 @@ func TestRefreshableClientConfig(t *testing.T) {
 				metricsM := initialMiddlewares[2].(*metricsMiddleware)
 				assert.False(t, metricsM.Disabled.Current())
 				assert.Equal(t, serviceName, metricsM.ServiceName.Current())
+			}
+			if assert.IsType(t, &defaultUserAgentMiddleware{}, initialMiddlewares[3]) {
+				defaultUserAgentM := initialMiddlewares[3].(*defaultUserAgentMiddleware)
+				assert.Equal(t, serviceName, defaultUserAgentM.serviceName.Current())
 			}
 		}
 

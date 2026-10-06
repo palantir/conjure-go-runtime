@@ -108,6 +108,9 @@ func (b *httpClientBuilder) Build(ctx context.Context, params ...HTTPClientParam
 	// Create dialer and transport
 	dialer := refreshingclient.NewRefreshableDialer(ctx, b.DialerParams)
 	transport := refreshingclient.NewRefreshableTransport(ctx, b.TransportParams, refreshableConfig, dialer)
+	// The default User-Agent middleware is the innermost layer so that any User-Agent set by an
+	// outer middleware or client param takes precedence.
+	transport = wrapTransport(transport, newDefaultUserAgentMiddleware(b.ServiceName, b.DisableMetrics))
 	transport = wrapTransport(transport, newMetricsMiddleware(b.ServiceName, b.MetricsTagProviders, b.DisableMetrics))
 	transport = wrapTransport(transport, newTraceMiddleware(b.ServiceName, b.DisableRequestSpan, b.DisableTraceHeaders))
 	if !b.DisableRecovery {
