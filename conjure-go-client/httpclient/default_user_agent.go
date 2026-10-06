@@ -18,11 +18,11 @@ import (
 	"net/http"
 	"path"
 	"runtime/debug"
-	"strings"
 	"sync"
 
 	"github.com/palantir/pkg/metrics"
 	"github.com/palantir/pkg/refreshable/v2"
+	"golang.org/x/mod/module"
 )
 
 const (
@@ -40,7 +40,7 @@ var defaultUserAgent = sync.OnceValue(func() string {
 })
 
 // computeDefaultUserAgent returns a User-Agent derived from the main module path in info, or fallbackUserAgent if build
-// info is unavailable.
+// info is unavailable or the module path has an invalid major version suffix.
 func computeDefaultUserAgent(info *debug.BuildInfo, ok bool) string {
 	// "command-line-arguments" is the virtual package path the go command synthesizes when
 	// building/running a bare list of files instead of a package (e.g. "go run main.go"), so
@@ -49,25 +49,16 @@ func computeDefaultUserAgent(info *debug.BuildInfo, ok bool) string {
 	if !ok || info == nil || info.Main.Path == "" || info.Main.Path == "command-line-arguments" {
 		return fallbackUserAgent
 	}
-	modulePath := info.Main.Path
+	prefix, pathMajor, valid := module.SplitPathVersion(info.Main.Path)
+	if !valid {
+		return fallbackUserAgent
+	}
 	// Fold the module version suffix into the name (e.g. "github.com/foo/bar/v2" -> "bar-v2") so module versions remain distinguishable.
-	if dir, last := path.Split(modulePath); dir != "" && isMajorVersion(last) {
-		modulePath = strings.TrimSuffix(dir, "/") + "-" + last
+	name := path.Base(prefix)
+	if pathMajor != "" {
+		name += "-" + pathMajor[1:]
 	}
-	return path.Base(modulePath)
-}
-
-// isMajorVersion reports whether s is a major version path such as "v2".
-func isMajorVersion(s string) bool {
-	if len(s) < 2 || s[0] != 'v' {
-		return false
-	}
-	for _, c := range s[1:] {
-		if c < '0' || c > '9' {
-			return false
-		}
-	}
-	return true
+	return name
 }
 
 // newDefaultUserAgentMiddleware returns a Middleware that sets the User-Agent header to a

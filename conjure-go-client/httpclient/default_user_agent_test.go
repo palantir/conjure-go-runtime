@@ -64,6 +64,24 @@ func TestComputeDefaultUserAgent(t *testing.T) {
 			expected: "v2beta",
 		},
 		{
+			name:     "gopkg.in main module path",
+			info:     &debug.BuildInfo{Main: debug.Module{Path: "gopkg.in/bar-service.v2"}},
+			ok:       true,
+			expected: "bar-service-v2",
+		},
+		{
+			name:     "main module path with invalid v1 suffix",
+			info:     &debug.BuildInfo{Main: debug.Module{Path: "github.com/foo/bar-service/v1"}},
+			ok:       true,
+			expected: fallbackUserAgent,
+		},
+		{
+			name:     "main module path with invalid zero-padded suffix",
+			info:     &debug.BuildInfo{Main: debug.Module{Path: "github.com/foo/bar-service/v001"}},
+			ok:       true,
+			expected: fallbackUserAgent,
+		},
+		{
 			name:     "build info unavailable",
 			ok:       false,
 			expected: fallbackUserAgent,
