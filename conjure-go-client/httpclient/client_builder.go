@@ -150,6 +150,8 @@ func (b *httpClientBuilder) getRefreshableTLSConfig(ctx context.Context) (refres
 			caBytes = append(caBytes, t2[path])
 		}
 		return refreshingclient.TLSParams{
+			MinVersion:         t1.TLSConfigurationParams.MinVersion,
+			MaxVersion:         t1.TLSConfigurationParams.MaxVersion,
 			CABytes:            caBytes,
 			CertFile:           t1.TLSConfigurationParams.CertFile,
 			KeyFile:            t1.TLSConfigurationParams.KeyFile,
