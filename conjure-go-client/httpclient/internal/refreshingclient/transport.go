@@ -50,6 +50,7 @@ type TransportParams struct {
 }
 
 type TLSConfigurationParams struct {
+	MaxVersion         uint16
 	CAFiles            []string
 	CertFile           string
 	KeyFile            string

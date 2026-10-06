@@ -19,6 +19,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/asn1"
@@ -87,16 +88,63 @@ func TestTransportRefreshPreservesUnchangedCAConfiguration(t *testing.T) {
 	config := httpclient.ClientConfig{ServiceName: "test", Security: httpclient.SecurityConfig{CAFiles: paths}}
 	configs := refreshable.New(config)
 	extraCAs := refreshable.New([][]byte{generateTestCACertPEM(t, 4, "extra CA")})
-	clients, err := httpclient.NewHTTPClientFromRefreshableConfig(t.Context(), configs, httpclient.WithTLSCABytes(extraCAs))
+	clients, err := httpclient.NewHTTPClientFromRefreshableConfig(t.Context(), configs,
+		httpclient.WithTLSCABytes(extraCAs), httpclient.WithTLSMaxVersion(tls.VersionTLS12))
 	require.NoError(t, err)
 	initialPool := unwrapTransport(clients.Current().Transport).TLSClientConfig.RootCAs
+	require.Equal(t, uint16(tls.VersionTLS12), unwrapTransport(clients.Current().Transport).TLSClientConfig.MaxVersion)
 	for i := range 32 {
 		config.MaxIdleConns = new(50 + i)
 		configs.Update(config)
 		require.Same(t, initialPool, unwrapTransport(clients.Current().Transport).TLSClientConfig.RootCAs)
+		require.Equal(t, uint16(tls.VersionTLS12), unwrapTransport(clients.Current().Transport).TLSClientConfig.MaxVersion)
 	}
 	extraCAs.Update([][]byte{generateTestCACertPEM(t, 5, "replacement CA")})
 	require.NotSame(t, initialPool, unwrapTransport(clients.Current().Transport).TLSClientConfig.RootCAs)
+	require.Equal(t, uint16(tls.VersionTLS12), unwrapTransport(clients.Current().Transport).TLSClientConfig.MaxVersion)
+}
+
+func TestWithTLSMaxVersion(t *testing.T) {
+	for _, serverMinVersion := range []uint16{tls.VersionTLS12, tls.VersionTLS13} {
+		t.Run(tls.VersionName(serverMinVersion), func(t *testing.T) {
+			server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				assert.Equal(t, uint16(tls.VersionTLS12), r.TLS.Version)
+				w.WriteHeader(http.StatusOK)
+			}))
+			server.TLS = &tls.Config{MinVersion: serverMinVersion, MaxVersion: tls.VersionTLS13}
+			server.StartTLS()
+			defer server.Close()
+
+			caBytes := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw})
+			client, err := httpclient.NewClientWithContext(t.Context(),
+				httpclient.WithBaseURLs([]string{server.URL}),
+				httpclient.WithTLSCABytes(refreshable.New([][]byte{caBytes})),
+				httpclient.WithTLSMaxVersion(tls.VersionTLS12),
+				httpclient.WithMaxRetries(0),
+			)
+			require.NoError(t, err)
+			resp, err := client.Get(t.Context())
+			if serverMinVersion == tls.VersionTLS13 {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, uint16(tls.VersionTLS12), resp.TLS.Version)
+			}
+		})
+	}
+}
+
+func TestWithTLSMaxVersionOverridesClonedTLSConfig(t *testing.T) {
+	original := &tls.Config{MinVersion: tls.VersionTLS12, MaxVersion: tls.VersionTLS13}
+	for _, version := range []uint16{0, tls.VersionTLS12} {
+		client, err := httpclient.NewHTTPClientWithContext(t.Context(),
+			httpclient.WithTLSConfig(original), httpclient.WithTLSMaxVersion(version))
+		require.NoError(t, err)
+		config := unwrapTransport(client.Transport).TLSClientConfig
+		require.Equal(t, version, config.MaxVersion)
+		require.Equal(t, uint16(tls.VersionTLS12), config.MinVersion)
+		require.Equal(t, uint16(tls.VersionTLS13), original.MaxVersion)
+	}
 }
 
 func TestAddingCAFileIsCaptured(t *testing.T) {

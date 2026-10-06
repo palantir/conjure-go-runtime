@@ -29,6 +29,7 @@ import (
 // TLSParams contains the parameters needed to build a *tls.Config.
 // Its fields must all be compatible with reflect.DeepEqual.
 type TLSParams struct {
+	MaxVersion         uint16
 	CABytes            [][]byte
 	CertFile           string
 	KeyFile            string
@@ -107,5 +108,6 @@ func NewTLSConfig(ctx context.Context, p TLSParams) (*tls.Config, error) {
 	if err != nil {
 		return nil, werror.WrapWithContextParams(ctx, err, "failed to build tlsConfig")
 	}
+	tlsConfig.MaxVersion = p.MaxVersion
 	return tlsConfig, nil
 }

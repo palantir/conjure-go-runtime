@@ -391,6 +391,22 @@ func WithTLSConfig(conf *tls.Config) ClientOrHTTPClientParam {
 	})
 }
 
+// WithTLSMaxVersion sets the maximum TLS version while preserving CA and client certificate refresh.
+// Use a crypto/tls version constant, such as tls.VersionTLS12. Zero uses the Go default.
+// When combining with WithTLSConfig, apply WithTLSMaxVersion after WithTLSConfig.
+func WithTLSMaxVersion(version uint16) ClientOrHTTPClientParam {
+	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
+		if b.TLSConfig != nil {
+			b.TLSConfig.MaxVersion = version
+		}
+		b.TransportParams = refreshable.View(b.TransportParams, func(p refreshingclient.TransportParams) refreshingclient.TransportParams {
+			p.TLSConfigurationParams.MaxVersion = version
+			return p
+		})
+		return nil
+	})
+}
+
 // WithTLSInsecureSkipVerify sets the InsecureSkipVerify field for the HTTP client's tls config.
 // This option should only be used in clients that have way to establish trust with servers.
 // If WithTLSConfig is used, the config's InsecureSkipVerify is set to true.
