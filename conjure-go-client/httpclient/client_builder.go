@@ -39,6 +39,7 @@ const (
 	defaultKeepAlive             = 30 * time.Second
 	defaultIdleConnTimeout       = 90 * time.Second
 	defaultTLSHandshakeTimeout   = 10 * time.Second
+	defaultTLSMaxVersion         = tls.VersionTLS12
 	defaultExpectContinueTimeout = 1 * time.Second
 	defaultMaxIdleConns          = 200
 	defaultMaxIdleConnsPerHost   = 100
@@ -323,6 +324,9 @@ func newClientBuilder() *clientBuilder {
 				ProxyFromEnvironment:  true,
 				HTTP2ReadIdleTimeout:  defaultHTTP2ReadIdleTimeout,
 				HTTP2PingTimeout:      defaultHTTP2PingTimeout,
+				TLSConfigurationParams: refreshingclient.TLSConfigurationParams{
+					MaxVersion: defaultTLSMaxVersion,
+				},
 			}),
 			Middlewares:         nil,
 			DisableMetrics:      refreshable.New(false),

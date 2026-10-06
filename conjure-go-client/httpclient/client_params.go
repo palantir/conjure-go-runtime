@@ -408,7 +408,8 @@ func WithTLSMinVersion(version uint16) ClientOrHTTPClientParam {
 }
 
 // WithTLSMaxVersion sets the maximum TLS version while preserving CA and client certificate refresh.
-// Use a crypto/tls version constant, such as tls.VersionTLS12. Zero uses the Go default.
+// Use a crypto/tls version constant, such as tls.VersionTLS13.
+// The default maximum is TLS 1.2; zero uses the Go default.
 // When combining with WithTLSConfig, apply WithTLSMaxVersion after WithTLSConfig.
 func WithTLSMaxVersion(version uint16) ClientOrHTTPClientParam {
 	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {

@@ -406,6 +406,7 @@ func newValidatedClientParamsFromConfig(ctx context.Context, config ClientConfig
 		ProxyFromEnvironment:  derefPtr(config.ProxyFromEnvironment, true),
 		TLSHandshakeTimeout:   derefPtr(config.TLSHandshakeTimeout, defaultTLSHandshakeTimeout),
 		TLSConfigurationParams: refreshingclient.TLSConfigurationParams{
+			MaxVersion:         defaultTLSMaxVersion,
 			CAFiles:            config.Security.CAFiles,
 			CertFile:           config.Security.CertFile,
 			KeyFile:            config.Security.KeyFile,

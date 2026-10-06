@@ -111,15 +111,19 @@ func TestTransportRefreshPreservesUnchangedCAConfiguration(t *testing.T) {
 func TestWithTLSVersionBounds(t *testing.T) {
 	for _, test := range []struct {
 		name             string
-		param            httpclient.ClientParam
+		params           []httpclient.ClientParam
 		serverMinVersion uint16
 		serverMaxVersion uint16
 		expectedVersion  uint16
 	}{
-		{"maximum permits TLS 1.2", httpclient.WithTLSMaxVersion(tls.VersionTLS12), tls.VersionTLS12, tls.VersionTLS13, tls.VersionTLS12},
-		{"maximum rejects TLS 1.3", httpclient.WithTLSMaxVersion(tls.VersionTLS12), tls.VersionTLS13, tls.VersionTLS13, 0},
-		{"minimum permits TLS 1.3", httpclient.WithTLSMinVersion(tls.VersionTLS13), tls.VersionTLS12, tls.VersionTLS13, tls.VersionTLS13},
-		{"minimum rejects TLS 1.2", httpclient.WithTLSMinVersion(tls.VersionTLS13), tls.VersionTLS12, tls.VersionTLS12, 0},
+		{"default negotiates TLS 1.2", nil, tls.VersionTLS12, tls.VersionTLS13, tls.VersionTLS12},
+		{"default rejects TLS 1.3-only server", nil, tls.VersionTLS13, tls.VersionTLS13, 0},
+		{"maximum permits TLS 1.2", []httpclient.ClientParam{httpclient.WithTLSMaxVersion(tls.VersionTLS12)}, tls.VersionTLS12, tls.VersionTLS13, tls.VersionTLS12},
+		{"maximum rejects TLS 1.3", []httpclient.ClientParam{httpclient.WithTLSMaxVersion(tls.VersionTLS12)}, tls.VersionTLS13, tls.VersionTLS13, 0},
+		{"maximum permits TLS 1.3", []httpclient.ClientParam{httpclient.WithTLSMaxVersion(tls.VersionTLS13)}, tls.VersionTLS13, tls.VersionTLS13, tls.VersionTLS13},
+		{"zero uses Go default", []httpclient.ClientParam{httpclient.WithTLSMaxVersion(0)}, tls.VersionTLS13, tls.VersionTLS13, tls.VersionTLS13},
+		{"minimum permits TLS 1.3", []httpclient.ClientParam{httpclient.WithTLSMinVersion(tls.VersionTLS13), httpclient.WithTLSMaxVersion(tls.VersionTLS13)}, tls.VersionTLS12, tls.VersionTLS13, tls.VersionTLS13},
+		{"minimum rejects TLS 1.2", []httpclient.ClientParam{httpclient.WithTLSMinVersion(tls.VersionTLS13), httpclient.WithTLSMaxVersion(tls.VersionTLS13)}, tls.VersionTLS12, tls.VersionTLS12, 0},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -131,12 +135,11 @@ func TestWithTLSVersionBounds(t *testing.T) {
 			defer server.Close()
 
 			caBytes := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw})
-			client, err := httpclient.NewClientWithContext(t.Context(),
+			client, err := httpclient.NewClientWithContext(t.Context(), append(test.params,
 				httpclient.WithBaseURLs([]string{server.URL}),
 				httpclient.WithTLSCABytes(refreshable.New([][]byte{caBytes})),
-				test.param,
 				httpclient.WithMaxRetries(0),
-			)
+			)...)
 			require.NoError(t, err)
 			resp, err := client.Get(t.Context())
 			if test.expectedVersion == 0 {
@@ -165,18 +168,30 @@ func TestWithTLSVersionBoundsOverridesClonedTLSConfig(t *testing.T) {
 }
 
 func TestTLSVersionDefaults(t *testing.T) {
-	client, err := httpclient.NewHTTPClientWithContext(t.Context())
-	require.NoError(t, err)
-	config := unwrapTransport(client.Transport).TLSClientConfig
-	require.Equal(t, uint16(tls.VersionTLS12), config.MinVersion)
-	require.Zero(t, config.MaxVersion)
+	for _, test := range []struct {
+		name               string
+		params             []httpclient.HTTPClientParam
+		expectedMaxVersion uint16
+	}{
+		{"builder", nil, tls.VersionTLS12},
+		{"config", []httpclient.HTTPClientParam{httpclient.WithConfigForHTTPClient(httpclient.ClientConfig{})}, tls.VersionTLS12},
+		{"custom TLS config", []httpclient.HTTPClientParam{httpclient.WithTLSConfig(&tls.Config{MinVersion: tls.VersionTLS12})}, 0},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			client, err := httpclient.NewHTTPClientWithContext(t.Context(), test.params...)
+			require.NoError(t, err)
+			config := unwrapTransport(client.Transport).TLSClientConfig
+			require.Equal(t, uint16(tls.VersionTLS12), config.MinVersion)
+			require.Equal(t, test.expectedMaxVersion, config.MaxVersion)
 
-	client, err = httpclient.NewHTTPClientWithContext(t.Context(),
-		httpclient.WithTLSMinVersion(0), httpclient.WithTLSMaxVersion(0))
-	require.NoError(t, err)
-	config = unwrapTransport(client.Transport).TLSClientConfig
-	require.Zero(t, config.MinVersion)
-	require.Zero(t, config.MaxVersion)
+			client, err = httpclient.NewHTTPClientWithContext(t.Context(), append(test.params,
+				httpclient.WithTLSMinVersion(0), httpclient.WithTLSMaxVersion(0))...)
+			require.NoError(t, err)
+			config = unwrapTransport(client.Transport).TLSClientConfig
+			require.Zero(t, config.MinVersion)
+			require.Zero(t, config.MaxVersion)
+		})
+	}
 }
 
 func TestAddingCAFileIsCaptured(t *testing.T) {
