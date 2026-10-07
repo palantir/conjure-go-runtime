@@ -40,7 +40,7 @@ const (
 	MetricTLSHandshakeAttempt = "tls.handshake.attempt"
 	MetricTLSHandshakeFailure = "tls.handshake.failure"
 	MetricTLSHandshake        = "tls.handshake"
-	MetricTLSFallback         = "tls.handshake.fallback"
+	MetricTLS12Fallback       = "tls.handshake.tls12fallback"
 	CipherTagKey              = "cipher"
 	NextProtocolTagKey        = "next_protocol"
 	TLSVersionTagKey          = "tls_version"
@@ -126,7 +126,7 @@ func (h *metricsMiddleware) RoundTrip(req *http.Request, next http.RoundTripper)
 	start := time.Now()
 	tlsMetricsContext := h.tlsTraceContext(req.Context(), registry, serviceNameTag)
 	tlsMetricsContext = refreshingclient.WithTLSFallbackReporter(tlsMetricsContext, func() {
-		registry.Meter(MetricTLSFallback, serviceNameTag).Mark(1)
+		registry.Meter(MetricTLS12Fallback, serviceNameTag).Mark(1)
 	})
 	resp, err := next.RoundTrip(req.WithContext(tlsMetricsContext))
 	duration := time.Since(start)

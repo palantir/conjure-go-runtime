@@ -127,12 +127,12 @@ clients:
 clients:
   services:
     my-service:
-      disable-tls13-to12-fallback: true
+      disable-tls12-fallback: true
 `,
 			ExpectedConfig: ServicesConfig{
 				Services: map[string]ClientConfig{
 					"my-service": {
-						DisableTLS13To12Fallback: &[]bool{true}[0],
+						DisableTLS12Fallback: &[]bool{true}[0],
 					},
 				},
 			},

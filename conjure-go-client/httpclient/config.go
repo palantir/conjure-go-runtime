@@ -56,8 +56,9 @@ type ClientConfig struct {
 	BasicAuth *BasicAuth `json:"basic-auth,omitempty" yaml:"basic-auth,omitempty"`
 	// DisableHTTP2, if true, will prevent the client from modifying the *tls.Config object to support H2 connections.
 	DisableHTTP2 *bool `json:"disable-http2,omitempty" yaml:"disable-http2,omitempty"`
-	// DisableTLS13To12Fallback, if true, disables retrying a timed-out TLS 1.3-capable handshake with TLS 1.2.
-	DisableTLS13To12Fallback *bool `json:"disable-tls13-to12-fallback,omitempty" yaml:"disable-tls13-to12-fallback,omitempty"`
+	// DisableTLS12Fallback, if true, disables retrying a timed-out TLS 1.3-capable handshake with TLS 1.2.
+	// See WithDisableTLS12FallbackOnTimeout for fallback eligibility and latency considerations.
+	DisableTLS12Fallback *bool `json:"disable-tls12-fallback,omitempty" yaml:"disable-tls12-fallback,omitempty"`
 	// ProxyFromEnvironment enables reading HTTP proxy information from environment variables.
 	// See 'http.ProxyFromEnvironment' documentation for specific behavior.
 	ProxyFromEnvironment *bool `json:"proxy-from-environment,omitempty" yaml:"proxy-from-environment,omitempty"`
@@ -231,8 +232,8 @@ func MergeClientConfig(conf, defaults ClientConfig) ClientConfig {
 	if conf.DisableHTTP2 == nil {
 		conf.DisableHTTP2 = defaults.DisableHTTP2
 	}
-	if conf.DisableTLS13To12Fallback == nil {
-		conf.DisableTLS13To12Fallback = defaults.DisableTLS13To12Fallback
+	if conf.DisableTLS12Fallback == nil {
+		conf.DisableTLS12Fallback = defaults.DisableTLS12Fallback
 	}
 	if conf.ProxyFromEnvironment == nil {
 		conf.ProxyFromEnvironment = defaults.ProxyFromEnvironment
@@ -298,7 +299,7 @@ func configToParams(c ClientConfig) ([]ClientParam, error) {
 	if c.DisableHTTP2 != nil && *c.DisableHTTP2 {
 		params = append(params, WithDisableHTTP2())
 	}
-	if c.DisableTLS13To12Fallback != nil && *c.DisableTLS13To12Fallback {
+	if c.DisableTLS12Fallback != nil && *c.DisableTLS12Fallback {
 		params = append(params, WithDisableTLS12FallbackOnTimeout())
 	}
 
@@ -406,7 +407,7 @@ func newValidatedClientParamsFromConfig(ctx context.Context, config ClientConfig
 		MaxIdleConns:                  derefPtr(config.MaxIdleConns, defaultMaxIdleConns),
 		MaxIdleConnsPerHost:           derefPtr(config.MaxIdleConnsPerHost, defaultMaxIdleConnsPerHost),
 		DisableHTTP2:                  derefPtr(config.DisableHTTP2, false),
-		DisableTLS12FallbackOnTimeout: derefPtr(config.DisableTLS13To12Fallback, false),
+		DisableTLS12FallbackOnTimeout: derefPtr(config.DisableTLS12Fallback, false),
 		IdleConnTimeout:               derefPtr(config.IdleConnTimeout, defaultIdleConnTimeout),
 		ExpectContinueTimeout:         derefPtr(config.ExpectContinueTimeout, defaultExpectContinueTimeout),
 		ResponseHeaderTimeout:         derefPtr(config.ResponseHeaderTimeout, 0),

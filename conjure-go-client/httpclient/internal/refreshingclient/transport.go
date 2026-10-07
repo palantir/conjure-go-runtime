@@ -80,12 +80,12 @@ func NewRefreshableTransport(ctx context.Context, p refreshable.Refreshable[Tran
 		tlsConfig := input.tls.config()
 		state := &managedTransport{transport: newTransport(ctx, input.params, tlsConfig, dialer)}
 		// if TLS 1.2 fallback behavior on timeouts is enabled and the TLS configuration supports both TLS >=1.3 and
-		// TLS 1.2, create and set the tlsFallbackTransport to be a Transport that is equivalent to transport except for
+		// TLS 1.2, create and set the tls12FallbackTransport to be a Transport that is equivalent to transport except for
 		// the TLS configuration having a max version of tls.VersionTLS12.
 		if !input.params.DisableTLS12FallbackOnTimeout && allowsTLS13OrLaterAndTLS12(tlsConfig) {
 			fallbackTLSConfig := tlsConfig.Clone()
 			fallbackTLSConfig.MaxVersion = tls.VersionTLS12
-			state.tlsFallbackTransport = newTransport(ctx, input.params, fallbackTLSConfig, dialer)
+			state.tls12FallbackTransport = newTransport(ctx, input.params, fallbackTLSConfig, dialer)
 		}
 		return func() *managedTransport { return state }
 	})
@@ -131,19 +131,23 @@ func (r *RefreshableTransport) RoundTrip(req *http.Request) (*http.Response, err
 func (r *RefreshableTransport) CloseIdleConnections() {
 	state := r.states.Current()()
 	state.transport.CloseIdleConnections()
-	if state.tlsFallbackTransport != nil {
-		state.tlsFallbackTransport.CloseIdleConnections()
+	if state.tls12FallbackTransport != nil {
+		state.tls12FallbackTransport.CloseIdleConnections()
 	}
 }
 
 type managedTransport struct {
 	transport *http.Transport
 
-	// tlsFallbackTransport is the Transport that is used if the request using transport fails due to a TLS handshake
+	// tls12FallbackTransport is the Transport that is used if the request using transport fails due to a TLS handshake
 	// timeout. Currently, this is scoped specifically to be a Transport that is equivalent to transport in all ways
 	// except for MaxVersion being set to tls.VersionTLS12. This value is non-nil only if the fallback behavior is not
-	// disabled and if the configuration that created this managedTransport supports both TLS 1.3 and 1.2.
-	tlsFallbackTransport *http.Transport
+	// disabled and if the configuration that created this managedTransport supports both TLS >=1.3 and 1.2.
+	tls12FallbackTransport *http.Transport
+	// tls12FallbackRoutes contains the origin and proxy routes for which TLS 1.2 fallback has succeeded. Subsequent
+	// requests for these routes use tls12FallbackTransport directly. The map belongs to this transport generation, so a
+	// refresh of the transport or TLS configuration clears the learned fallback state.
+	tls12FallbackRoutes sync.Map // map[tlsFallbackRoute]struct{}
 
 	mu      sync.Mutex
 	retired bool
@@ -152,9 +156,11 @@ type managedTransport struct {
 }
 
 func (t *managedTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	var connections []weak.Pointer[tls.Conn]
-	var handshakeFailed atomic.Bool
-	var wroteRequest atomic.Bool
+	var (
+		connections     []weak.Pointer[tls.Conn]
+		handshakeFailed atomic.Bool
+		wroteRequest    atomic.Bool
+	)
 	req = req.WithContext(httptrace.WithClientTrace(req.Context(), &httptrace.ClientTrace{
 		WroteHeaders: func() {
 			wroteRequest.Store(true)
@@ -199,13 +205,44 @@ func (t *managedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 		t.mu.Unlock()
 		t.closeRetiredIdleConnections()
 	})
-	resp, err := t.transport.RoundTrip(req)
-	if fallbackReq, ok := requestForTLSFallback(req, err, t.tlsFallbackTransport != nil, handshakeFailed.Load(), wroteRequest.Load()); ok {
-		resp, err = t.tlsFallbackTransport.RoundTrip(fallbackReq)
-		if err == nil {
-			reportTLSFallback(req.Context())
+
+	var (
+		resp        *http.Response
+		err         error
+		useFallback bool
+	)
+
+	// determine if TLS12 fallback transport should be used
+	route := t.tlsFallbackRoute(req)
+	if route != nil {
+		_, useFallback = t.tls12FallbackRoutes.Load(*route)
+	}
+	if useFallback {
+		// if useFallback is true, that means that TLS 1.2 fallback has already happened for this cache key, so send
+		// the request using the TLS 1.2 fallback transport
+		resp, err = t.tls12FallbackTransport.RoundTrip(req)
+	} else {
+		// send the request using the standard transport
+		resp, err = t.transport.RoundTrip(req)
+
+		// if sending the request using standard transport failed, try using the TLS 1.2 fallback transport if the proper
+		// failure conditions are met
+		if err != nil && shouldAttemptTLSFallback(err, t.tls12FallbackTransport != nil, handshakeFailed.Load(), wroteRequest.Load()) {
+			if fallbackReq := requestForTLSFallback(req); fallbackReq != nil {
+				resp, err = t.tls12FallbackTransport.RoundTrip(fallbackReq)
+				if err == nil {
+					// request that used the fallback transport succeeded: store the route so that subsequent requests
+					// use the TLS 1.2 fallback transport without trying the primary transport
+					if route != nil {
+						t.tls12FallbackRoutes.Store(*route, struct{}{})
+					}
+					// report that the fallback occurred
+					reportTLSFallback(req.Context())
+				}
+			}
 		}
 	}
+
 	if err == nil && resp.ProtoMajor == 2 && resp.Body != http.NoBody {
 		resp.Body = &retiringResponseBody{ReadCloser: resp.Body, release: release}
 	} else {
@@ -214,25 +251,29 @@ func (t *managedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	return resp, err
 }
 
-func requestForTLSFallback(req *http.Request, roundTripErr error, fallbackConfigured, handshakeFailed, wroteRequest bool) (*http.Request, bool) {
-	// only retry request if the roundtrip failed due to a timeout error, fallback behavior is enabled, the handshake
-	// failed, and no request bytes were written
-	if !isTimeoutError(roundTripErr) || !fallbackConfigured || !handshakeFailed || wroteRequest || req.Context().Err() != nil {
-		return nil, false
+func shouldAttemptTLSFallback(roundTripErr error, fallbackConfigured, handshakeFailed, wroteRequest bool) bool {
+	return isTimeoutError(roundTripErr) && fallbackConfigured && handshakeFailed && !wroteRequest
+}
+
+func requestForTLSFallback(req *http.Request) *http.Request {
+	// Only retry if the request context remains active. A non-empty body must also be replayable: GetBody must be present
+	// and return a new body successfully.
+	if req.Context().Err() != nil {
+		return nil
 	}
 	fallbackReq := req.Clone(req.Context())
 	if req.Body == nil || req.Body == http.NoBody {
-		return fallbackReq, true
+		return fallbackReq
 	}
 	if req.GetBody == nil {
-		return nil, false
+		return nil
 	}
 	body, err := req.GetBody()
 	if err != nil {
-		return nil, false
+		return nil
 	}
 	fallbackReq.Body = body
-	return fallbackReq, true
+	return fallbackReq
 }
 
 func isTimeoutError(err error) bool {
@@ -247,8 +288,8 @@ func (t *managedTransport) closeRetiredIdleConnections() {
 		return
 	}
 	t.transport.CloseIdleConnections()
-	if t.tlsFallbackTransport != nil {
-		t.tlsFallbackTransport.CloseIdleConnections()
+	if t.tls12FallbackTransport != nil {
+		t.tls12FallbackTransport.CloseIdleConnections()
 	}
 	// Body.Close can return before a canceled HTTP/2 stream finishes teardown.
 	// Close only connections whose callers have all released their responses.

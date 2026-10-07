@@ -27,12 +27,12 @@ import (
 	"encoding/binary"
 	"encoding/pem"
 	"fmt"
+	goversion "go/version"
 	"io"
 	"math/big"
 	"net"
 	"net/http"
 	"runtime"
-	"strings"
 	"testing"
 	"time"
 
@@ -49,8 +49,8 @@ const (
 	mldsa87                          = 0x0906
 )
 
-// TestGo127TLS13HandshakeRegression reproduces golang/go#79626 and
-// golang/go#81199 without relying on an external service. The server models
+// TestGo127TLS13HandshakeRegression reproduces https://github.com/golang/go/issues/79626 and
+// https://github.com/golang/go/issues/81199 without relying on an external service. The server models
 // the non-compliant middlebox from those issues: it stops responding when a
 // TLS 1.3 ClientHello advertises an ML-DSA algorithm in the
 // signature_algorithms_cert extension.
@@ -60,20 +60,25 @@ const (
 // Restricting either toolchain to TLS 1.2 succeeds and provides a control case.
 func TestGo127TLS13HandshakeRegression(t *testing.T) {
 	goVersion := runtime.Version()
-	isGo126 := strings.HasPrefix(goVersion, "go1.26")
-	isGo127 := strings.HasPrefix(goVersion, "go1.27")
-	require.True(t, isGo126 || isGo127, "reproducer must be built with Go 1.26 or 1.27, got %s", goVersion)
+	require.True(t, goversion.IsValid(goVersion), "invalid Go version %q", goVersion)
+	isGo127OrLater := goversion.Compare(goversion.Lang(goVersion), "go1.27") >= 0
 
 	t.Run("TLS 1.3", func(t *testing.T) {
 		server := newClientHelloIntolerantServer(t)
-		resp, err := requestInMemoryServer(t, server.URL(), 0)
+		client := newInMemoryServerClient(t, server.URL(), 0)
+		resp, err := requestInMemoryServer(t, client)
 		require.NoError(t, err)
 		require.NotNil(t, resp)
 		require.NotNil(t, resp.TLS)
-		if isGo127 {
+		if isGo127OrLater {
 			require.Equal(t, uint16(tls.VersionTLS12), resp.TLS.Version)
 			require.True(t, <-server.rejectedClientHello, "server did not observe the incompatible ClientHello")
 			require.False(t, <-server.rejectedClientHello, "server rejected the TLS 1.2 fallback ClientHello")
+
+			resp, err = requestInMemoryServer(t, client)
+			require.NoError(t, err)
+			require.Equal(t, uint16(tls.VersionTLS12), resp.TLS.Version)
+			require.False(t, <-server.rejectedClientHello, "cached route retried the incompatible ClientHello")
 			return
 		}
 
@@ -83,8 +88,9 @@ func TestGo127TLS13HandshakeRegression(t *testing.T) {
 
 	t.Run("fallback disabled", func(t *testing.T) {
 		server := newClientHelloIntolerantServer(t)
-		resp, err := requestInMemoryServer(t, server.URL(), 0, httpclient.WithDisableTLS12FallbackOnTimeout())
-		if isGo127 {
+		client := newInMemoryServerClient(t, server.URL(), 0, httpclient.WithDisableTLS12FallbackOnTimeout())
+		resp, err := requestInMemoryServer(t, client)
+		if isGo127OrLater {
 			require.Error(t, err)
 			require.Nil(t, resp)
 			require.Contains(t, err.Error(), "TLS handshake timeout")
@@ -100,7 +106,8 @@ func TestGo127TLS13HandshakeRegression(t *testing.T) {
 
 	t.Run("TLS 1.2 control", func(t *testing.T) {
 		server := newClientHelloIntolerantServer(t)
-		resp, err := requestInMemoryServer(t, server.URL(), tls.VersionTLS12)
+		client := newInMemoryServerClient(t, server.URL(), tls.VersionTLS12)
+		resp, err := requestInMemoryServer(t, client)
 		require.NoError(t, err)
 		require.NotNil(t, resp)
 		require.NotNil(t, resp.TLS)
@@ -110,8 +117,9 @@ func TestGo127TLS13HandshakeRegression(t *testing.T) {
 }
 
 func TestGo127TLSFallbackMetric(t *testing.T) {
-	if !strings.HasPrefix(runtime.Version(), "go1.27") {
-		t.Skip("Go 1.27 ClientHello is required to exercise the fallback")
+	goVersion := runtime.Version()
+	if !goversion.IsValid(goVersion) || goversion.Compare(goversion.Lang(goVersion), "go1.27") < 0 {
+		t.Skip("Go 1.27 or later ClientHello is required to exercise the fallback")
 	}
 
 	server := newClientHelloIntolerantServer(t)
@@ -132,12 +140,12 @@ func TestGo127TLSFallbackMetric(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, uint16(tls.VersionTLS12), resp.TLS.Version)
 	require.Equal(t, int64(1), registry.Meter(
-		httpclient.MetricTLSFallback,
+		httpclient.MetricTLS12Fallback,
 		metrics.MustNewTag(httpclient.MetricTagServiceName, "tls-fallback-test"),
 	).Count())
 }
 
-func requestInMemoryServer(t *testing.T, url string, maxTLSVersion uint16, additionalParams ...httpclient.ClientParam) (*http.Response, error) {
+func newInMemoryServerClient(t *testing.T, url string, maxTLSVersion uint16, additionalParams ...httpclient.ClientParam) httpclient.Client {
 	t.Helper()
 
 	params := []httpclient.ClientParam{
@@ -154,7 +162,11 @@ func requestInMemoryServer(t *testing.T, url string, maxTLSVersion uint16, addit
 	params = append(params, additionalParams...)
 	client, err := httpclient.NewClient(params...)
 	require.NoError(t, err)
+	return client
+}
 
+func requestInMemoryServer(t *testing.T, client httpclient.Client) (*http.Response, error) {
+	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	return client.Get(ctx)
