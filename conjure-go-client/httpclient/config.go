@@ -134,6 +134,13 @@ type SecurityConfig struct {
 	CertFile string   `json:"cert-file,omitempty" yaml:"cert-file,omitempty"`
 	KeyFile  string   `json:"key-file,omitempty" yaml:"key-file,omitempty"`
 
+	// TLSMinVersion sets the minimum TLS version using crypto/tls version constants.
+	// If unset, the client defaults to TLS 1.2. An explicit zero uses crypto/tls's default.
+	TLSMinVersion *uint16 `json:"tls-min-version,omitempty" yaml:"tls-min-version,omitempty"`
+	// TLSMaxVersion sets the maximum TLS version using crypto/tls version constants.
+	// If unset or zero, the client uses the highest version supported by crypto/tls.
+	TLSMaxVersion *uint16 `json:"tls-max-version,omitempty" yaml:"tls-max-version,omitempty"`
+
 	// InsecureSkipVerify sets the InsecureSkipVerify field for the HTTP client's tls config.
 	// This option should only be used in clients that have other ways to establish trust with servers.
 	InsecureSkipVerify *bool `json:"insecure-skip-verify,omitempty" yaml:"insecure-skip-verify,omitempty"`
@@ -254,6 +261,12 @@ func MergeClientConfig(conf, defaults ClientConfig) ClientConfig {
 	}
 	if conf.Security.KeyFile == "" {
 		conf.Security.KeyFile = defaults.Security.KeyFile
+	}
+	if conf.Security.TLSMinVersion == nil {
+		conf.Security.TLSMinVersion = defaults.Security.TLSMinVersion
+	}
+	if conf.Security.TLSMaxVersion == nil {
+		conf.Security.TLSMaxVersion = defaults.Security.TLSMaxVersion
 	}
 	if conf.Security.InsecureSkipVerify == nil {
 		conf.Security.InsecureSkipVerify = defaults.Security.InsecureSkipVerify
@@ -379,6 +392,12 @@ func getClientTLSParams(c ClientConfig) []ClientParam {
 		WithCAFiles(c.Security.CAFiles),
 		WithKeyAndCertFile(c.Security.KeyFile, c.Security.CertFile),
 	}
+	if c.Security.TLSMinVersion != nil {
+		params = append(params, WithTLSMinVersion(*c.Security.TLSMinVersion))
+	}
+	if c.Security.TLSMaxVersion != nil {
+		params = append(params, WithTLSMaxVersion(*c.Security.TLSMaxVersion))
+	}
 	if derefPtr(c.Security.InsecureSkipVerify, false) {
 		params = append(params, WithTLSInsecureSkipVerify())
 	}
@@ -406,6 +425,8 @@ func newValidatedClientParamsFromConfig(ctx context.Context, config ClientConfig
 		ProxyFromEnvironment:  derefPtr(config.ProxyFromEnvironment, true),
 		TLSHandshakeTimeout:   derefPtr(config.TLSHandshakeTimeout, defaultTLSHandshakeTimeout),
 		TLSConfigurationParams: refreshingclient.TLSConfigurationParams{
+			MinVersion:         config.Security.TLSMinVersion,
+			MaxVersion:         derefPtr(config.Security.TLSMaxVersion, 0),
 			CAFiles:            config.Security.CAFiles,
 			CertFile:           config.Security.CertFile,
 			KeyFile:            config.Security.KeyFile,

@@ -85,7 +85,9 @@ func TestTransportRefreshPreservesUnchangedCAConfiguration(t *testing.T) {
 	for i, path := range paths {
 		createTestCACertFile(t, path, int64(i+1), path)
 	}
-	config := httpclient.ClientConfig{ServiceName: "test", Security: httpclient.SecurityConfig{CAFiles: paths}}
+	config := httpclient.ClientConfig{ServiceName: "test", Security: httpclient.SecurityConfig{
+		CAFiles: paths, TLSMinVersion: new(uint16(tls.VersionTLS12)), TLSMaxVersion: new(uint16(tls.VersionTLS12)),
+	}}
 	configs := refreshable.New(config)
 	extraCAs := refreshable.New([][]byte{generateTestCACertPEM(t, 4, "extra CA")})
 	clients, err := httpclient.NewHTTPClientFromRefreshableConfig(t.Context(), configs,
@@ -95,6 +97,8 @@ func TestTransportRefreshPreservesUnchangedCAConfiguration(t *testing.T) {
 	initialPool := unwrapTransport(clients.Current().Transport).TLSClientConfig.RootCAs
 	require.Equal(t, uint16(tls.VersionTLS13), unwrapTransport(clients.Current().Transport).TLSClientConfig.MinVersion)
 	require.Equal(t, uint16(tls.VersionTLS13), unwrapTransport(clients.Current().Transport).TLSClientConfig.MaxVersion)
+	config.Security.TLSMinVersion = new(uint16(0))
+	config.Security.TLSMaxVersion = new(uint16(0))
 	for i := range 32 {
 		config.MaxIdleConns = new(50 + i)
 		configs.Update(config)
