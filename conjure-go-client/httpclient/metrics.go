@@ -24,6 +24,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/palantir/conjure-go-runtime/v3/conjure-go-client/httpclient/internal/refreshingclient"
 	"github.com/palantir/pkg/metrics"
 	"github.com/palantir/pkg/refreshable/v2"
 	werror "github.com/palantir/witchcraft-go-error"
@@ -39,6 +40,7 @@ const (
 	MetricTLSHandshakeAttempt = "tls.handshake.attempt"
 	MetricTLSHandshakeFailure = "tls.handshake.failure"
 	MetricTLSHandshake        = "tls.handshake"
+	MetricTLSFallback         = "tls.handshake.fallback"
 	CipherTagKey              = "cipher"
 	NextProtocolTagKey        = "next_protocol"
 	TLSVersionTagKey          = "tls_version"
@@ -123,6 +125,9 @@ func (h *metricsMiddleware) RoundTrip(req *http.Request, next http.RoundTripper)
 	registry.Counter(MetricRequestInFlight, serviceNameTag).Inc(1)
 	start := time.Now()
 	tlsMetricsContext := h.tlsTraceContext(req.Context(), registry, serviceNameTag)
+	tlsMetricsContext = refreshingclient.WithTLSFallbackReporter(tlsMetricsContext, func() {
+		registry.Meter(MetricTLSFallback, serviceNameTag).Mark(1)
+	})
 	resp, err := next.RoundTrip(req.WithContext(tlsMetricsContext))
 	duration := time.Since(start)
 	registry.Counter(MetricRequestInFlight, serviceNameTag).Dec(1)

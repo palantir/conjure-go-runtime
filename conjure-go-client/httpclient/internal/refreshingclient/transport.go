@@ -17,13 +17,16 @@ package refreshingclient
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptrace"
 	"net/url"
 	"runtime"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 	"weak"
 
@@ -33,18 +36,19 @@ import (
 )
 
 type TransportParams struct {
-	MaxIdleConns          int
-	MaxIdleConnsPerHost   int
-	DisableHTTP2          bool
-	DisableKeepAlives     bool
-	IdleConnTimeout       time.Duration
-	ExpectContinueTimeout time.Duration
-	ResponseHeaderTimeout time.Duration
-	TLSHandshakeTimeout   time.Duration
-	ProxyURL              *url.URL
-	ProxyFromEnvironment  bool
-	HTTP2ReadIdleTimeout  time.Duration
-	HTTP2PingTimeout      time.Duration
+	MaxIdleConns                  int
+	MaxIdleConnsPerHost           int
+	DisableHTTP2                  bool
+	DisableKeepAlives             bool
+	IdleConnTimeout               time.Duration
+	ExpectContinueTimeout         time.Duration
+	ResponseHeaderTimeout         time.Duration
+	TLSHandshakeTimeout           time.Duration
+	ProxyURL                      *url.URL
+	ProxyFromEnvironment          bool
+	HTTP2ReadIdleTimeout          time.Duration
+	HTTP2PingTimeout              time.Duration
+	DisableTLS12FallbackOnTimeout bool
 
 	TLSConfigurationParams TLSConfigurationParams
 }
@@ -73,7 +77,16 @@ func NewRefreshableTransport(ctx context.Context, p refreshable.Refreshable[Tran
 		} else {
 			svc1log.FromContext(ctx).Debug("Reconstructing HTTP Transport")
 		}
-		state := &managedTransport{transport: newTransport(ctx, input.params, input.tls.config(), dialer)}
+		tlsConfig := input.tls.config()
+		state := &managedTransport{transport: newTransport(ctx, input.params, tlsConfig, dialer)}
+		// if TLS 1.2 fallback behavior on timeouts is enabled and the TLS configuration supports both TLS >=1.3 and
+		// TLS 1.2, create and set the tlsFallbackTransport to be a Transport that is equivalent to transport except for
+		// the TLS configuration having a max version of tls.VersionTLS12.
+		if !input.params.DisableTLS12FallbackOnTimeout && allowsTLS13OrLaterAndTLS12(tlsConfig) {
+			fallbackTLSConfig := tlsConfig.Clone()
+			fallbackTLSConfig.MaxVersion = tls.VersionTLS12
+			state.tlsFallbackTransport = newTransport(ctx, input.params, fallbackTLSConfig, dialer)
+		}
 		return func() *managedTransport { return state }
 	})
 	var previous *managedTransport
@@ -116,11 +129,21 @@ func (r *RefreshableTransport) RoundTrip(req *http.Request) (*http.Response, err
 }
 
 func (r *RefreshableTransport) CloseIdleConnections() {
-	r.CurrentTransport().CloseIdleConnections()
+	state := r.states.Current()()
+	state.transport.CloseIdleConnections()
+	if state.tlsFallbackTransport != nil {
+		state.tlsFallbackTransport.CloseIdleConnections()
+	}
 }
 
 type managedTransport struct {
 	transport *http.Transport
+
+	// tlsFallbackTransport is the Transport that is used if the request using transport fails due to a TLS handshake
+	// timeout. Currently, this is scoped specifically to be a Transport that is equivalent to transport in all ways
+	// except for MaxVersion being set to tls.VersionTLS12. This value is non-nil only if the fallback behavior is not
+	// disabled and if the configuration that created this managedTransport supports both TLS 1.3 and 1.2.
+	tlsFallbackTransport *http.Transport
 
 	mu      sync.Mutex
 	retired bool
@@ -130,7 +153,17 @@ type managedTransport struct {
 
 func (t *managedTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	var connections []weak.Pointer[tls.Conn]
+	var handshakeFailed atomic.Bool
+	var wroteRequest atomic.Bool
 	req = req.WithContext(httptrace.WithClientTrace(req.Context(), &httptrace.ClientTrace{
+		WroteHeaders: func() {
+			wroteRequest.Store(true)
+		},
+		TLSHandshakeDone: func(_ tls.ConnectionState, err error) {
+			if err != nil {
+				handshakeFailed.Store(true)
+			}
+		},
 		GotConn: func(info httptrace.GotConnInfo) {
 			conn, ok := info.Conn.(*tls.Conn)
 			if !ok || conn.ConnectionState().NegotiatedProtocol != http2.NextProtoTLS {
@@ -167,12 +200,44 @@ func (t *managedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 		t.closeRetiredIdleConnections()
 	})
 	resp, err := t.transport.RoundTrip(req)
+	if fallbackReq, ok := requestForTLSFallback(req, err, t.tlsFallbackTransport != nil, handshakeFailed.Load(), wroteRequest.Load()); ok {
+		resp, err = t.tlsFallbackTransport.RoundTrip(fallbackReq)
+		if err == nil {
+			reportTLSFallback(req.Context())
+		}
+	}
 	if err == nil && resp.ProtoMajor == 2 && resp.Body != http.NoBody {
 		resp.Body = &retiringResponseBody{ReadCloser: resp.Body, release: release}
 	} else {
 		release()
 	}
 	return resp, err
+}
+
+func requestForTLSFallback(req *http.Request, roundTripErr error, fallbackConfigured, handshakeFailed, wroteRequest bool) (*http.Request, bool) {
+	// only retry request if the roundtrip failed due to a timeout error, fallback behavior is enabled, the handshake
+	// failed, and no request bytes were written
+	if !isTimeoutError(roundTripErr) || !fallbackConfigured || !handshakeFailed || wroteRequest || req.Context().Err() != nil {
+		return nil, false
+	}
+	fallbackReq := req.Clone(req.Context())
+	if req.Body == nil || req.Body == http.NoBody {
+		return fallbackReq, true
+	}
+	if req.GetBody == nil {
+		return nil, false
+	}
+	body, err := req.GetBody()
+	if err != nil {
+		return nil, false
+	}
+	fallbackReq.Body = body
+	return fallbackReq, true
+}
+
+func isTimeoutError(err error) bool {
+	var netErr net.Error
+	return errors.As(err, &netErr) && netErr.Timeout()
 }
 
 func (t *managedTransport) closeRetiredIdleConnections() {
@@ -182,6 +247,9 @@ func (t *managedTransport) closeRetiredIdleConnections() {
 		return
 	}
 	t.transport.CloseIdleConnections()
+	if t.tlsFallbackTransport != nil {
+		t.tlsFallbackTransport.CloseIdleConnections()
+	}
 	// Body.Close can return before a canceled HTTP/2 stream finishes teardown.
 	// Close only connections whose callers have all released their responses.
 	for key, requests := range t.connections {
@@ -193,6 +261,16 @@ func (t *managedTransport) closeRetiredIdleConnections() {
 		}
 	}
 	t.mu.Unlock()
+}
+
+// allowsTLS13OrLaterAndTLS12 returns true if the provided configuration allows using both TLS >=1.3 and TLS 1.2, false
+// otherwise.
+func allowsTLS13OrLaterAndTLS12(config *tls.Config) bool {
+	// The configuration must permit both TLS 1.3 and TLS 1.2. An
+	// explicit TLS 1.3-only or TLS 1.2-only configuration is respected.
+	permitsTLS13 := config.MinVersion <= tls.VersionTLS13 && (config.MaxVersion == 0 || config.MaxVersion >= tls.VersionTLS13)
+	permitsTLS12 := config.MinVersion <= tls.VersionTLS12 && (config.MaxVersion == 0 || config.MaxVersion >= tls.VersionTLS12)
+	return permitsTLS13 && permitsTLS12
 }
 
 type retiringResponseBody struct {

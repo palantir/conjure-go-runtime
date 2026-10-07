@@ -56,6 +56,8 @@ type ClientConfig struct {
 	BasicAuth *BasicAuth `json:"basic-auth,omitempty" yaml:"basic-auth,omitempty"`
 	// DisableHTTP2, if true, will prevent the client from modifying the *tls.Config object to support H2 connections.
 	DisableHTTP2 *bool `json:"disable-http2,omitempty" yaml:"disable-http2,omitempty"`
+	// DisableTLS13To12Fallback, if true, disables retrying a timed-out TLS 1.3-capable handshake with TLS 1.2.
+	DisableTLS13To12Fallback *bool `json:"disable-tls13-to12-fallback,omitempty" yaml:"disable-tls13-to12-fallback,omitempty"`
 	// ProxyFromEnvironment enables reading HTTP proxy information from environment variables.
 	// See 'http.ProxyFromEnvironment' documentation for specific behavior.
 	ProxyFromEnvironment *bool `json:"proxy-from-environment,omitempty" yaml:"proxy-from-environment,omitempty"`
@@ -229,6 +231,9 @@ func MergeClientConfig(conf, defaults ClientConfig) ClientConfig {
 	if conf.DisableHTTP2 == nil {
 		conf.DisableHTTP2 = defaults.DisableHTTP2
 	}
+	if conf.DisableTLS13To12Fallback == nil {
+		conf.DisableTLS13To12Fallback = defaults.DisableTLS13To12Fallback
+	}
 	if conf.ProxyFromEnvironment == nil {
 		conf.ProxyFromEnvironment = defaults.ProxyFromEnvironment
 	}
@@ -292,6 +297,9 @@ func configToParams(c ClientConfig) ([]ClientParam, error) {
 	// Disable HTTP2 (http2 is enabled by default)
 	if c.DisableHTTP2 != nil && *c.DisableHTTP2 {
 		params = append(params, WithDisableHTTP2())
+	}
+	if c.DisableTLS13To12Fallback != nil && *c.DisableTLS13To12Fallback {
+		params = append(params, WithDisableTLS12FallbackOnTimeout())
 	}
 
 	// Retries
@@ -395,16 +403,17 @@ func newValidatedClientParamsFromConfig(ctx context.Context, config ClientConfig
 	}
 
 	transport := refreshingclient.TransportParams{
-		MaxIdleConns:          derefPtr(config.MaxIdleConns, defaultMaxIdleConns),
-		MaxIdleConnsPerHost:   derefPtr(config.MaxIdleConnsPerHost, defaultMaxIdleConnsPerHost),
-		DisableHTTP2:          derefPtr(config.DisableHTTP2, false),
-		IdleConnTimeout:       derefPtr(config.IdleConnTimeout, defaultIdleConnTimeout),
-		ExpectContinueTimeout: derefPtr(config.ExpectContinueTimeout, defaultExpectContinueTimeout),
-		ResponseHeaderTimeout: derefPtr(config.ResponseHeaderTimeout, 0),
-		HTTP2PingTimeout:      derefPtr(config.HTTP2PingTimeout, defaultHTTP2PingTimeout),
-		HTTP2ReadIdleTimeout:  derefPtr(config.HTTP2ReadIdleTimeout, defaultHTTP2ReadIdleTimeout),
-		ProxyFromEnvironment:  derefPtr(config.ProxyFromEnvironment, true),
-		TLSHandshakeTimeout:   derefPtr(config.TLSHandshakeTimeout, defaultTLSHandshakeTimeout),
+		MaxIdleConns:                  derefPtr(config.MaxIdleConns, defaultMaxIdleConns),
+		MaxIdleConnsPerHost:           derefPtr(config.MaxIdleConnsPerHost, defaultMaxIdleConnsPerHost),
+		DisableHTTP2:                  derefPtr(config.DisableHTTP2, false),
+		DisableTLS12FallbackOnTimeout: derefPtr(config.DisableTLS13To12Fallback, false),
+		IdleConnTimeout:               derefPtr(config.IdleConnTimeout, defaultIdleConnTimeout),
+		ExpectContinueTimeout:         derefPtr(config.ExpectContinueTimeout, defaultExpectContinueTimeout),
+		ResponseHeaderTimeout:         derefPtr(config.ResponseHeaderTimeout, 0),
+		HTTP2PingTimeout:              derefPtr(config.HTTP2PingTimeout, defaultHTTP2PingTimeout),
+		HTTP2ReadIdleTimeout:          derefPtr(config.HTTP2ReadIdleTimeout, defaultHTTP2ReadIdleTimeout),
+		ProxyFromEnvironment:          derefPtr(config.ProxyFromEnvironment, true),
+		TLSHandshakeTimeout:           derefPtr(config.TLSHandshakeTimeout, defaultTLSHandshakeTimeout),
 		TLSConfigurationParams: refreshingclient.TLSConfigurationParams{
 			CAFiles:            config.Security.CAFiles,
 			CertFile:           config.Security.CertFile,

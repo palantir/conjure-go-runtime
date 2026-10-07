@@ -122,6 +122,22 @@ clients:
 			},
 		},
 		{
+			Name: "TLS fallback disabled",
+			ServicesConfigYAML: `
+clients:
+  services:
+    my-service:
+      disable-tls13-to12-fallback: true
+`,
+			ExpectedConfig: ServicesConfig{
+				Services: map[string]ClientConfig{
+					"my-service": {
+						DisableTLS13To12Fallback: &[]bool{true}[0],
+					},
+				},
+			},
+		},
+		{
 			Name: "basic-auth configuration",
 			ServicesConfigYAML: `
 clients:

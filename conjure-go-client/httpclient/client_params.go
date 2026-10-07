@@ -275,6 +275,28 @@ func WithDisableHTTP2() ClientOrHTTPClientParam {
 	})
 }
 
+// WithDisableTLS12FallbackOnTimeout disables retrying a timed-out TLS handshake using TLS 1.2 for clients configured to
+// support TLS 1.3 or later.
+//
+// By default, if the client is configured to support both TLS >=1.3 and 1.2 and the initial handshake times out before
+// any HTTP request bytes are written, the client retries the handshake using TLS 1.2. This option disables that
+// behavior. Although the intent is to retry only failed TLS 1.3 handshakes, due to the manner in which the Go APIs are
+// structured, this behavior is based purely on the client configuration (if a client is configured to support TLS 1.3+
+// but actually tries negotiating a TLS 1.2 connection and that times out, the connection will still be retried).
+//
+// The TLS 1.2 fallback behavior exists to handle the issue outlined in https://github.com/golang/go/issues/79626 where
+// HTTP clients built using Go 1.27 that negotiate TLS 1.3 connections can exhibit timeouts not observed when building
+// using Go 1.26 or earlier in certain environments/cirumstances.
+func WithDisableTLS12FallbackOnTimeout() ClientOrHTTPClientParam {
+	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
+		b.TransportParams = refreshable.View(b.TransportParams, func(p refreshingclient.TransportParams) refreshingclient.TransportParams {
+			p.DisableTLS12FallbackOnTimeout = true
+			return p
+		})
+		return nil
+	})
+}
+
 // WithHTTP2ReadIdleTimeout configures the HTTP/2 ReadIdleTimeout.
 // A ReadIdleTimeout > 0 will enable health checks and allows broken/idle
 // connections to be pruned more quickly, preventing the client from
