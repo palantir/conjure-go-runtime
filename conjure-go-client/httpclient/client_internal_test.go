@@ -53,6 +53,6 @@ func TestClientBalancedScoringAttributesBasePath(t *testing.T) {
 	assert.Equal(t, "/failing/base/rpc", <-requestPath)
 	assert.Equal(t,
 		[]string{healthyURI, failingURI},
-		client.uriScorer.CurrentURIScoringMiddleware().GetURIsInOrderOfIncreasingScore(),
+		client.uriScorer.CurrentURIScoringMiddleware().GetURIsInOrderOfIncreasingScore(nil),
 	)
 }

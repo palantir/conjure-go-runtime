@@ -102,7 +102,11 @@ func (s *stickyClient) currentPin() (pin, bool) {
 // yet, and if it succeeds, establishes the pin as the URI that served the response. If another
 // concurrent call has already established a pin by the time this one succeeds, that earlier pin wins.
 func (s *stickyClient) doAndMaybePin(ctx context.Context, params ...RequestParam) (*http.Response, error) {
-	uris, attempts := s.parent.currentURIsAndMaxAttempts()
+	headers, err := getHeadersFromRequestParams(params...)
+	if err != nil {
+		return nil, err
+	}
+	uris, attempts := s.parent.currentURIsAndMaxAttempts(headers)
 	if len(uris) == 0 {
 		return nil, werror.WrapWithContextParams(ctx, ErrEmptyURIs, "", werror.SafeParam("serviceName", s.parent.serviceName.Current()))
 	}
@@ -130,7 +134,7 @@ func (s *stickyClient) doWithPin(ctx context.Context, p pin, params ...RequestPa
 }
 
 func (s *stickyClient) pinIsCurrent(pinnedURI string) bool {
-	uris := s.parent.uriScorer.CurrentURIScoringMiddleware().GetURIsInOrderOfIncreasingScore()
+	uris := s.parent.uriScorer.CurrentURIScoringMiddleware().GetURIsInOrderOfIncreasingScore(nil)
 	return slices.Contains(uris, pinnedURI)
 }
 
