@@ -33,6 +33,7 @@ import (
 	"net"
 	"net/http"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -114,6 +115,56 @@ func TestGo127TLS13HandshakeRegression(t *testing.T) {
 		require.Equal(t, uint16(tls.VersionTLS12), resp.TLS.Version)
 		require.False(t, <-server.rejectedClientHello)
 	})
+
+	t.Run("replayable POST body", func(t *testing.T) {
+		server := newClientHelloIntolerantServer(t)
+		client := newInMemoryServerClient(t, server.URL(), 0)
+		const body = "replayable request body"
+		resp, err := requestInMemoryServerPost(t, client, httpclient.RequestBodyStreamWithReplay(func() io.ReadCloser {
+			return io.NopCloser(strings.NewReader(body))
+		}))
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		if isGo127OrLater {
+			require.Equal(t, uint16(tls.VersionTLS12), resp.TLS.Version)
+			require.True(t, <-server.rejectedClientHello)
+			require.False(t, <-server.rejectedClientHello)
+		} else {
+			require.Equal(t, uint16(tls.VersionTLS13), resp.TLS.Version)
+			require.False(t, <-server.rejectedClientHello)
+		}
+		received := <-server.receivedRequests
+		require.Equal(t, http.MethodPost, received.method)
+		require.Equal(t, body, received.body)
+		require.Empty(t, server.receivedRequests, "server received the POST more than once")
+	})
+
+	t.Run("non-replayable POST body", func(t *testing.T) {
+		server := newClientHelloIntolerantServer(t)
+		client := newInMemoryServerClient(t, server.URL(), 0)
+		const body = "non-replayable request body"
+		bodyReader := strings.NewReader(body)
+		resp, err := requestInMemoryServerPost(t, client, httpclient.RequestBodyStreamOnce(func() io.ReadCloser {
+			return io.NopCloser(bodyReader)
+		}))
+		if isGo127OrLater {
+			require.Error(t, err)
+			require.Nil(t, resp)
+			require.Contains(t, err.Error(), "TLS handshake timeout")
+			require.True(t, <-server.rejectedClientHello)
+			require.Equal(t, len(body), bodyReader.Len(), "body was read before the TLS handshake completed")
+			require.Empty(t, server.receivedRequests)
+			return
+		}
+
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		require.Equal(t, uint16(tls.VersionTLS13), resp.TLS.Version)
+		require.False(t, <-server.rejectedClientHello)
+		received := <-server.receivedRequests
+		require.Equal(t, http.MethodPost, received.method)
+		require.Equal(t, body, received.body)
+	})
 }
 
 func TestGo127TLSFallbackMetric(t *testing.T) {
@@ -172,9 +223,22 @@ func requestInMemoryServer(t *testing.T, client httpclient.Client) (*http.Respon
 	return client.Get(ctx)
 }
 
+func requestInMemoryServerPost(t *testing.T, client httpclient.Client, body httpclient.RequestBody) (*http.Response, error) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	return client.Post(ctx, httpclient.WithBinaryRequestBody(body))
+}
+
+type receivedRequest struct {
+	method string
+	body   string
+}
+
 type clientHelloIntolerantServer struct {
 	listener            net.Listener
 	rejectedClientHello chan bool
+	receivedRequests    chan receivedRequest
 }
 
 func newClientHelloIntolerantServer(t *testing.T) *clientHelloIntolerantServer {
@@ -185,6 +249,7 @@ func newClientHelloIntolerantServer(t *testing.T) *clientHelloIntolerantServer {
 	server := &clientHelloIntolerantServer{
 		listener:            listener,
 		rejectedClientHello: make(chan bool, 2),
+		receivedRequests:    make(chan receivedRequest, 2),
 	}
 	t.Cleanup(func() { require.NoError(t, listener.Close()) })
 
@@ -233,9 +298,16 @@ func (s *clientHelloIntolerantServer) serveConnection(conn net.Conn, tlsConfig *
 	if err := tlsConn.Handshake(); err != nil {
 		return
 	}
-	if _, err := http.ReadRequest(bufio.NewReader(tlsConn)); err != nil {
+	req, err := http.ReadRequest(bufio.NewReader(tlsConn))
+	if err != nil {
 		return
 	}
+	body, err := io.ReadAll(req.Body)
+	if err != nil {
+		return
+	}
+	_ = req.Body.Close()
+	s.receivedRequests <- receivedRequest{method: req.Method, body: string(body)}
 	_, _ = io.WriteString(tlsConn, "HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
 }
 

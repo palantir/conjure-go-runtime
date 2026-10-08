@@ -65,7 +65,7 @@ func (t *managedTransport) tlsFallbackRoute(req *http.Request) *tlsFallbackRoute
 }
 
 // canonicalAuthority returns the URL authority as a canonical host and effective port. It returns nil when the URL has
-// no hostname or its hostname cannot be converted to a valid ASCII representation. Does not make any network calls.
+// no hostname. Hostnames that cannot be converted to ASCII are retained and lowercased. Does not make network calls.
 func canonicalAuthority(u *url.URL, fallbackPort string) *string {
 	host := u.Hostname()
 	if host == "" {
@@ -73,12 +73,10 @@ func canonicalAuthority(u *url.URL, fallbackPort string) *string {
 	}
 	if addr, err := netip.ParseAddr(host); err == nil {
 		host = addr.String()
-	} else {
-		asciiHost, err := idna.Lookup.ToASCII(host)
-		if err != nil {
-			return nil
-		}
+	} else if asciiHost, err := idna.Lookup.ToASCII(host); err == nil {
 		host = strings.ToLower(asciiHost)
+	} else {
+		host = strings.ToLower(host)
 	}
 	port := u.Port()
 	if port == "" {

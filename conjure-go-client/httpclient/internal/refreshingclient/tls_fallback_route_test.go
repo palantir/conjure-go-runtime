@@ -35,6 +35,16 @@ func TestTLSFallbackRoute(t *testing.T) {
 		require.Equal(t, "example.com:443", first.originAuthority)
 	})
 
+	t.Run("hostname rejected by IDNA", func(t *testing.T) {
+		transport := &managedTransport{transport: &http.Transport{}, tls12FallbackTransport: fallbackTransport}
+		first := transport.tlsFallbackRoute(newRequest(t, "https://MY_SERVICE.internal/path"))
+		require.NotNil(t, first)
+		second := transport.tlsFallbackRoute(newRequest(t, "https://my_service.internal:443/other"))
+		require.NotNil(t, second)
+		require.Equal(t, first, second)
+		require.Equal(t, "my_service.internal:443", first.originAuthority)
+	})
+
 	t.Run("proxy is part of route", func(t *testing.T) {
 		proxyURL, err := url.Parse("http://user:password@PROXY.example.com:8080")
 		require.NoError(t, err)
