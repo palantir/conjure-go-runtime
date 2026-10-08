@@ -63,6 +63,17 @@ Note that this customizability may change in a future major release (see [#80](h
 
 HTTP2 support is enabled by default in the generated client. If this _must_ be disabled, use the `httpclient.DisableHTTP2()` ClientParam.
 
+### TLS 1.2 fallback on TLS handshake timeout
+
+Clients whose TLS configuration permits both TLS 1.3 or later and TLS 1.2 retry a timed-out TLS handshake using TLS 1.2.
+This is to handle https://github.com/golang/go/issues/81199 for binaries built using Go 1.27+. After a successful
+fallback, later requests to the same canonical origin through the same proxy route use the TLS 1.2 transport directly,
+including its reusable connections. This fallback routing lasts for the current transport configuration and is cleared
+when the transport or TLS configuration refreshes.
+
+Use `httpclient.WithDisableTLS12FallbackOnTimeout()` or set `disable-tls12-fallback: true` in client configuration
+to disable this behavior.
+
 ### Metrics
 
 The `httpclient.Metrics` ClientParam enables the `client.response` timer metric.
