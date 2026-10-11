@@ -37,13 +37,18 @@ type bodyMiddleware struct {
 }
 
 func (b *bodyMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (*http.Response, error) {
-	cleanup, err := b.setRequestBody(req)
+	requestBody, cleanup, err := b.requestBody(req)
+	if cleanup != nil {
+		defer cleanup()
+	}
 	if err != nil {
+		return nil, err
+	}
+	if err := requestBody.setRequestBody(req); err != nil {
 		return nil, err
 	}
 
 	resp, respErr := next.RoundTrip(req)
-	cleanup()
 
 	if err := b.readResponse(resp, respErr); err != nil {
 		return nil, err
@@ -52,10 +57,10 @@ func (b *bodyMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (*
 	return resp, nil
 }
 
-// setRequestBody returns a function that should be called once the request has been completed.
-func (b *bodyMiddleware) setRequestBody(req *http.Request) (func(), error) {
-	cleanup := func() {}
+// requestBody returns a body and a function that should be called once the request has been completed.
+func (b *bodyMiddleware) requestBody(req *http.Request) (RequestBody, func(), error) {
 	var requestBody RequestBody
+	var cleanup func()
 
 	if b.requestInput == nil {
 		requestBody = RequestBodyEmpty()
@@ -76,11 +81,11 @@ func (b *bodyMiddleware) setRequestBody(req *http.Request) (func(), error) {
 		// use the provided input directly as the request body.
 		requestBody = body
 	} else {
-		return nil, werror.ErrorWithContextParams(req.Context(), "requestEncoder is nil but requestInput is not RequestBody",
+		return nil, nil, werror.ErrorWithContextParams(req.Context(), "requestEncoder is nil but requestInput is not RequestBody",
 			werror.SafeParam("requestInputType", fmt.Sprintf("%T", b.requestInput)))
 	}
 
-	return cleanup, requestBody.setRequestBody(req)
+	return requestBody, cleanup, nil
 }
 
 // returns true if the request body is a noRetriesRequestBody

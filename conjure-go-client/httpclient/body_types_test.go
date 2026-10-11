@@ -16,6 +16,7 @@ package httpclient
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"strings"
 	"testing"
@@ -104,4 +105,63 @@ func TestRetrieveRequestBodyReader(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestRequestBodyClosesBodyReturnedWithError(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		body func(io.ReadCloser) RequestBody
+	}{
+		{
+			name: "stream once",
+			body: func(body io.ReadCloser) RequestBody {
+				return RequestBodyStreamOnce(func() (io.ReadCloser, error) {
+					return body, errors.New("failed to create body")
+				})
+			},
+		},
+		{
+			name: "replayable stream",
+			body: func(body io.ReadCloser) RequestBody {
+				return RequestBodyStreamWithReplay(func() (io.ReadCloser, error) {
+					return body, errors.New("failed to create body")
+				})
+			},
+		},
+		{
+			name: "stream once with content length",
+			body: func(body io.ReadCloser) RequestBody {
+				return RequestBodyStreamOnce(func() (io.ReadCloser, int64, error) {
+					return body, 7, errors.New("failed to create body")
+				})
+			},
+		},
+		{
+			name: "replayable stream with content length",
+			body: func(body io.ReadCloser) RequestBody {
+				return RequestBodyStreamWithReplay(func() (io.ReadCloser, int64, error) {
+					return body, 7, errors.New("failed to create body")
+				})
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			body := &closeTrackingReader{Reader: strings.NewReader("request")}
+			reader, _, err := RetrieveReaderFromRequestBody(tc.body(body))
+
+			require.EqualError(t, err, "failed to create body")
+			assert.Nil(t, reader)
+			assert.Equal(t, 1, body.closes)
+		})
+	}
+}
+
+type closeTrackingReader struct {
+	io.Reader
+	closes int
+}
+
+func (r *closeTrackingReader) Close() error {
+	r.closes++
+	return nil
 }
