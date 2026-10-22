@@ -499,6 +499,19 @@ func WithDynamicCertReload() ClientOrHTTPClientParam {
 	})
 }
 
+// WithTLSDisableSystemCertPool disables trusting system CA certificates, using only explicitly configured CAs.
+// If no CAs are configured, the client trusts no server certificates.
+// This option has no effect when WithTLSConfig supplies a custom TLS configuration.
+func WithTLSDisableSystemCertPool() ClientOrHTTPClientParam {
+	return clientOrHTTPClientParamFunc(func(b *httpClientBuilder) error {
+		b.TransportParams = refreshable.View(b.TransportParams, func(p refreshingclient.TransportParams) refreshingclient.TransportParams {
+			p.TLSConfigurationParams.DisableSystemCertPool = true
+			return p
+		})
+		return nil
+	})
+}
+
 // WithCAFiles sets the CA certificate file paths for the client's TLS configuration.
 // The files are read when the client is created and periodically refreshed to support certificate rotation.
 func WithCAFiles(CAFiles []string) ClientOrHTTPClientParam {

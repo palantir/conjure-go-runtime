@@ -54,13 +54,14 @@ type TransportParams struct {
 }
 
 type TLSConfigurationParams struct {
-	MinVersion         *uint16
-	MaxVersion         uint16
-	CAFiles            []string
-	CertFile           string
-	KeyFile            string
-	InsecureSkipVerify bool
-	DynamicCertReload  bool
+	MinVersion            *uint16
+	MaxVersion            uint16
+	CAFiles               []string
+	CertFile              string
+	KeyFile               string
+	InsecureSkipVerify    bool
+	DynamicCertReload     bool
+	DisableSystemCertPool bool
 }
 
 func NewRefreshableTransport(ctx context.Context, p refreshable.Refreshable[TransportParams], refreshableConfig refreshable.Validated[*TLSConfig], dialer ContextDialer) http.RoundTripper {

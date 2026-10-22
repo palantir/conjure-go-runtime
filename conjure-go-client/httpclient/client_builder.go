@@ -150,13 +150,14 @@ func (b *httpClientBuilder) getRefreshableTLSConfig(ctx context.Context) (refres
 			caBytes = append(caBytes, t2[path])
 		}
 		return refreshingclient.TLSParams{
-			MinVersion:         t1.TLSConfigurationParams.MinVersion,
-			MaxVersion:         t1.TLSConfigurationParams.MaxVersion,
-			CABytes:            caBytes,
-			CertFile:           t1.TLSConfigurationParams.CertFile,
-			KeyFile:            t1.TLSConfigurationParams.KeyFile,
-			InsecureSkipVerify: t1.TLSConfigurationParams.InsecureSkipVerify,
-			DynamicCertReload:  t1.TLSConfigurationParams.DynamicCertReload,
+			MinVersion:            t1.TLSConfigurationParams.MinVersion,
+			MaxVersion:            t1.TLSConfigurationParams.MaxVersion,
+			CABytes:               caBytes,
+			CertFile:              t1.TLSConfigurationParams.CertFile,
+			KeyFile:               t1.TLSConfigurationParams.KeyFile,
+			InsecureSkipVerify:    t1.TLSConfigurationParams.InsecureSkipVerify,
+			DynamicCertReload:     t1.TLSConfigurationParams.DynamicCertReload,
+			DisableSystemCertPool: t1.TLSConfigurationParams.DisableSystemCertPool,
 		}
 	})
 	if b.TLSCABytes != nil {
