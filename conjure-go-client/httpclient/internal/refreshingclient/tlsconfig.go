@@ -29,13 +29,14 @@ import (
 // TLSParams contains the parameters needed to build a *tls.Config.
 // Its fields must all be compatible with reflect.DeepEqual.
 type TLSParams struct {
-	MinVersion         *uint16
-	MaxVersion         uint16
-	CABytes            [][]byte
-	CertFile           string
-	KeyFile            string
-	InsecureSkipVerify bool
-	DynamicCertReload  bool
+	MinVersion            *uint16
+	MaxVersion            uint16
+	CABytes               [][]byte
+	CertFile              string
+	KeyFile               string
+	InsecureSkipVerify    bool
+	DynamicCertReload     bool
+	DisableSystemCertPool bool
 }
 
 // TLSConfig hides live TLS state from reflect.DeepEqual. Reusing the pointer
@@ -82,16 +83,20 @@ func NewRefreshableTLSConfig(ctx context.Context, params refreshable.Validated[T
 // NewTLSConfig returns a *tls.Config built from the provided TLSParams.
 func NewTLSConfig(ctx context.Context, p TLSParams) (*tls.Config, error) {
 	var tlsParams []tlsconfig.ClientParam
-	if len(p.CABytes) > 0 {
+	if len(p.CABytes) > 0 || p.DisableSystemCertPool {
 		var certPoolOptions []tlsconfig.CertPoolOption
 		for _, ca := range p.CABytes {
 			if len(ca) > 0 {
 				certPoolOptions = append(certPoolOptions, tlsconfig.CertPoolOptionCABytes(ca))
 			}
 		}
-		certPool, err := x509.SystemCertPool()
-		if err != nil {
-			return nil, werror.WrapWithContextParams(ctx, err, "failed to build SystemCertPool")
+		certPool := x509.NewCertPool()
+		if !p.DisableSystemCertPool {
+			var err error
+			certPool, err = x509.SystemCertPool()
+			if err != nil {
+				return nil, werror.WrapWithContextParams(ctx, err, "building system certificate pool")
+			}
 		}
 		tlsParams = append(tlsParams, tlsconfig.ClientRootCAs(tlsconfig.AugmentCertPoolWithCertPoolOptions(certPool, certPoolOptions)))
 	}

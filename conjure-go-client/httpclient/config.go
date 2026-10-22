@@ -151,6 +151,9 @@ type SecurityConfig struct {
 	// DynamicCertReload enables re-reading client TLS cert/key files on each TLS handshake.
 	// When enabled, rotated certificates are picked up without restarting the process.
 	DynamicCertReload *bool `json:"dynamic-cert-reload,omitempty" yaml:"dynamic-cert-reload,omitempty"`
+
+	// DisableSystemCertPool disables trusting system CA certificates, using only explicitly configured CAs.
+	DisableSystemCertPool *bool `json:"disable-system-cert-pool,omitempty" yaml:"disable-system-cert-pool,omitempty"`
 }
 
 // MustClientConfig returns an error if the service name is not configured.
@@ -279,6 +282,9 @@ func MergeClientConfig(conf, defaults ClientConfig) ClientConfig {
 	}
 	if conf.Security.DynamicCertReload == nil {
 		conf.Security.DynamicCertReload = defaults.Security.DynamicCertReload
+	}
+	if conf.Security.DisableSystemCertPool == nil {
+		conf.Security.DisableSystemCertPool = defaults.Security.DisableSystemCertPool
 	}
 	return conf
 }
@@ -413,6 +419,9 @@ func getClientTLSParams(c ClientConfig) []ClientParam {
 	if derefPtr(c.Security.DynamicCertReload, false) {
 		params = append(params, WithDynamicCertReload())
 	}
+	if derefPtr(c.Security.DisableSystemCertPool, false) {
+		params = append(params, WithTLSDisableSystemCertPool())
+	}
 	return params
 }
 
@@ -435,13 +444,14 @@ func newValidatedClientParamsFromConfig(ctx context.Context, config ClientConfig
 		ProxyFromEnvironment:          derefPtr(config.ProxyFromEnvironment, true),
 		TLSHandshakeTimeout:           derefPtr(config.TLSHandshakeTimeout, defaultTLSHandshakeTimeout),
 		TLSConfigurationParams: refreshingclient.TLSConfigurationParams{
-			MinVersion:         config.Security.TLSMinVersion,
-			MaxVersion:         derefPtr(config.Security.TLSMaxVersion, 0),
-			CAFiles:            config.Security.CAFiles,
-			CertFile:           config.Security.CertFile,
-			KeyFile:            config.Security.KeyFile,
-			InsecureSkipVerify: derefPtr(config.Security.InsecureSkipVerify, false),
-			DynamicCertReload:  derefPtr(config.Security.DynamicCertReload, false),
+			MinVersion:            config.Security.TLSMinVersion,
+			MaxVersion:            derefPtr(config.Security.TLSMaxVersion, 0),
+			CAFiles:               config.Security.CAFiles,
+			CertFile:              config.Security.CertFile,
+			KeyFile:               config.Security.KeyFile,
+			InsecureSkipVerify:    derefPtr(config.Security.InsecureSkipVerify, false),
+			DynamicCertReload:     derefPtr(config.Security.DynamicCertReload, false),
+			DisableSystemCertPool: derefPtr(config.Security.DisableSystemCertPool, false),
 		},
 	}
 
