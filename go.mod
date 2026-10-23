@@ -17,7 +17,7 @@ require (
 	github.com/palantir/witchcraft-go-error v1.50.0
 	github.com/palantir/witchcraft-go-logging v1.74.0
 	github.com/palantir/witchcraft-go-params v1.50.0
-	github.com/palantir/witchcraft-go-tracing v1.49.0
+	github.com/palantir/witchcraft-go-tracing v1.50.0
 	github.com/stretchr/testify v1.12.1
 	golang.org/x/mod v0.42.0
 	golang.org/x/net v0.61.0
