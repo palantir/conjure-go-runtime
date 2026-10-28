@@ -20,7 +20,7 @@ require (
 	github.com/palantir/witchcraft-go-tracing v1.50.0
 	github.com/stretchr/testify v1.12.1
 	golang.org/x/mod v0.42.0
-	golang.org/x/net v0.61.0
+	golang.org/x/net v0.62.0
 	google.golang.org/protobuf v1.36.12
 	gopkg.in/yaml.v2 v2.4.0
 )
