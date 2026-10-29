@@ -17,6 +17,7 @@ package errors_test
 import (
 	"bytes"
 	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"io"
 	"net/http/httptest"
@@ -60,4 +61,22 @@ func TestWriteErrorResponse_ValidateJSON(t *testing.T) {
 	var buffer bytes.Buffer
 	require.NoError(t, json.Indent(&buffer, body, "", "  "))
 	assert.Equal(t, testErrorJSON, buffer.String())
+}
+
+func TestWriteErrorResponse_MarshalerTo(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	errors.WriteErrorResponse(recorder, testErrorV2{errors.NewNotFound()})
+	assert.Equal(t, 404, recorder.Code)
+	assert.Equal(t, `{"custom":true}`, recorder.Body.String())
+}
+
+// conjureError renames errors.Error so that embedding it does not shadow the Error method.
+type conjureError = errors.Error
+
+type testErrorV2 struct {
+	conjureError
+}
+
+func (testErrorV2) MarshalJSONTo(enc *jsontext.Encoder) error {
+	return enc.WriteValue(jsontext.Value(`{"custom":true}`))
 }

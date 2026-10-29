@@ -15,10 +15,29 @@
 package httpserver
 
 import (
+	"math"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 )
+
+func TestWriteJSONResponse(t *testing.T) {
+	t.Run("success", func(t *testing.T) {
+		recorder := httptest.NewRecorder()
+		WriteJSONResponse(recorder, map[string]int{"a": 1}, http.StatusCreated)
+		assert.Equal(t, http.StatusCreated, recorder.Code)
+		assert.Equal(t, "application/json", recorder.Header().Get("Content-Type"))
+		assert.Equal(t, "{\"a\":1}\n", recorder.Body.String())
+	})
+	t.Run("marshal error is a 500", func(t *testing.T) {
+		recorder := httptest.NewRecorder()
+		WriteJSONResponse(recorder, math.NaN(), http.StatusOK)
+		assert.Equal(t, http.StatusInternalServerError, recorder.Code)
+		assert.Equal(t, "text/plain; charset=utf-8", recorder.Header().Get("Content-Type"))
+	})
+}
 
 func TestValidateSecretStringEqual(t *testing.T) {
 	for _, tc := range []struct {

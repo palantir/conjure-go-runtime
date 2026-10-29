@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"io"
 	"net/http"
@@ -125,16 +126,33 @@ func TestHandler_ServeHTTP(t *testing.T) {
 			},
 		},
 		{
+			name: "404 non-conjure json v2 marshaler",
+			handler: func(rw http.ResponseWriter, req *http.Request) error {
+				return werror.Wrap(testJSONErrorV2{"a bad thing"}, "some reason", werror.SafeParam(legacyHTTPStatusCodeParamKey, http.StatusNotFound))
+			},
+			verifyResp: func(t *testing.T, resp *http.Response) {
+				assert.Equal(t, http.StatusNotFound, resp.StatusCode)
+				assert.Equal(t, "application/json", resp.Header.Get("Content-Type"))
+				body, err := io.ReadAll(resp.Body)
+				assert.NoError(t, err)
+				assert.Equal(t, "{\"message\":\"a bad thing\"}\n", string(body))
+			},
+			verifyLog: func(t *testing.T, i []byte) {
+				logLine := map[string]any{}
+				err := codecs.JSON.Unmarshal(i, &logLine)
+				require.NoError(t, err)
+				assert.Equal(t, "INFO", logLine["level"])
+				assert.Equal(t, map[string]any{"httpStatusCode": json.Number("404")}, logLine["params"])
+			},
+		},
+		{
 			name: "404 non-conjure broken json marshaler",
 			handler: func(rw http.ResponseWriter, req *http.Request) error {
 				return werror.Wrap(testJSONErrorMarshalFails{"a bad thing"}, "some reason", werror.SafeParam(legacyHTTPStatusCodeParamKey, http.StatusNotFound))
 			},
 			verifyResp: func(t *testing.T, resp *http.Response) {
 				assert.Equal(t, http.StatusNotFound, resp.StatusCode)
-				// N.B. this should really be text/plain but because we write the headers before attempting to encode
-				// the body, the headers are already sent. A solution would be encoding to a buffer, but this would come
-				// with a memory cost.
-				assert.Equal(t, "application/json", resp.Header.Get("Content-Type"))
+				assert.Equal(t, "text/plain; charset=utf-8", resp.Header.Get("Content-Type"))
 				body, err := io.ReadAll(resp.Body)
 				assert.NoError(t, err)
 				// Go 1.27 reports the pointer type in MarshalerError, so accept either form.
@@ -327,6 +345,18 @@ func (e testJSONError) Error() string {
 
 func (e testJSONError) MarshalJSON() ([]byte, error) {
 	return fmt.Appendf(nil, `{"message": %q}`, e.Msg), nil
+}
+
+type testJSONErrorV2 struct {
+	Msg string
+}
+
+func (e testJSONErrorV2) Error() string {
+	return e.Msg
+}
+
+func (e testJSONErrorV2) MarshalJSONTo(enc *jsontext.Encoder) error {
+	return enc.WriteValue(fmt.Appendf(nil, `{"message":%q}`, e.Msg))
 }
 
 type testJSONErrorMarshalFails struct {

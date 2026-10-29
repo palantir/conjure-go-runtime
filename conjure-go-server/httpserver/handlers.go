@@ -17,6 +17,7 @@ package httpserver
 import (
 	"context"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"net/http"
 
 	"github.com/palantir/conjure-go-runtime/v3/conjure-go-contract/errors"
@@ -67,9 +68,9 @@ func (h handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		case errors.Error:
 			// if error is a conjure error, use WriteErrorResponse utility
 			errors.WriteErrorResponse(w, e)
-		case json.Marshaler:
-			// else if error is a json marshaler, write as json
-			WriteJSONResponse(w, e, status)
+		case json.Marshaler, jsonv2.MarshalerTo:
+			// else if error is a json marshaler, write as json, keeping the error status if marshaling fails
+			writeJSONResponse(w, e, status, status)
 		default:
 			// Fall back to string encoding
 			http.Error(w, err.Error(), status)
@@ -147,7 +148,8 @@ func getJSONMarshaler(err error) error {
 	if err == nil {
 		return nil
 	}
-	if _, ok := err.(json.Marshaler); ok {
+	switch err.(type) {
+	case json.Marshaler, jsonv2.MarshalerTo:
 		return err
 	}
 	if werr, ok := err.(werror.Werror); ok {

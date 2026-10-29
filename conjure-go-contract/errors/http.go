@@ -16,6 +16,7 @@ package errors
 
 import (
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"net/http"
 
 	"github.com/palantir/conjure-go-runtime/v3/conjure-go-contract/codecs"
@@ -29,8 +30,9 @@ func WriteErrorResponse(w http.ResponseWriter, e Error) {
 	var err error
 
 	// First try to marshal with custom handling (if present)
-	if marshaler, ok := e.(json.Marshaler); ok {
-		marshaledError, err = codecs.JSON.Marshal(marshaler)
+	switch e.(type) {
+	case json.Marshaler, jsonv2.MarshalerTo:
+		marshaledError, err = codecs.JSON.Marshal(e)
 	}
 	// If we fail, use best-effort conversion to SerializableError.
 	if marshaledError == nil || err != nil {

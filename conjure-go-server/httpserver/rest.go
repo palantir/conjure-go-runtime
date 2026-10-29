@@ -20,22 +20,27 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/palantir/pkg/safejson"
+	"github.com/palantir/conjure-go-runtime/v3/conjure-go-contract/codecs"
 	werror "github.com/palantir/witchcraft-go-error"
 )
 
-// WriteJSONResponse marshals the provided object to JSON using a JSON encoder with SetEscapeHTML(false) and writes the
+// WriteJSONResponse marshals the provided object to JSON using codecs.JSON and writes the
 // resulting JSON as a JSON response to the provided http.ResponseWriter with the provided status code. If marshaling
 // the provided object as JSON results in an error, writes a 500 response with the text content of the error.
 func WriteJSONResponse(w http.ResponseWriter, obj any, status int) {
+	writeJSONResponse(w, obj, status, http.StatusInternalServerError)
+}
+
+// writeJSONResponse is WriteJSONResponse with the status to use if marshaling fails.
+func writeJSONResponse(w http.ResponseWriter, obj any, status, marshalErrStatus int) {
+	data, err := codecs.JSON.Marshal(obj)
+	if err != nil {
+		http.Error(w, err.Error(), marshalErrStatus)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-
-	if err := safejson.Encoder(w).Encode(obj); err != nil {
-		// if JSON encode failed, send error response. If JSON encode succeeded but write failed, then this
-		// should be a no-op since the socket failed anyway.
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
+	_, _ = w.Write(append(data, '\n')) // There is nothing we can do on write failure.
 }
 
 // ParseBearerTokenHeader parses a bearer token value out of the Authorization header. It expects a header with a key
