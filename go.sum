@@ -48,8 +48,8 @@ github.com/palantir/pkg/tlsconfig v1.5.0 h1:7iKq61z3WV65DLCV0I+JBHXy3uhIg95/EVZC
 github.com/palantir/pkg/tlsconfig v1.5.0/go.mod h1:rTgz0hUOGBW5wLbEKniupfkoh1UNYqgpKopLVzIRaNE=
 github.com/palantir/pkg/transform v1.2.0 h1:ngTydiV5SUG9mfGxkYk1tH3Xi3vsohjqYqW8SxhqjJ0=
 github.com/palantir/pkg/transform v1.2.0/go.mod h1:p5lGLs0ah/iyB31ODlWIMp0SZibQV6HxSyJaM1L26dw=
-github.com/palantir/pkg/uuid v1.3.0 h1:ubiwfGpl1vTdrVmzXhRc1PVHD8/y60fT1QPwmziCETM=
-github.com/palantir/pkg/uuid v1.3.0/go.mod h1:OdOoLEDUu9LHBM2bdvyDXJ2IfH9gorI12ZMaaQu6zIo=
+github.com/palantir/pkg/uuid v1.4.0 h1:Ll3zGWYrTYOkP35L62COcgK13GaCEf12RJ7Tkm6RiDw=
+github.com/palantir/pkg/uuid v1.4.0/go.mod h1:GmZrosLPeGStpAzpI+Oan0AgdFkTvykCdEyVXrpby5M=
 github.com/palantir/witchcraft-go-error v1.51.0 h1:wmlzMm/7rj0SGHhuSe5NAsKSi7ICmFFUSFKOrJSlG+U=
 github.com/palantir/witchcraft-go-error v1.51.0/go.mod h1:tqPzDsIBZnH1wJ9hjbeYJtIDEFZS5v8sKNUmRRNeBy0=
 github.com/palantir/witchcraft-go-logging v1.75.0 h1:l2cbnqt3Nrp+qlHAuMjd2yoO+UiF50T5qYYj7E9tYx8=
