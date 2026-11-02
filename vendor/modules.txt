@@ -22,8 +22,8 @@ github.com/palantir/pkg/bytesbuffers
 # github.com/palantir/pkg/httpserver v1.2.0
 ## explicit; go 1.25.0
 github.com/palantir/pkg/httpserver
-# github.com/palantir/pkg/metrics v1.10.1
-## explicit; go 1.25.0
+# github.com/palantir/pkg/metrics v1.11.0
+## explicit; go 1.27.0
 github.com/palantir/pkg/metrics
 # github.com/palantir/pkg/refreshable/v2 v2.9.0
 ## explicit; go 1.25.0
