@@ -27,6 +27,9 @@ type recoveryMiddleware struct{}
 func (h recoveryMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (resp *http.Response, err error) {
 	defer func() {
 		if r := recover(); r != nil {
+			// A panic before the transport leaves the request body unowned. If the transport already
+			// took ownership, this is a second Close and may log a spurious warning.
+			closeRequestBody(req.Context(), req.Body)
 			// panics contain function arguments (like maybe auth tokens), so we must log them unsafe.
 			if err == nil {
 				err = werror.ErrorWithContextParams(req.Context(), "recovered panic", werror.UnsafeParam("recovered", fmt.Sprintf("%v", r)))

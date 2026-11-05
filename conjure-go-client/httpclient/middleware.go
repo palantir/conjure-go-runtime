@@ -15,7 +15,12 @@
 package httpclient
 
 import (
+	"context"
+	"io"
 	"net/http"
+
+	werror "github.com/palantir/witchcraft-go-error"
+	"github.com/palantir/witchcraft-go-logging/wlog/svclog/svc1log"
 )
 
 // A Middleware wraps an http client's request and is able to read or modify the request and response.
@@ -29,6 +34,10 @@ type Middleware interface {
 type MiddlewareFunc func(req *http.Request, next http.RoundTripper) (*http.Response, error)
 
 func (f MiddlewareFunc) RoundTrip(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+	if f == nil {
+		closeRequestBody(req.Context(), req.Body)
+		return nil, werror.ErrorWithContextParams(req.Context(), "httpclient: nil MiddlewareFunc")
+	}
 	return f(req, next)
 }
 
@@ -57,5 +66,14 @@ func (c *wrappedClient) RoundTrip(req *http.Request) (*http.Response, error) {
 func (c *wrappedClient) CloseIdleConnections() {
 	if transport, ok := c.baseTransport.(interface{ CloseIdleConnections() }); ok {
 		transport.CloseIdleConnections()
+	}
+}
+
+func closeRequestBody(ctx context.Context, body io.Closer) {
+	if body == nil {
+		return
+	}
+	if err := body.Close(); err != nil {
+		svc1log.FromContext(ctx).Warn("Failed to close request body", svc1log.Stacktrace(err))
 	}
 }

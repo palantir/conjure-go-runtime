@@ -22,6 +22,7 @@ import (
 	"strings"
 
 	"github.com/palantir/pkg/refreshable/v2"
+	werror "github.com/palantir/witchcraft-go-error"
 	"golang.org/x/net/idna"
 )
 
@@ -41,8 +42,13 @@ type authTokenMiddleware struct {
 // RoundTrip wraps an existing round tripper with a token providing round tripper.
 // It sets the Authorization header using a newly provided token for each request.
 func (h *authTokenMiddleware) RoundTrip(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+	if h.provideToken == nil {
+		closeRequestBody(req.Context(), req.Body)
+		return nil, werror.ErrorWithContextParams(req.Context(), "httpclient: nil provider passed to WithAuthTokenProvider")
+	}
 	token, err := h.provideToken(req.Context())
 	if err != nil {
+		closeRequestBody(req.Context(), req.Body)
 		return nil, err
 	}
 	if token != "" {
