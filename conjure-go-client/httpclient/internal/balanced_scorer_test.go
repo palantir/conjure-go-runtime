@@ -28,7 +28,7 @@ import (
 func TestBalancedScorerRandomizesWithNoneInflight(t *testing.T) {
 	uris := []string{"uri1", "uri2", "uri3", "uri4", "uri5"}
 	scorer := NewBalancedURIScoringMiddleware(uris, func() int64 { return 0 })
-	scoredUris := scorer.GetURIsInOrderOfIncreasingScore()
+	scoredUris := scorer.GetURIsInOrderOfIncreasingScore(http.Header{})
 	assert.ElementsMatch(t, scoredUris, uris)
 	assert.NotEqual(t, scoredUris, uris)
 }
@@ -56,7 +56,7 @@ func TestBalancedScoring(t *testing.T) {
 			assert.NoError(t, err)
 		}
 	}
-	scoredUris := scorer.GetURIsInOrderOfIncreasingScore()
+	scoredUris := scorer.GetURIsInOrderOfIncreasingScore(http.Header{})
 	assert.Equal(t, []string{server200.URL, server429.URL, server503.URL}, scoredUris)
 }
 
@@ -184,7 +184,7 @@ func TestBalancedScoring_InflightRequestsAffectsScore(t *testing.T) {
 	}()
 	<-started // wait until the request to uriA is actually in flight
 
-	order := scorer.GetURIsInOrderOfIncreasingScore()
+	order := scorer.GetURIsInOrderOfIncreasingScore(nil)
 	assert.Equal(t, uriB, order[0], "expected idle uriB should rank ahead of the in-flight uriA")
 
 	close(release)
