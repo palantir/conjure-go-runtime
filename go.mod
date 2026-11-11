@@ -29,7 +29,7 @@ require (
 	github.com/kr/pretty v0.3.1 // indirect
 	github.com/openzipkin/zipkin-go v0.4.3 // indirect
 	github.com/palantir/go-metrics v1.1.1 // indirect
-	github.com/palantir/pkg v1.2.0 // indirect
+	github.com/palantir/pkg v1.3.0 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	go.yaml.in/yaml/v3 v3.0.6 // indirect
 	golang.org/x/text v0.44.0 // indirect
