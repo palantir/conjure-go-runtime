@@ -17,6 +17,8 @@ package httpclient_test
 import (
 	"context"
 	"encoding/base64"
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -117,6 +119,127 @@ func TestRoundTripperWithBasicAuthProvider(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, resp)
 	assert.True(t, wrappedRTInvoked)
+}
+
+func TestAuthProviderErrorsCloseRequestBody(t *testing.T) {
+	providerErr := errors.New("provider failed")
+	for _, tc := range []struct {
+		name  string
+		param httpclient.ClientParam
+	}{
+		{
+			name: "bearer token",
+			param: httpclient.WithAuthTokenProvider(func(context.Context) (string, error) {
+				return "", providerErr
+			}),
+		},
+		{
+			name: "basic auth",
+			param: httpclient.WithBasicAuthProvider(func(context.Context) (httpclient.BasicAuth, error) {
+				return httpclient.BasicAuth{}, providerErr
+			}),
+		},
+		{
+			name: "optional basic auth",
+			param: httpclient.WithBasicAuthOptionalProvider(func(context.Context) (*httpclient.BasicAuth, error) {
+				return nil, providerErr
+			}),
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			transportReached := false
+			server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+				transportReached = true
+			}))
+			defer server.Close()
+
+			client, err := httpclient.NewClient(
+				httpclient.WithBaseURLs([]string{server.URL}),
+				httpclient.WithMaxRetries(0),
+				tc.param,
+			)
+			require.NoError(t, err)
+
+			body := &closeCountingRequestBody{Reader: strings.NewReader("request")}
+			_, err = client.Do(t.Context(),
+				httpclient.WithRequestMethod(http.MethodPost),
+				httpclient.WithBinaryRequestBody(httpclient.RequestBodyStreamOnce(func() io.ReadCloser { return body })),
+			)
+			require.ErrorIs(t, err, providerErr)
+			assert.False(t, transportReached)
+			assert.Equal(t, 1, body.closes)
+		})
+	}
+}
+
+func TestNilAuthProvidersReturnErrors(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		param httpclient.ClientOrHTTPClientParam
+	}{
+		{name: "WithAuthTokenProvider", param: httpclient.WithAuthTokenProvider(nil)},
+		{name: "WithBasicAuthProvider", param: httpclient.WithBasicAuthProvider(nil)},
+		{name: "WithBasicAuthOptionalProvider", param: httpclient.WithBasicAuthOptionalProvider(nil)},
+	} {
+		for _, useHTTPClient := range []bool{false, true} {
+			clientName := "Client"
+			if useHTTPClient {
+				clientName = "HTTPClient"
+			}
+			t.Run(tc.name+"/"+clientName, func(t *testing.T) {
+				transportReached := false
+				server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+					transportReached = true
+				}))
+				defer server.Close()
+
+				body := &closeCountingRequestBody{Reader: strings.NewReader("request")}
+				var do func() (*http.Response, error)
+				if useHTTPClient {
+					client, err := httpclient.NewHTTPClient(httpclient.WithDisablePanicRecovery(), tc.param)
+					require.NoError(t, err)
+					req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, server.URL, body)
+					require.NoError(t, err)
+					do = func() (*http.Response, error) { return client.Do(req) }
+				} else {
+					client, err := httpclient.NewClient(
+						httpclient.WithBaseURLs([]string{server.URL}),
+						httpclient.WithMaxRetries(0),
+						httpclient.WithDisablePanicRecovery(),
+						tc.param,
+					)
+					require.NoError(t, err)
+					do = func() (*http.Response, error) {
+						return client.Do(t.Context(),
+							httpclient.WithRequestMethod(http.MethodPost),
+							httpclient.WithBinaryRequestBody(httpclient.RequestBodyStreamOnce(func() io.ReadCloser { return body })),
+						)
+					}
+				}
+
+				var resp *http.Response
+				var err error
+				require.NotPanics(t, func() {
+					resp, err = do()
+				})
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "httpclient: nil provider passed to "+tc.name)
+				assert.Nil(t, resp)
+				assert.False(t, transportReached)
+				assert.Equal(t, 1, body.closes)
+			})
+		}
+	}
+}
+
+type closeCountingRequestBody struct {
+	io.Reader
+	closes int
+}
+
+func (b *closeCountingRequestBody) Close() error {
+	b.closes++
+	return nil
 }
 
 func TestAuthHeaders(t *testing.T) {
